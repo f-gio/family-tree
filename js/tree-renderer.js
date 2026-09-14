@@ -24,18 +24,16 @@ function connectionPaths(layout) {
     const partners = (family.partnerIds || []).map(id => positions.get(id)).filter(Boolean).sort((a, b) => a.x - b.x);
     const children = (family.childIds || []).map(id => positions.get(id)).filter(Boolean);
     if (!partners.length) continue;
-
     let origin;
     if (partners.length > 1) {
       const left = partners[0], right = partners[partners.length - 1];
-      const y = left.y + left.height / 2;
+      const y = (left.y + right.y) / 2 + left.height / 2;
       const x1 = left.x + left.width, x2 = right.x;
       paths.push(`M ${x1} ${y} H ${x2}`);
       origin = { x: (x1 + x2) / 2, y };
     } else {
       origin = { x: partners[0].x + partners[0].width / 2, y: partners[0].y + partners[0].height };
     }
-
     if (!children.length) continue;
     const childPoints = children.map(child => ({ x: child.x + child.width / 2, y: child.y }));
     const busY = Math.min(...childPoints.map(point => point.y)) - geometry.levelGap / 2;
@@ -48,16 +46,65 @@ function connectionPaths(layout) {
   return paths;
 }
 
-export function createTreeRenderer({ scene, onPersonClick, onEmptyAdd, shouldSuppressClick = () => false }) {
+export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmptyAdd, getScale = () => 1, shouldSuppressClick = () => false }) {
   let activeId = null;
   let highlighted = new Set();
+  let currentLayout = null;
+  let drag = null;
+  let draggedUntil = 0;
+
+  function drawConnections() {
+    if (!currentLayout) return;
+    const svg = scene.querySelector('.tree-svg');
+    if (svg) svg.innerHTML = connectionPaths(currentLayout).map(path => `<path d="${path}"/>`).join('');
+  }
 
   scene.addEventListener('click', event => {
-    if (shouldSuppressClick()) return;
+    if (shouldSuppressClick() || performance.now() < draggedUntil) return;
     const card = event.target.closest('[data-person-id]');
     if (card) onPersonClick?.(card.dataset.personId);
     if (event.target.closest('[data-empty-add]')) onEmptyAdd?.();
   });
+
+  scene.addEventListener('pointerdown', event => {
+    const card = event.target.closest('[data-person-id]');
+    if (!card || event.button > 0) return;
+    const position = currentLayout?.positions.get(card.dataset.personId);
+    if (!position) return;
+    event.stopPropagation();
+    card.setPointerCapture?.(event.pointerId);
+    drag = { pointerId: event.pointerId, id: card.dataset.personId, card, startX: event.clientX, startY: event.clientY, baseX: position.x, baseY: position.y, moved: false };
+    card.classList.add('is-dragging');
+  });
+
+  scene.addEventListener('pointermove', event => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const scale = Math.max(.01, getScale());
+    const dx = (event.clientX - drag.startX) / scale;
+    const dy = (event.clientY - drag.startY) / scale;
+    if (Math.hypot(dx, dy) > 5) drag.moved = true;
+    if (!drag.moved) return;
+    const position = currentLayout.positions.get(drag.id);
+    position.x = Math.max(20, drag.baseX + dx);
+    position.y = Math.max(20, drag.baseY + dy);
+    drag.card.style.left = `${position.x}px`;
+    drag.card.style.top = `${position.y}px`;
+    drawConnections();
+  });
+
+  function endDrag(event) {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const finished = drag;
+    drag = null;
+    finished.card.classList.remove('is-dragging');
+    if (finished.moved) {
+      draggedUntil = performance.now() + 350;
+      const position = currentLayout.positions.get(finished.id);
+      onPersonMove?.(finished.id, { x: position.x, y: position.y });
+    }
+  }
+  scene.addEventListener('pointerup', endDrag);
+  scene.addEventListener('pointercancel', endDrag);
 
   function applyState() {
     scene.querySelectorAll('[data-person-id]').forEach(card => {
@@ -68,6 +115,7 @@ export function createTreeRenderer({ scene, onPersonClick, onEmptyAdd, shouldSup
 
   return {
     render(people, layout) {
+      currentLayout = layout;
       scene.style.width = `${layout.bounds.width}px`;
       scene.style.height = `${layout.bounds.height}px`;
       if (!people.length) {
@@ -79,18 +127,13 @@ export function createTreeRenderer({ scene, onPersonClick, onEmptyAdd, shouldSup
         const position = layout.positions.get(person.id);
         if (!position) return '';
         const avatar = person.photoUrl ? `<img src="${escapeHtml(person.photoUrl)}" alt="">` : initials(person);
-        return `<button class="person" data-person-id="${person.id}" style="transform:translate3d(${position.x}px,${position.y}px,0)"><span class="avatar">${avatar}</span><strong>${escapeHtml(person.firstName)} ${escapeHtml(person.lastName)}</strong><span>${dates(person)}</span><span class="place">${escapeHtml(person.place || person.branch || 'Lieu à compléter')}</span></button>`;
+        return `<button class="person" data-person-id="${person.id}" style="left:${position.x}px;top:${position.y}px" aria-label="Ouvrir et modifier ${escapeHtml(person.firstName)} ${escapeHtml(person.lastName)}"><span class="drag-hint" aria-hidden="true">⋮⋮</span><span class="avatar">${avatar}</span><strong>${escapeHtml(person.firstName)} ${escapeHtml(person.lastName)}</strong><span>${dates(person)}</span><span class="place">${escapeHtml(person.place || person.branch || 'Lieu à compléter')}</span></button>`;
       }).join('');
       scene.innerHTML = `<svg class="tree-svg" viewBox="0 0 ${layout.bounds.width} ${layout.bounds.height}" aria-hidden="true">${paths}</svg>${cards}`;
       applyState();
     },
-    setActive(personId) {
-      activeId = personId;
-      applyState();
-    },
-    setHighlights(ids = []) {
-      highlighted = new Set(ids);
-      applyState();
-    }
+    setActive(personId) { activeId = personId; applyState(); },
+    setHighlights(ids = []) { highlighted = new Set(ids); applyState(); },
+    redrawConnections: drawConnections
   };
 }

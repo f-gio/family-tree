@@ -7,7 +7,10 @@ export function createTreeCamera({ viewport, scene, minScale = 0.25, maxScale = 
   let lastPinch = null, moved = false, suppressUntil = 0;
 
   function apply() {
-    scene.style.transform = `translate3d(${state.x}px,${state.y}px,0) scale(${state.scale})`;
+    const ratio = window.devicePixelRatio || 1;
+    const x = Math.round(state.x * ratio) / ratio;
+    const y = Math.round(state.y * ratio) / ratio;
+    scene.style.transform = `translate(${x}px,${y}px) scale(${state.scale})`;
     onChange?.({ ...state });
   }
 
@@ -29,15 +32,11 @@ export function createTreeCamera({ viewport, scene, minScale = 0.25, maxScale = 
 
   function midpointAndDistance() {
     const [a, b] = [...pointers.values()];
-    return {
-      x: (a.x + b.x) / 2,
-      y: (a.y + b.y) / 2,
-      distance: Math.hypot(b.x - a.x, b.y - a.y)
-    };
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, distance: Math.hypot(b.x - a.x, b.y - a.y) };
   }
 
   viewport.addEventListener('pointerdown', event => {
-    if (event.target.closest('.tree-controls')) return;
+    if (event.target.closest('.tree-controls,.person')) return;
     viewport.setPointerCapture?.(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, previousX: event.clientX, previousY: event.clientY, startX: event.clientX, startY: event.clientY });
     moved = false;
@@ -51,15 +50,12 @@ export function createTreeCamera({ viewport, scene, minScale = 0.25, maxScale = 
     pointer.x = event.clientX;
     pointer.y = event.clientY;
     if (pointers.size === 1) {
-      const dx = pointer.x - pointer.previousX, dy = pointer.y - pointer.previousY;
-      if (Math.hypot(dx, dy) > 0) {
-        state.x += dx;
-        state.y += dy;
-        if (Math.hypot(pointer.x - pointer.startX, pointer.y - pointer.startY) > 5) moved = true;
-        apply();
-      }
+      state.x += pointer.x - pointer.previousX;
+      state.y += pointer.y - pointer.previousY;
+      if (Math.hypot(pointer.x - pointer.startX, pointer.y - pointer.startY) > 5) moved = true;
       pointer.previousX = pointer.x;
       pointer.previousY = pointer.y;
+      apply();
     } else if (pointers.size >= 2) {
       const current = midpointAndDistance();
       if (lastPinch) {
@@ -88,21 +84,20 @@ export function createTreeCamera({ viewport, scene, minScale = 0.25, maxScale = 
   viewport.addEventListener('pointercancel', endPointer);
 
   viewport.addEventListener('wheel', event => {
+    if (event.target.closest('.tree-controls')) return;
     event.preventDefault();
-    const factor = Math.exp(-event.deltaY * 0.0015);
-    zoomAt(state.scale * factor, event.clientX, event.clientY);
+    zoomAt(state.scale * Math.exp(-event.deltaY * 0.0015), event.clientX, event.clientY);
   }, { passive: false });
 
   function centerForScale(scale) {
-    const width = viewport.clientWidth, height = viewport.clientHeight;
-    state.x = (width - contentBounds.width * scale) / 2 - contentBounds.x * scale;
-    state.y = (height - contentBounds.height * scale) / 2 - contentBounds.y * scale;
+    state.x = (viewport.clientWidth - contentBounds.width * scale) / 2 - contentBounds.x * scale;
+    state.y = (viewport.clientHeight - contentBounds.height * scale) / 2 - contentBounds.y * scale;
   }
 
   const resizeObserver = new ResizeObserver(() => onChange?.({ ...state }));
   resizeObserver.observe(viewport);
-
   apply();
+
   return {
     setBounds(bounds) { contentBounds = { ...bounds }; },
     zoomBy(factor) {
@@ -115,10 +110,7 @@ export function createTreeCamera({ viewport, scene, minScale = 0.25, maxScale = 
       centerForScale(scale);
       apply();
     },
-    recenter() {
-      centerForScale(state.scale);
-      apply();
-    },
+    recenter() { centerForScale(state.scale); apply(); },
     focus(rect) {
       state.x = viewport.clientWidth / 2 - (rect.x + rect.width / 2) * state.scale;
       state.y = viewport.clientHeight / 2 - (rect.y + rect.height / 2) * state.scale;

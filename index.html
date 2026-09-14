@@ -1,7 +1,9 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#284b3f">
+  <meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#284b3f">
   <title>Notre histoire — Arbre généalogique</title>
   <style>
     :root{--ink:#26332e;--muted:#68746f;--paper:#f7f3ea;--card:#fffdf8;--line:#ae9878;--brand:#284b3f;--accent:#b77745;--soft:#e8efe9;--danger:#a64238;--shadow:0 18px 45px #2837301f}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}button,input,select,textarea{font:inherit}button{cursor:pointer}[hidden]{display:none!important}
@@ -13,35 +15,262 @@
     dialog{width:min(580px,calc(100% - 28px));max-height:calc(100vh - 28px);border:0;border-radius:22px;padding:0;background:var(--card);color:var(--ink);box-shadow:0 28px 80px #1c2722aa}dialog::backdrop{background:#1b26218c;backdrop-filter:blur(3px)}.modal-head{position:sticky;top:0;z-index:2;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:22px 24px 15px;border-bottom:1px solid #eee6d9;background:var(--card)}.modal-head h3{margin:0;font:700 24px Georgia,serif}.modal-head p{margin:5px 0 0;color:var(--muted);font-size:13px}.modal-body,form.modal-body{padding:20px 24px 24px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}label{display:block;color:#4e5b55;font-weight:700;font-size:12px}label .field{margin-top:6px;font-weight:400;font-size:14px}.wide{grid-column:1/-1}.modal-actions{display:flex;justify-content:space-between;gap:10px;margin-top:22px}.modal-actions .right{display:flex;gap:10px;margin-left:auto}.relations-list{display:grid;gap:10px;margin-bottom:22px}.relation-card{padding:13px;border:1px solid #e2d8c7;border-radius:13px;background:#faf6ee}.relation-card strong{display:block;margin-bottom:5px}.relation-line{display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--muted);font-size:13px}.relation-line+.relation-line{margin-top:7px}.relation-builder{display:grid;gap:12px;padding-top:18px;border-top:1px solid #e8dfd0}.relation-row{display:grid;grid-template-columns:120px 1fr auto;gap:8px;align-items:end}.relation-row .btn{height:42px}.hint{margin:0;color:var(--muted);font-size:12px}.empty-relations{padding:17px;border:1px dashed #d8cbb7;border-radius:13px;color:var(--muted);text-align:center}
     .auth-screen{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:24px;background:var(--paper);background-image:radial-gradient(#d9cebc 1px,transparent 1px);background-size:22px 22px}.auth-card{width:min(430px,100%);padding:30px;border:1px solid #ded4c3;border-radius:24px;background:var(--card);box-shadow:var(--shadow)}.auth-card .brand-mark{margin-bottom:20px}.auth-card h2{margin:0;font:700 30px/1.1 Georgia,serif}.auth-card p{margin:9px 0 22px;color:var(--muted)}.auth-card label+label{display:block;margin-top:14px}.auth-card .btn{width:100%;margin-top:20px;padding:11px}.auth-error{min-height:21px;margin:12px 0 0!important;color:var(--danger)!important;font-size:13px}.toast{position:fixed;right:22px;bottom:22px;z-index:150;max-width:360px;padding:12px 15px;border-radius:12px;background:#24352f;color:#fff;box-shadow:var(--shadow);opacity:0;transform:translateY(12px);pointer-events:none;transition:.2s}.toast.show{opacity:1;transform:none}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     @media(max-width:760px){.topbar{align-items:flex-start}.brand p{display:none}.actions .label{display:none}main{padding:20px 10px 10px}.intro{grid-template-columns:1fr;padding:0 6px}.summary{justify-content:flex-start}.toolbar{margin-inline:6px}.tree-shell{height:max(520px,calc(100dvh - 280px));min-height:520px;border-radius:18px}.grid{grid-template-columns:1fr}.wide{grid-column:auto}.relation-row{grid-template-columns:1fr}.relation-type{display:none}.tree-controls{right:10px;bottom:10px}.canvas-help{display:none}}
+    .nav-btn.active{background:var(--soft);border-color:#b8c9be;color:var(--brand)}.person{touch-action:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.person.is-dragging{cursor:grabbing;z-index:4;box-shadow:0 18px 40px #1c272244}.person .drag-hint{position:absolute;right:8px;top:5px;color:#b9ae9d;font-size:12px;letter-spacing:-3px}.tree{will-change:auto}.avatar img{image-rendering:auto}
+    .workspace-view{padding:28px clamp(16px,4vw,56px) 48px}.section-head{display:flex;align-items:end;justify-content:space-between;gap:18px;margin-bottom:20px}.section-head h2{margin:0;font:700 clamp(27px,4vw,40px)/1.08 Georgia,serif}.section-head p{margin:7px 0 0;color:var(--muted)}.list-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px}.list-toolbar .field{width:auto;min-width:170px}.content-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}.content-card{position:relative;padding:17px;border:1px solid #ded4c3;border-radius:16px;background:var(--card);box-shadow:0 7px 20px #37332b10}.content-card h3{margin:0 0 6px;font:700 18px Georgia,serif}.content-card p{margin:4px 0;color:var(--muted);font-size:13px}.content-card .card-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#eee6d8;color:#675641;font-size:11px;font-weight:800}.priority-high{background:#f5d8d3;color:#8f332c}.priority-medium{background:#f5e7c8;color:#76551c}.priority-low{background:#dceadd;color:#326346}.status-todo{border-left:5px solid #9b8870}.status-progress{border-left:5px solid #d29536}.status-done{border-left:5px solid #4d8969;opacity:.78}.person-documents{grid-column:1/-1;margin-top:4px;padding-top:15px;border-top:1px solid #eee6d9}.person-documents h4{margin:0 0 9px;font:700 16px Georgia,serif}.mini-docs{display:grid;gap:7px}.mini-doc{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:10px;background:#f3eee5;font-size:12px}.checkbox-list{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:190px;overflow:auto;margin-top:7px;padding:10px;border:1px solid #d6ccbb;border-radius:11px}.checkbox-list label{display:flex;align-items:center;gap:7px;font-weight:500}.empty-list{grid-column:1/-1;padding:45px 24px;border:1px dashed #d4c8b5;border-radius:18px;text-align:center;color:var(--muted)}.file-note{font-size:11px;color:var(--muted);margin-top:5px}.upload-progress{margin-top:8px;color:var(--brand);font-size:12px;font-weight:700}
+    @media(max-width:760px){.topbar{flex-wrap:wrap}.actions{width:100%;justify-content:flex-start}.nav-btn{flex:1}.workspace-view{padding:20px 10px}.section-head{align-items:flex-start}.checkbox-list{grid-template-columns:1fr}.content-grid{grid-template-columns:1fr}.list-toolbar .field{width:100%}}
   </style>
 </head>
 <body>
-  <section class="auth-screen" id="authScreen"><form class="auth-card" id="loginForm"><div class="brand-mark">⌘</div><h2>Bienvenue dans votre histoire</h2><p>Connectez-vous pour consulter et compléter votre arbre familial.</p><label>Adresse e-mail<input class="field" id="loginEmail" type="email" autocomplete="username" required></label><label>Mot de passe<input class="field" id="loginPassword" type="password" autocomplete="current-password" required minlength="6"></label><p class="auth-error" id="authError" role="alert"></p><button class="btn primary" type="submit" id="loginBtn">Se connecter</button></form></section>
-  <header class="topbar" id="topbar" hidden><div class="brand"><div class="brand-mark">⌘</div><div><h1>Notre histoire</h1><p>Arbre généalogique familial</p></div></div><div class="actions"><button class="btn" id="exportBtn">↓ <span class="label">Exporter</span></button><button class="btn" id="logoutBtn">↪ <span class="label">Déconnexion</span></button><button class="btn primary" id="addBtn">＋ <span class="label">Ajouter une personne</span></button></div></header>
-  <main id="appMain" hidden><section class="intro"><div><p class="eyebrow">Mémoire familiale</p><h2>Les branches de notre famille</h2><p class="lead">Les couples et les liens parents-enfants construisent automatiquement l’arbre.</p><div class="status"><span class="dot" id="syncDot"></span><span id="syncText">Connexion à Firebase…</span></div></div><div class="summary"><span class="pill" id="peopleCount">0 personne</span><span class="pill" id="familyCount">0 union</span></div></section><section class="toolbar"><label class="sr-only" for="search">Rechercher</label><input class="field" id="search" type="search" placeholder="Rechercher et centrer une personne…"><button class="btn" id="resetBtn">Effacer</button></section><section class="tree-shell" id="treeViewport"><div class="tree" id="treeScene"></div><div class="canvas-help">Glisser pour déplacer · Molette pour zoomer</div><div class="tree-controls" aria-label="Contrôles de l’arbre"><div class="zoom-control"><button id="zoomOutBtn" type="button" aria-label="Dézoomer">−</button><span class="zoom-level" id="zoomLevel">100 %</span><button id="zoomInBtn" type="button" aria-label="Zoomer">＋</button></div><div class="view-control"><button id="fitTreeBtn" type="button">Ajuster</button><button id="centerTreeBtn" type="button">Recentrer</button></div></div></section></main>
-  <dialog id="personDialog"><div class="modal-head"><div><h3 id="dialogTitle">Ajouter une personne</h3><p>Les champs marqués d’un astérisque sont obligatoires.</p></div><button class="btn icon-btn" type="button" data-close="personDialog">×</button></div><form class="modal-body" id="personForm"><input type="hidden" id="personId"><div class="grid"><label>Prénom *<input class="field" id="firstName" required maxlength="80"></label><label>Nom *<input class="field" id="lastName" required maxlength="80"></label><label>Sexe<select class="field" id="gender"><option value="">Non précisé</option><option value="F">Femme</option><option value="M">Homme</option><option value="X">Autre</option></select></label><label>Branche familiale<input class="field" id="branch" placeholder="Ex. Giovannoni" maxlength="80"></label><label>Date de naissance<input class="field" id="birthDate" type="date"></label><label>Date de décès<input class="field" id="deathDate" type="date"></label><label class="wide">Lieu principal<input class="field" id="place" placeholder="Ex. Orino, Varese, Italie" maxlength="140"></label><label class="wide">URL d’une photo<input class="field" id="photoUrl" type="url" placeholder="https://…"></label><label class="wide">Notes<textarea class="field" id="notes" rows="3" maxlength="800" placeholder="Profession, histoire, sources…"></textarea></label></div><div class="modal-actions"><button class="btn danger" type="button" id="deleteBtn" hidden>Supprimer</button><div class="right"><button class="btn" type="button" id="relationsBtn" hidden>Liens familiaux</button><button class="btn" type="button" data-close="personDialog">Annuler</button><button class="btn primary" id="savePersonBtn" type="submit">Enregistrer et ajouter ses liens</button></div></div></form></dialog>
-  <dialog id="relationsDialog"><div class="modal-head"><div><h3>Liens familiaux</h3><p id="relationsPersonName"></p></div><button class="btn icon-btn" type="button" data-close="relationsDialog">×</button></div><div class="modal-body"><div class="relations-list" id="relationsList"></div><div class="relation-builder"><div class="relation-row"><strong class="relation-type">Partenaire</strong><label>Choisir la personne<select class="field" id="partnerSelect"></select></label><button class="btn primary" id="addPartnerBtn">Ajouter</button></div><div class="relation-row"><strong class="relation-type">Enfant</strong><div><label>Union ou foyer<select class="field" id="childFamilySelect"></select></label><label style="margin-top:8px">Choisir l’enfant<select class="field" id="childSelect"></select></label></div><button class="btn primary" id="addChildBtn">Ajouter</button></div><div class="relation-row"><strong class="relation-type">Parent</strong><label>Choisir le parent<select class="field" id="parentSelect"></select></label><button class="btn primary" id="addParentBtn">Ajouter</button></div><p class="hint">Pour représenter deux parents, ajoutez-les successivement. Pour une famille, créez d’abord le couple puis rattachez les enfants à cette union.</p></div></div></dialog>
-  <div class="toast" id="toast" role="status"></div>
-  <script type="module">
-    import{initializeApp}from"https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";import{getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged}from"https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";import{getFirestore,collection,addDoc,updateDoc,deleteDoc,doc,onSnapshot,serverTimestamp,writeBatch}from"https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";import{calculateTreeLayout}from"./js/tree-layout.js";import{createTreeRenderer}from"./js/tree-renderer.js";import{createTreeCamera}from"./js/tree-camera.js";
-    const firebaseConfig={apiKey:"AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",authDomain:"family-tree-c2fe2.firebaseapp.com",projectId:"family-tree-c2fe2",storageBucket:"family-tree-c2fe2.firebasestorage.app",messagingSenderId:"1096091899254",appId:"1:1096091899254:web:4afff8d04448409d969657"};const $=id=>document.getElementById(id),app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app),peopleRef=collection(db,"people"),familiesRef=collection(db,"families");let people=[],families=[],activeId=null,loadedPeople=false,loadedFamilies=false,unsubs=[],currentLayout=null,cameraPositioned=false,focusAfterRender=null;const personFields=["firstName","lastName","gender","branch","birthDate","deathDate","place","photoUrl","notes"];
-    const camera=createTreeCamera({viewport:$("treeViewport"),scene:$("treeScene"),onChange:state=>{$("zoomLevel").textContent=`${Math.round(state.scale*100)} %`}});const renderer=createTreeRenderer({scene:$("treeScene"),onPersonClick:id=>openPerson(person(id)),onEmptyAdd:()=>openPerson(),shouldSuppressClick:()=>camera.shouldSuppressClick()});
-    function esc(v=""){const d=document.createElement("div");d.textContent=v;return d.innerHTML}function toast(m){$("toast").textContent=m;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),2500)}function person(id){return people.find(p=>p.id===id)}function nameOf(id){const p=person(id);return p?`${p.firstName} ${p.lastName}`:"Personne supprimée"}
-    function renderTree(){if(!loadedPeople||!loadedFamilies)return;currentLayout=calculateTreeLayout(people,families);renderer.render(people,currentLayout);renderer.setActive(activeId);camera.setBounds(currentLayout.bounds);if(!cameraPositioned){camera.recenter();cameraPositioned=true}if(focusAfterRender&&currentLayout.positions.has(focusAfterRender)){camera.focus(currentLayout.positions.get(focusAfterRender));focusAfterRender=null}applySearch(false)}
-    function syncState(){if(loadedPeople&&loadedFamilies){$("syncDot").classList.add("ok");$("syncText").textContent="Synchronisé avec Firebase"}$("peopleCount").textContent=`${people.length} personne${people.length>1?"s":""}`;$("familyCount").textContent=`${families.length} union${families.length>1?"s":""}`;renderTree()}
-    function applySearch(focus=true){const q=$("search").value.trim().toLowerCase(),matches=q?people.filter(p=>`${p.firstName} ${p.lastName} ${p.place||""} ${p.branch||""}`.toLowerCase().includes(q)):[];renderer.setHighlights(matches.map(p=>p.id));if(focus&&matches[0]&&currentLayout?.positions.has(matches[0].id))camera.focus(currentLayout.positions.get(matches[0].id))}
-    function openPerson(p=null){activeId=p?.id||null;renderer.setActive(activeId);$("dialogTitle").textContent=p?"Modifier la personne":"Ajouter une personne";$("savePersonBtn").textContent=p?"Enregistrer":"Enregistrer et ajouter ses liens";$("deleteBtn").hidden=!p;$("relationsBtn").hidden=!p;$("personId").value=p?.id||"";for(const k of personFields)$(k).value=p?.[k]||"";$("personDialog").showModal();setTimeout(()=>$("firstName").focus(),30)}function close(id){const d=$(id);if(d.open)d.close();if(id==="personDialog"&&!$("relationsDialog").open||id==="relationsDialog"){activeId=null;renderer.setActive(null)}}
-    function availableOptions(exclude=[]){const set=new Set(exclude);return`<option value="">Sélectionner…</option>`+people.filter(p=>!set.has(p.id)).sort((a,b)=>nameOf(a.id).localeCompare(nameOf(b.id))).map(p=>`<option value="${p.id}">${esc(nameOf(p.id))}</option>`).join("")}function openRelations(){const p=person(activeId);if(!p)return;if($("personDialog").open)$("personDialog").close();$("relationsPersonName").textContent=nameOf(p.id);renderRelations();$("relationsDialog").showModal()}
-    function renderRelations(){const p=person(activeId);if(!p)return;const related=families.filter(f=>(f.partnerIds||[]).includes(p.id)||(f.childIds||[]).includes(p.id));$("relationsList").innerHTML=related.length?related.map(f=>{const isPartner=(f.partnerIds||[]).includes(p.id),others=(f.partnerIds||[]).filter(id=>id!==p.id),children=(f.childIds||[]);if(isPartner)return`<div class="relation-card"><strong>${others.length?`Union avec ${esc(others.map(nameOf).join(" et "))}`:"Foyer monoparental"}</strong>${others.map(id=>`<div class="relation-line"><span>Partenaire : ${esc(nameOf(id))}</span><button class="btn small danger" data-remove-partner="${f.id}" data-person="${id}">Retirer</button></div>`).join("")}${children.map(id=>`<div class="relation-line"><span>Enfant : ${esc(nameOf(id))}</span><button class="btn small danger" data-remove-child="${f.id}" data-person="${id}">Retirer</button></div>`).join("")||'<div class="relation-line"><span>Aucun enfant rattaché</span></div>'}</div>`;return`<div class="relation-card"><strong>Parents</strong><div class="relation-line"><span>${esc((f.partnerIds||[]).map(nameOf).join(" et ")||"Non renseigné")}</span><button class="btn small danger" data-remove-child="${f.id}" data-person="${p.id}">Détacher</button></div></div>`}).join(""):'<div class="empty-relations">Aucun lien familial pour cette personne.</div>';const opts=availableOptions([p.id]);$("partnerSelect").innerHTML=opts;$("childSelect").innerHTML=opts;$("parentSelect").innerHTML=opts;const own=families.filter(f=>(f.partnerIds||[]).includes(p.id));$("childFamilySelect").innerHTML='<option value="new">Nouveau foyer monoparental</option>'+own.map(f=>`<option value="${f.id}">${(f.partnerIds||[]).filter(id=>id!==p.id).length?`Union avec ${esc((f.partnerIds||[]).filter(id=>id!==p.id).map(nameOf).join(" et "))}`:"Foyer monoparental"}</option>`).join("")}
-    async function addPartner(){const other=$("partnerSelect").value;if(!other)return toast("Choisissez une personne");if(families.some(f=>{const s=new Set(f.partnerIds||[]);return s.has(activeId)&&s.has(other)}))return toast("Cette union existe déjà");const single=families.find(f=>(f.partnerIds||[]).length===1&&(f.partnerIds||[]).includes(activeId));if(single)await updateDoc(doc(db,"families",single.id),{partnerIds:[activeId,other],updatedAt:serverTimestamp()});else await addDoc(familiesRef,{partnerIds:[activeId,other],childIds:[],createdAt:serverTimestamp(),updatedAt:serverTimestamp()});toast("Partenaire ajouté")}
-    async function addChild(){const child=$("childSelect").value;if(!child)return toast("Choisissez un enfant");const familyId=$("childFamilySelect").value;if(familyId==="new")await addDoc(familiesRef,{partnerIds:[activeId],childIds:[child],createdAt:serverTimestamp(),updatedAt:serverTimestamp()});else{const f=families.find(x=>x.id===familyId);if(!f)return;if((f.partnerIds||[]).includes(child))return toast("Une personne ne peut pas être partenaire et enfant dans le même foyer");await updateDoc(doc(db,"families",familyId),{childIds:[...new Set([...(f.childIds||[]),child])],updatedAt:serverTimestamp()})}toast("Enfant rattaché")}
-    async function addParent(){const parentId=$("parentSelect").value;if(!parentId)return toast("Choisissez un parent");let f=families.find(x=>(x.childIds||[]).includes(activeId)&&(x.partnerIds||[]).length<2);if(f){if((f.partnerIds||[]).includes(parentId))return toast("Ce parent est déjà rattaché");await updateDoc(doc(db,"families",f.id),{partnerIds:[...(f.partnerIds||[]),parentId],updatedAt:serverTimestamp()})}else await addDoc(familiesRef,{partnerIds:[parentId],childIds:[activeId],createdAt:serverTimestamp(),updatedAt:serverTimestamp()});toast("Parent rattaché")}
-    async function removeRelation(familyId,personId,type){const f=families.find(x=>x.id===familyId);if(!f)return;const field=type==="partner"?"partnerIds":"childIds",next=(f[field]||[]).filter(id=>id!==personId);if(field==="partnerIds"&&!next.length)await deleteDoc(doc(db,"families",familyId));else await updateDoc(doc(db,"families",familyId),{[field]:next,updatedAt:serverTimestamp()});toast("Lien retiré")}
-    function dataError(e){console.error(e);$("syncDot").classList.remove("ok");$("syncText").textContent="Accès refusé — publiez les nouvelles règles Firestore"}function startData(){unsubs.forEach(fn=>fn());unsubs=[];loadedPeople=loadedFamilies=false;unsubs.push(onSnapshot(peopleRef,s=>{people=s.docs.map(d=>({id:d.id,...d.data()}));loadedPeople=true;syncState()},dataError));unsubs.push(onSnapshot(familiesRef,s=>{families=s.docs.map(d=>({id:d.id,...d.data()}));loadedFamilies=true;syncState();if($("relationsDialog").open)renderRelations()},dataError))}
-    onAuthStateChanged(auth,u=>{$("authScreen").hidden=!!u;$("topbar").hidden=!u;$("appMain").hidden=!u;if(u)startData();else{unsubs.forEach(fn=>fn());unsubs=[];people=[];families=[]}});$("loginForm").addEventListener("submit",async e=>{e.preventDefault();$("authError").textContent="";$("loginBtn").disabled=true;try{await signInWithEmailAndPassword(auth,$("loginEmail").value.trim(),$("loginPassword").value)}catch(err){console.error(err);$("authError").textContent=err.code==="auth/invalid-credential"?"E-mail ou mot de passe incorrect.":"Connexion impossible. Vérifiez Firebase Authentication."}finally{$("loginBtn").disabled=false}});$("logoutBtn").onclick=()=>signOut(auth);
-    $("personForm").addEventListener("submit",async e=>{e.preventDefault();const data=Object.fromEntries(personFields.map(k=>[k,$(k).value.trim()]));data.updatedAt=serverTimestamp();try{const id=$("personId").value;if(id){await updateDoc(doc(db,"people",id),data);focusAfterRender=id;close("personDialog");toast("Personne mise à jour")}else{const ref=await addDoc(peopleRef,{...data,createdAt:serverTimestamp()});people.push({id:ref.id,...data});activeId=ref.id;focusAfterRender=ref.id;$("personDialog").close();syncState();openRelations();toast("Personne ajoutée — indiquez maintenant ses liens familiaux")}}catch(err){console.error(err);toast("Enregistrement impossible")}});
-    $("deleteBtn").onclick=async()=>{const id=$("personId").value;if(!id||!confirm("Supprimer cette personne et tous ses liens familiaux ?"))return;const batch=writeBatch(db);batch.delete(doc(db,"people",id));for(const f of families){if(!(f.partnerIds||[]).includes(id)&&!(f.childIds||[]).includes(id))continue;const partners=(f.partnerIds||[]).filter(x=>x!==id),children=(f.childIds||[]).filter(x=>x!==id);if(!partners.length)batch.delete(doc(db,"families",f.id));else batch.update(doc(db,"families",f.id),{partnerIds:partners,childIds:children,updatedAt:serverTimestamp()})}await batch.commit();close("personDialog");toast("Personne supprimée")};
-    $("relationsBtn").onclick=openRelations;$("addPartnerBtn").onclick=addPartner;$("addChildBtn").onclick=addChild;$("addParentBtn").onclick=addParent;$("relationsList").onclick=e=>{const b=e.target.closest("[data-remove-partner],[data-remove-child]");if(!b)return;removeRelation(b.dataset.removePartner||b.dataset.removeChild,b.dataset.person,b.dataset.removePartner?"partner":"child")};document.addEventListener("click",e=>{const b=e.target.closest("[data-close]");if(b)close(b.dataset.close)});$("addBtn").onclick=()=>openPerson();$("search").oninput=()=>applySearch(true);$("resetBtn").onclick=()=>{$("search").value="";applySearch(false)};$("zoomOutBtn").onclick=()=>camera.zoomBy(1/1.2);$("zoomInBtn").onclick=()=>camera.zoomBy(1.2);$("fitTreeBtn").onclick=()=>camera.fit();$("centerTreeBtn").onclick=()=>camera.recenter();$("exportBtn").onclick=()=>{const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),people,families},null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`family-tree-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);toast("Sauvegarde téléchargée")};
+  <section class="auth-screen" id="authScreen">
+<form class="auth-card" id="loginForm">
+<div class="brand-mark">⌘</div>
+<h2>Bienvenue dans votre histoire</h2>
+<p>Connectez-vous pour consulter et compléter votre arbre familial.</p>
+<label>Adresse e-mail<input class="field" id="loginEmail" type="email" autocomplete="username" required>
+</label>
+<label>Mot de passe<input class="field" id="loginPassword" type="password" autocomplete="current-password" required minlength="6">
+</label>
+<p class="auth-error" id="authError" role="alert">
+</p>
+<button class="btn primary" type="submit" id="loginBtn">Se connecter</button>
+</form>
+</section>
+  <header class="topbar" id="topbar" hidden>
+<div class="brand">
+<div class="brand-mark">⌘</div>
+<div>
+<h1>Notre histoire</h1>
+<p>Arbre généalogique familial</p>
+</div>
+</div>
+<div class="actions">
+<button class="btn nav-btn active" data-view="tree">Arbre</button>
+<button class="btn nav-btn" data-view="documents">Documents</button>
+<button class="btn nav-btn" data-view="tasks">Tâches</button>
+<button class="btn" id="exportBtn">↓ <span class="label">Exporter</span>
+</button>
+<button class="btn" id="logoutBtn">↪ <span class="label">Déconnexion</span>
+</button>
+<button class="btn primary" id="addBtn">＋ <span class="label">Ajouter une personne</span>
+</button>
+</div>
+</header>
+  <main id="appMain" hidden>
+<section class="intro">
+<div>
+<p class="eyebrow">Mémoire familiale</p>
+<h2>Les branches de notre famille</h2>
+<p class="lead">Cliquez sur une carte pour modifier la personne. Faites-la glisser pour ajuster sa position.</p>
+<div class="status">
+<span class="dot" id="syncDot">
+</span>
+<span id="syncText">Connexion à Firebase…</span>
+</div>
+</div>
+<div class="summary">
+<span class="pill" id="peopleCount">0 personne</span>
+<span class="pill" id="familyCount">0 union</span>
+</div>
+</section>
+<section class="toolbar">
+<label class="sr-only" for="search">Rechercher</label>
+<input class="field" id="search" type="search" placeholder="Rechercher et centrer une personne…">
+<button class="btn" id="resetBtn">Effacer</button>
+</section>
+<section class="tree-shell" id="treeViewport">
+<div class="tree" id="treeScene">
+</div>
+<div class="canvas-help">Glisser le fond pour naviguer · Glisser une carte pour la déplacer</div>
+<div class="tree-controls" aria-label="Contrôles de l’arbre">
+<div class="zoom-control">
+<button id="zoomOutBtn" type="button" aria-label="Dézoomer">−</button>
+<span class="zoom-level" id="zoomLevel">100 %</span>
+<button id="zoomInBtn" type="button" aria-label="Zoomer">＋</button>
+</div>
+<div class="view-control">
+<button id="fitTreeBtn" type="button">Ajuster</button>
+<button id="centerTreeBtn" type="button">Recentrer</button>
+<button id="autoLayoutBtn" type="button">Réorganiser</button>
+</div>
+</div>
+</section>
+</main>
+  <main class="workspace-view" id="documentsView" hidden>
+<section class="section-head">
+<div>
+<p class="eyebrow">Archives familiales</p>
+<h2>Documents</h2>
+<p>Consultez les actes et attribuez chaque document à une ou plusieurs personnes.</p>
+</div>
+<button class="btn primary" id="addDocumentBtn">＋ Ajouter un document</button>
+</section>
+<div class="list-toolbar">
+<input class="field" id="documentSearch" type="search" placeholder="Rechercher un document…">
+<select class="field" id="documentTypeFilter">
+<option value="">Tous les types</option>
+<option>Acte de naissance</option>
+<option>Acte de décès</option>
+<option>Acte de baptême</option>
+<option>Acte de mariage</option>
+<option>Recensement</option>
+<option>Photo</option>
+<option>Autre</option>
+</select>
+</div>
+<div class="content-grid" id="documentsList">
+</div>
+</main>
+  <main class="workspace-view" id="tasksView" hidden>
+<section class="section-head">
+<div>
+<p class="eyebrow">Recherches à poursuivre</p>
+<h2>Tâches</h2>
+<p>Centralisez les démarches, échéances et commentaires liés à vos recherches.</p>
+</div>
+<button class="btn primary" id="addTaskBtn">＋ Ajouter une tâche</button>
+</section>
+<div class="list-toolbar">
+<input class="field" id="taskSearch" type="search" placeholder="Rechercher une tâche…">
+<select class="field" id="taskStatusFilter">
+<option value="">Tous les statuts</option>
+<option value="todo">À faire</option>
+<option value="progress">En cours</option>
+<option value="done">Terminée</option>
+</select>
+<select class="field" id="taskPriorityFilter">
+<option value="">Toutes les priorités</option>
+<option value="high">Haute</option>
+<option value="medium">Moyenne</option>
+<option value="low">Basse</option>
+</select>
+<label>
+<input type="checkbox" id="myTasksFilter"> Mes tâches</label>
+</div>
+<div class="content-grid" id="tasksList">
+</div>
+</main>
+  <dialog id="personDialog">
+<div class="modal-head">
+<div>
+<h3 id="dialogTitle">Ajouter une personne</h3>
+<p>Les champs marqués d’un astérisque sont obligatoires.</p>
+</div>
+<button class="btn icon-btn" type="button" data-close="personDialog">×</button>
+</div>
+<form class="modal-body" id="personForm">
+<input type="hidden" id="personId">
+<div class="grid">
+<label>Prénom *<input class="field" id="firstName" required maxlength="80">
+</label>
+<label>Nom *<input class="field" id="lastName" required maxlength="80">
+</label>
+<label>Sexe<select class="field" id="gender">
+<option value="">Non précisé</option>
+<option value="F">Femme</option>
+<option value="M">Homme</option>
+<option value="X">Autre</option>
+</select>
+</label>
+<label>Branche familiale<input class="field" id="branch" placeholder="Ex. Giovannoni" maxlength="80">
+</label>
+<label>Date de naissance<input class="field" id="birthDate" type="date">
+</label>
+<label>Date de décès<input class="field" id="deathDate" type="date">
+</label>
+<label class="wide">Lieu principal<input class="field" id="place" placeholder="Ex. Orino, Varese, Italie" maxlength="140">
+</label>
+<label class="wide">URL d’une photo<input class="field" id="photoUrl" type="url" placeholder="https://…">
+</label>
+<label class="wide">Notes<textarea class="field" id="notes" rows="3" maxlength="800" placeholder="Profession, histoire, sources…">
+</textarea>
+</label>
+<section class="person-documents" id="personDocumentsSection" hidden>
+<h4>Documents associés</h4>
+<div class="mini-docs" id="personDocumentsList"></div>
+<button class="btn small" type="button" id="linkDocumentBtn" style="margin-top:10px">＋ Ajouter un document pour cette personne</button>
+</section>
+</div>
+<div class="modal-actions">
+<button class="btn danger" type="button" id="deleteBtn" hidden>Supprimer</button>
+<div class="right">
+<button class="btn" type="button" id="relationsBtn" hidden>Liens familiaux</button>
+<button class="btn" type="button" data-close="personDialog">Annuler</button>
+<button class="btn primary" id="savePersonBtn" type="submit">Enregistrer et ajouter ses liens</button>
+</div>
+</div>
+</form>
+</dialog>
+  <dialog id="relationsDialog">
+<div class="modal-head">
+<div>
+<h3>Liens familiaux</h3>
+<p id="relationsPersonName">
+</p>
+</div>
+<button class="btn icon-btn" type="button" data-close="relationsDialog">×</button>
+</div>
+<div class="modal-body">
+<div class="relations-list" id="relationsList">
+</div>
+<div class="relation-builder">
+<div class="relation-row">
+<strong class="relation-type">Partenaire</strong>
+<label>Choisir la personne<select class="field" id="partnerSelect">
+</select>
+</label>
+<button class="btn primary" id="addPartnerBtn">Ajouter</button>
+</div>
+<div class="relation-row">
+<strong class="relation-type">Enfant</strong>
+<div>
+<label>Union ou foyer<select class="field" id="childFamilySelect">
+</select>
+</label>
+<label style="margin-top:8px">Choisir l’enfant<select class="field" id="childSelect">
+</select>
+</label>
+</div>
+<button class="btn primary" id="addChildBtn">Ajouter</button>
+</div>
+<div class="relation-row">
+<strong class="relation-type">Parent</strong>
+<label>Choisir le parent<select class="field" id="parentSelect">
+</select>
+</label>
+<button class="btn primary" id="addParentBtn">Ajouter</button>
+</div>
+<p class="hint">Pour représenter deux parents, ajoutez-les successivement. Pour une famille, créez d’abord le couple puis rattachez les enfants à cette union.</p>
+</div>
+</div>
+</dialog>
+  <dialog id="documentDialog">
+<div class="modal-head"><div><h3 id="documentDialogTitle">Ajouter un document</h3><p>Le même document peut être associé à plusieurs personnes.</p></div><button class="btn icon-btn" type="button" data-close="documentDialog">×</button></div>
+<form class="modal-body" id="documentForm"><input type="hidden" id="documentId"><div class="grid">
+<label class="wide">Titre *<input class="field" id="documentTitle" required maxlength="140"></label>
+<label>Type *<select class="field" id="documentType" required><option value="">Sélectionner…</option><option>Acte de naissance</option><option>Acte de décès</option><option>Acte de baptême</option><option>Acte de mariage</option><option>Recensement</option><option>Photo</option><option>Autre</option></select></label>
+<label>Date du document<input class="field" id="documentDate" type="date"></label>
+<label class="wide">Lieu<input class="field" id="documentPlace" maxlength="140"></label>
+<label class="wide">Fichier<input class="field" id="documentFile" type="file" accept=".pdf,image/*,.doc,.docx"><span class="file-note" id="currentDocumentFile">PDF, image ou document bureautique.</span></label>
+<div class="wide"><label>Personnes concernées</label><div class="checkbox-list" id="documentPeople"></div></div>
+<label class="wide">Notes<textarea class="field" id="documentNotes" rows="3" maxlength="1200"></textarea></label>
+</div><div class="upload-progress" id="documentProgress"></div><div class="modal-actions"><button class="btn danger" type="button" id="deleteDocumentBtn" hidden>Supprimer</button><div class="right"><button class="btn" type="button" data-close="documentDialog">Annuler</button><button class="btn primary" type="submit" id="saveDocumentBtn">Enregistrer</button></div></div></form>
+</dialog>
+  <dialog id="taskDialog">
+<div class="modal-head"><div><h3 id="taskDialogTitle">Ajouter une tâche</h3><p>Suivez vos démarches et recherches généalogiques.</p></div><button class="btn icon-btn" type="button" data-close="taskDialog">×</button></div>
+<form class="modal-body" id="taskForm"><input type="hidden" id="taskId"><div class="grid">
+<label class="wide">Titre *<input class="field" id="taskTitle" required maxlength="160"></label>
+<label>Statut<select class="field" id="taskStatus"><option value="todo">À faire</option><option value="progress">En cours</option><option value="done">Terminée</option></select></label>
+<label>Priorité<select class="field" id="taskPriority"><option value="medium">Moyenne</option><option value="high">Haute</option><option value="low">Basse</option></select></label>
+<label>Responsable<input class="field" id="taskAssignee" maxlength="120"></label>
+<label>Échéance<input class="field" id="taskDueDate" type="date"></label>
+<label class="wide">Personne concernée<select class="field" id="taskPersonId"></select></label>
+<label class="wide">Description<textarea class="field" id="taskDescription" rows="3" maxlength="1500"></textarea></label>
+<label class="wide">Commentaires<textarea class="field" id="taskComments" rows="3" maxlength="2000" placeholder="Résultats, relances, informations utiles…"></textarea></label>
+</div><div class="modal-actions"><button class="btn danger" type="button" id="deleteTaskBtn" hidden>Supprimer</button><div class="right"><button class="btn" type="button" data-close="taskDialog">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></div></form>
+</dialog>
+  <div class="toast" id="toast" role="status">
+</div>
+  <script type="module" src="./js/app.js">
   </script>
 </body>
 </html>
