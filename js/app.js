@@ -1,7 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
-import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-storage.js";
+import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, doc, getDoc, setDoc, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 import { calculateTreeLayout } from "./tree-layout.js";
 import { createTreeRenderer } from "./tree-renderer.js";
 import { createTreeCamera } from "./tree-camera.js";
@@ -19,7 +18,6 @@ const $ = id => document.getElementById(id);
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const storage = getStorage(app);
 const refs = {
   people: collection(db, "people"),
   families: collection(db, "families"),
@@ -33,6 +31,9 @@ let cameraPositioned = false, focusAfterRender = null;
 let loadedPeople = false, loadedFamilies = false, loadedDocuments = false, loadedTasks = false;
 let unsubs = [];
 let manualOffsets = readOffsets();
+let activeViewerUrl = "";
+const FILE_CHUNK_BYTES = 450 * 1024;
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const personFields = ["firstName", "lastName", "gender", "branch", "birthDate", "deathDate", "place", "photoUrl", "notes"];
 const taskFields = ["title", "status", "priority", "assignee", "dueDate", "personId", "description", "comments"];
 
@@ -69,7 +70,8 @@ function applyManualPositions(layout) {
     const position = layout.positions.get(id);
     if (!position) continue;
     position.x = Math.max(20, position.x + Number(offset.x || 0));
-    position.y = Math.max(20, position.y + Number(offset.y || 0));
+    // L'axe vertical reste calculé par la parenté afin d'aligner les générations.
+    position.y = Math.max(20, position.y);
   }
   let maxX = 720, maxY = 460;
   for (const position of layout.positions.values()) {
@@ -95,7 +97,7 @@ const renderer = createTreeRenderer({
   onPersonMove: (id, position) => {
     const automatic = automaticPositions.get(id);
     if (!automatic) return;
-    manualOffsets[id] = { x: Math.round(position.x - automatic.x), y: Math.round(position.y - automatic.y) };
+    manualOffsets[id] = { x: Math.round(position.x - automatic.x), y: 0 };
     saveOffsets();
     renderTree();
   }
@@ -160,6 +162,12 @@ function openPerson(item = null) {
 function close(id) {
   const dialog = $(id);
   if (dialog.open) dialog.close();
+  if (id === "documentViewerDialog" && activeViewerUrl) {
+    URL.revokeObjectURL(activeViewerUrl);
+    activeViewerUrl = "";
+    $("viewerFrame").removeAttribute("src");
+    $("viewerImage").removeAttribute("src");
+  }
   if ((id === "personDialog" && !$("relationsDialog").open) || id === "relationsDialog") {
     activeId = null;
     renderer.setActive(null);
@@ -255,6 +263,61 @@ async function removeRelation(familyId, personId, type) {
   toast("Lien retiré");
 }
 
+function ancestorsOf(personId, seen = new Set()) {
+  if (seen.has(personId)) return seen;
+  for (const family of families.filter(item => (item.childIds || []).includes(personId))) {
+    for (const parentId of family.partnerIds || []) {
+      if (!seen.has(parentId)) {
+        seen.add(parentId);
+        ancestorsOf(parentId, seen);
+      }
+    }
+  }
+  return seen;
+}
+
+function openManualLink() {
+  if (people.length < 2) return toast("Ajoutez au moins deux personnes");
+  const options = availableOptions();
+  $("manualChild").innerHTML = options;
+  $("manualParent1").innerHTML = options;
+  $("manualParent2").innerHTML = options;
+  $("manualLinkForm").reset();
+  $("manualLinkDialog").showModal();
+}
+
+async function saveManualLink(event) {
+  event.preventDefault();
+  const childId = $("manualChild").value;
+  const parentIds = [...new Set([$("manualParent1").value, $("manualParent2").value].filter(Boolean))];
+  if (!childId || !parentIds.length) return toast("Choisissez l’enfant et au moins un parent");
+  if (parentIds.includes(childId)) return toast("Une personne ne peut pas être son propre parent");
+  if (parentIds.some(parentId => ancestorsOf(parentId).has(childId))) return toast("Ce lien créerait une boucle dans l’arbre");
+
+  let family = families.find(item => {
+    const current = new Set(item.partnerIds || []);
+    return current.size === parentIds.length && parentIds.every(id => current.has(id));
+  });
+  if (!family && parentIds.length === 1) {
+    family = families.find(item => (item.childIds || []).includes(childId) && (item.partnerIds || []).length < 2);
+  }
+  if (family) {
+    const partnerIds = [...new Set([...(family.partnerIds || []), ...parentIds])];
+    if (partnerIds.length > 2) return toast("Cet enfant possède déjà deux parents dans ce foyer");
+    if ((family.childIds || []).includes(childId) && parentIds.every(id => (family.partnerIds || []).includes(id))) return toast("Ce lien existe déjà");
+    await updateDoc(doc(db, "families", family.id), {
+      partnerIds,
+      childIds: [...new Set([...(family.childIds || []), childId])],
+      updatedAt: serverTimestamp()
+    });
+  } else {
+    await addDoc(refs.families, { partnerIds, childIds: [childId], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  }
+  focusAfterRender = childId;
+  close("manualLinkDialog");
+  toast("Lien parent-enfant créé");
+}
+
 function documentPeopleMarkup(selectedIds = []) {
   const selected = new Set(selectedIds);
   return people.slice().sort((a, b) => nameOf(a.id).localeCompare(nameOf(b.id))).map(item =>
@@ -270,9 +333,10 @@ function openDocument(item = null, preselectedPersonId = "") {
   $("documentType").value = item?.type || "";
   $("documentDate").value = item?.date || "";
   $("documentPlace").value = item?.place || "";
+  $("documentUrl").value = item?.externalUrl || "";
   $("documentNotes").value = item?.notes || "";
   $("documentPeople").innerHTML = documentPeopleMarkup(item?.personIds || (preselectedPersonId ? [preselectedPersonId] : []));
-  $("currentDocumentFile").textContent = item?.fileName ? `Fichier actuel : ${item.fileName}` : "PDF, image ou document bureautique (20 Mo maximum).";
+  $("currentDocumentFile").textContent = item?.fileName ? `Fichier actuel : ${item.fileName}` : "PDF et images jusqu’à 20 Mo, enregistrés dans Firestore sans abonnement payant.";
   $("documentProgress").textContent = "";
   $("deleteDocumentBtn").hidden = !item;
   $("documentDialog").showModal();
@@ -282,8 +346,104 @@ function renderDocuments() {
   const query = $("documentSearch").value.trim().toLowerCase();
   const type = $("documentTypeFilter").value;
   const filtered = documents.filter(item => (!type || item.type === type) && (!query || `${item.title} ${item.type} ${item.place || ""} ${(item.personIds || []).map(nameOf).join(" ")}`.toLowerCase().includes(query)));
-  $("documentsList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card"><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(item.title)}</h3><p>${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${item.place ? ` · ${esc(item.place)}` : ""}</p><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p>${esc(item.notes)}</p>` : ""}<div class="card-actions">${item.fileUrl ? `<button class="btn small primary" data-open-document="${item.id}">Consulter</button>` : ""}<button class="btn small" data-edit-document="${item.id}">Modifier</button></div></article>`).join("") : '<div class="empty-list">Aucun document ne correspond à ces critères.</div>';
+  $("documentsList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card"><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(item.title)}</h3><p>${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${item.place ? ` · ${esc(item.place)}` : ""}</p><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p>${esc(item.notes)}</p>` : ""}<div class="card-actions">${item.chunkCount || item.fileData || item.fileUrl || item.externalUrl ? `<button class="btn small primary" data-open-document="${item.id}">Consulter</button>` : ""}<button class="btn small" data-edit-document="${item.id}">Modifier</button></div></article>`).join("") : '<div class="empty-list">Aucun document ne correspond à ces critères.</div>';
   if (activeId && $("personDialog").open) renderPersonDocuments(activeId);
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 32768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(value) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function chunkReference(documentId, version, index) {
+  return doc(db, "documentChunks", `${documentId}_${version}_${String(index).padStart(4, "0")}`);
+}
+
+async function writeFileChunks(documentId, version, file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const count = Math.ceil(bytes.length / FILE_CHUNK_BYTES);
+  let written = 0;
+  try {
+    for (let index = 0; index < count; index++) {
+      const part = bytes.subarray(index * FILE_CHUNK_BYTES, (index + 1) * FILE_CHUNK_BYTES);
+      await setDoc(chunkReference(documentId, version, index), {
+        documentId,
+        version,
+        index,
+        data: bytesToBase64(part)
+      });
+      written++;
+      $("documentProgress").textContent = `Envoi du fichier… ${Math.round(written / count * 100)} %`;
+    }
+    return count;
+  } catch (error) {
+    await deleteFileChunks({ id: documentId, chunkVersion: version, chunkCount: written });
+    throw error;
+  }
+}
+
+async function deleteFileChunks(item) {
+  if (!item?.id || !item?.chunkVersion || !item?.chunkCount) return;
+  for (let index = 0; index < item.chunkCount; index++) {
+    await deleteDoc(chunkReference(item.id, item.chunkVersion, index)).catch(console.warn);
+  }
+}
+
+async function readChunkedFile(item) {
+  const reads = [];
+  for (let index = 0; index < item.chunkCount; index++) reads.push(getDoc(chunkReference(item.id, item.chunkVersion, index)));
+  const snapshots = await Promise.all(reads);
+  if (snapshots.some(snapshot => !snapshot.exists())) throw new Error("Un bloc du fichier est introuvable");
+  return new Blob(snapshots.map(snapshot => base64ToBytes(snapshot.data().data)), { type: item.mimeType || "application/octet-stream" });
+}
+
+async function openStoredDocument(item) {
+  if (!item) return;
+  $("viewerTitle").textContent = item.title || item.fileName || "Consulter le document";
+  $("viewerSubtitle").textContent = item.fileName || "Aperçu dans Family Tree";
+  $("viewerImage").hidden = true;
+  $("viewerFrame").hidden = true;
+  $("viewerMessage").hidden = false;
+  $("viewerMessage").textContent = "Chargement du document…";
+  $("documentViewerDialog").showModal();
+  try {
+    let source = item.fileUrl || item.externalUrl || "";
+    let mimeType = item.mimeType || "";
+    if (item.chunkCount && item.chunkVersion) {
+      const blob = await readChunkedFile(item);
+      activeViewerUrl = URL.createObjectURL(blob);
+      source = activeViewerUrl;
+      mimeType = blob.type;
+    } else if (item.fileData) {
+      const blob = await (await fetch(item.fileData)).blob();
+      activeViewerUrl = URL.createObjectURL(blob);
+      source = activeViewerUrl;
+      mimeType = blob.type;
+    }
+    if (!source) throw new Error("Aucun fichier n’est associé");
+    $("viewerMessage").hidden = true;
+    if (mimeType.startsWith("image/")) {
+      $("viewerImage").src = source;
+      $("viewerImage").hidden = false;
+    } else {
+      $("viewerFrame").src = source;
+      $("viewerFrame").hidden = false;
+    }
+  } catch (error) {
+    console.error(error);
+    $("viewerMessage").textContent = error.message || "Impossible d’ouvrir ce fichier";
+    toast("Impossible d’ouvrir ce fichier");
+  }
 }
 
 async function saveDocument(event) {
@@ -291,9 +451,14 @@ async function saveDocument(event) {
   const id = $("documentId").value;
   const existing = documents.find(item => item.id === id);
   const file = $("documentFile").files[0];
-  if (!existing && !file) return toast("Choisissez le fichier du document");
-  if (file?.size > 20 * 1024 * 1024) return toast("Le fichier dépasse 20 Mo");
+  const externalUrl = $("documentUrl").value.trim();
+  if (!existing && !file && !externalUrl) return toast("Choisissez un fichier ou indiquez un lien");
+  if (file?.size > MAX_FILE_BYTES) return toast("Le fichier dépasse 20 Mo");
+  if (file && file.type !== "application/pdf" && !file.type.startsWith("image/")) return toast("Choisissez un PDF ou une image");
   $("saveDocumentBtn").disabled = true;
+  let newChunkVersion = "";
+  let newChunkCount = 0;
+  const target = id ? doc(db, "documents", id) : doc(refs.documents);
   try {
     const data = {
       title: $("documentTitle").value.trim(),
@@ -301,30 +466,41 @@ async function saveDocument(event) {
       date: $("documentDate").value,
       place: $("documentPlace").value.trim(),
       notes: $("documentNotes").value.trim(),
+      externalUrl,
       personIds: [...$("documentPeople").querySelectorAll("input:checked")].map(input => input.value),
       updatedAt: serverTimestamp()
     };
     if (file) {
-      $("documentProgress").textContent = "Téléversement du fichier…";
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `documents/${Date.now()}-${safeName}`;
-      const target = storageRef(storage, path);
-      await uploadBytes(target, file, { contentType: file.type || "application/octet-stream" });
-      data.fileUrl = await getDownloadURL(target);
+      newChunkVersion = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      $("documentProgress").textContent = "Préparation du fichier…";
+      newChunkCount = await writeFileChunks(target.id, newChunkVersion, file);
       data.fileName = file.name;
-      data.storagePath = path;
-      if (existing?.storagePath) deleteObject(storageRef(storage, existing.storagePath)).catch(console.warn);
+      data.fileSize = file.size;
+      data.mimeType = file.type || "application/octet-stream";
+      data.storageMode = "firestore-chunks";
+      data.chunkVersion = newChunkVersion;
+      data.chunkCount = newChunkCount;
+      if (id) {
+        data.fileData = deleteField();
+        data.fileUrl = deleteField();
+        data.storagePath = deleteField();
+      }
     }
-    if (id) await updateDoc(doc(db, "documents", id), data);
-    else await addDoc(refs.documents, { ...data, createdAt: serverTimestamp() });
+    if (id) await updateDoc(target, data);
+    else await setDoc(target, { ...data, createdAt: serverTimestamp() });
+    if (file && existing?.chunkVersion) await deleteFileChunks(existing);
     close("documentDialog");
     toast(id ? "Document mis à jour" : "Document ajouté");
   } catch (error) {
     console.error(error);
-    toast("Enregistrement du document impossible");
+    if (newChunkVersion) await deleteFileChunks({ id: target.id, chunkVersion: newChunkVersion, chunkCount: newChunkCount });
+    const message = error?.code === "permission-denied"
+      ? "Envoi refusé : publiez le nouveau fichier firestore.rules dans Firebase."
+      : error?.message || "Enregistrement du document impossible";
+    $("documentProgress").textContent = message;
+    toast(message);
   } finally {
     $("saveDocumentBtn").disabled = false;
-    $("documentProgress").textContent = "";
   }
 }
 
@@ -332,8 +508,8 @@ async function removeDocument() {
   const id = $("documentId").value;
   const item = documents.find(documentItem => documentItem.id === id);
   if (!item || !confirm("Supprimer ce document ?")) return;
+  await deleteFileChunks(item);
   await deleteDoc(doc(db, "documents", id));
-  if (item.storagePath) deleteObject(storageRef(storage, item.storagePath)).catch(console.warn);
   close("documentDialog");
   toast("Document supprimé");
 }
@@ -397,6 +573,7 @@ function setView(view) {
   $("documentsView").hidden = view !== "documents";
   $("tasksView").hidden = view !== "tasks";
   $("addBtn").hidden = view !== "tree";
+  $("addLinkBtn").hidden = view !== "tree";
   document.querySelectorAll("[data-view]").forEach(button => button.classList.toggle("active", button.dataset.view === view));
   if (view === "documents") renderDocuments();
   if (view === "tasks") renderTasks();
@@ -521,6 +698,8 @@ $("deleteBtn").onclick = async () => {
 };
 
 $("relationsBtn").onclick = openRelations;
+$("addLinkBtn").onclick = openManualLink;
+$("manualLinkForm").addEventListener("submit", saveManualLink);
 $("addPartnerBtn").onclick = addPartner;
 $("addChildBtn").onclick = addChild;
 $("addParentBtn").onclick = addParent;
@@ -536,7 +715,7 @@ document.addEventListener("click", event => {
   const miniDocument = event.target.closest("[data-view-document]");
   if (miniDocument) {
     const item = documents.find(value => value.id === miniDocument.dataset.viewDocument);
-    if (item?.fileUrl) window.open(item.fileUrl, "_blank", "noopener");
+    openStoredDocument(item);
   }
 });
 
@@ -545,7 +724,7 @@ $("documentsList").onclick = event => {
   const editButton = event.target.closest("[data-edit-document]");
   if (openButton) {
     const item = documents.find(value => value.id === openButton.dataset.openDocument);
-    if (item?.fileUrl) window.open(item.fileUrl, "_blank", "noopener");
+    openStoredDocument(item);
   }
   if (editButton) openDocument(documents.find(value => value.id === editButton.dataset.editDocument));
 };
@@ -583,6 +762,13 @@ $("documentForm").addEventListener("submit", saveDocument);
 $("deleteDocumentBtn").onclick = removeDocument;
 $("documentSearch").oninput = renderDocuments;
 $("documentTypeFilter").onchange = renderDocuments;
+$("documentViewerDialog").addEventListener("close", () => {
+  if (!activeViewerUrl) return;
+  URL.revokeObjectURL(activeViewerUrl);
+  activeViewerUrl = "";
+  $("viewerFrame").removeAttribute("src");
+  $("viewerImage").removeAttribute("src");
+});
 $("addTaskBtn").onclick = () => openTask();
 $("taskForm").addEventListener("submit", saveTask);
 $("deleteTaskBtn").onclick = removeTask;

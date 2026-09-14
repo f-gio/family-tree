@@ -86,7 +86,9 @@ export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmpty
     if (!drag.moved) return;
     const position = currentLayout.positions.get(drag.id);
     position.x = Math.max(20, drag.baseX + dx);
-    position.y = Math.max(20, drag.baseY + dy);
+    // Le déplacement vertical est volontairement bloqué : les cartes d'une
+    // même génération restent sur la même rangée.
+    position.y = drag.baseY;
     drag.card.style.left = `${position.x}px`;
     drag.card.style.top = `${position.y}px`;
     drawConnections();
