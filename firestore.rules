@@ -1,0 +1,20 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // L'arbre est accessible uniquement aux comptes créés dans Firebase Auth.
+    match /people/{personId} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Une famille relie un ou deux partenaires à leurs enfants.
+    match /families/{familyId} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Aucun autre document Firestore n'est exposé par défaut.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
