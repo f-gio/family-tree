@@ -1,13 +1,216 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Family Tree</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#284b3f">
+  <title>Notre histoire — Arbre généalogique</title>
+  <style>
+    :root {
+      --ink:#26332e; --muted:#68746f; --paper:#f7f3ea; --card:#fffdf8;
+      --line:#c9b99c; --brand:#284b3f; --brand-2:#b77745; --soft:#e8efe9;
+      --danger:#a64238; --shadow:0 18px 45px rgba(40,55,48,.12);
+      --radius:18px;
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+    button,input,select,textarea{font:inherit}
+    button{cursor:pointer}
+    .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:15px clamp(18px,4vw,56px);background:rgba(255,253,248,.92);border-bottom:1px solid #e5ddce;backdrop-filter:blur(14px)}
+    .brand{display:flex;align-items:center;gap:12px;min-width:0}
+    .brand-mark{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;background:var(--brand);color:#fff;font-size:21px}
+    .brand h1{margin:0;font:700 clamp(18px,2.2vw,23px)/1.1 Georgia,serif}
+    .brand p{margin:3px 0 0;color:var(--muted);font-size:12px}
+    .actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;justify-content:flex-end}
+    .btn{border:1px solid #d6ccbb;border-radius:11px;padding:9px 13px;background:var(--card);color:var(--ink);font-weight:650}
+    .btn:hover{border-color:#a99b84;background:#fff}
+    .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+    .btn.danger{color:var(--danger)}
+    .icon-btn{width:40px;height:40px;padding:0;display:grid;place-items:center}
+    main{padding:28px clamp(16px,4vw,56px) 48px}
+    .intro{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:end;margin-bottom:22px}
+    .eyebrow{margin:0 0 6px;color:var(--brand-2);font-weight:800;text-transform:uppercase;letter-spacing:.12em;font-size:11px}
+    .intro h2{margin:0;font:700 clamp(28px,4vw,44px)/1.06 Georgia,serif}
+    .intro .lead{max-width:680px;margin:10px 0 0;color:var(--muted)}
+    .summary{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .pill{padding:8px 11px;border-radius:999px;background:#eee6d8;color:#584e40;font-weight:700;font-size:12px}
+    .toolbar{display:grid;grid-template-columns:minmax(190px,1fr) repeat(2,auto);gap:10px;margin-bottom:16px}
+    .field{width:100%;border:1px solid #d6ccbb;border-radius:11px;padding:10px 12px;background:var(--card);color:var(--ink);outline:none}
+    .field:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(40,75,63,.12)}
+    .tree-shell{min-height:560px;overflow:auto;border:1px solid #e1d8c8;border-radius:24px;background-color:#fbf8f1;background-image:radial-gradient(#d9cebc 1px,transparent 1px);background-size:22px 22px;box-shadow:var(--shadow)}
+    .tree{min-width:820px;padding:46px 40px 64px}
+    .generation{display:flex;justify-content:center;gap:28px;position:relative;margin-bottom:56px}
+    .generation:last-child{margin-bottom:0}
+    .generation:not(:last-child)::after{content:"";position:absolute;left:50%;bottom:-34px;width:1px;height:34px;background:var(--line)}
+    .person{position:relative;width:220px;min-height:116px;padding:15px 14px 14px 68px;border:1px solid #ded4c3;border-radius:16px;background:var(--card);box-shadow:0 8px 24px rgba(55,51,43,.09);text-align:left;color:inherit}
+    .person:hover,.person.active{transform:translateY(-2px);border-color:var(--brand-2);box-shadow:0 12px 30px rgba(55,51,43,.15)}
+    .avatar{position:absolute;left:14px;top:15px;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--soft);color:var(--brand);font:700 16px Georgia,serif;overflow:hidden}
+    .avatar img{width:100%;height:100%;object-fit:cover}
+    .person strong{display:block;font:700 17px/1.2 Georgia,serif;margin-bottom:5px}
+    .person span{display:block;color:var(--muted);font-size:12px}
+    .person .place{margin-top:7px;color:#8b6348;font-weight:650}
+    .empty{padding:115px 24px;text-align:center;color:var(--muted)}
+    .empty-icon{font-size:52px;margin-bottom:8px}
+    .empty h3{color:var(--ink);font:700 23px Georgia,serif;margin:0 0 7px}
+    .status{display:flex;align-items:center;gap:7px;margin-top:13px;color:var(--muted);font-size:12px}
+    .dot{width:8px;height:8px;border-radius:50%;background:#d69a3e}
+    .dot.ok{background:#4d8969}
+    dialog{width:min(560px,calc(100% - 28px));border:0;border-radius:22px;padding:0;background:var(--card);color:var(--ink);box-shadow:0 28px 80px #1c2722aa}
+    dialog::backdrop{background:rgba(27,38,33,.55);backdrop-filter:blur(3px)}
+    .modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:22px 24px 15px;border-bottom:1px solid #eee6d9}
+    .modal-head h3{margin:0;font:700 24px Georgia,serif}
+    .modal-head p{margin:5px 0 0;color:var(--muted);font-size:13px}
+    form{padding:20px 24px 24px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+    label{display:block;color:#4e5b55;font-weight:700;font-size:12px}
+    label .field{margin-top:6px;font-weight:400;font-size:14px}
+    .wide{grid-column:1/-1}
+    .modal-actions{display:flex;justify-content:space-between;gap:10px;margin-top:22px}
+    .modal-actions .right{display:flex;gap:10px;margin-left:auto}
+    .toast{position:fixed;right:22px;bottom:22px;z-index:50;max-width:360px;padding:12px 15px;border-radius:12px;background:#24352f;color:#fff;box-shadow:var(--shadow);opacity:0;transform:translateY(12px);pointer-events:none;transition:.2s}
+    .toast.show{opacity:1;transform:none}
+    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    @media(max-width:760px){
+      .topbar{align-items:flex-start}.brand p{display:none}.actions .label{display:none}
+      main{padding-top:20px}.intro{grid-template-columns:1fr}.summary{justify-content:flex-start}
+      .toolbar{grid-template-columns:1fr 1fr}.toolbar .search{grid-column:1/-1}
+      .tree-shell{min-height:510px;border-radius:18px}.tree{padding-top:34px}
+      .grid{grid-template-columns:1fr}.wide{grid-column:auto}
+    }
+  </style>
 </head>
-
 <body>
-  <h1>Family Tree</h1>
-  <p>Archives et histoire familiale</p>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">⌘</div>
+      <div><h1>Notre histoire</h1><p>Arbre généalogique familial</p></div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="exportBtn" title="Télécharger une sauvegarde">↓ <span class="label">Exporter</span></button>
+      <button class="btn primary" id="addBtn">＋ <span class="label">Ajouter une personne</span></button>
+    </div>
+  </header>
+
+  <main>
+    <section class="intro">
+      <div>
+        <p class="eyebrow">Mémoire familiale</p>
+        <h2>Les branches de notre famille</h2>
+        <p class="lead">Retrouvez les personnes, les dates et les lieux qui composent votre histoire familiale.</p>
+        <div class="status"><span class="dot" id="syncDot"></span><span id="syncText">Connexion à Firebase…</span></div>
+      </div>
+      <div class="summary" aria-label="Résumé">
+        <span class="pill" id="peopleCount">0 personne</span>
+        <span class="pill" id="generationCount">0 génération</span>
+      </div>
+    </section>
+
+    <section class="toolbar" aria-label="Outils de l’arbre">
+      <label class="sr-only" for="search">Rechercher</label>
+      <input class="field search" id="search" type="search" placeholder="Rechercher un nom ou un lieu…">
+      <select class="field" id="branchFilter" aria-label="Filtrer par branche"><option value="">Toutes les branches</option></select>
+      <button class="btn" id="resetBtn">Réinitialiser</button>
+    </section>
+
+    <section class="tree-shell" aria-label="Arbre généalogique">
+      <div class="tree" id="tree"></div>
+    </section>
+  </main>
+
+  <dialog id="personDialog">
+    <div class="modal-head">
+      <div><h3 id="dialogTitle">Ajouter une personne</h3><p>Les champs marqués d’un astérisque sont obligatoires.</p></div>
+      <button class="btn icon-btn" type="button" id="closeDialog" aria-label="Fermer">×</button>
+    </div>
+    <form id="personForm">
+      <input type="hidden" id="personId">
+      <div class="grid">
+        <label>Prénom *<input class="field" id="firstName" required maxlength="80"></label>
+        <label>Nom *<input class="field" id="lastName" required maxlength="80"></label>
+        <label>Date de naissance<input class="field" id="birthDate" type="date"></label>
+        <label>Date de décès<input class="field" id="deathDate" type="date"></label>
+        <label class="wide">Lieu principal<input class="field" id="place" placeholder="Ex. Orino, Varese, Italie" maxlength="140"></label>
+        <label>Génération<select class="field" id="generation"><option value="1">1 — Ancêtres</option><option value="2">2 — Grands-parents</option><option value="3" selected>3 — Parents</option><option value="4">4 — Génération actuelle</option><option value="5">5 — Descendants</option></select></label>
+        <label>Branche familiale<input class="field" id="branch" placeholder="Ex. Giovannoni" maxlength="80"></label>
+        <label class="wide">URL d’une photo<input class="field" id="photoUrl" type="url" placeholder="https://…"></label>
+        <label class="wide">Notes<textarea class="field" id="notes" rows="3" maxlength="800" placeholder="Profession, histoire, sources…"></textarea></label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn danger" type="button" id="deleteBtn" hidden>Supprimer</button>
+        <div class="right"><button class="btn" type="button" id="cancelBtn">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div>
+      </div>
+    </form>
+  </dialog>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, serverTimestamp, query, orderBy } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",
+      authDomain: "family-tree-c2fe2.firebaseapp.com",
+      projectId: "family-tree-c2fe2",
+      storageBucket: "family-tree-c2fe2.firebasestorage.app",
+      messagingSenderId: "1096091899254",
+      appId: "1:1096091899254:web:4afff8d04448409d969657"
+    };
+
+    const $ = id => document.getElementById(id);
+    const els = { tree:$("tree"), dialog:$("personDialog"), form:$("personForm"), toast:$("toast"), search:$("search"), branch:$("branchFilter") };
+    let people = [], activeId = null;
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const peopleRef = collection(db,"people");
+
+    function toast(message){ els.toast.textContent=message; els.toast.classList.add("show"); setTimeout(()=>els.toast.classList.remove("show"),2600); }
+    function initials(p){ return `${p.firstName?.[0]||""}${p.lastName?.[0]||""}`.toUpperCase() || "?"; }
+    function year(date){ return date ? new Date(`${date}T12:00:00`).getFullYear() : "?"; }
+    function years(p){ const birth=year(p.birthDate), death=p.deathDate?year(p.deathDate):""; return death ? `${birth} – ${death}` : birth!=="?" ? `Né(e) en ${birth}` : "Dates à compléter"; }
+    function escapeHtml(value=""){ const d=document.createElement("div"); d.textContent=value; return d.innerHTML; }
+
+    function render(){
+      const needle=els.search.value.trim().toLowerCase(), branch=els.branch.value;
+      const filtered=people.filter(p=>(!branch||p.branch===branch)&&(!needle||`${p.firstName} ${p.lastName} ${p.place||""}`.toLowerCase().includes(needle)));
+      const groups=Map.groupBy ? Map.groupBy(filtered,p=>Number(p.generation)||3) : filtered.reduce((m,p)=>{ const k=Number(p.generation)||3;(m[k]??=[]).push(p);return m;},{});
+      const entries=groups instanceof Map?[...groups.entries()]:Object.entries(groups);
+      entries.sort((a,b)=>Number(a[0])-Number(b[0]));
+      if(!entries.length){ els.tree.innerHTML=`<div class="empty"><div class="empty-icon">♧</div><h3>${people.length?"Aucun résultat":"Votre arbre commence ici"}</h3><p>${people.length?"Modifiez la recherche ou les filtres.":"Ajoutez une première personne pour créer la famille."}</p><button class="btn primary" data-add>Ajouter une personne</button></div>`; return; }
+      els.tree.innerHTML=entries.map(([generation,list])=>`<div class="generation" data-generation="${generation}">${list.sort((a,b)=>(a.birthDate||"").localeCompare(b.birthDate||"")).map(p=>`<button class="person ${activeId===p.id?"active":""}" data-id="${p.id}"><span class="avatar">${p.photoUrl?`<img src="${escapeHtml(p.photoUrl)}" alt="">`:initials(p)}</span><strong>${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)}</strong><span>${years(p)}</span><span class="place">${escapeHtml(p.place||p.branch||"Lieu à compléter")}</span></button>`).join("")}</div>`).join("");
+    }
+
+    function updateSummary(){
+      $("peopleCount").textContent=`${people.length} personne${people.length>1?"s":""}`;
+      const n=new Set(people.map(p=>p.generation||3)).size;
+      $("generationCount").textContent=`${n} génération${n>1?"s":""}`;
+      const current=els.branch.value, branches=[...new Set(people.map(p=>p.branch).filter(Boolean))].sort();
+      els.branch.innerHTML='<option value="">Toutes les branches</option>'+branches.map(b=>`<option ${b===current?"selected":""}>${escapeHtml(b)}</option>`).join("");
+    }
+
+    function openDialog(person=null){
+      activeId=person?.id||null; $("dialogTitle").textContent=person?"Modifier la personne":"Ajouter une personne"; $("deleteBtn").hidden=!person;
+      for(const key of ["firstName","lastName","birthDate","deathDate","place","generation","branch","photoUrl","notes"]) $(key).value=person?.[key]??(key==="generation"?3:"");
+      $("personId").value=person?.id||""; els.dialog.showModal(); setTimeout(()=>$("firstName").focus(),50); render();
+    }
+    function closeDialog(){ activeId=null; els.dialog.close(); render(); }
+
+    onSnapshot(query(peopleRef,orderBy("generation")),snap=>{
+      people=snap.docs.map(d=>({id:d.id,...d.data()})); $("syncDot").classList.add("ok"); $("syncText").textContent="Synchronisé avec Firebase"; updateSummary(); render();
+    },error=>{ console.error(error); $("syncText").textContent="Connexion impossible — vérifiez les règles Firestore"; render(); });
+
+    els.form.addEventListener("submit",async e=>{
+      e.preventDefault();
+      const data={}; for(const key of ["firstName","lastName","birthDate","deathDate","place","generation","branch","photoUrl","notes"]) data[key]=$(key).value.trim();
+      data.generation=Number(data.generation); data.updatedAt=serverTimestamp();
+      try{ const id=$("personId").value; if(id) await updateDoc(doc(db,"people",id),data); else await addDoc(peopleRef,{...data,createdAt:serverTimestamp()}); closeDialog(); toast(id?"Personne mise à jour":"Personne ajoutée à l’arbre"); }catch(error){ console.error(error); toast("Enregistrement impossible. Vérifiez Firestore."); }
+    });
+    $("deleteBtn").addEventListener("click",async()=>{ const id=$("personId").value;if(!id||!confirm("Supprimer définitivement cette personne ?"))return;try{await deleteDoc(doc(db,"people",id));closeDialog();toast("Personne supprimée");}catch(e){console.error(e);toast("Suppression impossible");}});
+    $("addBtn").addEventListener("click",()=>openDialog()); $("closeDialog").addEventListener("click",closeDialog); $("cancelBtn").addEventListener("click",closeDialog);
+    els.dialog.addEventListener("click",e=>{if(e.target===els.dialog)closeDialog()}); els.tree.addEventListener("click",e=>{const card=e.target.closest("[data-id]");if(card)openDialog(people.find(p=>p.id===card.dataset.id));if(e.target.closest("[data-add]"))openDialog();});
+    els.search.addEventListener("input",render); els.branch.addEventListener("change",render); $("resetBtn").addEventListener("click",()=>{els.search.value="";els.branch.value="";render();});
+    $("exportBtn").addEventListener("click",()=>{const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),people},null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`family-tree-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);toast("Sauvegarde téléchargée");});
+  </script>
 </body>
 </html>
