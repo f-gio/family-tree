@@ -70,6 +70,15 @@
     .modal-actions .right{display:flex;gap:10px;margin-left:auto}
     .toast{position:fixed;right:22px;bottom:22px;z-index:50;max-width:360px;padding:12px 15px;border-radius:12px;background:#24352f;color:#fff;box-shadow:var(--shadow);opacity:0;transform:translateY(12px);pointer-events:none;transition:.2s}
     .toast.show{opacity:1;transform:none}
+    [hidden]{display:none!important}
+    .auth-screen{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:24px;background:var(--paper);background-image:radial-gradient(#d9cebc 1px,transparent 1px);background-size:22px 22px}
+    .auth-card{width:min(430px,100%);padding:30px;border:1px solid #ded4c3;border-radius:24px;background:var(--card);box-shadow:var(--shadow)}
+    .auth-card .brand-mark{margin-bottom:20px}
+    .auth-card h2{margin:0;font:700 30px/1.1 Georgia,serif}
+    .auth-card p{margin:9px 0 22px;color:var(--muted)}
+    .auth-card label+label{display:block;margin-top:14px}
+    .auth-card .btn{width:100%;margin-top:20px;padding:11px}
+    .auth-error{min-height:21px;margin:12px 0 0!important;color:var(--danger)!important;font-size:13px}
     .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
     @media(max-width:760px){
       .topbar{align-items:flex-start}.brand p{display:none}.actions .label{display:none}
@@ -81,18 +90,31 @@
   </style>
 </head>
 <body>
-  <header class="topbar">
+  <section class="auth-screen" id="authScreen">
+    <form class="auth-card" id="loginForm">
+      <div class="brand-mark" aria-hidden="true">⌘</div>
+      <h2>Bienvenue dans votre histoire</h2>
+      <p>Connectez-vous pour consulter et compléter votre arbre familial.</p>
+      <label>Adresse e-mail<input class="field" id="loginEmail" type="email" autocomplete="username" required></label>
+      <label>Mot de passe<input class="field" id="loginPassword" type="password" autocomplete="current-password" required minlength="6"></label>
+      <p class="auth-error" id="authError" role="alert"></p>
+      <button class="btn primary" type="submit" id="loginBtn">Se connecter</button>
+    </form>
+  </section>
+
+  <header class="topbar" id="topbar" hidden>
     <div class="brand">
       <div class="brand-mark" aria-hidden="true">⌘</div>
       <div><h1>Notre histoire</h1><p>Arbre généalogique familial</p></div>
     </div>
     <div class="actions">
       <button class="btn" id="exportBtn" title="Télécharger une sauvegarde">↓ <span class="label">Exporter</span></button>
+      <button class="btn" id="logoutBtn" title="Se déconnecter">↪ <span class="label">Déconnexion</span></button>
       <button class="btn primary" id="addBtn">＋ <span class="label">Ajouter une personne</span></button>
     </div>
   </header>
 
-  <main>
+  <main id="appMain" hidden>
     <section class="intro">
       <div>
         <p class="eyebrow">Mémoire familiale</p>
@@ -146,6 +168,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
     import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, serverTimestamp, query, orderBy } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -162,8 +185,10 @@
     let people = [], activeId = null;
 
     const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
     const db = getFirestore(app);
     const peopleRef = collection(db,"people");
+    let stopPeopleListener = null;
 
     function toast(message){ els.toast.textContent=message; els.toast.classList.add("show"); setTimeout(()=>els.toast.classList.remove("show"),2600); }
     function initials(p){ return `${p.firstName?.[0]||""}${p.lastName?.[0]||""}`.toUpperCase() || "?"; }
@@ -196,9 +221,26 @@
     }
     function closeDialog(){ activeId=null; els.dialog.close(); render(); }
 
-    onSnapshot(query(peopleRef,orderBy("generation")),snap=>{
-      people=snap.docs.map(d=>({id:d.id,...d.data()})); $("syncDot").classList.add("ok"); $("syncText").textContent="Synchronisé avec Firebase"; updateSummary(); render();
-    },error=>{ console.error(error); $("syncText").textContent="Connexion impossible — vérifiez les règles Firestore"; render(); });
+    function startPeopleListener(){
+      stopPeopleListener?.();
+      stopPeopleListener=onSnapshot(query(peopleRef,orderBy("generation")),snap=>{
+        people=snap.docs.map(d=>({id:d.id,...d.data()})); $("syncDot").classList.add("ok"); $("syncText").textContent="Synchronisé avec Firebase"; updateSummary(); render();
+      },error=>{ console.error(error); $("syncDot").classList.remove("ok"); $("syncText").textContent="Accès refusé — publiez les règles Firestore fournies"; render(); });
+    }
+
+    onAuthStateChanged(auth,user=>{
+      $("authScreen").hidden=Boolean(user); $("topbar").hidden=!user; $("appMain").hidden=!user;
+      if(user){ $("syncText").textContent="Connexion à Firebase…"; startPeopleListener(); }
+      else { stopPeopleListener?.(); stopPeopleListener=null; people=[]; }
+    });
+
+    $("loginForm").addEventListener("submit",async e=>{
+      e.preventDefault(); $("authError").textContent=""; $("loginBtn").disabled=true; $("loginBtn").textContent="Connexion…";
+      try{ await signInWithEmailAndPassword(auth,$("loginEmail").value.trim(),$("loginPassword").value); }
+      catch(error){ console.error(error); $("authError").textContent=error.code==="auth/invalid-credential"?"E-mail ou mot de passe incorrect.":"Connexion impossible. Vérifiez que le mode E-mail/Mot de passe est activé."; }
+      finally{ $("loginBtn").disabled=false; $("loginBtn").textContent="Se connecter"; }
+    });
+    $("logoutBtn").addEventListener("click",()=>signOut(auth));
 
     els.form.addEventListener("submit",async e=>{
       e.preventDefault();
