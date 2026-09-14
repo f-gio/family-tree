@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
-import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, doc, getDoc, setDoc, onSnapshot, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, doc, getDoc, setDoc, onSnapshot, serverTimestamp, writeBatch, Bytes } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 import { calculateTreeLayout } from "./tree-layout.js";
 import { createTreeRenderer } from "./tree-renderer.js";
 import { createTreeCamera } from "./tree-camera.js";
@@ -9,7 +9,6 @@ const firebaseConfig = {
   apiKey: "AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",
   authDomain: "family-tree-c2fe2.firebaseapp.com",
   projectId: "family-tree-c2fe2",
-  storageBucket: "family-tree-c2fe2.firebasestorage.app",
   messagingSenderId: "1096091899254",
   appId: "1:1096091899254:web:4afff8d04448409d969657"
 };
@@ -32,13 +31,19 @@ let loadedPeople = false, loadedFamilies = false, loadedDocuments = false, loade
 let unsubs = [];
 let manualOffsets = readOffsets();
 let activeViewerUrl = "";
-const FILE_CHUNK_BYTES = 450 * 1024;
+const FILE_CHUNK_BYTES = 700 * 1024;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const viewModes = readViewModes();
 const personFields = ["firstName", "lastName", "gender", "branch", "birthDate", "deathDate", "place", "photoUrl", "notes"];
 const taskFields = ["title", "status", "priority", "assignee", "dueDate", "personId", "description", "comments"];
 
 function readOffsets() {
   try { return JSON.parse(localStorage.getItem("familyTreeManualOffsets") || "{}"); }
+  catch { return {}; }
+}
+
+function readViewModes() {
+  try { return JSON.parse(localStorage.getItem("familyTreeViewModes") || "{}") || {}; }
   catch { return {}; }
 }
 
@@ -50,6 +55,24 @@ function esc(value = "") {
   const node = document.createElement("div");
   node.textContent = value;
   return node.innerHTML;
+}
+
+function formatBytes(value = 0) {
+  if (!value) return "0 Ko";
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} Ko`;
+  return `${(value / 1024 / 1024).toFixed(1).replace(".", ",")} Mo`;
+}
+
+function setContentMode(section, mode, persist = true) {
+  const normalized = mode === "list" ? "list" : "cards";
+  const list = $(`${section}List`);
+  if (!list) return;
+  list.classList.toggle("list-mode", normalized === "list");
+  document.querySelectorAll(`[data-switch="${section}"] [data-mode]`).forEach(button => {
+    button.classList.toggle("active", button.dataset.mode === normalized);
+  });
+  viewModes[section] = normalized;
+  if (persist) localStorage.setItem("familyTreeViewModes", JSON.stringify(viewModes));
 }
 
 function toast(message) {
@@ -318,6 +341,61 @@ async function saveManualLink(event) {
   toast("Lien parent-enfant créé");
 }
 
+function personInitials(item) {
+  return `${item?.firstName?.[0] || ""}${item?.lastName?.[0] || ""}`.toUpperCase() || "?";
+}
+
+function personDates(item) {
+  const birth = item.birthDate ? new Date(`${item.birthDate}T12:00:00`).toLocaleDateString("fr-FR") : "Naissance inconnue";
+  const death = item.deathDate ? new Date(`${item.deathDate}T12:00:00`).toLocaleDateString("fr-FR") : "";
+  return death ? `${birth} – ${death}` : birth;
+}
+
+function personRelationsSummary(personId) {
+  const parentIds = new Set();
+  const partnerIds = new Set();
+  const childIds = new Set();
+  for (const family of families) {
+    if ((family.childIds || []).includes(personId)) (family.partnerIds || []).forEach(id => parentIds.add(id));
+    if ((family.partnerIds || []).includes(personId)) {
+      (family.partnerIds || []).filter(id => id !== personId).forEach(id => partnerIds.add(id));
+      (family.childIds || []).forEach(id => childIds.add(id));
+    }
+  }
+  const parts = [];
+  if (parentIds.size) parts.push(`${parentIds.size} parent${parentIds.size > 1 ? "s" : ""}`);
+  if (partnerIds.size) parts.push(`${partnerIds.size} partenaire${partnerIds.size > 1 ? "s" : ""}`);
+  if (childIds.size) parts.push(`${childIds.size} enfant${childIds.size > 1 ? "s" : ""}`);
+  return parts.join(" · ") || "Aucun lien familial";
+}
+
+function updateDirectoryBranches() {
+  const current = $("directoryBranchFilter").value;
+  const branches = [...new Set(people.map(item => item.branch?.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
+  $("directoryBranchFilter").innerHTML = '<option value="">Toutes les branches</option>' + branches.map(branch => `<option value="${esc(branch)}">${esc(branch)}</option>`).join("");
+  if (branches.includes(current)) $("directoryBranchFilter").value = current;
+}
+
+function renderDirectory() {
+  const query = $("directorySearch").value.trim().toLowerCase();
+  const branch = $("directoryBranchFilter").value;
+  const sort = $("directorySort").value;
+  const filtered = people.filter(item =>
+    (!branch || item.branch === branch) &&
+    (!query || `${item.firstName} ${item.lastName} ${item.place || ""} ${item.branch || ""} ${item.notes || ""}`.toLowerCase().includes(query))
+  );
+  filtered.sort((a, b) => {
+    if (sort === "birth") return (a.birthDate || "9999").localeCompare(b.birthDate || "9999") || nameOf(a.id).localeCompare(nameOf(b.id), "fr");
+    if (sort === "recent") return (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0);
+    return `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "fr");
+  });
+  $("directoryList").innerHTML = filtered.length ? filtered.map(item => {
+    const avatar = item.photoUrl ? `<img src="${esc(item.photoUrl)}" alt="">` : personInitials(item);
+    return `<article class="content-card directory-card" data-open-person="${item.id}" tabindex="0"><div class="directory-identity"><span class="directory-avatar">${avatar}</span><div><h3>${esc(nameOf(item.id))}</h3><p>${esc(personDates(item))}</p></div></div><p class="card-meta">${esc(item.place || "Lieu non renseigné")}${item.branch ? ` · ${esc(item.branch)}` : ""}</p><div><p>${esc(personRelationsSummary(item.id))}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}</div><div class="card-actions"><button class="btn small" type="button" data-open-person="${item.id}">Voir la fiche</button></div></article>`;
+  }).join("") : '<div class="empty-list">Aucune personne ne correspond à ces critères.</div>';
+  setContentMode("directory", viewModes.directory || "cards", false);
+}
+
 function documentPeopleMarkup(selectedIds = []) {
   const selected = new Set(selectedIds);
   return people.slice().sort((a, b) => nameOf(a.id).localeCompare(nameOf(b.id))).map(item =>
@@ -336,7 +414,9 @@ function openDocument(item = null, preselectedPersonId = "") {
   $("documentUrl").value = item?.externalUrl || "";
   $("documentNotes").value = item?.notes || "";
   $("documentPeople").innerHTML = documentPeopleMarkup(item?.personIds || (preselectedPersonId ? [preselectedPersonId] : []));
-  $("currentDocumentFile").textContent = item?.fileName ? `Fichier actuel : ${item.fileName}` : "PDF et images jusqu’à 20 Mo, enregistrés dans Firestore sans abonnement payant.";
+  $("currentDocumentFile").textContent = item?.fileName
+    ? `Fichier actuel : ${item.fileName}${item.storedSize ? ` · ${formatBytes(item.storedSize)} stockés${item.compressed ? " après optimisation" : ""}` : ""}`
+    : "Images optimisées automatiquement en haute qualité ; PDF conservés sans perte. Taille maximale : 20 Mo.";
   $("documentProgress").textContent = "";
   $("deleteDocumentBtn").hidden = !item;
   $("documentDialog").showModal();
@@ -346,16 +426,9 @@ function renderDocuments() {
   const query = $("documentSearch").value.trim().toLowerCase();
   const type = $("documentTypeFilter").value;
   const filtered = documents.filter(item => (!type || item.type === type) && (!query || `${item.title} ${item.type} ${item.place || ""} ${(item.personIds || []).map(nameOf).join(" ")}`.toLowerCase().includes(query)));
-  $("documentsList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card"><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(item.title)}</h3><p>${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${item.place ? ` · ${esc(item.place)}` : ""}</p><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p>${esc(item.notes)}</p>` : ""}<div class="card-actions">${item.chunkCount || item.fileData || item.fileUrl || item.externalUrl ? `<button class="btn small primary" data-open-document="${item.id}">Consulter</button>` : ""}<button class="btn small" data-edit-document="${item.id}">Modifier</button></div></article>`).join("") : '<div class="empty-list">Aucun document ne correspond à ces critères.</div>';
+  $("documentsList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card"><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(item.title)}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${item.place ? ` · ${esc(item.place)}` : ""}</p><div><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">Fichier optimisé : ${formatBytes(item.storedSize)}</p>` : ""}</div><div class="card-actions">${item.chunkCount || item.fileData || item.fileUrl || item.externalUrl ? `<button class="btn small primary" data-open-document="${item.id}">Consulter</button>` : ""}<button class="btn small" data-edit-document="${item.id}">Modifier</button></div></article>`).join("") : '<div class="empty-list">Aucun document ne correspond à ces critères.</div>';
+  setContentMode("documents", viewModes.documents || "cards", false);
   if (activeId && $("personDialog").open) renderPersonDocuments(activeId);
-}
-
-function bytesToBase64(bytes) {
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 32768) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
-  }
-  return btoa(binary);
 }
 
 function base64ToBytes(value) {
@@ -365,12 +438,52 @@ function base64ToBytes(value) {
   return bytes;
 }
 
+async function optimizeFile(file) {
+  const unchanged = { blob: file, mimeType: file.type || "application/octet-stream", originalSize: file.size, storedSize: file.size, compressed: false };
+  if (!file.type.startsWith("image/") || /image\/(gif|svg\+xml)/.test(file.type)) return unchanged;
+  try {
+    $("documentProgress").textContent = "Optimisation de l’image en haute qualité…";
+    const bitmap = await createImageBitmap(file);
+    const maxDimension = 2800;
+    let scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size < 900 * 1024) {
+      bitmap.close?.();
+      return unchanged;
+    }
+    let best = null;
+    const qualities = [.92, .88, .84, .80];
+    for (let attempt = 0; attempt < qualities.length; attempt++) {
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { alpha: false });
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, width, height);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(bitmap, 0, 0, width, height);
+      const candidate = await new Promise(resolve => canvas.toBlob(resolve, "image/webp", qualities[attempt]));
+      if (candidate && (!best || candidate.size < best.size)) best = candidate;
+      if (candidate && candidate.size <= Math.min(file.size * .72, 2.5 * 1024 * 1024)) break;
+      if (Math.max(width, height) > 2100) scale *= .88;
+    }
+    bitmap.close?.();
+    if (!best || best.size >= file.size * .92) return unchanged;
+    return { blob: best, mimeType: "image/webp", originalSize: file.size, storedSize: best.size, compressed: true };
+  } catch (error) {
+    console.warn("Optimisation d’image ignorée", error);
+    return unchanged;
+  }
+}
+
 function chunkReference(documentId, version, index) {
   return doc(db, "documentChunks", `${documentId}_${version}_${String(index).padStart(4, "0")}`);
 }
 
-async function writeFileChunks(documentId, version, file) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
+async function writeFileChunks(documentId, version, fileBlob) {
+  const bytes = new Uint8Array(await fileBlob.arrayBuffer());
   const count = Math.ceil(bytes.length / FILE_CHUNK_BYTES);
   let written = 0;
   try {
@@ -380,7 +493,8 @@ async function writeFileChunks(documentId, version, file) {
         documentId,
         version,
         index,
-        data: bytesToBase64(part)
+        data: Bytes.fromUint8Array(part),
+        encoding: "bytes"
       });
       written++;
       $("documentProgress").textContent = `Envoi du fichier… ${Math.round(written / count * 100)} %`;
@@ -404,7 +518,11 @@ async function readChunkedFile(item) {
   for (let index = 0; index < item.chunkCount; index++) reads.push(getDoc(chunkReference(item.id, item.chunkVersion, index)));
   const snapshots = await Promise.all(reads);
   if (snapshots.some(snapshot => !snapshot.exists())) throw new Error("Un bloc du fichier est introuvable");
-  return new Blob(snapshots.map(snapshot => base64ToBytes(snapshot.data().data)), { type: item.mimeType || "application/octet-stream" });
+  const parts = snapshots.map(snapshot => {
+    const data = snapshot.data().data;
+    return typeof data === "string" ? base64ToBytes(data) : data.toUint8Array();
+  });
+  return new Blob(parts, { type: item.mimeType || "application/octet-stream" });
 }
 
 async function openStoredDocument(item) {
@@ -458,6 +576,7 @@ async function saveDocument(event) {
   $("saveDocumentBtn").disabled = true;
   let newChunkVersion = "";
   let newChunkCount = 0;
+  let optimizationSummary = "";
   const target = id ? doc(db, "documents", id) : doc(refs.documents);
   try {
     const data = {
@@ -471,12 +590,16 @@ async function saveDocument(event) {
       updatedAt: serverTimestamp()
     };
     if (file) {
+      const optimized = await optimizeFile(file);
+      optimizationSummary = optimized.compressed ? `${formatBytes(optimized.originalSize)} → ${formatBytes(optimized.storedSize)}` : "qualité originale conservée";
       newChunkVersion = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-      $("documentProgress").textContent = "Préparation du fichier…";
-      newChunkCount = await writeFileChunks(target.id, newChunkVersion, file);
+      $("documentProgress").textContent = optimized.compressed ? `Image optimisée : ${optimizationSummary}` : "Préparation du fichier…";
+      newChunkCount = await writeFileChunks(target.id, newChunkVersion, optimized.blob);
       data.fileName = file.name;
-      data.fileSize = file.size;
-      data.mimeType = file.type || "application/octet-stream";
+      data.fileSize = optimized.originalSize;
+      data.storedSize = optimized.storedSize;
+      data.mimeType = optimized.mimeType;
+      data.compressed = optimized.compressed;
       data.storageMode = "firestore-chunks";
       data.chunkVersion = newChunkVersion;
       data.chunkCount = newChunkCount;
@@ -490,7 +613,7 @@ async function saveDocument(event) {
     else await setDoc(target, { ...data, createdAt: serverTimestamp() });
     if (file && existing?.chunkVersion) await deleteFileChunks(existing);
     close("documentDialog");
-    toast(id ? "Document mis à jour" : "Document ajouté");
+    toast(`${id ? "Document mis à jour" : "Document ajouté"}${optimizationSummary ? ` · ${optimizationSummary}` : ""}`);
   } catch (error) {
     console.error(error);
     if (newChunkVersion) await deleteFileChunks({ id: target.id, chunkVersion: newChunkVersion, chunkCount: newChunkCount });
@@ -529,7 +652,8 @@ function renderTasks() {
     (!mine || (item.assignee || "").toLowerCase() === email) &&
     (!query || `${item.title} ${item.description || ""} ${item.comments || ""} ${item.assignee || ""}`.toLowerCase().includes(query))
   ).sort((a, b) => (a.status === "done") - (b.status === "done") || (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
-  $("tasksList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card status-${item.status || "todo"}"><span class="badge priority-${item.priority || "medium"}">Priorité ${priorityLabels[item.priority] || "Moyenne"}</span><h3>${esc(item.title)}</h3><p><strong>${statusLabels[item.status] || "À faire"}</strong>${item.dueDate ? ` · Échéance ${esc(new Date(item.dueDate + "T12:00:00").toLocaleDateString("fr-FR"))}` : ""}</p><p>Responsable : ${esc(item.assignee || "Non attribuée")}</p>${item.personId ? `<p>Personne : ${esc(nameOf(item.personId))}</p>` : ""}${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.comments ? `<p><strong>Commentaires :</strong> ${esc(item.comments)}</p>` : ""}<div class="card-actions"><button class="btn small" data-edit-task="${item.id}">Modifier</button>${item.status !== "done" ? `<button class="btn small primary" data-complete-task="${item.id}">Terminer</button>` : ""}</div></article>`).join("") : '<div class="empty-list">Aucune tâche ne correspond à ces critères.</div>';
+  $("tasksList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card status-${item.status || "todo"}"><div><span class="badge priority-${item.priority || "medium"}">Priorité ${priorityLabels[item.priority] || "Moyenne"}</span><h3>${esc(item.title)}</h3></div><p class="card-meta"><strong>${statusLabels[item.status] || "À faire"}</strong>${item.dueDate ? ` · ${esc(new Date(item.dueDate + "T12:00:00").toLocaleDateString("fr-FR"))}` : ""}</p><div><p>Responsable : ${esc(item.assignee || "Non attribuée")}</p>${item.personId ? `<p>Personne : ${esc(nameOf(item.personId))}</p>` : ""}${item.description ? `<p class="card-description">${esc(item.description)}</p>` : ""}${item.comments ? `<p class="card-description"><strong>Commentaires :</strong> ${esc(item.comments)}</p>` : ""}</div><div class="card-actions"><button class="btn small" data-edit-task="${item.id}">Modifier</button>${item.status !== "done" ? `<button class="btn small primary" data-complete-task="${item.id}">Terminer</button>` : ""}</div></article>`).join("") : '<div class="empty-list">Aucune tâche ne correspond à ces critères.</div>';
+  setContentMode("tasks", viewModes.tasks || "cards", false);
 }
 
 function openTask(item = null) {
@@ -570,11 +694,13 @@ async function removeTask() {
 
 function setView(view) {
   $("appMain").hidden = view !== "tree";
+  $("directoryView").hidden = view !== "directory";
   $("documentsView").hidden = view !== "documents";
   $("tasksView").hidden = view !== "tasks";
   $("addBtn").hidden = view !== "tree";
   $("addLinkBtn").hidden = view !== "tree";
   document.querySelectorAll("[data-view]").forEach(button => button.classList.toggle("active", button.dataset.view === view));
+  if (view === "directory") renderDirectory();
   if (view === "documents") renderDocuments();
   if (view === "tasks") renderTasks();
   if (view === "tree") setTimeout(() => camera.recenter(), 0);
@@ -594,6 +720,8 @@ function startData() {
     people = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
     loadedPeople = true;
     syncState();
+    updateDirectoryBranches();
+    renderDirectory();
     renderDocuments();
     renderTasks();
   }, dataError));
@@ -601,6 +729,7 @@ function startData() {
     families = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
     loadedFamilies = true;
     syncState();
+    renderDirectory();
     if ($("relationsDialog").open) renderRelations();
   }, dataError));
   unsubs.push(onSnapshot(refs.documents, snapshot => {
@@ -625,7 +754,7 @@ onAuthStateChanged(auth, user => {
     startData();
     setView("tree");
   } else {
-    $("appMain").hidden = $("documentsView").hidden = $("tasksView").hidden = true;
+    $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("tasksView").hidden = true;
     unsubs.forEach(unsub => unsub());
     unsubs = [];
     people = []; families = []; documents = []; tasks = [];
@@ -729,6 +858,18 @@ $("documentsList").onclick = event => {
   if (editButton) openDocument(documents.find(value => value.id === editButton.dataset.editDocument));
 };
 
+$("directoryList").addEventListener("click", event => {
+  const target = event.target.closest("[data-open-person]");
+  if (target) openPerson(person(target.dataset.openPerson));
+});
+$("directoryList").addEventListener("keydown", event => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const target = event.target.closest("[data-open-person]");
+  if (!target) return;
+  event.preventDefault();
+  openPerson(person(target.dataset.openPerson));
+});
+
 $("tasksList").onclick = async event => {
   const editButton = event.target.closest("[data-edit-task]");
   const completeButton = event.target.closest("[data-complete-task]");
@@ -738,6 +879,7 @@ $("tasksList").onclick = async event => {
 
 $("logoutBtn").onclick = () => signOut(auth);
 $("addBtn").onclick = () => openPerson();
+$("addDirectoryPersonBtn").onclick = () => openPerson();
 $("search").oninput = () => applySearch(true);
 $("resetBtn").onclick = () => { $("search").value = ""; applySearch(false); };
 $("zoomOutBtn").onclick = () => camera.zoomBy(1 / 1.2);
@@ -775,6 +917,13 @@ $("deleteTaskBtn").onclick = removeTask;
 ["taskSearch", "taskStatusFilter", "taskPriorityFilter", "myTasksFilter"].forEach(id => {
   $(id).addEventListener(id === "taskSearch" ? "input" : "change", renderTasks);
 });
+[$("directorySearch"), $("directoryBranchFilter"), $("directorySort")].forEach(field => {
+  field.addEventListener(field.id === "directorySearch" ? "input" : "change", renderDirectory);
+});
+document.querySelectorAll("[data-switch] [data-mode]").forEach(button => {
+  button.onclick = () => setContentMode(button.closest("[data-switch]").dataset.switch, button.dataset.mode);
+});
+for (const section of ["directory", "documents", "tasks"]) setContentMode(section, viewModes[section] || "cards", false);
 document.querySelectorAll("[data-view]").forEach(button => button.onclick = () => setView(button.dataset.view));
 
 $("exportBtn").onclick = () => {
