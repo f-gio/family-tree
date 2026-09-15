@@ -17,33 +17,40 @@ function dates(person) {
   return death ? `${birth} – ${death}` : birth !== '?' ? `Né(e) en ${birth}` : 'Dates à compléter';
 }
 
-function connectionPaths(layout) {
+function familyColorIndex(family, index) {
+  return index % 6;
+}
+
+function connectionElements(layout) {
   const { positions, families, geometry } = layout;
-  const paths = [];
-  for (const family of families) {
+  const elements = [];
+  families.forEach((family, familyIndex) => {
+    const colorClass = `family-${familyColorIndex(family, familyIndex)}`;
     const partners = (family.partnerIds || []).map(id => positions.get(id)).filter(Boolean).sort((a, b) => a.x - b.x);
     const children = (family.childIds || []).map(id => positions.get(id)).filter(Boolean);
-    if (!partners.length) continue;
+    if (!partners.length) return;
     let origin;
     if (partners.length > 1) {
       const left = partners[0], right = partners[partners.length - 1];
       const y = (left.y + right.y) / 2 + left.height / 2;
       const x1 = left.x + left.width, x2 = right.x;
-      paths.push(`M ${x1} ${y} H ${x2}`);
+      elements.push(`<path class="union-line ${colorClass}" d="M ${x1} ${y} H ${x2}"/>`);
       origin = { x: (x1 + x2) / 2, y };
     } else {
       origin = { x: partners[0].x + partners[0].width / 2, y: partners[0].y + partners[0].height };
     }
-    if (!children.length) continue;
+    if (!children.length) return;
     const childPoints = children.map(child => ({ x: child.x + child.width / 2, y: child.y }));
     const busY = Math.min(...childPoints.map(point => point.y)) - geometry.levelGap / 2;
-    paths.push(`M ${origin.x} ${origin.y} V ${busY}`);
+    elements.push(`<path class="descent-line ${colorClass}" d="M ${origin.x} ${origin.y} V ${busY}"/>`);
     const allX = [origin.x, ...childPoints.map(point => point.x)];
     const minX = Math.min(...allX), maxX = Math.max(...allX);
-    if (maxX - minX > 0.5) paths.push(`M ${minX} ${busY} H ${maxX}`);
-    childPoints.forEach(point => paths.push(`M ${point.x} ${busY} V ${point.y}`));
-  }
-  return paths;
+    if (maxX - minX > 0.5) elements.push(`<path class="descent-line ${colorClass}" d="M ${minX} ${busY} H ${maxX}"/>`);
+    childPoints.forEach(point => elements.push(`<path class="descent-line ${colorClass}" d="M ${point.x} ${busY} V ${point.y}"/>`));
+    elements.push(`<circle class="junction ${colorClass}" cx="${origin.x}" cy="${origin.y}" r="5"/>`);
+    elements.push(`<circle class="junction ${colorClass}" cx="${origin.x}" cy="${busY}" r="4"/>`);
+  });
+  return elements;
 }
 
 export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmptyAdd, getScale = () => 1, shouldSuppressClick = () => false }) {
@@ -56,7 +63,7 @@ export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmpty
   function drawConnections() {
     if (!currentLayout) return;
     const svg = scene.querySelector('.tree-svg');
-    if (svg) svg.innerHTML = connectionPaths(currentLayout).map(path => `<path d="${path}"/>`).join('');
+    if (svg) svg.innerHTML = connectionElements(currentLayout).join('');
   }
 
   scene.addEventListener('click', event => {
@@ -124,12 +131,13 @@ export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmpty
         scene.innerHTML = '<div class="empty"><div class="empty-icon">♧</div><h3>Votre arbre commence ici</h3><p>Ajoutez une première personne, puis créez ses liens familiaux.</p><button class="btn primary" data-empty-add>Ajouter une personne</button></div>';
         return;
       }
-      const paths = connectionPaths(layout).map(path => `<path d="${path}"/>`).join('');
+      const paths = connectionElements(layout).join('');
       const cards = people.map(person => {
         const position = layout.positions.get(person.id);
         if (!position) return '';
         const avatar = person.photoUrl ? `<img src="${escapeHtml(person.photoUrl)}" alt="">` : initials(person);
-        return `<button class="person" data-person-id="${person.id}" style="left:${position.x}px;top:${position.y}px" aria-label="Ouvrir et modifier ${escapeHtml(person.firstName)} ${escapeHtml(person.lastName)}"><span class="drag-hint" aria-hidden="true">⋮⋮</span><span class="avatar">${avatar}</span><strong>${escapeHtml(person.firstName)} ${escapeHtml(person.lastName)}</strong><span>${dates(person)}</span><span class="place">${escapeHtml(person.place || person.branch || 'Lieu à compléter')}</span></button>`;
+        const birthName = [person.firstName, person.middleName, person.lastName].filter(Boolean).join(' ');
+        return `<button class="person" data-person-id="${person.id}" style="left:${position.x}px;top:${position.y}px" aria-label="Ouvrir et modifier ${escapeHtml(birthName)}"><span class="drag-hint" aria-hidden="true">⋮⋮</span><span class="avatar">${avatar}</span><strong>${escapeHtml(birthName)}</strong><span>${dates(person)}</span><span class="place">${escapeHtml(person.place || person.branch || 'Lieu à compléter')}</span></button>`;
       }).join('');
       scene.innerHTML = `<svg class="tree-svg" viewBox="0 0 ${layout.bounds.width} ${layout.bounds.height}" aria-hidden="true">${paths}</svg>${cards}`;
       applyState();

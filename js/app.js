@@ -26,6 +26,7 @@ const refs = {
 
 let people = [], families = [], documents = [], tasks = [];
 let activeId = null, currentLayout = null, automaticPositions = new Map();
+let personDialogSource = "tree";
 let cameraPositioned = false, focusAfterRender = null;
 let loadedPeople = false, loadedFamilies = false, loadedDocuments = false, loadedTasks = false;
 let unsubs = [];
@@ -34,7 +35,7 @@ let activeViewerUrl = "";
 const FILE_CHUNK_BYTES = 700 * 1024;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const viewModes = readViewModes();
-const personFields = ["firstName", "lastName", "gender", "branch", "birthDate", "deathDate", "place", "photoUrl", "notes"];
+const personFields = ["firstName", "middleName", "lastName", "marriedName", "gender", "branch", "birthDate", "place", "deathDate", "deathPlace", "photoUrl", "notes"];
 const taskFields = ["title", "status", "priority", "assignee", "dueDate", "personId", "description", "comments"];
 
 function readOffsets() {
@@ -82,9 +83,10 @@ function toast(message) {
 }
 
 function person(id) { return people.find(item => item.id === id); }
+function treePeople() { return people.filter(item => item.inTree !== false); }
 function nameOf(id) {
   const item = person(id);
-  return item ? `${item.firstName} ${item.lastName}` : "Personne supprimée";
+  return item ? [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ") : "Personne supprimée";
 }
 
 function applyManualPositions(layout) {
@@ -128,8 +130,9 @@ const renderer = createTreeRenderer({
 
 function renderTree() {
   if (!loadedPeople || !loadedFamilies) return;
-  currentLayout = applyManualPositions(calculateTreeLayout(people, families));
-  renderer.render(people, currentLayout);
+  const visiblePeople = treePeople();
+  currentLayout = applyManualPositions(calculateTreeLayout(visiblePeople, families));
+  renderer.render(visiblePeople, currentLayout);
   renderer.setActive(activeId);
   camera.setBounds(currentLayout.bounds);
   if (!cameraPositioned) {
@@ -148,14 +151,15 @@ function syncState() {
     $("syncDot").classList.add("ok");
     $("syncText").textContent = "Synchronisé avec Firebase";
   }
-  $("peopleCount").textContent = `${people.length} personne${people.length > 1 ? "s" : ""}`;
+  const visibleCount = treePeople().length;
+  $("peopleCount").textContent = `${visibleCount} personne${visibleCount > 1 ? "s" : ""} dans l’arbre`;
   $("familyCount").textContent = `${families.length} union${families.length > 1 ? "s" : ""}`;
   renderTree();
 }
 
 function applySearch(focus = true) {
   const query = $("search").value.trim().toLowerCase();
-  const matches = query ? people.filter(item => `${item.firstName} ${item.lastName} ${item.place || ""} ${item.branch || ""}`.toLowerCase().includes(query)) : [];
+  const matches = query ? treePeople().filter(item => `${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.place || ""} ${item.branch || ""}`.toLowerCase().includes(query)) : [];
   renderer.setHighlights(matches.map(item => item.id));
   if (focus && matches[0] && currentLayout?.positions.has(matches[0].id)) camera.focus(currentLayout.positions.get(matches[0].id));
 }
@@ -167,16 +171,25 @@ function renderPersonDocuments(personId) {
     : '<div class="hint">Aucun document associé.</div>';
 }
 
-function openPerson(item = null) {
+function updateMarriedNameVisibility() {
+  const show = $("gender").value === "F" || !!$("marriedName").value;
+  $("marriedNameField").hidden = !show;
+}
+
+function openPerson(item = null, source = "tree") {
+  personDialogSource = source;
   activeId = item?.id || null;
   renderer.setActive(activeId);
   $("dialogTitle").textContent = item ? "Modifier la personne" : "Ajouter une personne";
   $("savePersonBtn").textContent = item ? "Enregistrer" : "Enregistrer et ajouter ses liens";
   $("deleteBtn").hidden = !item;
+  $("deleteBtn").textContent = source === "directory" ? "Supprimer définitivement" : "Retirer de l’arbre";
+  $("restoreTreeBtn").hidden = !item || item.inTree !== false || source !== "directory";
   $("relationsBtn").hidden = !item;
   $("personDocumentsSection").hidden = !item;
   $("personId").value = item?.id || "";
   for (const key of personFields) $(key).value = item?.[key] || "";
+  updateMarriedNameVisibility();
   if (item) renderPersonDocuments(item.id);
   $("personDialog").showModal();
   setTimeout(() => $("firstName").focus(), 30);
@@ -203,6 +216,14 @@ function availableOptions(exclude = []) {
     .filter(item => !excluded.has(item.id))
     .sort((a, b) => nameOf(a.id).localeCompare(nameOf(b.id)))
     .map(item => `<option value="${item.id}">${esc(nameOf(item.id))}</option>`).join("");
+}
+
+async function ensurePeopleInTree(ids = []) {
+  const hiddenIds = [...new Set(ids)].filter(id => person(id)?.inTree === false);
+  if (!hiddenIds.length) return;
+  const batch = writeBatch(db);
+  hiddenIds.forEach(id => batch.update(doc(db, "people", id), { inTree: true, updatedAt: serverTimestamp() }));
+  await batch.commit();
 }
 
 function openRelations() {
@@ -243,6 +264,7 @@ async function addPartner() {
     const ids = new Set(family.partnerIds || []);
     return ids.has(activeId) && ids.has(other);
   })) return toast("Cette union existe déjà");
+  await ensurePeopleInTree([activeId, other]);
   const single = families.find(family => (family.partnerIds || []).length === 1 && (family.partnerIds || []).includes(activeId));
   if (single) await updateDoc(doc(db, "families", single.id), { partnerIds: [activeId, other], updatedAt: serverTimestamp() });
   else await addDoc(refs.families, { partnerIds: [activeId, other], childIds: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
@@ -253,6 +275,7 @@ async function addChild() {
   const child = $("childSelect").value;
   if (!child) return toast("Choisissez un enfant");
   const familyId = $("childFamilySelect").value;
+  await ensurePeopleInTree([activeId, child]);
   if (familyId === "new") await addDoc(refs.families, { partnerIds: [activeId], childIds: [child], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   else {
     const family = families.find(item => item.id === familyId);
@@ -266,6 +289,7 @@ async function addChild() {
 async function addParent() {
   const parentId = $("parentSelect").value;
   if (!parentId) return toast("Choisissez un parent");
+  await ensurePeopleInTree([activeId, parentId]);
   const family = families.find(item => (item.childIds || []).includes(activeId) && (item.partnerIds || []).length < 2);
   if (family) {
     if ((family.partnerIds || []).includes(parentId)) return toast("Ce parent est déjà rattaché");
@@ -316,6 +340,7 @@ async function saveManualLink(event) {
   if (!childId || !parentIds.length) return toast("Choisissez l’enfant et au moins un parent");
   if (parentIds.includes(childId)) return toast("Une personne ne peut pas être son propre parent");
   if (parentIds.some(parentId => ancestorsOf(parentId).has(childId))) return toast("Ce lien créerait une boucle dans l’arbre");
+  await ensurePeopleInTree([childId, ...parentIds]);
 
   let family = families.find(item => {
     const current = new Set(item.partnerIds || []);
@@ -351,6 +376,15 @@ function personDates(item) {
   return death ? `${birth} – ${death}` : birth;
 }
 
+function directoryDisplayName(item) {
+  return `${item.lastName || ""} ${[item.firstName, item.middleName].filter(Boolean).join(" ")}`.trim();
+}
+
+function surnameLetter(item) {
+  const first = (item.lastName || "#").normalize("NFD").replace(/[\u0300-\u036f]/g, "").charAt(0).toUpperCase();
+  return /^[A-Z]$/.test(first) ? first : "#";
+}
+
 function personRelationsSummary(personId) {
   const parentIds = new Set();
   const partnerIds = new Set();
@@ -376,22 +410,27 @@ function updateDirectoryBranches() {
   if (branches.includes(current)) $("directoryBranchFilter").value = current;
 }
 
+function renderDirectoryAlphabet(items) {
+  const available = new Set(items.map(surnameLetter));
+  const letters = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ", "#"];
+  $("directoryAlphabet").innerHTML = letters.map(letter => `<button type="button" data-letter="${letter}" ${available.has(letter) ? "" : "disabled"}>${letter}</button>`).join("");
+}
+
 function renderDirectory() {
   const query = $("directorySearch").value.trim().toLowerCase();
   const branch = $("directoryBranchFilter").value;
-  const sort = $("directorySort").value;
   const filtered = people.filter(item =>
     (!branch || item.branch === branch) &&
-    (!query || `${item.firstName} ${item.lastName} ${item.place || ""} ${item.branch || ""} ${item.notes || ""}`.toLowerCase().includes(query))
+    (!query || `${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.place || ""} ${item.deathPlace || ""} ${item.branch || ""} ${item.notes || ""}`.toLowerCase().includes(query))
   );
-  filtered.sort((a, b) => {
-    if (sort === "birth") return (a.birthDate || "9999").localeCompare(b.birthDate || "9999") || nameOf(a.id).localeCompare(nameOf(b.id), "fr");
-    if (sort === "recent") return (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0);
-    return `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "fr");
-  });
+  filtered.sort((a, b) => directoryDisplayName(a).localeCompare(directoryDisplayName(b), "fr", { sensitivity: "base" }));
+  renderDirectoryAlphabet(filtered);
   $("directoryList").innerHTML = filtered.length ? filtered.map(item => {
     const avatar = item.photoUrl ? `<img src="${esc(item.photoUrl)}" alt="">` : personInitials(item);
-    return `<article class="content-card directory-card" data-open-person="${item.id}" tabindex="0"><div class="directory-identity"><span class="directory-avatar">${avatar}</span><div><h3>${esc(nameOf(item.id))}</h3><p>${esc(personDates(item))}</p></div></div><p class="card-meta">${esc(item.place || "Lieu non renseigné")}${item.branch ? ` · ${esc(item.branch)}` : ""}</p><div><p>${esc(personRelationsSummary(item.id))}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}</div><div class="card-actions"><button class="btn small" type="button" data-open-person="${item.id}">Voir la fiche</button></div></article>`;
+    const married = item.marriedName ? `<p class="list-optional">Nom d’épouse : ${esc(item.marriedName)}</p>` : "";
+    const death = item.deathDate || item.deathPlace ? `<p class="list-optional">Décès : ${item.deathDate ? esc(new Date(`${item.deathDate}T12:00:00`).toLocaleDateString("fr-FR")) : "date inconnue"}${item.deathPlace ? ` · ${esc(item.deathPlace)}` : ""}</p>` : "";
+    const presence = item.inTree === false ? '<span class="badge muted">Masquée de l’arbre</span>' : "";
+    return `<article class="content-card directory-card" data-letter="${surnameLetter(item)}" data-open-person="${item.id}" tabindex="0"><div class="directory-identity"><span class="directory-avatar">${avatar}</span><div><h3>${esc(directoryDisplayName(item))}</h3><p>${esc(personDates(item))}</p>${presence}</div></div><p class="card-meta">${esc(item.place || "Lieu de naissance non renseigné")}${item.branch ? ` · ${esc(item.branch)}` : ""}</p><div>${married}${death}<p>${esc(personRelationsSummary(item.id))}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}</div><div class="card-actions"><button class="btn small" type="button" data-open-person="${item.id}">Voir la fiche</button></div></article>`;
   }).join("") : '<div class="empty-list">Aucune personne ne correspond à ces critères.</div>';
   setContentMode("directory", viewModes.directory || "cards", false);
 }
@@ -787,8 +826,8 @@ $("personForm").addEventListener("submit", async event => {
       close("personDialog");
       toast("Personne mise à jour");
     } else {
-      const created = await addDoc(refs.people, { ...data, createdAt: serverTimestamp() });
-      people.push({ id: created.id, ...data });
+      const created = await addDoc(refs.people, { ...data, inTree: true, createdAt: serverTimestamp() });
+      people.push({ id: created.id, ...data, inTree: true });
       activeId = created.id;
       focusAfterRender = created.id;
       $("personDialog").close();
@@ -803,7 +842,17 @@ $("personForm").addEventListener("submit", async event => {
 
 $("deleteBtn").onclick = async () => {
   const id = $("personId").value;
-  if (!id || !confirm("Supprimer cette personne et tous ses liens familiaux ?")) return;
+  if (!id) return;
+  if (personDialogSource === "tree") {
+    if (!confirm("Retirer cette personne de l’arbre ? Sa fiche et ses liens resteront disponibles dans l’annuaire.")) return;
+    await updateDoc(doc(db, "people", id), { inTree: false, updatedAt: serverTimestamp() });
+    delete manualOffsets[id];
+    saveOffsets();
+    close("personDialog");
+    toast("Personne retirée de l’arbre, fiche conservée dans l’annuaire");
+    return;
+  }
+  if (!confirm("Supprimer définitivement cette personne ? Elle sera aussi retirée de l’arbre et de tous ses liens familiaux.")) return;
   const batch = writeBatch(db);
   batch.delete(doc(db, "people", id));
   for (const family of families) {
@@ -824,6 +873,15 @@ $("deleteBtn").onclick = async () => {
   saveOffsets();
   close("personDialog");
   toast("Personne supprimée");
+};
+
+$("restoreTreeBtn").onclick = async () => {
+  const id = $("personId").value;
+  if (!id) return;
+  await updateDoc(doc(db, "people", id), { inTree: true, updatedAt: serverTimestamp() });
+  focusAfterRender = id;
+  close("personDialog");
+  toast("Personne ajoutée à l’arbre");
 };
 
 $("relationsBtn").onclick = openRelations;
@@ -860,14 +918,26 @@ $("documentsList").onclick = event => {
 
 $("directoryList").addEventListener("click", event => {
   const target = event.target.closest("[data-open-person]");
-  if (target) openPerson(person(target.dataset.openPerson));
+  if (target) openPerson(person(target.dataset.openPerson), "directory");
 });
 $("directoryList").addEventListener("keydown", event => {
   if (event.key !== "Enter" && event.key !== " ") return;
   const target = event.target.closest("[data-open-person]");
   if (!target) return;
   event.preventDefault();
-  openPerson(person(target.dataset.openPerson));
+  openPerson(person(target.dataset.openPerson), "directory");
+});
+
+$("directoryAlphabet").addEventListener("click", event => {
+  const button = event.target.closest("[data-letter]");
+  if (!button || button.disabled) return;
+  const target = $("directoryList").querySelector(`[data-letter="${button.dataset.letter}"]`);
+  if (!target) return;
+  document.querySelectorAll("#directoryAlphabet button").forEach(item => item.classList.toggle("active", item === button));
+  document.querySelectorAll("#directoryList .letter-target").forEach(item => item.classList.remove("letter-target"));
+  target.classList.add("letter-target");
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
+  setTimeout(() => target.classList.remove("letter-target"), 1800);
 });
 
 $("tasksList").onclick = async event => {
@@ -879,7 +949,8 @@ $("tasksList").onclick = async event => {
 
 $("logoutBtn").onclick = () => signOut(auth);
 $("addBtn").onclick = () => openPerson();
-$("addDirectoryPersonBtn").onclick = () => openPerson();
+$("addDirectoryPersonBtn").onclick = () => openPerson(null, "directory");
+$("gender").onchange = updateMarriedNameVisibility;
 $("search").oninput = () => applySearch(true);
 $("resetBtn").onclick = () => { $("search").value = ""; applySearch(false); };
 $("zoomOutBtn").onclick = () => camera.zoomBy(1 / 1.2);
@@ -917,7 +988,7 @@ $("deleteTaskBtn").onclick = removeTask;
 ["taskSearch", "taskStatusFilter", "taskPriorityFilter", "myTasksFilter"].forEach(id => {
   $(id).addEventListener(id === "taskSearch" ? "input" : "change", renderTasks);
 });
-[$("directorySearch"), $("directoryBranchFilter"), $("directorySort")].forEach(field => {
+[$("directorySearch"), $("directoryBranchFilter")].forEach(field => {
   field.addEventListener(field.id === "directorySearch" ? "input" : "change", renderDirectory);
 });
 document.querySelectorAll("[data-switch] [data-mode]").forEach(button => {
