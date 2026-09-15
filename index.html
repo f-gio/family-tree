@@ -200,7 +200,7 @@
 <div class="content-grid" id="tasksList">
 </div>
 </main>
-  <dialog class="person-dialog" id="personDialog" aria-labelledby="dialogTitle">
+  <dialog class="person-dialog modal-lg" id="personDialog" aria-labelledby="dialogTitle">
 <div class="modal-head">
 <div>
 <h3 id="dialogTitle">Ajouter une personne</h3>
@@ -213,10 +213,11 @@
 <button class="person-section-tab" id="personRelationsTab" type="button" role="tab" aria-selected="false" aria-controls="personRelationsPanel" data-person-section="relations">Liens familiaux</button>
 <button class="person-section-tab" id="personDocumentsTab" type="button" role="tab" aria-selected="false" aria-controls="personDocumentsPanel" data-person-section="documents">Documents associés</button>
 </nav>
-<form class="modal-body" id="personForm">
+<form class="modal-body person-modal-form" id="personForm">
 <input type="hidden" id="personId">
 <section class="person-section-panel" id="personIdentityPanel" role="tabpanel" aria-labelledby="personIdentityTab" data-person-panel="identity">
 <div class="grid">
+<header class="form-section-heading wide"><h4>Identité</h4><p>Noms et informations utilisées pour identifier cette personne.</p></header>
 <label>Prénom *<input class="field" id="firstName" required maxlength="80">
 </label>
 <label>Second prénom<input class="field" id="middleName" maxlength="80">
@@ -234,6 +235,7 @@
 </label>
 <label>Branche familiale<input class="field" id="branch" placeholder="Ex. Giovannoni" maxlength="80">
 </label>
+<header class="form-section-heading wide"><h4>Événements de vie</h4><p>Conservez uniquement le niveau de précision réellement connu.</p></header>
 <fieldset class="life-fields wide"><legend>Naissance</legend><div class="life-fields-grid">
 <div class="genealogy-date" data-date-control="birth"><label>Précision de la date</label><div class="date-type-switch" role="group" aria-label="Précision de la date de naissance"><button class="date-type-button active" type="button" data-date-prefix="birth" data-date-type="exact">Date précise</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="year">Année</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="about">Vers</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="between">Entre</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="unknown">Inconnue</button></div><div class="date-value-panel single" data-date-panel="birth-exact"><label>Date précise<input class="field" id="birthDate" type="date"></label></div><div class="date-value-panel single" data-date-panel="birth-year" hidden><label>Année<input class="field" id="birthYear" type="number" min="1" max="9999" inputmode="numeric"></label></div><div class="date-value-panel" data-date-panel="birth-between" hidden><label>De<input class="field" id="birthYearFrom" type="number" min="1" max="9999" inputmode="numeric"></label><label>À<input class="field" id="birthYearTo" type="number" min="1" max="9999" inputmode="numeric"></label></div><div class="date-unknown" data-date-panel="birth-unknown" hidden>La date sera affichée « — ».</div></div>
 <label>Lieu<input class="field" id="place" placeholder="Ex. Orino, Varese, Italie" maxlength="140">
@@ -244,6 +246,7 @@
 <label>Lieu<input class="field" id="deathPlace" placeholder="Ville, province, pays" maxlength="140">
 </label>
 </div></fieldset>
+<header class="form-section-heading wide"><h4>Informations complémentaires</h4><p>Ajoutez une photo ou des éléments utiles à la recherche familiale.</p></header>
 <input id="photoUrl" type="hidden">
 <section class="photo-upload wide" aria-labelledby="photoUploadTitle">
 <span class="photo-preview" id="personPhotoPreview" aria-hidden="true">?</span>
@@ -288,74 +291,81 @@
 </div>
 </form>
 </dialog>
-  <dialog id="manualLinkDialog" aria-labelledby="manualLinkDialogTitle">
+  <dialog class="modal-md" id="manualLinkDialog" aria-labelledby="manualLinkDialogTitle">
 <div class="modal-head"><div><h3 id="manualLinkDialogTitle">Créer un lien parent-enfant</h3><p>Choisissez l’enfant et son ou ses parents parmi les personnes existantes.</p></div><button class="btn icon-btn" type="button" data-close="manualLinkDialog" aria-label="Fermer">×</button></div>
-<form class="modal-body" id="manualLinkForm"><div class="grid">
+<form class="modal-body modal-form" id="manualLinkForm"><div class="modal-scroll"><div class="grid">
+<header class="form-section-heading wide"><h4>Personnes concernées</h4><p>Le second parent reste facultatif.</p></header>
 <label class="wide">Enfant *<select class="field" id="manualChild" required></select></label>
-<label>Premier parent *<select class="field" id="manualParent1" required></select><select class="field" id="manualParent1Type" aria-label="Type de filiation avec le premier parent"><option value="unknown">Filiation non précisée</option><option value="biological">Biologique</option><option value="adoptive">Adoptive</option><option value="uncertain">Incertaine</option></select></label>
-<label>Second parent, facultatif<select class="field" id="manualParent2"></select><select class="field" id="manualParent2Type" aria-label="Type de filiation avec le second parent"><option value="unknown">Filiation non précisée</option><option value="biological">Biologique</option><option value="adoptive">Adoptive</option><option value="uncertain">Incertaine</option></select></label>
-</div><p class="hint" style="margin-top:14px">Si les deux parents forment déjà une union, l’enfant sera rattaché à cette union. Sinon, elle sera créée automatiquement.</p><div class="modal-actions"><div class="right"><button class="btn" type="button" data-close="manualLinkDialog">Annuler</button><button class="btn primary" type="submit">Créer le lien</button></div></div></form>
+<div class="field-stack"><label>Premier parent *<select class="field" id="manualParent1" required></select></label><label>Type de filiation avec le premier parent<select class="field" id="manualParent1Type"><option value="unknown">Filiation non précisée</option><option value="biological">Biologique</option><option value="adoptive">Adoptive</option><option value="uncertain">Incertaine</option></select></label></div>
+<div class="field-stack"><label>Second parent <span class="label-optional">(facultatif)</span><select class="field" id="manualParent2"></select></label><label>Type de filiation avec le second parent<select class="field" id="manualParent2Type"><option value="unknown">Filiation non précisée</option><option value="biological">Biologique</option><option value="adoptive">Adoptive</option><option value="uncertain">Incertaine</option></select></label></div>
+</div><p class="hint form-context-help">Si les deux parents forment déjà une union, l’enfant sera rattaché à cette union. Sinon, elle sera créée automatiquement.</p></div><div class="modal-actions"><div class="right"><button class="btn" type="button" data-close="manualLinkDialog">Annuler</button><button class="btn primary" type="submit">Créer le lien</button></div></div></form>
 </dialog>
-  <dialog id="familyDetailsDialog" aria-labelledby="familyDetailsTitle">
+  <dialog class="modal-lg" id="familyDetailsDialog" aria-labelledby="familyDetailsTitle">
 <div class="modal-head"><div><h3 id="familyDetailsTitle">Détails de la relation</h3><p>Ces informations appartiennent au lien familial et restent distinctes de l’identité.</p></div><button class="btn icon-btn" type="button" data-close="familyDetailsDialog" aria-label="Fermer">×</button></div>
-<form class="modal-body" id="familyDetailsForm"><input type="hidden" id="familyDetailsId">
+<form class="modal-body modal-form" id="familyDetailsForm"><div class="modal-scroll"><input type="hidden" id="familyDetailsId">
 <section class="family-detail-section"><h4>Union</h4><div class="family-detail-grid"><label>Type de relation<select class="field" id="familyRelationType"><option value="unknown">Non précisé</option><option value="marriage">Mariage</option><option value="civil">PACS / union civile</option><option value="partner">Union libre / partenaire</option><option value="other">Autre</option></select></label><label>Lieu de l’union<input class="field" id="unionPlace" maxlength="140"></label></div><div class="genealogy-date" data-date-control="union" style="margin-top:12px"><label>Date de l’union</label><div class="date-type-switch"><button class="date-type-button active" type="button" data-date-prefix="union" data-date-type="exact">Date précise</button><button class="date-type-button" type="button" data-date-prefix="union" data-date-type="year">Année</button><button class="date-type-button" type="button" data-date-prefix="union" data-date-type="about">Vers</button><button class="date-type-button" type="button" data-date-prefix="union" data-date-type="between">Entre</button><button class="date-type-button" type="button" data-date-prefix="union" data-date-type="unknown">Inconnue</button></div><div class="date-value-panel single" data-date-panel="union-exact"><label>Date précise<input class="field" id="unionDate" type="date"></label></div><div class="date-value-panel single" data-date-panel="union-year" hidden><label>Année<input class="field" id="unionYear" type="number" min="1" max="9999"></label></div><div class="date-value-panel" data-date-panel="union-between" hidden><label>De<input class="field" id="unionYearFrom" type="number" min="1" max="9999"></label><label>À<input class="field" id="unionYearTo" type="number" min="1" max="9999"></label></div><div class="date-unknown" data-date-panel="union-unknown" hidden>La date sera affichée « — ».</div></div></section>
 <section class="family-detail-section"><h4>Fin de relation</h4><label>Situation<select class="field" id="familyEndType"><option value="none">Toujours en cours / sans fin connue</option><option value="separation">Séparation</option><option value="divorce">Divorce</option><option value="other">Autre</option><option value="unknown">Information inconnue</option></select></label><div id="endDetailsFields" hidden><label style="margin-top:12px">Lieu<input class="field" id="endPlace" maxlength="140"></label><div class="genealogy-date" data-date-control="end" style="margin-top:12px"><label>Date</label><div class="date-type-switch"><button class="date-type-button active" type="button" data-date-prefix="end" data-date-type="exact">Date précise</button><button class="date-type-button" type="button" data-date-prefix="end" data-date-type="year">Année</button><button class="date-type-button" type="button" data-date-prefix="end" data-date-type="about">Vers</button><button class="date-type-button" type="button" data-date-prefix="end" data-date-type="between">Entre</button><button class="date-type-button" type="button" data-date-prefix="end" data-date-type="unknown">Inconnue</button></div><div class="date-value-panel single" data-date-panel="end-exact"><label>Date précise<input class="field" id="endDate" type="date"></label></div><div class="date-value-panel single" data-date-panel="end-year" hidden><label>Année<input class="field" id="endYear" type="number" min="1" max="9999"></label></div><div class="date-value-panel" data-date-panel="end-between" hidden><label>De<input class="field" id="endYearFrom" type="number" min="1" max="9999"></label><label>À<input class="field" id="endYearTo" type="number" min="1" max="9999"></label></div><div class="date-unknown" data-date-panel="end-unknown" hidden>La date sera affichée « — ».</div></div></div></section>
-<section class="family-detail-section"><h4>Filiations parent → enfant</h4><div id="filiationEditors"></div></section>
+<section class="family-detail-section"><h4>Filiations parent → enfant</h4><div id="filiationEditors"></div></section></div>
 <div class="modal-actions"><div class="right"><button class="btn" type="button" data-close="familyDetailsDialog">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></div></form></dialog>
-  <dialog id="documentDialog" aria-labelledby="documentDialogTitle">
+  <dialog class="modal-lg" id="documentDialog" aria-labelledby="documentDialogTitle">
 <div class="modal-head"><div><h3 id="documentDialogTitle">Ajouter un document</h3><p>Le même document peut être associé à plusieurs personnes.</p></div><button class="btn icon-btn" type="button" data-close="documentDialog" aria-label="Fermer">×</button></div>
-<form class="modal-body" id="documentForm"><input type="hidden" id="documentId"><div class="grid">
+<form class="modal-body modal-form" id="documentForm"><div class="modal-scroll"><input type="hidden" id="documentId"><div class="grid">
+<header class="form-section-heading wide"><h4>Identification</h4><p>Le titre personnalisé reste facultatif.</p></header>
 <label class="wide">Titre <span class="hint">(facultatif)</span><input class="field" id="documentTitle" maxlength="140" placeholder="Ex. Acte de naissance de Carlo"></label>
 <label>Type *<select class="field" id="documentType" required><option value="">Sélectionner…</option><option>Acte de naissance</option><option>Acte de décès</option><option>Acte de baptême</option><option>Acte de mariage</option><option>Recensement</option><option>Photo</option><option>Autre</option></select></label>
 <label>Date du document<input class="field" id="documentDate" type="date"></label>
 <label class="wide">Lieu<input class="field" id="documentPlace" maxlength="140"></label>
+<header class="form-section-heading wide"><h4>Source du document</h4><p>Ajoutez un fichier ou, à défaut, une adresse permettant de le consulter.</p></header>
 <label class="wide">Fichier PDF ou image<input class="field" id="documentFile" type="file" accept=".pdf,application/pdf,image/*"><span class="file-note" id="currentDocumentFile">Les images sont automatiquement optimisées en haute qualité. Les PDF restent inchangés pour préserver leur lisibilité.</span></label>
 <label class="wide">Ou lien vers le document<input class="field" id="documentUrl" type="url" placeholder="https://…"><span class="file-note">Vous pouvez utiliser un lien Google Drive, Dropbox ou vers une archive en ligne.</span></label>
+<header class="form-section-heading wide"><h4>Association et notes</h4><p>Un document peut concerner plusieurs personnes.</p></header>
 <div class="wide"><label>Personnes concernées</label><div class="checkbox-list" id="documentPeople"></div></div>
 <label class="wide">Notes<textarea class="field" id="documentNotes" rows="3" maxlength="1200"></textarea></label>
-</div><div class="upload-progress" id="documentProgress"></div><div class="modal-actions"><button class="btn danger" type="button" id="deleteDocumentBtn" hidden>Supprimer</button><div class="right"><button class="btn" type="button" data-close="documentDialog">Annuler</button><button class="btn primary" type="submit" id="saveDocumentBtn">Enregistrer</button></div></div></form>
+</div><div class="upload-progress" id="documentProgress" role="status" aria-live="polite"></div></div><div class="modal-actions"><button class="btn danger" type="button" id="deleteDocumentBtn" hidden>Supprimer</button><div class="right"><button class="btn" type="button" data-close="documentDialog">Annuler</button><button class="btn primary" type="submit" id="saveDocumentBtn">Enregistrer</button></div></div></form>
 </dialog>
-<dialog id="documentViewerDialog" class="viewer-dialog" aria-labelledby="viewerTitle">
+<dialog id="documentViewerDialog" class="viewer-dialog modal-lg" aria-labelledby="viewerTitle">
 <div class="modal-head"><div><h3 id="viewerTitle">Consulter le document</h3><p id="viewerSubtitle">Aperçu dans Family Tree</p></div><div class="viewer-head-actions"><a class="btn small" id="viewerExternalBtn" target="_blank" rel="noopener" hidden>Nouvel onglet</a><button class="btn icon-btn" type="button" data-close="documentViewerDialog" aria-label="Fermer">×</button></div></div>
 <div class="modal-body"><div class="viewer-body"><img id="viewerImage" alt="Aperçu du document" hidden><iframe id="viewerFrame" title="Aperçu du document" hidden></iframe><p class="viewer-message" id="viewerMessage">Chargement du document…</p></div></div>
 </dialog>
-  <dialog id="directoryDocumentsDialog" aria-labelledby="directoryDocumentsTitle">
+  <dialog class="modal-md" id="directoryDocumentsDialog" aria-labelledby="directoryDocumentsTitle">
 <div class="modal-head"><div><h3 id="directoryDocumentsTitle">Documents associés</h3><p id="directoryDocumentsSubtitle"></p></div><button class="btn icon-btn" type="button" data-close="directoryDocumentsDialog" aria-label="Fermer">×</button></div>
 <div class="modal-body"><div class="directory-document-list" id="directoryDocumentsList"></div></div>
 </dialog>
-  <dialog id="taskDialog" aria-labelledby="taskDialogTitle">
+  <dialog class="modal-md" id="taskDialog" aria-labelledby="taskDialogTitle">
 <div class="modal-head"><div><h3 id="taskDialogTitle">Ajouter une tâche</h3><p>Suivez vos démarches et recherches généalogiques.</p></div><button class="btn icon-btn" type="button" data-close="taskDialog" aria-label="Fermer">×</button></div>
-<form class="modal-body" id="taskForm"><input type="hidden" id="taskId"><div class="grid">
+<form class="modal-body modal-form" id="taskForm"><div class="modal-scroll"><input type="hidden" id="taskId"><div class="grid">
+<header class="form-section-heading wide"><h4>Organisation</h4><p>Définissez ce qui doit être fait et son niveau de priorité.</p></header>
 <label class="wide">Titre *<input class="field" id="taskTitle" required maxlength="160"></label>
 <label>Statut<select class="field" id="taskStatus"><option value="todo">À faire</option><option value="progress">En cours</option><option value="done">Terminée</option></select></label>
 <label>Priorité<select class="field" id="taskPriority"><option value="medium">Moyenne</option><option value="high">Haute</option><option value="low">Basse</option></select></label>
 <label>Responsable<input class="field" id="taskAssignee" maxlength="120"></label>
 <label>Échéance<input class="field" id="taskDueDate" type="date"></label>
 <label class="wide">Personne concernée<select class="field" id="taskPersonId"></select></label>
+<header class="form-section-heading wide"><h4>Détails du suivi</h4><p>Ces informations peuvent être complétées au fil de la recherche.</p></header>
 <label class="wide">Description<textarea class="field" id="taskDescription" rows="3" maxlength="1500"></textarea></label>
 <label class="wide">Commentaires<textarea class="field" id="taskComments" rows="3" maxlength="2000" placeholder="Résultats, relances, informations utiles…"></textarea></label>
-</div><div class="modal-actions"><button class="btn danger" type="button" id="deleteTaskBtn" hidden>Supprimer</button><div class="right"><button class="btn" type="button" data-close="taskDialog">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></div></form>
+</div></div><div class="modal-actions"><button class="btn danger" type="button" id="deleteTaskBtn" hidden>Supprimer</button><div class="right"><button class="btn" type="button" data-close="taskDialog">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></div></form>
 </dialog>
-  <dialog id="dataDialog" class="data-dialog" aria-labelledby="dataDialogTitle">
+  <dialog id="dataDialog" class="data-dialog modal-md" aria-labelledby="dataDialogTitle">
 <div class="modal-head"><div><h3 id="dataDialogTitle">Données</h3><p>Sauvegardez ou restaurez le contenu de votre Family Tree.</p></div><button class="btn icon-btn" type="button" data-close="dataDialog" aria-label="Fermer">×</button></div>
 <div class="modal-body"><div class="data-overview"><div class="data-stat"><strong id="dataPeopleCount">0</strong><span>personnes</span></div><div class="data-stat"><strong id="dataDocumentCount">0</strong><span>documents</span></div><div class="data-stat"><strong id="dataTaskCount">0</strong><span>tâches</span></div></div>
 <section class="data-action"><div><h4>Créer une sauvegarde complète</h4><p>Télécharge une archive ZIP contenant l’arbre, les liens, les documents et les tâches.</p></div><button class="btn primary" id="exportBtn" type="button" aria-label="Créer une sauvegarde complète">↓ <span class="label">Sauvegarder</span></button></section>
 <section class="data-action"><div><h4>Restaurer une sauvegarde</h4><p>Fusionne une ancienne archive avec les données actuelles après contrôle de son intégrité.</p></div><button class="btn" id="importBtn" type="button" aria-label="Restaurer une sauvegarde">↑ <span class="label">Restaurer</span></button><input class="sr-only" id="importFile" type="file" accept=".zip,application/zip"></section>
 <p class="data-note">Les mots de passe et les droits des utilisateurs restent gérés séparément et ne sont jamais placés dans la sauvegarde.</p></div>
 </dialog>
-  <dialog id="profileDialog" class="settings-dialog" aria-labelledby="profileDialogTitle">
+  <dialog id="profileDialog" class="settings-dialog modal-lg" aria-labelledby="profileDialogTitle">
 <div class="modal-head"><div><h3 id="profileDialogTitle">Paramètres du compte</h3><p>Gérez votre identité et la sécurité de votre compte.</p></div><button class="btn icon-btn" type="button" data-close="profileDialog" aria-label="Fermer">×</button></div>
 <div class="settings-layout"><nav class="settings-nav" aria-label="Paramètres du compte"><button class="settings-tab active" type="button" data-settings-tab="profile">Profil</button><button class="settings-tab" type="button" data-settings-tab="security">Sécurité</button></nav>
 <section class="settings-panel" id="profileSettingsPanel"><div class="profile-photo-row"><span class="profile-preview" id="profilePreview">?</span><div><label class="photo-picker" for="profilePhotoFile">Choisir une photo</label><input class="sr-only" id="profilePhotoFile" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif"><button class="btn small danger" id="removeProfilePhotoBtn" type="button" hidden>Retirer</button><p class="profile-help">Compression automatique à 5 Ko maximum.</p></div></div><label>Nom affiché *<input class="field" id="profileDisplayName" maxlength="60" required></label><label>Adresse e-mail<input class="field" id="profileEmail" type="email" disabled></label><p class="form-message" id="profileMessage" role="status"></p><div class="settings-actions"><button class="btn" type="button" data-close="profileDialog">Annuler</button><button class="btn primary" id="saveProfileBtn" type="button">Enregistrer</button></div></section>
 <section class="settings-panel" id="securitySettingsPanel" hidden><h4>Modifier le mot de passe</h4><p class="hint">Saisissez votre mot de passe actuel pour confirmer votre identité.</p><label>Mot de passe actuel<input class="field" id="currentPassword" type="password" autocomplete="current-password"></label><label>Nouveau mot de passe<input class="field" id="newPassword" type="password" autocomplete="new-password" minlength="6"></label><label>Confirmer le nouveau mot de passe<input class="field" id="newPasswordConfirm" type="password" autocomplete="new-password" minlength="6"></label><p class="form-message" id="passwordMessage" role="status"></p><div class="settings-actions"><button class="btn primary" id="changePasswordBtn" type="button">Modifier le mot de passe</button></div></section></div>
 </dialog>
-  <dialog id="adminDialog" class="admin-dialog" aria-labelledby="adminDialogTitle">
+  <dialog id="adminDialog" class="admin-dialog modal-lg" aria-labelledby="adminDialogTitle">
 <div class="modal-head"><div><h3 id="adminDialogTitle">Administration des utilisateurs</h3><p>Validez les demandes, gérez les accès et les droits administrateur.</p></div><button class="btn icon-btn" type="button" data-close="adminDialog" aria-label="Fermer">×</button></div>
-<div class="modal-body"><div class="admin-stats"><span class="pill" id="adminTotalCount">0 utilisateur</span><span class="pill" id="adminPendingCount">0 en attente</span><span class="pill" id="adminActiveCount">0 actif</span></div><input class="field" id="adminSearch" type="search" placeholder="Rechercher par nom ou e-mail…" aria-label="Rechercher un utilisateur"><div class="admin-users" id="adminUsers"></div></div>
+<div class="modal-body"><div class="admin-stats"><span class="pill" id="adminTotalCount">0 utilisateur</span><span class="pill" id="adminPendingCount">0 en attente</span><span class="pill" id="adminActiveCount">0 actif</span></div><label class="admin-search-label">Rechercher un utilisateur<input class="field" id="adminSearch" type="search" placeholder="Nom ou adresse e-mail"></label><div class="admin-users" id="adminUsers"></div></div>
 </dialog>
   <div class="toast" id="toast" role="status">
 </div>
+  <script type="module" src="./js/form-ui.js"></script>
   <script type="module" src="./js/app.js">
   </script>
 </body>
