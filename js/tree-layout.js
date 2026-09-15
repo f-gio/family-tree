@@ -1,6 +1,6 @@
 export const TREE_GEOMETRY = Object.freeze({
-  cardWidth: 220,
-  cardHeight: 112,
+  cardWidth: 282,
+  cardHeight: 158,
   partnerGap: 30,
   siblingGap: 54,
   familyGap: 94,

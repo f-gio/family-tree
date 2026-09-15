@@ -89,6 +89,18 @@ function nameOf(id) {
   return item ? [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ") : "Personne supprimée";
 }
 
+function comparePeopleBySurname(a, b) {
+  const surname = (a.lastName || "").localeCompare(b.lastName || "", "fr", { sensitivity: "base" });
+  if (surname) return surname;
+  const firstName = (a.firstName || "").localeCompare(b.firstName || "", "fr", { sensitivity: "base" });
+  if (firstName) return firstName;
+  return (a.middleName || "").localeCompare(b.middleName || "", "fr", { sensitivity: "base" });
+}
+
+function relationOptionName(item) {
+  return [item.lastName?.toLocaleUpperCase("fr-FR"), item.firstName, item.middleName].filter(Boolean).join(" ");
+}
+
 function applyManualPositions(layout) {
   automaticPositions = new Map([...layout.positions].map(([id, position]) => [id, { ...position }]));
   for (const [id, offset] of Object.entries(manualOffsets)) {
@@ -214,8 +226,8 @@ function availableOptions(exclude = []) {
   const excluded = new Set(exclude);
   return '<option value="">Sélectionner…</option>' + people
     .filter(item => !excluded.has(item.id))
-    .sort((a, b) => nameOf(a.id).localeCompare(nameOf(b.id)))
-    .map(item => `<option value="${item.id}">${esc(nameOf(item.id))}</option>`).join("");
+    .sort(comparePeopleBySurname)
+    .map(item => `<option value="${item.id}">${esc(relationOptionName(item))}</option>`).join("");
 }
 
 async function ensurePeopleInTree(ids = []) {
