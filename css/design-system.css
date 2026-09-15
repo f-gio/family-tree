@@ -1,0 +1,402 @@
+/*
+ * Family Tree — fondations du Design System
+ * Cette couche centralise les décisions communes sans modifier la logique métier.
+ */
+
+:root {
+  /* Couleurs historiques, nommées par rôle */
+  --color-text: #26332e;
+  --color-text-muted: #68746f;
+  --color-text-label: #4e5b55;
+  --color-page: #f7f3ea;
+  --color-surface: #fffdf8;
+  --color-surface-raised: #ffffff;
+  --color-surface-soft: #faf7f0;
+  --color-surface-muted: #f3eee5;
+  --color-brand: #284b3f;
+  --color-brand-hover: #1f3d33;
+  --color-brand-soft: #e8efe9;
+  --color-accent: #b77745;
+  --color-danger: #a64238;
+  --color-danger-hover: #8e352d;
+  --color-danger-soft: #f8e9e6;
+  --color-success: #397253;
+  --color-border: #d6ccbb;
+  --color-border-subtle: #e8dfd0;
+  --color-border-strong: #a99b84;
+  --color-focus: #284b3f;
+
+  /* Compatibilité avec les variables historiques */
+  --ink: var(--color-text);
+  --muted: var(--color-text-muted);
+  --paper: var(--color-page);
+  --card: var(--color-surface);
+  --brand: var(--color-brand);
+  --accent: var(--color-accent);
+  --soft: var(--color-brand-soft);
+  --danger: var(--color-danger);
+
+  /* Typographie */
+  --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: Georgia, "Times New Roman", serif;
+  --font-genealogy-accent: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --text-xs: 0.6875rem;
+  --text-sm: 0.75rem;
+  --text-md: 0.875rem;
+  --text-body: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --leading-tight: 1.15;
+  --leading-body: 1.5;
+  --weight-regular: 400;
+  --weight-medium: 600;
+  --weight-semibold: 700;
+  --weight-bold: 800;
+
+  /* Rythme spatial */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  /* Formes et profondeur */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.6875rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.375rem;
+  --radius-pill: 999px;
+  --border-default: 1px solid var(--color-border);
+  --border-subtle: 1px solid var(--color-border-subtle);
+  --shadow-low: 0 7px 20px rgb(55 51 43 / 7%);
+  --shadow-medium: 0 18px 45px rgb(40 55 48 / 12%);
+  --shadow-dialog: 0 28px 80px rgb(28 39 34 / 67%);
+  --shadow-focus: 0 0 0 3px rgb(40 75 63 / 18%);
+
+  /* Contrôles et mouvement */
+  --control-sm: 2rem;
+  --control-md: 2.625rem;
+  --control-touch: 2.75rem;
+  --icon-button-size: 2.625rem;
+  --transition-fast: 140ms ease;
+  --transition-standard: 180ms ease;
+  --breakpoint-mobile: 760px;
+  --breakpoint-tablet: 980px;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+/* Hiérarchie typographique : l'accent Georgia reste réservé aux titres. */
+.brand h1,
+.intro h2,
+.section-head h2,
+.auth-card h2,
+.modal-head h3,
+.content-card h3,
+.empty h3,
+.family-detail-section h4,
+.data-action h4,
+.person-documents h4 {
+  font-family: var(--font-display);
+}
+
+.brand h1 { font-size: var(--text-xl); line-height: var(--leading-tight); }
+.modal-head h3 { font-size: var(--text-2xl); line-height: var(--leading-tight); }
+.content-card h3,
+.family-detail-section h4,
+.data-action h4 { font-size: var(--text-lg); line-height: 1.25; }
+
+label,
+.photo-upload-title {
+  color: var(--color-text-label);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.lead,
+.modal-head p,
+.content-card p { color: var(--color-text-muted); }
+
+.hint,
+.file-note,
+.photo-status,
+.profile-help { color: var(--color-text-muted); font-size: var(--text-xs); }
+
+.person-middle-name {
+  font-family: var(--font-genealogy-accent);
+  font-style: italic;
+}
+
+/* CTA : primary, secondary (par défaut), tertiary, icon et danger. */
+.btn,
+.photo-picker {
+  min-height: var(--control-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  line-height: 1.2;
+  text-decoration: none;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast),
+    color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.btn:hover,
+.photo-picker:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-raised);
+}
+
+.btn:active,
+.photo-picker:active { transform: translateY(1px); }
+
+.btn.primary {
+  border-color: var(--color-brand);
+  background: var(--color-brand);
+  color: #fff;
+}
+
+.btn.primary:hover {
+  border-color: var(--color-brand-hover);
+  background: var(--color-brand-hover);
+}
+
+.btn.tertiary {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-brand);
+}
+
+.btn.tertiary:hover { background: var(--color-brand-soft); }
+
+.btn.danger {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-danger);
+}
+
+.btn.danger:hover {
+  border-color: transparent;
+  background: var(--color-danger-soft);
+  color: var(--color-danger-hover);
+}
+
+.btn.small {
+  min-height: var(--control-sm);
+  padding-inline: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.icon-btn {
+  width: var(--icon-button-size);
+  min-width: var(--icon-button-size);
+  height: var(--icon-button-size);
+  min-height: var(--icon-button-size);
+  padding: 0;
+  font-size: var(--text-xl);
+}
+
+.btn:disabled,
+.btn[aria-disabled="true"],
+.photo-picker[aria-disabled="true"] {
+  opacity: 0.48;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn[aria-busy="true"],
+.btn.is-loading {
+  position: relative;
+  pointer-events: none;
+}
+
+.btn[aria-busy="true"]::after,
+.btn.is-loading::after {
+  width: 0.875rem;
+  height: 0.875rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  content: "";
+  animation: ft-spin 700ms linear infinite;
+}
+
+@keyframes ft-spin { to { transform: rotate(360deg); } }
+
+/* Champs et contrôles : dimensions, bordures et états prévisibles. */
+.field {
+  min-height: var(--control-md);
+  padding: 0 var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; }
+
+.field:hover:not(:disabled) { border-color: var(--color-border-strong); }
+
+.field:disabled {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+/* Un seul focus clavier, fortement visible, pour toutes les conventions interactives. */
+:where(
+  .btn,
+  .photo-picker,
+  .field,
+  .nav-btn,
+  .account-action,
+  .settings-tab,
+  .person-section-tab,
+  .date-type-button,
+  .view-switch button,
+  .alphabet-nav button,
+  .tree-controls button,
+  .directory-action,
+  .directory-entry,
+  .directory-filter-menu summary
+):focus-visible {
+  outline: 3px solid rgb(40 75 63 / 28%);
+  outline-offset: 2px;
+  box-shadow: var(--shadow-focus);
+}
+
+/* Navigation, onglets et contrôles segmentés : mêmes états connus. */
+.nav-btn,
+.account-action,
+.settings-tab,
+.person-section-tab,
+.date-type-button,
+.view-switch button,
+.tree-controls button,
+.alphabet-nav button,
+.directory-action {
+  transition: background-color var(--transition-fast), color var(--transition-fast),
+    border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.nav-btn:active,
+.account-action:active,
+.settings-tab:active,
+.person-section-tab:active,
+.date-type-button:active,
+.view-switch button:active,
+.tree-controls button:active,
+.alphabet-nav button:active,
+.directory-action:active { transform: translateY(1px); }
+
+.nav-btn:disabled,
+.account-action:disabled,
+.settings-tab:disabled,
+.person-section-tab:disabled,
+.date-type-button:disabled,
+.view-switch button:disabled,
+.tree-controls button:disabled,
+.alphabet-nav button:disabled,
+.directory-action:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.view-switch,
+.date-type-switch {
+  border-color: var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.view-switch button,
+.date-type-button,
+.person-section-tab { min-height: 2.25rem; border-radius: var(--radius-sm); }
+
+.view-switch button.active,
+.date-type-button.active,
+.person-section-tab.active {
+  color: var(--color-brand);
+}
+
+/* Regroupements cohérents, sans introduire de nouvelle structure d'écran. */
+.content-card,
+.directory-entry,
+.relation-card,
+.family-detail-section,
+.life-fields,
+.photo-upload {
+  border-color: var(--color-border-subtle);
+}
+
+.content-card { box-shadow: var(--shadow-low); }
+
+.modal-actions,
+.settings-actions,
+.card-actions,
+.mini-doc-actions,
+.photo-upload-actions { gap: var(--space-2); }
+
+.auth-error,
+.form-message { color: var(--color-danger); }
+.form-message.success { color: var(--color-success); }
+
+@media (max-width: 760px) {
+  /* Fitts : zone tactile minimale de 44 px, sans agrandir l'icône elle-même. */
+  .btn,
+  .photo-picker,
+  .icon-btn,
+  .nav-btn,
+  .account-action,
+  .settings-tab,
+  .person-section-tab,
+  .date-type-button,
+  .view-switch button,
+  .tree-controls button,
+  .alphabet-nav button,
+  .directory-action,
+  .directory-filter-menu summary {
+    min-height: var(--control-touch);
+  }
+
+  .icon-btn,
+  .tree-controls button {
+    min-width: var(--control-touch);
+    width: var(--control-touch);
+    height: var(--control-touch);
+  }
+
+  .field { min-height: var(--control-touch); }
+  .modal-actions .right,
+  .settings-actions { gap: var(--space-2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
