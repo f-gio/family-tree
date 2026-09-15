@@ -1,3 +1,5 @@
+import { genealogyDateSortValue } from "./genealogy-date.js";
+
 export const TREE_GEOMETRY = Object.freeze({
   cardWidth: 282,
   cardHeight: 158,
@@ -43,7 +45,9 @@ function orderedMembers(ids, families, peopleById) {
   const hub = [...ids].sort((a, b) => degree.get(b) - degree.get(a))[0];
   const others = ids.filter(id => id !== hub).sort((a, b) => {
     const pa = peopleById.get(a), pb = peopleById.get(b);
-    return `${pa?.birthDate || ''}${pa?.lastName || ''}`.localeCompare(`${pb?.birthDate || ''}${pb?.lastName || ''}`);
+    const dateA = genealogyDateSortValue(pa?.birthDateInfo, pa?.birthDate) ?? Number.MAX_SAFE_INTEGER;
+    const dateB = genealogyDateSortValue(pb?.birthDateInfo, pb?.birthDate) ?? Number.MAX_SAFE_INTEGER;
+    return dateA - dateB || `${pa?.lastName || ''}${pa?.firstName || ''}`.localeCompare(`${pb?.lastName || ''}${pb?.firstName || ''}`, "fr", { sensitivity: "base" });
   });
   const middle = Math.floor(others.length / 2);
   return [...others.slice(0, middle), hub, ...others.slice(middle)];

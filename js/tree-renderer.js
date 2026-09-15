@@ -1,3 +1,6 @@
+import { formatGenealogyDate } from "./genealogy-date.js";
+import { childLineType, normalizeEndType } from "./family-relations.js";
+
 function escapeHtml(value = '') {
   const node = document.createElement('div');
   node.textContent = value;
@@ -8,14 +11,8 @@ function initials(person) {
   return `${person.firstName?.[0] || ''}${person.lastName?.[0] || ''}`.toUpperCase() || '?';
 }
 
-function fullDate(value) {
-  if (!value) return '—';
-  const date = new Date(`${value}T12:00:00`);
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('fr-FR').format(date);
-}
-
-function lifeEvent(label, icon, date, place) {
-  const dateText = date ? fullDate(date) : '—';
+function lifeEvent(label, icon, dateInfo, legacyDate, place) {
+  const dateText = formatGenealogyDate(dateInfo, legacyDate);
   const placeText = place?.trim() || '—';
   return `<span class="life-event" title="${label}"><span class="life-icon" aria-hidden="true">${icon}</span><span class="sr-only">${label} : </span><span class="life-value">${escapeHtml(dateText)} · ${escapeHtml(placeText)}</span></span>`;
 }
@@ -33,26 +30,31 @@ function connectionElements(layout) {
   families.forEach((family, familyIndex) => {
     const colorClass = `family-${familyColorIndex(family, familyIndex)}`;
     const partners = (family.partnerIds || []).map(id => positions.get(id)).filter(Boolean).sort((a, b) => a.x - b.x);
-    const children = (family.childIds || []).map(id => positions.get(id)).filter(Boolean);
+    const children = (family.childIds || []).map(id => ({ id, position: positions.get(id) })).filter(item => item.position);
     if (!partners.length) return;
     let origin;
     if (partners.length > 1) {
       const left = partners[0], right = partners[partners.length - 1];
       const y = (left.y + right.y) / 2 + left.height / 2;
       const x1 = left.x + left.width, x2 = right.x;
-      elements.push(`<path class="union-line ${colorClass}" d="M ${x1} ${y} H ${x2}"/>`);
+      const endedClass = ["separation", "divorce", "other"].includes(normalizeEndType(family.endType)) ? "ended-union" : "";
+      elements.push(`<path class="union-line ${colorClass} ${endedClass}" d="M ${x1} ${y} H ${x2}"/>`);
       origin = { x: (x1 + x2) / 2, y };
     } else {
       origin = { x: partners[0].x + partners[0].width / 2, y: partners[0].y + partners[0].height };
     }
     if (!children.length) return;
-    const childPoints = children.map(child => ({ x: child.x + child.width / 2, y: child.y }));
+    const childPoints = children.map(child => ({ id: child.id, x: child.position.x + child.position.width / 2, y: child.position.y }));
     const busY = Math.min(...childPoints.map(point => point.y)) - geometry.levelGap / 2;
     elements.push(`<path class="descent-line ${colorClass}" d="M ${origin.x} ${origin.y} V ${busY}"/>`);
     const allX = [origin.x, ...childPoints.map(point => point.x)];
     const minX = Math.min(...allX), maxX = Math.max(...allX);
     if (maxX - minX > 0.5) elements.push(`<path class="descent-line ${colorClass}" d="M ${minX} ${busY} H ${maxX}"/>`);
-    childPoints.forEach(point => elements.push(`<path class="descent-line ${colorClass}" d="M ${point.x} ${busY} V ${point.y}"/>`));
+    childPoints.forEach((point, index) => {
+      const lineType = childLineType(family, point.id);
+      const relationClass = lineType === "adoptive" ? "adoptive-line" : lineType === "uncertain" ? "uncertain-line" : "";
+      elements.push(`<path class="descent-line ${colorClass} ${relationClass}" d="M ${point.x} ${busY} V ${point.y}"/>`);
+    });
     elements.push(`<circle class="junction ${colorClass}" cx="${origin.x}" cy="${origin.y}" r="5"/>`);
     elements.push(`<circle class="junction ${colorClass}" cx="${origin.x}" cy="${busY}" r="4"/>`);
   });
@@ -144,7 +146,7 @@ export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmpty
         const avatar = person.photoUrl ? `<img src="${escapeHtml(person.photoUrl)}" alt="">` : initials(person);
         const birthName = [person.firstName, person.middleName, person.lastName].filter(Boolean).join(' ');
         const middleName = person.middleName ? `<span class="person-middle-name">${escapeHtml(person.middleName)}</span>` : '';
-        return `<button class="person" data-person-id="${person.id}" style="left:${position.x}px;top:${position.y}px" aria-label="Ouvrir et modifier ${escapeHtml(birthName)}"><span class="drag-hint" aria-hidden="true">⋮⋮</span><span class="avatar">${avatar}</span><span class="person-name"><span class="person-first-name">${escapeHtml(person.firstName || '')}</span>${middleName}<span class="person-surname">${escapeHtml(person.lastName || '')}</span></span>${lifeEvent('Naissance', '✦', person.birthDate, person.place)}${lifeEvent('Décès', '†', person.deathDate, person.deathPlace)}</button>`;
+        return `<button class="person" data-person-id="${person.id}" style="left:${position.x}px;top:${position.y}px" aria-label="Ouvrir et modifier ${escapeHtml(birthName)}"><span class="drag-hint" aria-hidden="true">⋮⋮</span><span class="avatar">${avatar}</span><span class="person-name"><span class="person-first-name">${escapeHtml(person.firstName || '')}</span>${middleName}<span class="person-surname">${escapeHtml(person.lastName || '')}</span></span>${lifeEvent('Naissance', '✦', person.birthDateInfo, person.birthDate, person.place)}${lifeEvent('Décès', '†', person.deathDateInfo, person.deathDate, person.deathPlace)}</button>`;
       }).join('');
       scene.innerHTML = `<svg class="tree-svg" viewBox="0 0 ${layout.bounds.width} ${layout.bounds.height}" aria-hidden="true">${paths}</svg>${cards}`;
       applyState();

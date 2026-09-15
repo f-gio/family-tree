@@ -6,6 +6,8 @@ import { createTreeRenderer } from "./tree-renderer.js";
 import { createTreeCamera } from "./tree-camera.js";
 import { documentDisplayLabel } from "./document-utils.js";
 import { directoryPersonName, formatDirectoryDate, filterAndSortDirectory } from "./directory-utils.js";
+import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText } from "./genealogy-date.js";
+import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",
@@ -39,11 +41,12 @@ let manualOffsets = readOffsets();
 let activeViewerUrl = "";
 let activePersonSection = "identity";
 let documentReturnContext = null;
+let familyDetailsReturnContext = null;
 const FILE_CHUNK_BYTES = 700 * 1024;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_PERSON_PHOTO_BYTES = 5 * 1024;
 const viewModes = readViewModes();
-const personFields = ["firstName", "middleName", "lastName", "marriedName", "gender", "branch", "birthDate", "place", "deathDate", "deathPlace", "photoUrl", "notes"];
+const personFields = ["firstName", "middleName", "lastName", "marriedName", "gender", "branch", "place", "deathPlace", "photoUrl", "notes"];
 const taskFields = ["title", "status", "priority", "assignee", "dueDate", "personId", "description", "comments"];
 
 function readOffsets() {
@@ -68,6 +71,54 @@ function esc(value = "") {
 
 function searchable(value = "") {
   return String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+function dateInfoOf(item, prefix) {
+  return normalizeGenealogyDate(item?.[`${prefix}DateInfo`], item?.[`${prefix}Date`]);
+}
+
+function setGenealogyDateType(prefix, type = "unknown") {
+  document.querySelectorAll(`[data-date-prefix="${prefix}"]`).forEach(button => {
+    const active = button.dataset.dateType === type;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  document.querySelectorAll(`[data-date-panel^="${prefix}-"]`).forEach(panel => { panel.hidden = panel.dataset.datePanel !== `${prefix}-${type === "about" ? "year" : type}`; });
+  const control = document.querySelector(`[data-date-control="${prefix}"]`);
+  if (control) control.dataset.dateType = type;
+}
+
+function setGenealogyDateForm(prefix, value, legacyExact = "") {
+  const date = normalizeGenealogyDate(value, legacyExact);
+  for (const suffix of ["Date", "Year", "YearFrom", "YearTo"]) if ($(`${prefix}${suffix}`)) $(`${prefix}${suffix}`).value = "";
+  if (date.type === "exact") $(`${prefix}Date`).value = date.value;
+  if (date.type === "year" || date.type === "about") $(`${prefix}Year`).value = date.year;
+  if (date.type === "between") { $(`${prefix}YearFrom`).value = date.from; $(`${prefix}YearTo`).value = date.to; }
+  setGenealogyDateType(prefix, date.type);
+}
+
+function captureGenealogyDateDraft(prefix) {
+  return { type: document.querySelector(`[data-date-control="${prefix}"]`)?.dataset.dateType || "unknown", exact: $(`${prefix}Date`)?.value || "", year: $(`${prefix}Year`)?.value || "", from: $(`${prefix}YearFrom`)?.value || "", to: $(`${prefix}YearTo`)?.value || "" };
+}
+
+function restoreGenealogyDateDraft(prefix, draft) {
+  if (!draft) return setGenealogyDateForm(prefix, null);
+  if ($(`${prefix}Date`)) $(`${prefix}Date`).value = draft.exact || "";
+  if ($(`${prefix}Year`)) $(`${prefix}Year`).value = draft.year || "";
+  if ($(`${prefix}YearFrom`)) $(`${prefix}YearFrom`).value = draft.from || "";
+  if ($(`${prefix}YearTo`)) $(`${prefix}YearTo`).value = draft.to || "";
+  setGenealogyDateType(prefix, draft.type);
+}
+
+function readGenealogyDateForm(prefix) {
+  const type = document.querySelector(`[data-date-control="${prefix}"]`)?.dataset.dateType || "unknown";
+  let value = { type };
+  if (type === "exact") value.value = $(`${prefix}Date`).value;
+  if (type === "year" || type === "about") value.year = Number($(`${prefix}Year`).value);
+  if (type === "between") { value.from = Number($(`${prefix}YearFrom`).value); value.to = Number($(`${prefix}YearTo`).value); }
+  const normalized = normalizeGenealogyDate(value);
+  if (type !== "unknown" && normalized.type === "unknown") throw new Error(type === "between" ? "Renseignez une période valide, avec l’année de début avant l’année de fin" : "Renseignez une date valide");
+  return normalized;
 }
 
 function formatBytes(value = 0) {
@@ -195,7 +246,7 @@ function syncState() {
 
 function applySearch(focus = true) {
   const query = searchable($("search").value);
-  const matches = query ? treePeople().filter(item => searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.place || ""} ${item.branch || ""}`).includes(query)) : [];
+  const matches = query ? treePeople().filter(item => searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.place || ""} ${item.branch || ""} ${genealogyDateSearchText(item.birthDateInfo, item.birthDate)} ${genealogyDateSearchText(item.deathDateInfo, item.deathDate)}`).includes(query)) : [];
   renderer.setHighlights(matches.map(item => item.id));
   if (focus && matches[0] && currentLayout?.positions.has(matches[0].id)) camera.focus(currentLayout.positions.get(matches[0].id));
 }
@@ -244,14 +295,16 @@ function updatePersonPhotoPreview() {
 }
 
 function capturePersonDraft() {
-  return Object.fromEntries(personFields.map(key => [key, $(key).value]));
+  return { fields: Object.fromEntries(personFields.map(key => [key, $(key).value])), birth: captureGenealogyDateDraft("birth"), death: captureGenealogyDateDraft("death") };
 }
 
 function restorePersonDraft(draft) {
   if (!draft) return;
   for (const key of personFields) {
-    if (Object.prototype.hasOwnProperty.call(draft, key)) $(key).value = draft[key];
+    if (Object.prototype.hasOwnProperty.call(draft.fields || draft, key)) $(key).value = (draft.fields || draft)[key];
   }
+  restoreGenealogyDateDraft("birth", draft.birth);
+  restoreGenealogyDateDraft("death", draft.death);
   updateMarriedNameVisibility();
   updatePersonPhotoPreview();
 }
@@ -328,6 +381,8 @@ function openPerson(item = null, source = "tree") {
   $("restoreTreeBtn").hidden = !item || item.inTree !== false || source !== "directory";
   $("personId").value = item?.id || "";
   for (const key of personFields) $(key).value = item?.[key] || "";
+  setGenealogyDateForm("birth", item?.birthDateInfo, item?.birthDate);
+  setGenealogyDateForm("death", item?.deathDateInfo, item?.deathDate);
   $("personPhotoFile").value = "";
   $("personPhotoStatus").textContent = "Recadrage carré et compression automatique à 5 Ko maximum.";
   updatePersonPhotoPreview();
@@ -383,8 +438,13 @@ function renderRelations() {
     const isPartner = (family.partnerIds || []).includes(item.id);
     const others = (family.partnerIds || []).filter(id => id !== item.id);
     const children = family.childIds || [];
-    if (isPartner) return `<div class="relation-card"><strong>${others.length ? `Union avec ${esc(others.map(nameOf).join(" et "))}` : "Foyer monoparental"}</strong>${others.map(id => `<div class="relation-line"><span>Partenaire : ${esc(nameOf(id))}</span><button class="btn small danger" data-remove-partner="${family.id}" data-person="${id}">Retirer</button></div>`).join("")}${children.map(id => `<div class="relation-line"><span>Enfant : ${esc(nameOf(id))}</span><button class="btn small danger" data-remove-child="${family.id}" data-person="${id}">Retirer</button></div>`).join("") || '<div class="relation-line"><span>Aucun enfant rattaché</span></div>'}</div>`;
-    return `<div class="relation-card"><strong>Parents</strong><div class="relation-line"><span>${esc((family.partnerIds || []).map(nameOf).join(" et ") || "Non renseigné")}</span><button class="btn small danger" data-remove-child="${family.id}" data-person="${item.id}">Détacher</button></div></div>`;
+    const unionDate = formatGenealogyDate(family.unionDateInfo, family.marriageDate || family.unionDate);
+    const relationLabel = RELATION_TYPE_LABELS[normalizeRelationType(family.relationType)];
+    const endType = normalizeEndType(family.endType);
+    const summary = `${relationLabel} · ${unionDate}${family.unionPlace ? ` · ${family.unionPlace}` : ""}${endType !== "none" ? ` · ${END_TYPE_LABELS[endType]} ${formatGenealogyDate(family.endDateInfo, family.separationDate || family.divorceDate)}` : ""}`;
+    const edit = `<button class="btn small" type="button" data-edit-family="${family.id}">Détails</button>`;
+    if (isPartner) return `<div class="relation-card"><div class="relation-card-head"><strong>${others.length ? `Union avec ${esc(others.map(nameOf).join(" et "))}` : "Foyer monoparental"}</strong>${edit}</div><p class="relation-summary">${esc(summary)}</p>${others.map(id => `<div class="relation-line"><span>Partenaire : ${esc(nameOf(id))}</span><button class="btn small danger" data-remove-partner="${family.id}" data-person="${id}">Retirer</button></div>`).join("")}${children.map(id => `<div class="relation-line"><span>Enfant : ${esc(nameOf(id))} · filiation ${esc(FILIATION_TYPE_LABELS[parentChildLinkType(family, item.id, id)].toLocaleLowerCase("fr-FR"))}</span><button class="btn small danger" data-remove-child="${family.id}" data-person="${id}">Retirer</button></div>`).join("") || '<div class="relation-line"><span>Aucun enfant rattaché</span></div>'}</div>`;
+    return `<div class="relation-card"><div class="relation-card-head"><strong>Parents</strong>${edit}</div><p class="relation-summary">${esc(summary)}</p>${(family.partnerIds || []).map(parentId => `<div class="relation-line"><span>${esc(nameOf(parentId))} · filiation ${esc(FILIATION_TYPE_LABELS[parentChildLinkType(family, parentId, item.id)].toLocaleLowerCase("fr-FR"))}</span></div>`).join("") || '<div class="relation-line"><span>Non renseigné</span></div>'}<div class="relation-line"><span></span><button class="btn small danger" data-remove-child="${family.id}" data-person="${item.id}">Détacher</button></div></div>`;
   }).join("") : '<div class="empty-relations">Aucun lien familial pour cette personne.</div>';
   const options = availableOptions([item.id]);
   $("partnerSelect").innerHTML = options;
@@ -407,8 +467,10 @@ async function addPartner() {
   })) return toast("Cette union existe déjà");
   await ensurePeopleInTree([activeId, other]);
   const single = families.find(family => (family.partnerIds || []).length === 1 && (family.partnerIds || []).includes(activeId));
-  if (single) await updateDoc(doc(db, "families", single.id), { partnerIds: [activeId, other], updatedAt: serverTimestamp() });
-  else await addDoc(refs.families, { partnerIds: [activeId, other], childIds: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  if (single) {
+    const nextFamily = { ...single, partnerIds: [activeId, other] };
+    await updateDoc(doc(db, "families", single.id), { partnerIds: nextFamily.partnerIds, parentChildLinks: normalizedParentChildLinks(nextFamily), updatedAt: serverTimestamp() });
+  } else await addDoc(refs.families, { partnerIds: [activeId, other], childIds: [], relationType: "unknown", unionDateInfo: { type: "unknown" }, unionPlace: "", endType: "none", endDateInfo: { type: "unknown" }, endPlace: "", parentChildLinks: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   toast("Partenaire ajouté");
 }
 
@@ -419,7 +481,8 @@ async function addChild() {
   const family = familyId === "new" ? null : families.find(item => item.id === familyId);
   if (familyId !== "new" && !family) return toast("Ce foyer est introuvable");
   try {
-    await linkChildToParents(child, family?.partnerIds || [activeId], family?.id || "");
+    const types = Object.fromEntries((family?.partnerIds || [activeId]).map(parentId => [parentId, $("childFiliationType").value]));
+    await linkChildToParents(child, family?.partnerIds || [activeId], family?.id || "", types);
     toast("Enfant rattaché");
   } catch (error) { toast(error.message || "Lien impossible"); }
 }
@@ -428,7 +491,7 @@ async function addParent() {
   const parentId = $("parentSelect").value;
   if (!parentId) return toast("Choisissez un parent");
   try {
-    await linkChildToParents(activeId, [parentId]);
+    await linkChildToParents(activeId, [parentId], "", { [parentId]: $("parentFiliationType").value });
     toast("Parent rattaché");
   } catch (error) { toast(error.message || "Lien impossible"); }
 }
@@ -439,7 +502,10 @@ async function removeRelation(familyId, personId, type) {
   const field = type === "partner" ? "partnerIds" : "childIds";
   const next = (family[field] || []).filter(id => id !== personId);
   if (field === "partnerIds" && !next.length) await deleteDoc(doc(db, "families", familyId));
-  else await updateDoc(doc(db, "families", familyId), { [field]: next, updatedAt: serverTimestamp() });
+  else {
+    const nextFamily = { ...family, [field]: next };
+    await updateDoc(doc(db, "families", familyId), { [field]: next, parentChildLinks: normalizedParentChildLinks(nextFamily), updatedAt: serverTimestamp() });
+  }
   toast("Lien retiré");
 }
 
@@ -461,7 +527,7 @@ function sameIds(left = [], right = []) {
   return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
-async function linkChildToParents(childId, requestedParentIds, preferredFamilyId = "") {
+async function linkChildToParents(childId, requestedParentIds, preferredFamilyId = "", linkTypes = {}) {
   const parentIds = [...new Set(requestedParentIds.filter(Boolean))];
   if (!childId || !parentIds.length) throw new Error("Choisissez l’enfant et au moins un parent");
   if (parentIds.length > 2) throw new Error("Un foyer ne peut pas contenir plus de deux parents");
@@ -480,14 +546,17 @@ async function linkChildToParents(childId, requestedParentIds, preferredFamilyId
   if (family && (family.childIds || []).includes(childId) && sameIds(family.partnerIds || [], mergedParents)) throw new Error("Ce lien existe déjà");
 
   await ensurePeopleInTree([childId, ...mergedParents]);
+  const nextFamily = { ...(family || {}), partnerIds: mergedParents, childIds: [...new Set([...(family?.childIds || []), childId])] };
+  const parentChildLinks = normalizedParentChildLinks(nextFamily).map(link => link.childId === childId && Object.prototype.hasOwnProperty.call(linkTypes, link.parentId) ? { ...link, type: normalizeFiliationType(linkTypes[link.parentId]) } : link);
   if (family) {
     await updateDoc(doc(db, "families", family.id), {
       partnerIds: mergedParents,
-      childIds: [...new Set([...(family.childIds || []), childId])],
+      childIds: nextFamily.childIds,
+      parentChildLinks,
       updatedAt: serverTimestamp()
     });
   } else {
-    await addDoc(refs.families, { partnerIds: mergedParents, childIds: [childId], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    await addDoc(refs.families, { partnerIds: mergedParents, childIds: [childId], relationType: "unknown", unionDateInfo: { type: "unknown" }, unionPlace: "", endType: "none", endDateInfo: { type: "unknown" }, endPlace: "", parentChildLinks, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   }
 }
 
@@ -506,11 +575,65 @@ async function saveManualLink(event) {
   const childId = $("manualChild").value;
   const parentIds = [...new Set([$("manualParent1").value, $("manualParent2").value].filter(Boolean))];
   try {
-    await linkChildToParents(childId, parentIds);
+    const linkTypes = { [$("manualParent1").value]: $("manualParent1Type").value };
+    if ($("manualParent2").value) linkTypes[$("manualParent2").value] = $("manualParent2Type").value;
+    await linkChildToParents(childId, parentIds, "", linkTypes);
     focusAfterRender = childId;
     close("manualLinkDialog");
     toast("Lien parent-enfant créé");
   } catch (error) { toast(error.message || "Lien impossible"); }
+}
+
+function updateEndDetailsVisibility() {
+  $("endDetailsFields").hidden = !["separation", "divorce", "other"].includes($("familyEndType").value);
+}
+
+function openFamilyDetails(familyId) {
+  const family = families.find(item => item.id === familyId);
+  if (!family) return toast("Cette relation est introuvable");
+  familyDetailsReturnContext = { personId: activeId, source: personDialogSource, draft: capturePersonDraft() };
+  $("familyDetailsId").value = family.id;
+  $("familyRelationType").value = normalizeRelationType(family.relationType);
+  $("unionPlace").value = family.unionPlace || family.marriagePlace || "";
+  setGenealogyDateForm("union", family.unionDateInfo, family.marriageDate || family.unionDate);
+  $("familyEndType").value = normalizeEndType(family.endType);
+  $("endPlace").value = family.endPlace || "";
+  setGenealogyDateForm("end", family.endDateInfo, family.separationDate || family.divorceDate);
+  updateEndDetailsVisibility();
+  $("filiationEditors").innerHTML = normalizedParentChildLinks(family).map((link, index) => `<div class="filiation-editor"><span><strong>${esc(nameOf(link.parentId))}</strong> → ${esc(nameOf(link.childId))}</span><label>Type<select class="field" data-filiation-index="${index}" data-parent-id="${link.parentId}" data-child-id="${link.childId}"><option value="unknown" ${link.type === "unknown" ? "selected" : ""}>Non précisée</option><option value="biological" ${link.type === "biological" ? "selected" : ""}>Biologique</option><option value="adoptive" ${link.type === "adoptive" ? "selected" : ""}>Adoptive</option><option value="uncertain" ${link.type === "uncertain" ? "selected" : ""}>Incertaine</option></select></label></div>`).join("") || '<p class="hint">Aucun lien parent-enfant dans ce foyer.</p>';
+  $("personDialog").close();
+  $("familyDetailsDialog").showModal();
+}
+
+function returnFromFamilyDetails() {
+  const context = familyDetailsReturnContext;
+  familyDetailsReturnContext = null;
+  if (!context) return;
+  const item = person(context.personId);
+  if (!item) return;
+  openPerson(item, context.source);
+  restorePersonDraft(context.draft);
+  setPersonSection("relations");
+}
+
+async function saveFamilyDetails(event) {
+  event.preventDefault();
+  const familyId = $("familyDetailsId").value;
+  const family = families.find(item => item.id === familyId);
+  if (!family) return toast("Cette relation est introuvable");
+  try {
+    const unionDateInfo = readGenealogyDateForm("union");
+    const endDateInfo = readGenealogyDateForm("end");
+    const parentChildLinks = [...document.querySelectorAll("[data-filiation-index]")].map(select => ({ parentId: select.dataset.parentId, childId: select.dataset.childId, type: normalizeFiliationType(select.value) }));
+    await updateDoc(doc(db, "families", familyId), {
+      relationType: normalizeRelationType($("familyRelationType").value), unionDateInfo, unionPlace: $("unionPlace").value.trim(),
+      endType: normalizeEndType($("familyEndType").value), endDateInfo, endPlace: $("endPlace").value.trim(), parentChildLinks,
+      updatedAt: serverTimestamp()
+    });
+    $("familyDetailsDialog").close();
+    toast("Détails de la relation enregistrés");
+    returnFromFamilyDetails();
+  } catch (error) { toast(error.message || "Enregistrement impossible"); }
 }
 
 function personInitials(item) {
@@ -563,7 +686,7 @@ function renderDirectory() {
       ? `<button class="directory-action directory-doc-action" type="button" data-directory-documents="${item.id}" aria-label="Afficher ${documentCount} document${documentCount > 1 ? "s" : ""} associé${documentCount > 1 ? "s" : ""} à ${esc(directoryDisplayName(item))}"><span aria-hidden="true">▧</span> ${documentCount} document${documentCount > 1 ? "s" : ""}</button>`
       : '<span class="directory-action directory-doc-action" aria-label="Aucun document associé"><span aria-hidden="true">▧</span> 0 document</span>';
     const middleName = item.middleName ? `<span class="person-middle-name">${esc(item.middleName)}</span>` : "";
-    return `<article class="directory-entry" data-letter="${surnameLetter(item)}" data-directory-person="${item.id}" tabindex="0" aria-label="Ouvrir la fiche de ${esc(directoryDisplayName(item))}"><span class="directory-avatar">${avatar}</span><div class="directory-main"><h3><span class="directory-surname">${esc(item.lastName || "—")}</span> <span class="directory-first-name">${esc(item.firstName || "")}</span>${middleName}</h3><p class="directory-life"><span><span class="directory-life-symbol" aria-hidden="true">✦</span> ${esc(formatDirectoryDate(item.birthDate))}</span><span class="directory-life-divider" aria-hidden="true">—</span><span><span class="directory-life-symbol" aria-hidden="true">†</span> ${esc(formatDirectoryDate(item.deathDate))}</span></p>${presence}</div><div class="directory-entry-actions">${documentAction}<button class="directory-action directory-open-action" type="button" data-directory-open-person="${item.id}" aria-label="Voir la fiche de ${esc(directoryDisplayName(item))}" title="Voir la fiche">→</button></div></article>`;
+    return `<article class="directory-entry" data-letter="${surnameLetter(item)}" data-directory-person="${item.id}" tabindex="0" aria-label="Ouvrir la fiche de ${esc(directoryDisplayName(item))}"><span class="directory-avatar">${avatar}</span><div class="directory-main"><h3><span class="directory-surname">${esc(item.lastName || "—")}</span> <span class="directory-first-name">${esc(item.firstName || "")}</span>${middleName}</h3><p class="directory-life"><span><span class="directory-life-symbol" aria-hidden="true">✦</span> ${esc(formatDirectoryDate(item.birthDateInfo, item.birthDate))}</span><span class="directory-life-divider" aria-hidden="true">—</span><span><span class="directory-life-symbol" aria-hidden="true">†</span> ${esc(formatDirectoryDate(item.deathDateInfo, item.deathDate))}</span></p>${presence}</div><div class="directory-entry-actions">${documentAction}<button class="directory-action directory-open-action" type="button" data-directory-open-person="${item.id}" aria-label="Voir la fiche de ${esc(directoryDisplayName(item))}" title="Voir la fiche">→</button></div></article>`;
   }).join("") : '<div class="empty-list">Aucune personne ne correspond à ces critères.</div>';
   setContentMode("directory", viewModes.directory || "list", false);
 }
@@ -735,11 +858,20 @@ function safeBackupName(value = "document") {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "document";
 }
 
+function isValidStoredDate(value) {
+  if (value == null) return true;
+  if (!value || typeof value !== "object" || !["exact", "year", "about", "between", "unknown"].includes(value.type)) return false;
+  if (value.type === "unknown") return true;
+  const normalized = normalizeGenealogyDate(value);
+  return normalized.type === value.type;
+}
+
 function validateFamilyDataset(personRecords = [], familyRecords = []) {
   const personIds = new Set();
   for (const item of personRecords) {
     if (!item?.id || item.id.includes("/") || personIds.has(item.id)) throw new Error("La sauvegarde contient un identifiant de personne invalide ou dupliqué");
     personIds.add(item.id);
+    if (!isValidStoredDate(item.birthDateInfo) || !isValidStoredDate(item.deathDateInfo)) throw new Error(`La fiche ${item.id} contient une date généalogique invalide`);
   }
   const familyIds = new Set();
   const childHomes = new Map();
@@ -752,6 +884,18 @@ function validateFamilyDataset(personRecords = [], familyRecords = []) {
     if (!parentIds.length || parentIds.length > 2 || parentIds.length !== (family.partnerIds || []).length || childIds.length !== (family.childIds || []).length) throw new Error(`Le foyer ${family.id} contient des liens invalides`);
     if ([...parentIds, ...childIds].some(id => !personIds.has(id))) throw new Error(`Le foyer ${family.id} fait référence à une personne absente`);
     if (parentIds.some(id => childIds.includes(id))) throw new Error(`Le foyer ${family.id} place une personne parmi ses propres parents`);
+    if (family.relationType != null && !Object.prototype.hasOwnProperty.call(RELATION_TYPE_LABELS, family.relationType)) throw new Error(`Le foyer ${family.id} contient un type de relation invalide`);
+    if (family.endType != null && !Object.prototype.hasOwnProperty.call(END_TYPE_LABELS, family.endType)) throw new Error(`Le foyer ${family.id} contient une fin de relation invalide`);
+    if (!isValidStoredDate(family.unionDateInfo) || !isValidStoredDate(family.endDateInfo)) throw new Error(`Le foyer ${family.id} contient une date généalogique invalide`);
+    if (family.parentChildLinks != null) {
+      if (!Array.isArray(family.parentChildLinks)) throw new Error(`Le foyer ${family.id} contient des filiations invalides`);
+      const seenLinks = new Set();
+      for (const link of family.parentChildLinks) {
+        const key = `${link?.parentId}:${link?.childId}`;
+        if (!parentIds.includes(link?.parentId) || !childIds.includes(link?.childId) || !Object.prototype.hasOwnProperty.call(FILIATION_TYPE_LABELS, link?.type) || seenLinks.has(key)) throw new Error(`Le foyer ${family.id} contient une filiation invalide ou dupliquée`);
+        seenLinks.add(key);
+      }
+    }
     for (const childId of childIds) {
       if (childHomes.has(childId) && childHomes.get(childId) !== family.id) throw new Error("Une personne est rattachée comme enfant à plusieurs foyers");
       childHomes.set(childId, family.id);
@@ -782,7 +926,7 @@ async function exportCompleteBackup() {
     const zip = new JSZip();
     const manifest = {
       format: "family-tree-backup",
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
       people: people.map(exportableRecord),
       families: families.map(exportableRecord),
@@ -1423,17 +1567,27 @@ $("personForm").addEventListener("submit", async event => {
   const data = Object.fromEntries(personFields.map(key => [key, $(key).value.trim()]));
   data.updatedAt = serverTimestamp();
   try {
+    const birthDateInfo = readGenealogyDateForm("birth");
+    const deathDateInfo = readGenealogyDateForm("death");
+    data.birthDateInfo = birthDateInfo;
+    data.deathDateInfo = deathDateInfo;
+    data.birthDate = birthDateInfo.type === "exact" ? birthDateInfo.value : deleteField();
+    data.deathDate = deathDateInfo.type === "exact" ? deathDateInfo.value : deleteField();
     const id = $("personId").value;
-    const duplicate = people.find(item => item.id !== id && searchable(item.firstName) === searchable(data.firstName) && searchable(item.lastName) === searchable(data.lastName) && (!data.birthDate || !item.birthDate || item.birthDate === data.birthDate));
-    if (duplicate && !confirm(`Une fiche proche existe déjà : ${nameOf(duplicate.id)}${duplicate.birthDate ? ` (${duplicate.birthDate})` : ""}.\n\nEnregistrer quand même cette personne ?`)) return;
+    const birthLabel = formatGenealogyDate(birthDateInfo);
+    const duplicate = people.find(item => item.id !== id && searchable(item.firstName) === searchable(data.firstName) && searchable(item.lastName) === searchable(data.lastName) && (birthLabel === "—" || formatGenealogyDate(item.birthDateInfo, item.birthDate) === birthLabel));
+    if (duplicate && !confirm(`Une fiche proche existe déjà : ${nameOf(duplicate.id)}${birthLabel !== "—" ? ` (${birthLabel})` : ""}.\n\nEnregistrer quand même cette personne ?`)) return;
     if (id) {
       await updateDoc(doc(db, "people", id), data);
       focusAfterRender = id;
       close("personDialog");
       toast("Personne mise à jour");
     } else {
-      const created = await addDoc(refs.people, { ...data, inTree: true, createdAt: serverTimestamp() });
-      people.push({ id: created.id, ...data, inTree: true });
+      const createData = { ...data };
+      if (birthDateInfo.type !== "exact") delete createData.birthDate;
+      if (deathDateInfo.type !== "exact") delete createData.deathDate;
+      const created = await addDoc(refs.people, { ...createData, inTree: true, createdAt: serverTimestamp() });
+      people.push({ id: created.id, ...createData, inTree: true });
       activeId = created.id;
       focusAfterRender = created.id;
       $("personId").value = created.id;
@@ -1446,7 +1600,7 @@ $("personForm").addEventListener("submit", async event => {
     }
   } catch (error) {
     console.error(error);
-    toast("Enregistrement impossible");
+    toast(error.message || "Enregistrement impossible");
   }
 });
 $("personForm").addEventListener("invalid", () => setPersonSection("identity"), true);
@@ -1471,7 +1625,7 @@ $("deleteBtn").onclick = async () => {
     const partnerIds = (family.partnerIds || []).filter(value => value !== id);
     const childIds = (family.childIds || []).filter(value => value !== id);
     if (!partnerIds.length) batch.delete(doc(db, "families", family.id));
-    else batch.update(doc(db, "families", family.id), { partnerIds, childIds, updatedAt: serverTimestamp() });
+    else batch.update(doc(db, "families", family.id), { partnerIds, childIds, parentChildLinks: normalizedParentChildLinks({ ...family, partnerIds, childIds }), updatedAt: serverTimestamp() });
   }
   for (const item of documents.filter(value => (value.personIds || []).includes(id))) {
     batch.update(doc(db, "documents", item.id), { personIds: item.personIds.filter(value => value !== id), updatedAt: serverTimestamp() });
@@ -1512,10 +1666,16 @@ $("addPartnerBtn").onclick = () => runSafely(addPartner, "Ajout du partenaire im
 $("addChildBtn").onclick = () => runSafely(addChild, "Ajout de l’enfant impossible");
 $("addParentBtn").onclick = () => runSafely(addParent, "Ajout du parent impossible");
 $("relationsList").onclick = event => {
+  const detailsButton = event.target.closest("[data-edit-family]");
+  if (detailsButton) return openFamilyDetails(detailsButton.dataset.editFamily);
   const button = event.target.closest("[data-remove-partner],[data-remove-child]");
   if (!button) return;
   runSafely(() => removeRelation(button.dataset.removePartner || button.dataset.removeChild, button.dataset.person, button.dataset.removePartner ? "partner" : "child"), "Suppression du lien impossible");
 };
+document.querySelectorAll("[data-date-prefix]").forEach(button => button.onclick = () => setGenealogyDateType(button.dataset.datePrefix, button.dataset.dateType));
+$("familyEndType").onchange = updateEndDetailsVisibility;
+$("familyDetailsForm").addEventListener("submit", saveFamilyDetails);
+$("familyDetailsDialog").addEventListener("close", () => { if (familyDetailsReturnContext) returnFromFamilyDetails(); });
 
 document.addEventListener("click", event => {
   const closeButton = event.target.closest("[data-close]");

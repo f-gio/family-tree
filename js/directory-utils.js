@@ -1,3 +1,5 @@
+import { formatGenealogyDate, genealogyDateMatchesYear, genealogyDateSortValue } from "./genealogy-date.js";
+
 export function normalizeDirectoryText(value = "") {
   return String(value)
     .normalize("NFD")
@@ -12,22 +14,18 @@ export function directoryPersonName(item = {}) {
     .trim();
 }
 
-export function formatDirectoryDate(value, locale = "fr-FR") {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return "—";
-  const date = new Date(`${value}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString(locale, { day: "numeric", month: "long", year: "numeric" });
+export function formatDirectoryDate(value, legacyExact = "", locale = "fr-FR") {
+  return formatGenealogyDate(value, legacyExact, locale);
 }
 
 export function directoryEventYear(item = {}, eventName = "birth") {
-  const exactValue = String(item[`${eventName}Date`] || "");
-  const match = exactValue.match(/^(\d{4})-/);
-  return match ? Number(match[1]) : null;
+  const value = item[`${eventName}DateInfo`], legacy = item[`${eventName}Date`];
+  const sortValue = genealogyDateSortValue(value, legacy);
+  return sortValue == null ? null : Math.floor(sortValue / 10000);
 }
 
 export function directoryEventSortValue(item = {}, eventName = "birth") {
-  const exactValue = String(item[`${eventName}Date`] || "");
-  return /^\d{4}-\d{2}-\d{2}$/.test(exactValue) ? Number(exactValue.replaceAll("-", "")) : null;
+  return genealogyDateSortValue(item[`${eventName}DateInfo`], item[`${eventName}Date`]);
 }
 
 function compareNames(a, b) {
@@ -50,8 +48,8 @@ export function filterAndSortDirectory(people = [], filters = {}) {
       && (!name || familyNames.includes(name))
       && (!place || places.includes(place))
       && (!branch || item.branch === branch)
-      && (!birthYear || directoryEventYear(item, "birth") === birthYear)
-      && (!deathYear || directoryEventYear(item, "death") === deathYear);
+      && (!birthYear || genealogyDateMatchesYear(item.birthDateInfo, item.birthDate, birthYear))
+      && (!deathYear || genealogyDateMatchesYear(item.deathDateInfo, item.deathDate, deathYear));
   });
 
   const sort = filters.sort || "name-asc";
