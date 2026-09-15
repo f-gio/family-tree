@@ -1076,6 +1076,7 @@ function stopPrivateData() {
   $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("tasksView").hidden = true;
   if ($("adminDialog").open) $("adminDialog").close();
   if ($("profileDialog").open) $("profileDialog").close();
+  if ($("dataDialog").open) $("dataDialog").close();
 }
 
 function applyAccessProfile(profile, user) {
@@ -1160,6 +1161,15 @@ function openProfileSettings() {
   $("accountDropdown").hidden = true;
   $("accountMenuBtn").setAttribute("aria-expanded", "false");
   $("profileDialog").showModal();
+}
+
+function openDataManagement() {
+  $("dataPeopleCount").textContent = people.length;
+  $("dataDocumentCount").textContent = documents.length;
+  $("dataTaskCount").textContent = tasks.length;
+  $("accountDropdown").hidden = true;
+  $("accountMenuBtn").setAttribute("aria-expanded", "false");
+  $("dataDialog").showModal();
 }
 
 async function saveProfileSettings() {
@@ -1256,10 +1266,13 @@ function setView(view) {
   $("tasksView").hidden = view !== "tasks";
   $("addBtn").hidden = view !== "tree";
   $("addLinkBtn").hidden = view !== "tree";
+  $("headerTreeActions").hidden = view !== "tree";
   document.querySelectorAll("[data-view]").forEach(button => {
     const active = button.dataset.view === view;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
   });
   if (view === "directory") renderDirectory();
   if (view === "documents") renderDocuments();
@@ -1519,6 +1532,7 @@ document.addEventListener("click", event => {
   }
 });
 $("profileBtn").onclick = openProfileSettings;
+$("dataBtn").onclick = openDataManagement;
 $("adminBtn").onclick = openAdministration;
 document.querySelectorAll("[data-settings-tab]").forEach(button => button.onclick = () => selectSettingsTab(button.dataset.settingsTab));
 $("profilePhotoFile").onchange = async event => {
