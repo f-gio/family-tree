@@ -5,6 +5,7 @@ import { calculateTreeLayout } from "./tree-layout.js";
 import { createTreeRenderer } from "./tree-renderer.js";
 import { createTreeCamera } from "./tree-camera.js";
 import { documentDisplayLabel } from "./document-utils.js";
+import { directoryPersonName, formatDirectoryDate, filterAndSortDirectory } from "./directory-utils.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",
@@ -80,6 +81,7 @@ function setContentMode(section, mode, persist = true) {
   const list = $(`${section}List`);
   if (!list) return;
   list.classList.toggle("list-mode", normalized === "list");
+  list.classList.toggle("cards-mode", normalized === "cards");
   document.querySelectorAll(`[data-switch="${section}"] [data-mode]`).forEach(button => {
     const active = button.dataset.mode === normalized;
     button.classList.toggle("active", active);
@@ -515,37 +517,13 @@ function personInitials(item) {
   return `${item?.firstName?.[0] || ""}${item?.lastName?.[0] || ""}`.toUpperCase() || "?";
 }
 
-function personDates(item) {
-  const birth = item.birthDate ? new Date(`${item.birthDate}T12:00:00`).toLocaleDateString("fr-FR") : "Naissance inconnue";
-  const death = item.deathDate ? new Date(`${item.deathDate}T12:00:00`).toLocaleDateString("fr-FR") : "";
-  return death ? `${birth} – ${death}` : birth;
-}
-
 function directoryDisplayName(item) {
-  return `${item.lastName || ""} ${[item.firstName, item.middleName].filter(Boolean).join(" ")}`.trim();
+  return directoryPersonName(item);
 }
 
 function surnameLetter(item) {
   const first = (item.lastName || "#").normalize("NFD").replace(/[\u0300-\u036f]/g, "").charAt(0).toUpperCase();
   return /^[A-Z]$/.test(first) ? first : "#";
-}
-
-function personRelationsSummary(personId) {
-  const parentIds = new Set();
-  const partnerIds = new Set();
-  const childIds = new Set();
-  for (const family of families) {
-    if ((family.childIds || []).includes(personId)) (family.partnerIds || []).forEach(id => parentIds.add(id));
-    if ((family.partnerIds || []).includes(personId)) {
-      (family.partnerIds || []).filter(id => id !== personId).forEach(id => partnerIds.add(id));
-      (family.childIds || []).forEach(id => childIds.add(id));
-    }
-  }
-  const parts = [];
-  if (parentIds.size) parts.push(`${parentIds.size} parent${parentIds.size > 1 ? "s" : ""}`);
-  if (partnerIds.size) parts.push(`${partnerIds.size} partenaire${partnerIds.size > 1 ? "s" : ""}`);
-  if (childIds.size) parts.push(`${childIds.size} enfant${childIds.size > 1 ? "s" : ""}`);
-  return parts.join(" · ") || "Aucun lien familial";
 }
 
 function updateDirectoryBranches() {
@@ -562,22 +540,44 @@ function renderDirectoryAlphabet(items) {
 }
 
 function renderDirectory() {
-  const query = searchable($("directorySearch").value);
-  const branch = $("directoryBranchFilter").value;
-  const filtered = people.filter(item =>
-    (!branch || item.branch === branch) &&
-    (!query || searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.place || ""} ${item.deathPlace || ""} ${item.branch || ""} ${item.notes || ""}`).includes(query))
-  );
-  filtered.sort((a, b) => directoryDisplayName(a).localeCompare(directoryDisplayName(b), "fr", { sensitivity: "base" }));
+  const filters = {
+    query: $("directorySearch").value,
+    name: $("directoryNameFilter").value,
+    place: $("directoryPlaceFilter").value,
+    birthYear: $("directoryBirthFilter").value,
+    deathYear: $("directoryDeathFilter").value,
+    branch: $("directoryBranchFilter").value,
+    sort: $("directorySort").value
+  };
+  const filtered = filterAndSortDirectory(people, filters);
+  const activeFilterCount = [filters.name, filters.place, filters.birthYear, filters.deathYear, filters.branch].filter(Boolean).length;
+  $("directoryFilterCount").textContent = activeFilterCount;
+  $("directoryFilterCount").hidden = !activeFilterCount;
+  $("directoryResultCount").textContent = `${filtered.length} personne${filtered.length > 1 ? "s" : ""}`;
   renderDirectoryAlphabet(filtered);
   $("directoryList").innerHTML = filtered.length ? filtered.map(item => {
     const avatar = item.photoUrl ? `<img src="${esc(item.photoUrl)}" alt="">` : personInitials(item);
-    const married = item.marriedName ? `<p class="list-optional">Nom d’épouse : ${esc(item.marriedName)}</p>` : "";
-    const death = item.deathDate || item.deathPlace ? `<p class="list-optional">Décès : ${item.deathDate ? esc(new Date(`${item.deathDate}T12:00:00`).toLocaleDateString("fr-FR")) : "date inconnue"}${item.deathPlace ? ` · ${esc(item.deathPlace)}` : ""}</p>` : "";
-    const presence = item.inTree === false ? '<span class="badge muted">Masquée de l’arbre</span>' : "";
-    return `<article class="content-card directory-card" data-letter="${surnameLetter(item)}" data-open-person="${item.id}" tabindex="0"><div class="directory-identity"><span class="directory-avatar">${avatar}</span><div><h3>${esc(directoryDisplayName(item))}</h3><p>${esc(personDates(item))}</p>${presence}</div></div><p class="card-meta">${esc(item.place || "Lieu de naissance non renseigné")}${item.branch ? ` · ${esc(item.branch)}` : ""}</p><div>${married}${death}<p>${esc(personRelationsSummary(item.id))}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}</div><div class="card-actions"><button class="btn small" type="button" data-open-person="${item.id}">Voir la fiche</button></div></article>`;
+    const presence = item.inTree === false ? '<span class="badge muted directory-presence">Masquée de l’arbre</span>' : "";
+    const documentCount = documents.filter(documentItem => (documentItem.personIds || []).includes(item.id)).length;
+    const documentAction = documentCount
+      ? `<button class="directory-action directory-doc-action" type="button" data-directory-documents="${item.id}" aria-label="Afficher ${documentCount} document${documentCount > 1 ? "s" : ""} associé${documentCount > 1 ? "s" : ""} à ${esc(directoryDisplayName(item))}"><span aria-hidden="true">▧</span> ${documentCount} document${documentCount > 1 ? "s" : ""}</button>`
+      : '<span class="directory-action directory-doc-action" aria-label="Aucun document associé"><span aria-hidden="true">▧</span> 0 document</span>';
+    const middleName = item.middleName ? `<span class="person-middle-name">${esc(item.middleName)}</span>` : "";
+    return `<article class="directory-entry" data-letter="${surnameLetter(item)}" data-directory-person="${item.id}" tabindex="0" aria-label="Ouvrir la fiche de ${esc(directoryDisplayName(item))}"><span class="directory-avatar">${avatar}</span><div class="directory-main"><h3><span class="directory-surname">${esc(item.lastName || "—")}</span> <span class="directory-first-name">${esc(item.firstName || "")}</span>${middleName}</h3><p class="directory-life"><span><span class="directory-life-symbol" aria-hidden="true">✦</span> ${esc(formatDirectoryDate(item.birthDate))}</span><span class="directory-life-divider" aria-hidden="true">—</span><span><span class="directory-life-symbol" aria-hidden="true">†</span> ${esc(formatDirectoryDate(item.deathDate))}</span></p>${presence}</div><div class="directory-entry-actions">${documentAction}<button class="directory-action directory-open-action" type="button" data-directory-open-person="${item.id}" aria-label="Voir la fiche de ${esc(directoryDisplayName(item))}" title="Voir la fiche">→</button></div></article>`;
   }).join("") : '<div class="empty-list">Aucune personne ne correspond à ces critères.</div>';
-  setContentMode("directory", viewModes.directory || "cards", false);
+  setContentMode("directory", viewModes.directory || "list", false);
+}
+
+function openDirectoryDocuments(personId) {
+  const item = person(personId);
+  if (!item) return;
+  const linked = documents.filter(documentItem => (documentItem.personIds || []).includes(personId));
+  $("directoryDocumentsTitle").textContent = "Documents associés";
+  $("directoryDocumentsSubtitle").textContent = directoryDisplayName(item);
+  $("directoryDocumentsList").innerHTML = linked.length
+    ? linked.map(documentItem => `<div class="directory-document-item"><div><strong>${esc(documentDisplayLabel(documentItem))}</strong><small>${esc(documentItem.type || documentItem.fileName || "Document")}</small></div><button class="btn small primary" type="button" data-view-directory-document="${documentItem.id}">Consulter</button></div>`).join("")
+    : '<div class="empty-relations">Aucun document associé à cette personne.</div>';
+  $("directoryDocumentsDialog").showModal();
 }
 
 function documentPeopleMarkup(selectedIds = []) {
@@ -1345,6 +1345,7 @@ function startData() {
     documents = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
     loadedDocuments = true;
     syncState();
+    renderDirectory();
     renderDocuments();
   }, dataError));
   unsubs.push(onSnapshot(refs.tasks, snapshot => {
@@ -1544,15 +1545,26 @@ $("documentsList").onclick = event => {
 };
 
 $("directoryList").addEventListener("click", event => {
-  const target = event.target.closest("[data-open-person]");
-  if (target) openPerson(person(target.dataset.openPerson), "directory");
+  const documentsButton = event.target.closest("[data-directory-documents]");
+  if (documentsButton) return openDirectoryDocuments(documentsButton.dataset.directoryDocuments);
+  const openButton = event.target.closest("[data-directory-open-person]");
+  if (openButton) return openPerson(person(openButton.dataset.directoryOpenPerson), "directory");
+  const entry = event.target.closest("[data-directory-person]");
+  if (entry) openPerson(person(entry.dataset.directoryPerson), "directory");
 });
 $("directoryList").addEventListener("keydown", event => {
   if (event.key !== "Enter" && event.key !== " ") return;
-  const target = event.target.closest("[data-open-person]");
-  if (!target) return;
+  if (event.target.closest("button")) return;
+  const entry = event.target.closest("[data-directory-person]");
+  if (!entry) return;
   event.preventDefault();
-  openPerson(person(target.dataset.openPerson), "directory");
+  openPerson(person(entry.dataset.directoryPerson), "directory");
+});
+
+$("directoryDocumentsList").addEventListener("click", event => {
+  const button = event.target.closest("[data-view-directory-document]");
+  if (!button) return;
+  openStoredDocument(documents.find(item => item.id === button.dataset.viewDirectoryDocument));
 });
 
 $("directoryAlphabet").addEventListener("click", event => {
@@ -1717,13 +1729,24 @@ $("deleteTaskBtn").onclick = () => runSafely(removeTask, "Suppression de la tâc
 ["taskSearch", "taskStatusFilter", "taskPriorityFilter", "myTasksFilter"].forEach(id => {
   $(id).addEventListener(id === "taskSearch" ? "input" : "change", renderTasks);
 });
-[$("directorySearch"), $("directoryBranchFilter")].forEach(field => {
-  field.addEventListener(field.id === "directorySearch" ? "input" : "change", renderDirectory);
+[$("directorySearch"), $("directoryNameFilter"), $("directoryPlaceFilter"), $("directoryBirthFilter"), $("directoryDeathFilter")].forEach(field => {
+  field.addEventListener("input", () => {
+    if (["directoryBirthFilter", "directoryDeathFilter"].includes(field.id)) field.value = field.value.replace(/\D/g, "").slice(0, 4);
+    renderDirectory();
+  });
 });
+[$("directoryBranchFilter"), $("directorySort")].forEach(field => field.addEventListener("change", renderDirectory));
+$("clearDirectoryFiltersBtn").onclick = () => {
+  ["directoryNameFilter", "directoryPlaceFilter", "directoryBirthFilter", "directoryDeathFilter"].forEach(id => $(id).value = "");
+  $("directoryBranchFilter").value = "";
+  $("directoryFilterMenu").open = false;
+  renderDirectory();
+};
 document.querySelectorAll("[data-switch] [data-mode]").forEach(button => {
   button.onclick = () => setContentMode(button.closest("[data-switch]").dataset.switch, button.dataset.mode);
 });
-for (const section of ["directory", "documents", "tasks"]) setContentMode(section, viewModes[section] || "cards", false);
+setContentMode("directory", viewModes.directory || "list", false);
+for (const section of ["documents", "tasks"]) setContentMode(section, viewModes[section] || "cards", false);
 document.querySelectorAll("[data-view]").forEach(button => button.onclick = () => setView(button.dataset.view));
 
 $("exportBtn").onclick = exportCompleteBackup;
