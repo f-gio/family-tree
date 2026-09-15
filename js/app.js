@@ -34,6 +34,7 @@ let manualOffsets = readOffsets();
 let activeViewerUrl = "";
 const FILE_CHUNK_BYTES = 700 * 1024;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_PERSON_PHOTO_BYTES = 5 * 1024;
 const viewModes = readViewModes();
 const personFields = ["firstName", "middleName", "lastName", "marriedName", "gender", "branch", "birthDate", "place", "deathDate", "deathPlace", "photoUrl", "notes"];
 const taskFields = ["title", "status", "priority", "assignee", "dueDate", "personId", "description", "comments"];
@@ -188,6 +189,76 @@ function updateMarriedNameVisibility() {
   $("marriedNameField").hidden = !show;
 }
 
+function updatePersonPhotoPreview() {
+  const value = $("photoUrl").value;
+  const current = person($("personId").value);
+  $("personPhotoPreview").innerHTML = value
+    ? `<img src="${esc(value)}" alt="">`
+    : esc(personInitials({ firstName: $("firstName").value || current?.firstName, lastName: $("lastName").value || current?.lastName }));
+  $("removePersonPhotoBtn").hidden = !value;
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error("Lecture de la photo impossible"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function loadPhotoSource(file) {
+  if (typeof createImageBitmap === "function") {
+    const bitmap = await createImageBitmap(file);
+    return { image: bitmap, width: bitmap.width, height: bitmap.height, close: () => bitmap.close?.() };
+  }
+  const url = URL.createObjectURL(file);
+  const image = new Image();
+  await new Promise((resolve, reject) => {
+    image.onload = resolve;
+    image.onerror = () => reject(new Error("Format d’image non pris en charge"));
+    image.src = url;
+  });
+  return { image, width: image.naturalWidth, height: image.naturalHeight, close: () => URL.revokeObjectURL(url) };
+}
+
+async function compressPersonPhoto(file) {
+  if (!file?.type.startsWith("image/")) throw new Error("Choisissez un fichier image");
+  const source = await loadPhotoSource(file);
+  const crop = Math.min(source.width, source.height);
+  const sourceX = (source.width - crop) / 2;
+  const sourceY = (source.height - crop) / 2;
+  const attempts = [
+    [192, .84], [160, .82], [128, .80], [112, .78], [96, .76],
+    [80, .72], [64, .68], [64, .52], [64, .38], [64, .26]
+  ];
+  let smallest = null;
+  try {
+    for (const [size, quality] of attempts) {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const context = canvas.getContext("2d", { alpha: false });
+      context.fillStyle = "#f7f3ea";
+      context.fillRect(0, 0, size, size);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(source.image, sourceX, sourceY, crop, crop, 0, 0, size, size);
+      for (const mimeType of ["image/webp", "image/jpeg"]) {
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, mimeType, quality));
+        if (!blob) continue;
+        const dataUrl = await blobToDataUrl(blob);
+        const encodedBytes = new Blob([dataUrl]).size;
+        if (!smallest || encodedBytes < smallest.encodedBytes) smallest = { dataUrl, encodedBytes };
+        if (encodedBytes <= MAX_PERSON_PHOTO_BYTES) return { dataUrl, encodedBytes };
+      }
+    }
+  } finally {
+    source.close();
+  }
+  if (smallest?.encodedBytes <= MAX_PERSON_PHOTO_BYTES) return smallest;
+  throw new Error("La photo ne peut pas être réduite sous 5 Ko. Essayez une image plus simple.");
+}
+
 function openPerson(item = null, source = "tree") {
   personDialogSource = source;
   activeId = item?.id || null;
@@ -201,6 +272,9 @@ function openPerson(item = null, source = "tree") {
   $("personDocumentsSection").hidden = !item;
   $("personId").value = item?.id || "";
   for (const key of personFields) $(key).value = item?.[key] || "";
+  $("personPhotoFile").value = "";
+  $("personPhotoStatus").textContent = "Recadrage carré et compression automatique à 5 Ko maximum.";
+  updatePersonPhotoPreview();
   updateMarriedNameVisibility();
   if (item) renderPersonDocuments(item.id);
   $("personDialog").showModal();
@@ -963,6 +1037,35 @@ $("logoutBtn").onclick = () => signOut(auth);
 $("addBtn").onclick = () => openPerson();
 $("addDirectoryPersonBtn").onclick = () => openPerson(null, "directory");
 $("gender").onchange = updateMarriedNameVisibility;
+$("firstName").addEventListener("input", updatePersonPhotoPreview);
+$("lastName").addEventListener("input", updatePersonPhotoPreview);
+$("personPhotoFile").addEventListener("change", async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const picker = document.querySelector('label[for="personPhotoFile"]');
+  picker.setAttribute("aria-disabled", "true");
+  $("personPhotoFile").disabled = true;
+  $("personPhotoStatus").textContent = "Compression de la photo…";
+  try {
+    const compressed = await compressPersonPhoto(file);
+    $("photoUrl").value = compressed.dataUrl;
+    $("personPhotoStatus").textContent = `Photo prête · ${formatBytes(compressed.encodedBytes)} stockés`;
+    updatePersonPhotoPreview();
+  } catch (error) {
+    console.error(error);
+    $("personPhotoStatus").textContent = error.message || "Compression impossible";
+    toast("Impossible de préparer cette photo");
+  } finally {
+    $("personPhotoFile").disabled = false;
+    picker.removeAttribute("aria-disabled");
+    event.target.value = "";
+  }
+});
+$("removePersonPhotoBtn").onclick = () => {
+  $("photoUrl").value = "";
+  $("personPhotoStatus").textContent = "La photo sera retirée après enregistrement.";
+  updatePersonPhotoPreview();
+};
 $("search").oninput = () => applySearch(true);
 $("resetBtn").onclick = () => { $("search").value = ""; applySearch(false); };
 $("zoomOutBtn").onclick = () => camera.zoomBy(1 / 1.2);
