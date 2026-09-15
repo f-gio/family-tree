@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
-import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, doc, getDoc, setDoc, onSnapshot, serverTimestamp, writeBatch, Bytes } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
+import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, doc, getDoc, setDoc, onSnapshot, serverTimestamp, writeBatch, runTransaction, Bytes } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 import { calculateTreeLayout } from "./tree-layout.js";
 import { createTreeRenderer } from "./tree-renderer.js";
 import { createTreeCamera } from "./tree-camera.js";
@@ -21,7 +21,8 @@ const refs = {
   people: collection(db, "people"),
   families: collection(db, "families"),
   documents: collection(db, "documents"),
-  tasks: collection(db, "tasks")
+  tasks: collection(db, "tasks"),
+  users: collection(db, "users")
 };
 
 let people = [], families = [], documents = [], tasks = [];
@@ -30,6 +31,8 @@ let personDialogSource = "tree";
 let cameraPositioned = false, focusAfterRender = null;
 let loadedPeople = false, loadedFamilies = false, loadedDocuments = false, loadedTasks = false;
 let unsubs = [];
+let profileUnsub = null, adminUsersUnsub = null, activeDataUid = "";
+let currentUserProfile = null, primaryAdminUid = "", adminUsersCache = [], currentProfilePhoto = "";
 let manualOffsets = readOffsets();
 let activeViewerUrl = "";
 const FILE_CHUNK_BYTES = 700 * 1024;
@@ -1014,6 +1017,238 @@ async function removeTask() {
   toast("Tâche supprimée");
 }
 
+const accessRef = doc(db, "settings", "access");
+const publicAuthRef = doc(db, "publicConfig", "auth");
+const accessLabels = { pending: "Demande en attente", suspended: "Compte suspendu", rejected: "Demande refusée" };
+
+function defaultDisplayName(user) {
+  return (user?.email || "Compte").split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, letter => letter.toUpperCase());
+}
+
+function profileInitials(name, email = "") {
+  const value = (name || email.split("@")[0] || "Compte").trim();
+  return value.split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase() || "").join("") || "?";
+}
+
+function safeProfilePhoto(value = "") {
+  return typeof value === "string" && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) ? value : "";
+}
+
+function profileAvatarMarkup(profile = {}, user = auth.currentUser) {
+  const photo = safeProfilePhoto(profile.photo);
+  return photo ? `<img src="${photo}" alt="">` : esc(profileInitials(profile.displayName, user?.email));
+}
+
+function updateAccountUI(profile = {}, user = auth.currentUser) {
+  const displayName = profile.displayName || defaultDisplayName(user);
+  $("accountAvatar").innerHTML = profileAvatarMarkup(profile, user);
+  $("accountLabel").textContent = displayName;
+  $("accountSummaryName").textContent = displayName;
+  $("accountSummaryEmail").textContent = user?.email || "";
+  $("adminBtn").hidden = !(user?.uid === primaryAdminUid || profile.role === "admin");
+}
+
+function showAuthPanel(panel) {
+  $("authScreen").hidden = panel === "app";
+  $("loginForm").hidden = panel !== "login";
+  $("signupForm").hidden = panel !== "signup";
+  $("accessStatus").hidden = panel !== "status";
+}
+
+async function refreshSignupAvailability() {
+  try {
+    const snapshot = await getDoc(publicAuthRef);
+    $("signupSwitch").hidden = !snapshot.exists() || snapshot.data().registrationOpen !== true;
+  } catch (error) {
+    console.warn("Vérification des inscriptions impossible", error);
+    $("signupSwitch").hidden = true;
+  }
+}
+
+function stopPrivateData() {
+  unsubs.forEach(unsub => unsub());
+  unsubs = [];
+  adminUsersUnsub?.();
+  adminUsersUnsub = null;
+  activeDataUid = "";
+  people = []; families = []; documents = []; tasks = [];
+  $("topbar").hidden = true;
+  $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("tasksView").hidden = true;
+  if ($("adminDialog").open) $("adminDialog").close();
+  if ($("profileDialog").open) $("profileDialog").close();
+}
+
+function applyAccessProfile(profile, user) {
+  currentUserProfile = profile;
+  updateAccountUI(profile, user);
+  if (!(user.uid === primaryAdminUid || profile.role === "admin") && $("adminDialog").open) $("adminDialog").close();
+  const approved = user.uid === primaryAdminUid || profile.status === "approved";
+  if (!approved) {
+    stopPrivateData();
+    $("accessStatusTitle").textContent = accessLabels[profile.status] || "Accès indisponible";
+    $("accessStatusMessage").textContent = profile.status === "suspended"
+      ? "Votre accès a été temporairement suspendu par un administrateur."
+      : profile.status === "rejected"
+        ? "Votre demande d’accès a été refusée. Contactez un administrateur si nécessaire."
+        : "Un administrateur doit valider votre compte avant que vous puissiez consulter l’arbre.";
+    showAuthPanel("status");
+    return;
+  }
+  showAuthPanel("app");
+  $("topbar").hidden = false;
+  $("appMain").hidden = false;
+  if (activeDataUid !== user.uid) {
+    activeDataUid = user.uid;
+    startData();
+    setView("tree");
+  }
+}
+
+async function initializeUserAccess(user) {
+  const userRef = doc(db, "users", user.uid);
+  await runTransaction(db, async transaction => {
+    const accessSnapshot = await transaction.get(accessRef);
+    const userSnapshot = await transaction.get(userRef);
+    if (!accessSnapshot.exists()) {
+      const profile = { email: user.email || "", displayName: defaultDisplayName(user), photo: "", role: "admin", status: "approved", createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+      transaction.set(accessRef, { primaryAdminUid: user.uid, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      transaction.set(userRef, profile, { merge: true });
+      transaction.set(publicAuthRef, { registrationOpen: true, updatedAt: serverTimestamp() });
+      return;
+    }
+    if (!userSnapshot.exists()) {
+      const isPrimary = accessSnapshot.data()?.primaryAdminUid === user.uid;
+      transaction.set(userRef, { email: user.email || "", displayName: defaultDisplayName(user), photo: "", role: isPrimary ? "admin" : "member", status: isPrimary ? "approved" : "pending", createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    }
+  });
+  const accessSnapshot = await getDoc(accessRef);
+  primaryAdminUid = accessSnapshot.data()?.primaryAdminUid || "";
+  profileUnsub?.();
+  profileUnsub = onSnapshot(userRef, snapshot => {
+    if (!snapshot.exists()) return;
+    applyAccessProfile({ id: snapshot.id, ...snapshot.data() }, user);
+  }, error => {
+    console.error(error);
+    stopPrivateData();
+    showAuthPanel("status");
+    $("accessStatusTitle").textContent = "Accès impossible";
+    $("accessStatusMessage").textContent = "Publiez les nouvelles règles Firestore, puis actualisez la page.";
+  });
+}
+
+function selectSettingsTab(tab) {
+  document.querySelectorAll("[data-settings-tab]").forEach(button => {
+    const active = button.dataset.settingsTab === tab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  $("profileSettingsPanel").hidden = tab !== "profile";
+  $("securitySettingsPanel").hidden = tab !== "security";
+}
+
+function openProfileSettings() {
+  const user = auth.currentUser;
+  if (!user || !currentUserProfile) return;
+  currentProfilePhoto = currentUserProfile.photo || "";
+  $("profileDisplayName").value = currentUserProfile.displayName || defaultDisplayName(user);
+  $("profileEmail").value = user.email || "";
+  $("profilePreview").innerHTML = profileAvatarMarkup(currentUserProfile, user);
+  $("removeProfilePhotoBtn").hidden = !currentProfilePhoto;
+  $("profileMessage").textContent = $("passwordMessage").textContent = "";
+  $("currentPassword").value = $("newPassword").value = $("newPasswordConfirm").value = "";
+  selectSettingsTab("profile");
+  $("accountDropdown").hidden = true;
+  $("accountMenuBtn").setAttribute("aria-expanded", "false");
+  $("profileDialog").showModal();
+}
+
+async function saveProfileSettings() {
+  const user = auth.currentUser;
+  const displayName = $("profileDisplayName").value.trim();
+  if (!user || !displayName) {
+    $("profileMessage").textContent = "Le nom affiché est obligatoire.";
+    return;
+  }
+  $("saveProfileBtn").disabled = true;
+  $("profileMessage").textContent = "Enregistrement…";
+  try {
+    await updateDoc(doc(db, "users", user.uid), { displayName, photo: currentProfilePhoto, updatedAt: serverTimestamp() });
+    $("profileMessage").textContent = "Profil enregistré.";
+    $("profileMessage").classList.add("success");
+    setTimeout(() => close("profileDialog"), 450);
+  } catch (error) {
+    console.error(error);
+    $("profileMessage").textContent = "Enregistrement impossible.";
+    $("profileMessage").classList.remove("success");
+  } finally { $("saveProfileBtn").disabled = false; }
+}
+
+async function changeAccountPassword() {
+  const user = auth.currentUser;
+  const currentPassword = $("currentPassword").value;
+  const newPassword = $("newPassword").value;
+  const confirmation = $("newPasswordConfirm").value;
+  $("passwordMessage").classList.remove("success");
+  if (!user?.email || !currentPassword || newPassword.length < 6) return $("passwordMessage").textContent = "Complétez les champs ; le nouveau mot de passe doit contenir au moins 6 caractères.";
+  if (newPassword !== confirmation) return $("passwordMessage").textContent = "Les deux nouveaux mots de passe ne correspondent pas.";
+  $("changePasswordBtn").disabled = true;
+  try {
+    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
+    await updatePassword(user, newPassword);
+    $("currentPassword").value = $("newPassword").value = $("newPasswordConfirm").value = "";
+    $("passwordMessage").textContent = "Mot de passe modifié.";
+    $("passwordMessage").classList.add("success");
+  } catch (error) {
+    console.error(error);
+    $("passwordMessage").textContent = error.code === "auth/invalid-credential" ? "Le mot de passe actuel est incorrect." : "Modification impossible. Réessayez.";
+  } finally { $("changePasswordBtn").disabled = false; }
+}
+
+const userStatusLabels = { pending: "En attente", approved: "Actif", suspended: "Suspendu", rejected: "Refusé" };
+
+function renderAdminUsers() {
+  const query = searchable($("adminSearch").value);
+  const rows = adminUsersCache.filter(item => !query || searchable(`${item.displayName || ""} ${item.email || ""}`).includes(query)).sort((a, b) => (a.displayName || a.email || "").localeCompare(b.displayName || b.email || "", "fr", { sensitivity: "base" }));
+  $("adminTotalCount").textContent = `${adminUsersCache.length} utilisateur${adminUsersCache.length > 1 ? "s" : ""}`;
+  const pending = adminUsersCache.filter(item => item.status === "pending").length;
+  const active = adminUsersCache.filter(item => item.status === "approved").length;
+  $("adminPendingCount").textContent = `${pending} en attente`;
+  $("adminActiveCount").textContent = `${active} actif${active > 1 ? "s" : ""}`;
+  $("adminUsers").innerHTML = rows.length ? rows.map(item => {
+    const primary = item.id === primaryAdminUid;
+    let actions = "";
+    if (!primary) {
+      if (item.status === "pending") actions += `<button class="btn small primary" data-user-status="approved" data-user-id="${item.id}">Accepter</button><button class="btn small danger" data-user-status="rejected" data-user-id="${item.id}">Refuser</button>`;
+      if (item.status === "approved") actions += `<button class="btn small danger" data-user-status="suspended" data-user-id="${item.id}">Suspendre</button>`;
+      if (["suspended", "rejected"].includes(item.status)) actions += `<button class="btn small primary" data-user-status="approved" data-user-id="${item.id}">Réactiver</button>`;
+      actions += `<select class="field" data-user-role="${item.id}" aria-label="Rôle de ${esc(item.displayName || item.email)}"><option value="member"${item.role !== "admin" ? " selected" : ""}>Membre</option><option value="admin"${item.role === "admin" ? " selected" : ""}>Administrateur</option></select>`;
+    }
+    return `<article class="admin-user"><div><h4>${esc(item.displayName || "Sans nom")}</h4><p>${esc(item.email || "Sans e-mail")}</p><p><span class="status-pill status-${item.status || "pending"}">${userStatusLabels[item.status] || item.status}</span> · ${item.role === "admin" ? "Administrateur" : "Membre"}</p>${primary ? '<p class="primary-note">Administrateur principal — accès protégé</p>' : ""}</div><div class="admin-user-actions">${actions}</div></article>`;
+  }).join("") : '<div class="empty-list">Aucun utilisateur trouvé.</div>';
+}
+
+function openAdministration() {
+  if (!(auth.currentUser?.uid === primaryAdminUid || currentUserProfile?.role === "admin")) return toast("Accès réservé aux administrateurs");
+  $("accountDropdown").hidden = true;
+  $("accountMenuBtn").setAttribute("aria-expanded", "false");
+  $("adminSearch").value = "";
+  adminUsersUnsub?.();
+  adminUsersUnsub = onSnapshot(refs.users, snapshot => {
+    adminUsersCache = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+    renderAdminUsers();
+  }, error => {
+    console.error(error);
+    $("adminUsers").innerHTML = '<div class="empty-list">Impossible de charger les utilisateurs. Vérifiez les règles Firestore.</div>';
+  });
+  $("adminDialog").showModal();
+}
+
+async function updateManagedUser(userId, changes) {
+  if (!userId || userId === primaryAdminUid) return toast("Le compte administrateur principal est protégé");
+  await updateDoc(doc(db, "users", userId), { ...changes, updatedAt: serverTimestamp() });
+  toast("Accès utilisateur mis à jour");
+}
+
 function setView(view) {
   $("appMain").hidden = view !== "tree";
   $("directoryView").hidden = view !== "directory";
@@ -1072,18 +1307,30 @@ function startData() {
   }, dataError));
 }
 
-onAuthStateChanged(auth, user => {
-  $("authScreen").hidden = !!user;
-  $("topbar").hidden = !user;
+onAuthStateChanged(auth, async user => {
+  profileUnsub?.();
+  profileUnsub = null;
+  adminUsersUnsub?.();
+  adminUsersUnsub = null;
   if (user) {
-    $("appMain").hidden = false;
-    startData();
-    setView("tree");
+    showAuthPanel("status");
+    $("accessStatusTitle").textContent = "Vérification de l’accès…";
+    $("accessStatusMessage").textContent = "Votre profil est en cours de chargement.";
+    try { await initializeUserAccess(user); }
+    catch (error) {
+      console.error(error);
+      stopPrivateData();
+      showAuthPanel("status");
+      $("accessStatusTitle").textContent = "Initialisation impossible";
+      $("accessStatusMessage").textContent = "Publiez le nouveau fichier firestore.rules, puis actualisez la page.";
+    }
   } else {
-    $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("tasksView").hidden = true;
-    unsubs.forEach(unsub => unsub());
-    unsubs = [];
-    people = []; families = []; documents = []; tasks = [];
+    currentUserProfile = null;
+    primaryAdminUid = "";
+    adminUsersCache = [];
+    stopPrivateData();
+    showAuthPanel("login");
+    refreshSignupAvailability();
   }
 });
 
@@ -1099,6 +1346,27 @@ $("loginForm").addEventListener("submit", async event => {
   } finally {
     $("loginBtn").disabled = false;
   }
+});
+
+$("showSignupBtn").onclick = () => {
+  $("signupForm").reset();
+  $("signupError").textContent = "";
+  showAuthPanel("signup");
+};
+$("backToLoginBtn").onclick = () => showAuthPanel("login");
+$("signupForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const email = $("signupEmail").value.trim();
+  const password = $("signupPassword").value;
+  const confirmation = $("signupPasswordConfirm").value;
+  $("signupError").textContent = "";
+  if (password !== confirmation) return $("signupError").textContent = "Les deux mots de passe ne correspondent pas.";
+  $("signupSubmitBtn").disabled = true;
+  try { await createUserWithEmailAndPassword(auth, email, password); }
+  catch (error) {
+    console.error(error);
+    $("signupError").textContent = error.code === "auth/email-already-in-use" ? "Un compte utilise déjà cette adresse e-mail." : error.code === "auth/weak-password" ? "Le mot de passe doit contenir au moins 6 caractères." : "Création du compte impossible.";
+  } finally { $("signupSubmitBtn").disabled = false; }
 });
 
 $("personForm").addEventListener("submit", async event => {
@@ -1237,6 +1505,62 @@ $("tasksList").onclick = async event => {
 };
 
 $("logoutBtn").onclick = () => signOut(auth);
+$("statusLogoutBtn").onclick = () => signOut(auth);
+$("accountMenuBtn").onclick = event => {
+  event.stopPropagation();
+  const open = $("accountDropdown").hidden;
+  $("accountDropdown").hidden = !open;
+  $("accountMenuBtn").setAttribute("aria-expanded", String(open));
+};
+document.addEventListener("click", event => {
+  if (!$("accountMenu").contains(event.target)) {
+    $("accountDropdown").hidden = true;
+    $("accountMenuBtn").setAttribute("aria-expanded", "false");
+  }
+});
+$("profileBtn").onclick = openProfileSettings;
+$("adminBtn").onclick = openAdministration;
+document.querySelectorAll("[data-settings-tab]").forEach(button => button.onclick = () => selectSettingsTab(button.dataset.settingsTab));
+$("profilePhotoFile").onchange = async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  $("profileMessage").classList.remove("success");
+  $("profileMessage").textContent = "Compression de la photo…";
+  try {
+    const compressed = await compressPersonPhoto(file);
+    currentProfilePhoto = compressed.dataUrl;
+    $("profilePreview").innerHTML = `<img src="${currentProfilePhoto}" alt="">`;
+    $("removeProfilePhotoBtn").hidden = false;
+    $("profileMessage").textContent = `Photo prête · ${formatBytes(compressed.encodedBytes)}`;
+  } catch (error) {
+    console.error(error);
+    $("profileMessage").textContent = error.message || "Compression impossible.";
+  } finally { event.target.value = ""; }
+};
+$("removeProfilePhotoBtn").onclick = () => {
+  currentProfilePhoto = "";
+  $("profilePreview").textContent = profileInitials($("profileDisplayName").value, auth.currentUser?.email);
+  $("removeProfilePhotoBtn").hidden = true;
+  $("profileMessage").textContent = "La photo sera retirée après enregistrement.";
+};
+$("profileDisplayName").oninput = () => {
+  if (!currentProfilePhoto) $("profilePreview").textContent = profileInitials($("profileDisplayName").value, auth.currentUser?.email);
+};
+$("saveProfileBtn").onclick = saveProfileSettings;
+$("changePasswordBtn").onclick = changeAccountPassword;
+$("adminSearch").oninput = renderAdminUsers;
+$("adminUsers").onclick = event => {
+  const button = event.target.closest("[data-user-status]");
+  if (button) runSafely(() => updateManagedUser(button.dataset.userId, { status: button.dataset.userStatus }), "Mise à jour de l’accès impossible");
+};
+$("adminUsers").onchange = event => {
+  const select = event.target.closest("[data-user-role]");
+  if (select) runSafely(() => updateManagedUser(select.dataset.userRole, { role: select.value }), "Mise à jour du rôle impossible");
+};
+$("adminDialog").addEventListener("close", () => {
+  adminUsersUnsub?.();
+  adminUsersUnsub = null;
+});
 $("addBtn").onclick = () => openPerson();
 $("addDirectoryPersonBtn").onclick = () => openPerson(null, "directory");
 $("gender").onchange = updateMarriedNameVisibility;
