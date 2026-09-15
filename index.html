@@ -26,8 +26,9 @@
     .admin-dialog{width:min(880px,calc(100% - 28px))}.admin-stats{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}.admin-users{display:grid;gap:10px;margin-top:14px}.admin-user{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:14px;align-items:center;padding:14px;border:1px solid #e2d8c7;border-radius:13px;background:#faf7f0}.admin-user h4{margin:0;font:700 16px Georgia,serif}.admin-user p{margin:3px 0 0;color:var(--muted);font-size:12px}.admin-user-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}.admin-user-actions .field{width:auto;min-width:125px;padding:7px 9px;font-size:12px}.status-pill{display:inline-flex;padding:3px 7px;border-radius:999px;background:#eee6d8;color:#6b5943;font-size:10px;font-weight:800}.status-approved{background:#dceadd;color:#326346}.status-pending{background:#f5e7c8;color:#76551c}.status-suspended,.status-rejected{background:#f5d8d3;color:#8f332c}.primary-note{color:var(--accent)!important;font-weight:750}
     @media(max-width:760px){.account-menu{margin-left:auto}.account-label{display:none}.account-dropdown{position:fixed;right:10px;top:74px}.settings-layout{grid-template-columns:1fr}.settings-nav{display:flex;border-right:0;border-bottom:1px solid #e8dfd0}.settings-tab{text-align:center}.settings-panel{padding:18px}.admin-user{grid-template-columns:1fr}.admin-user-actions{justify-content:flex-start}.profile-photo-row{align-items:flex-start}.admin-dialog{width:calc(100% - 12px)}}
     .topbar{display:grid;grid-template-columns:auto minmax(320px,1fr) auto auto;align-items:center}.main-nav{display:flex;align-items:stretch;justify-content:center;gap:3px;min-width:0}.nav-btn{position:relative;display:flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:8px 13px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-weight:750}.nav-btn:hover{background:#f1ece2;color:var(--ink)}.nav-btn.active{background:transparent;border-color:transparent;color:var(--brand)}.nav-btn.active::after{content:"";position:absolute;left:12px;right:12px;bottom:1px;height:3px;border-radius:999px;background:var(--brand)}.nav-icon{display:grid;place-items:center;width:20px;height:20px;color:currentColor;font:700 16px Georgia,serif}.header-tools{display:flex;align-items:center;gap:7px}.header-tools .btn{padding:8px 10px}.account-menu{margin-left:0}.data-dialog{width:min(680px,calc(100% - 28px))}.data-overview{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:20px}.data-stat{padding:13px;border:1px solid #e2d8c7;border-radius:12px;background:#faf7f0}.data-stat strong,.data-stat span{display:block}.data-stat strong{font:700 23px Georgia,serif;color:var(--brand)}.data-stat span{margin-top:2px;color:var(--muted);font-size:11px}.data-action{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:center;padding:17px 0;border-top:1px solid #e8dfd0}.data-action h4{margin:0 0 4px;font:700 17px Georgia,serif}.data-action p{margin:0;color:var(--muted);font-size:12px}.data-action .btn{min-width:138px}.data-note{margin:12px 0 0;padding:12px;border-radius:11px;background:#f4eee2;color:#675c4f;font-size:12px}
+    .person-section-nav{position:sticky;top:78px;z-index:2;display:flex;gap:4px;padding:8px 24px;border-bottom:1px solid #e8dfd0;background:var(--card)}.person-section-tab{position:relative;flex:1;min-height:42px;padding:8px 12px;border:0;border-radius:10px;background:transparent;color:var(--muted);font-weight:750}.person-section-tab:hover{background:#f3eee5;color:var(--ink)}.person-section-tab.active{background:var(--soft);color:var(--brand)}.person-section-tab:focus-visible{outline:3px solid #284b3f2b;outline-offset:2px}.person-section-tab[disabled]{opacity:.55;cursor:not-allowed}.person-section-panel[hidden]{display:none}.person-section-placeholder{padding:28px 20px;border:1px dashed #d8cbb7;border-radius:14px;background:#faf7f0;color:var(--muted);text-align:center}.person-section-placeholder strong{display:block;margin-bottom:5px;color:var(--ink);font:700 17px Georgia,serif}.person-documents{margin-top:0;padding-top:0;border-top:0}.person-section-panel .relations-list{margin-top:0}.person-section-panel .relation-builder{margin-top:22px}.mini-doc-info{min-width:0}.mini-doc-info strong,.mini-doc-info span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mini-doc-info span{margin-top:2px;color:var(--muted)}.mini-doc-actions{display:flex;gap:6px;flex:0 0 auto}
     @media(max-width:980px) and (min-width:761px){.topbar{grid-template-columns:auto minmax(0,1fr) auto}.brand{grid-column:1;grid-row:1}.header-tools{grid-column:2;grid-row:1;justify-self:end}.header-tools .label{display:none}.account-menu{grid-column:3;grid-row:1}.main-nav{grid-column:1/-1;grid-row:2;border-top:1px solid #eee6d9;padding-top:4px}.nav-btn{padding-inline:12px}}
-    @media(max-width:760px){body{overflow-x:hidden}.topbar{position:sticky;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;padding:9px 10px 8px}.brand{grid-column:1;grid-row:1}.brand-mark{width:36px;height:36px;border-radius:11px;font-size:18px}.brand h1{font-size:17px}.account-menu{grid-column:2;grid-row:1}.account-menu-btn{min-width:42px;padding:4px}.account-avatar{width:32px;height:32px}.account-caret{display:none}.account-dropdown{position:absolute;top:calc(100% + 7px);right:0}.main-nav{grid-column:1/-1;grid-row:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));width:100%;gap:0;border-top:1px solid #eee6d9;padding-top:4px}.nav-btn{min-width:0;min-height:38px;padding:5px 3px;border-radius:8px;font-size:11px;gap:3px}.nav-btn.active::after{left:8px;right:8px;bottom:-1px;height:2px}.nav-icon{width:16px;font-size:13px}.header-tools{grid-column:1/-1;grid-row:3;display:grid;grid-template-columns:1fr 1fr;width:100%;gap:6px}.header-tools[hidden]{display:none!important}.header-tools .btn{min-height:36px;padding:6px 8px;font-size:12px}.header-tools .label{display:inline}main#appMain{padding:10px 8px 8px}.intro{display:block;margin:0 3px 8px}.intro .eyebrow,.intro .lead,.intro .summary{display:none}.intro h2{font-size:21px;line-height:1.1}.status{margin-top:4px;font-size:10px}.toolbar{grid-template-columns:minmax(0,1fr) auto;gap:6px;margin:0 3px 8px}.toolbar .field{padding:8px 10px;font-size:12px}.toolbar .btn{padding:7px 9px;font-size:11px}.tree-shell{height:calc(100dvh - 238px);min-height:390px;border-radius:15px}.tree-controls{max-width:calc(100% - 20px)}.zoom-control,.view-control{max-width:100%}.view-control button{padding-inline:7px;font-size:10px}.data-overview{grid-template-columns:1fr 1fr}.data-action{grid-template-columns:1fr;gap:10px}.data-action .btn{width:100%}.data-dialog{width:calc(100% - 12px)}}
+    @media(max-width:760px){body{overflow-x:hidden}.topbar{position:sticky;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 10px;padding:9px 10px 8px}.brand{grid-column:1;grid-row:1}.brand-mark{width:36px;height:36px;border-radius:11px;font-size:18px}.brand h1{font-size:17px}.account-menu{grid-column:2;grid-row:1}.account-menu-btn{min-width:42px;padding:4px}.account-avatar{width:32px;height:32px}.account-caret{display:none}.account-dropdown{position:absolute;top:calc(100% + 7px);right:0}.main-nav{grid-column:1/-1;grid-row:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));width:100%;gap:0;border-top:1px solid #eee6d9;padding-top:4px}.nav-btn{min-width:0;min-height:38px;padding:5px 3px;border-radius:8px;font-size:11px;gap:3px}.nav-btn.active::after{left:8px;right:8px;bottom:-1px;height:2px}.nav-icon{width:16px;font-size:13px}.header-tools{grid-column:1/-1;grid-row:3;display:grid;grid-template-columns:1fr 1fr;width:100%;gap:6px}.header-tools[hidden]{display:none!important}.header-tools .btn{min-height:36px;padding:6px 8px;font-size:12px}.header-tools .label{display:inline}main#appMain{padding:10px 8px 8px}.intro{display:block;margin:0 3px 8px}.intro .eyebrow,.intro .lead,.intro .summary{display:none}.intro h2{font-size:21px;line-height:1.1}.status{margin-top:4px;font-size:10px}.toolbar{grid-template-columns:minmax(0,1fr) auto;gap:6px;margin:0 3px 8px}.toolbar .field{padding:8px 10px;font-size:12px}.toolbar .btn{padding:7px 9px;font-size:11px}.tree-shell{height:calc(100dvh - 238px);min-height:390px;border-radius:15px}.tree-controls{max-width:calc(100% - 20px)}.zoom-control,.view-control{max-width:100%}.view-control button{padding-inline:7px;font-size:10px}.data-overview{grid-template-columns:1fr 1fr}.data-action{grid-template-columns:1fr;gap:10px}.data-action .btn{width:100%}.data-dialog{width:calc(100% - 12px)}.person-section-nav{top:72px;padding:7px 10px;gap:3px}.person-section-tab{min-height:44px;padding:7px 5px;font-size:11px}.mini-doc{align-items:flex-start;flex-direction:column}.mini-doc-actions{width:100%}.mini-doc-actions .btn{flex:1;min-height:40px}}
   </style>
 </head>
 <body>
@@ -188,8 +189,14 @@
 </div>
 <button class="btn icon-btn" type="button" data-close="personDialog" aria-label="Fermer">×</button>
 </div>
+<nav class="person-section-nav" role="tablist" aria-label="Sections de la fiche Personne">
+<button class="person-section-tab active" id="personIdentityTab" type="button" role="tab" aria-selected="true" aria-controls="personIdentityPanel" data-person-section="identity">Identité</button>
+<button class="person-section-tab" id="personRelationsTab" type="button" role="tab" aria-selected="false" aria-controls="personRelationsPanel" data-person-section="relations">Liens familiaux</button>
+<button class="person-section-tab" id="personDocumentsTab" type="button" role="tab" aria-selected="false" aria-controls="personDocumentsPanel" data-person-section="documents">Documents associés</button>
+</nav>
 <form class="modal-body" id="personForm">
 <input type="hidden" id="personId">
+<section class="person-section-panel" id="personIdentityPanel" role="tabpanel" aria-labelledby="personIdentityTab" data-person-panel="identity">
 <div class="grid">
 <label>Prénom *<input class="field" id="firstName" required maxlength="80">
 </label>
@@ -232,65 +239,37 @@
 <label class="wide">Notes<textarea class="field" id="notes" rows="3" maxlength="800" placeholder="Profession, histoire, sources…">
 </textarea>
 </label>
-<section class="person-documents" id="personDocumentsSection" hidden>
+</div>
+</section>
+<section class="person-section-panel" id="personRelationsPanel" role="tabpanel" aria-labelledby="personRelationsTab" data-person-panel="relations" hidden>
+<div id="personRelationsUnavailable" class="person-section-placeholder" hidden><strong>Enregistrez d’abord l’identité</strong>Les liens familiaux pourront ensuite être ajoutés sans fermer cette fiche.</div>
+<div id="personRelationsContent">
+<div class="relations-list" id="relationsList"></div>
+<div class="relation-builder">
+<div class="relation-row"><strong class="relation-type">Partenaire</strong><label>Choisir la personne<select class="field" id="partnerSelect"></select></label><button class="btn primary" type="button" id="addPartnerBtn">Ajouter</button></div>
+<div class="relation-row"><strong class="relation-type">Enfant</strong><div><label>Union ou foyer<select class="field" id="childFamilySelect"></select></label><label style="margin-top:8px">Choisir l’enfant<select class="field" id="childSelect"></select></label></div><button class="btn primary" type="button" id="addChildBtn">Ajouter</button></div>
+<div class="relation-row"><strong class="relation-type">Parent</strong><label>Choisir le parent<select class="field" id="parentSelect"></select></label><button class="btn primary" type="button" id="addParentBtn">Ajouter</button></div>
+<p class="hint">Pour représenter deux parents, ajoutez-les successivement. Pour une famille, créez d’abord le couple puis rattachez les enfants à cette union.</p>
+</div>
+</div>
+</section>
+<section class="person-section-panel" id="personDocumentsPanel" role="tabpanel" aria-labelledby="personDocumentsTab" data-person-panel="documents" hidden>
+<div id="personDocumentsUnavailable" class="person-section-placeholder" hidden><strong>Enregistrez d’abord l’identité</strong>Les documents pourront ensuite être associés à cette personne.</div>
+<section class="person-documents" id="personDocumentsSection">
 <h4>Documents associés</h4>
 <div class="mini-docs" id="personDocumentsList"></div>
 <button class="btn small" type="button" id="linkDocumentBtn" style="margin-top:10px">＋ Ajouter un document pour cette personne</button>
 </section>
-</div>
+</section>
 <div class="modal-actions person-actions">
 <button class="btn danger" type="button" id="deleteBtn" hidden>Supprimer</button>
 <div class="right">
 <button class="btn" type="button" id="restoreTreeBtn" hidden>Ajouter à l’arbre</button>
-<button class="btn" type="button" id="relationsBtn" hidden>Liens familiaux</button>
 <button class="btn" type="button" data-close="personDialog">Annuler</button>
 <button class="btn primary" id="savePersonBtn" type="submit">Enregistrer et ajouter ses liens</button>
 </div>
 </div>
 </form>
-</dialog>
-  <dialog id="relationsDialog" aria-labelledby="relationsDialogTitle">
-<div class="modal-head">
-<div>
-<h3 id="relationsDialogTitle">Liens familiaux</h3>
-<p id="relationsPersonName">
-</p>
-</div>
-<button class="btn icon-btn" type="button" data-close="relationsDialog" aria-label="Fermer">×</button>
-</div>
-<div class="modal-body">
-<div class="relations-list" id="relationsList">
-</div>
-<div class="relation-builder">
-<div class="relation-row">
-<strong class="relation-type">Partenaire</strong>
-<label>Choisir la personne<select class="field" id="partnerSelect">
-</select>
-</label>
-<button class="btn primary" id="addPartnerBtn">Ajouter</button>
-</div>
-<div class="relation-row">
-<strong class="relation-type">Enfant</strong>
-<div>
-<label>Union ou foyer<select class="field" id="childFamilySelect">
-</select>
-</label>
-<label style="margin-top:8px">Choisir l’enfant<select class="field" id="childSelect">
-</select>
-</label>
-</div>
-<button class="btn primary" id="addChildBtn">Ajouter</button>
-</div>
-<div class="relation-row">
-<strong class="relation-type">Parent</strong>
-<label>Choisir le parent<select class="field" id="parentSelect">
-</select>
-</label>
-<button class="btn primary" id="addParentBtn">Ajouter</button>
-</div>
-<p class="hint">Pour représenter deux parents, ajoutez-les successivement. Pour une famille, créez d’abord le couple puis rattachez les enfants à cette union.</p>
-</div>
-</div>
 </dialog>
   <dialog id="manualLinkDialog" aria-labelledby="manualLinkDialogTitle">
 <div class="modal-head"><div><h3 id="manualLinkDialogTitle">Créer un lien parent-enfant</h3><p>Choisissez l’enfant et son ou ses parents parmi les personnes existantes.</p></div><button class="btn icon-btn" type="button" data-close="manualLinkDialog" aria-label="Fermer">×</button></div>
@@ -303,7 +282,7 @@
   <dialog id="documentDialog" aria-labelledby="documentDialogTitle">
 <div class="modal-head"><div><h3 id="documentDialogTitle">Ajouter un document</h3><p>Le même document peut être associé à plusieurs personnes.</p></div><button class="btn icon-btn" type="button" data-close="documentDialog" aria-label="Fermer">×</button></div>
 <form class="modal-body" id="documentForm"><input type="hidden" id="documentId"><div class="grid">
-<label class="wide">Titre *<input class="field" id="documentTitle" required maxlength="140"></label>
+<label class="wide">Titre <span class="hint">(facultatif)</span><input class="field" id="documentTitle" maxlength="140" placeholder="Ex. Acte de naissance de Carlo"></label>
 <label>Type *<select class="field" id="documentType" required><option value="">Sélectionner…</option><option>Acte de naissance</option><option>Acte de décès</option><option>Acte de baptême</option><option>Acte de mariage</option><option>Recensement</option><option>Photo</option><option>Autre</option></select></label>
 <label>Date du document<input class="field" id="documentDate" type="date"></label>
 <label class="wide">Lieu<input class="field" id="documentPlace" maxlength="140"></label>

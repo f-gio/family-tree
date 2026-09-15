@@ -4,6 +4,7 @@ import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, do
 import { calculateTreeLayout } from "./tree-layout.js";
 import { createTreeRenderer } from "./tree-renderer.js";
 import { createTreeCamera } from "./tree-camera.js";
+import { documentDisplayLabel } from "./document-utils.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",
@@ -35,6 +36,8 @@ let profileUnsub = null, adminUsersUnsub = null, activeDataUid = "";
 let currentUserProfile = null, primaryAdminUid = "", adminUsersCache = [], currentProfilePhoto = "";
 let manualOffsets = readOffsets();
 let activeViewerUrl = "";
+let activePersonSection = "identity";
+let documentReturnContext = null;
 const FILE_CHUNK_BYTES = 700 * 1024;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_PERSON_PHOTO_BYTES = 5 * 1024;
@@ -198,8 +201,30 @@ function applySearch(focus = true) {
 function renderPersonDocuments(personId) {
   const linked = documents.filter(item => (item.personIds || []).includes(personId));
   $("personDocumentsList").innerHTML = linked.length
-    ? linked.map(item => `<div class="mini-doc"><span><strong>${esc(item.type)}</strong> · ${esc(item.title)}</span><button class="btn small" type="button" data-view-document="${item.id}">Consulter</button></div>`).join("")
+    ? linked.map(item => `<div class="mini-doc"><span class="mini-doc-info"><strong>${esc(documentDisplayLabel(item))}</strong><span>${esc(item.type || item.fileName || "Document")}</span></span><span class="mini-doc-actions"><button class="btn small" type="button" data-view-document="${item.id}">Consulter</button><button class="btn small" type="button" data-edit-person-document="${item.id}">Modifier</button></span></div>`).join("")
     : '<div class="hint">Aucun document associé.</div>';
+}
+
+function setPersonSection(section = "identity", focusTab = false) {
+  const normalized = ["identity", "relations", "documents"].includes(section) ? section : "identity";
+  activePersonSection = normalized;
+  document.querySelectorAll("[data-person-section]").forEach(button => {
+    const active = button.dataset.personSection === normalized;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+    if (active && focusTab) button.focus();
+  });
+  document.querySelectorAll("[data-person-panel]").forEach(panel => {
+    panel.hidden = panel.dataset.personPanel !== normalized;
+  });
+  const hasPerson = !!$("personId").value;
+  $("personRelationsUnavailable").hidden = hasPerson;
+  $("personRelationsContent").hidden = !hasPerson;
+  $("personDocumentsUnavailable").hidden = hasPerson;
+  $("personDocumentsSection").hidden = !hasPerson;
+  if (hasPerson && normalized === "relations") renderRelations();
+  if (hasPerson && normalized === "documents") renderPersonDocuments($("personId").value);
 }
 
 function updateMarriedNameVisibility() {
@@ -214,6 +239,19 @@ function updatePersonPhotoPreview() {
     ? `<img src="${esc(value)}" alt="">`
     : esc(personInitials({ firstName: $("firstName").value || current?.firstName, lastName: $("lastName").value || current?.lastName }));
   $("removePersonPhotoBtn").hidden = !value;
+}
+
+function capturePersonDraft() {
+  return Object.fromEntries(personFields.map(key => [key, $(key).value]));
+}
+
+function restorePersonDraft(draft) {
+  if (!draft) return;
+  for (const key of personFields) {
+    if (Object.prototype.hasOwnProperty.call(draft, key)) $(key).value = draft[key];
+  }
+  updateMarriedNameVisibility();
+  updatePersonPhotoPreview();
 }
 
 function blobToDataUrl(blob) {
@@ -286,8 +324,6 @@ function openPerson(item = null, source = "tree") {
   $("deleteBtn").hidden = !item;
   $("deleteBtn").textContent = source === "directory" ? "Supprimer définitivement" : "Retirer de l’arbre";
   $("restoreTreeBtn").hidden = !item || item.inTree !== false || source !== "directory";
-  $("relationsBtn").hidden = !item;
-  $("personDocumentsSection").hidden = !item;
   $("personId").value = item?.id || "";
   for (const key of personFields) $(key).value = item?.[key] || "";
   $("personPhotoFile").value = "";
@@ -295,6 +331,7 @@ function openPerson(item = null, source = "tree") {
   updatePersonPhotoPreview();
   updateMarriedNameVisibility();
   if (item) renderPersonDocuments(item.id);
+  setPersonSection("identity");
   $("personDialog").showModal();
   setTimeout(() => $("firstName").focus(), 30);
 }
@@ -308,7 +345,7 @@ function close(id) {
     $("viewerFrame").removeAttribute("src");
     $("viewerImage").removeAttribute("src");
   }
-  if ((id === "personDialog" && !$("relationsDialog").open) || id === "relationsDialog") {
+  if (id === "personDialog") {
     activeId = null;
     renderer.setActive(null);
   }
@@ -333,10 +370,7 @@ async function ensurePeopleInTree(ids = []) {
 function openRelations() {
   const item = person(activeId);
   if (!item) return;
-  if ($("personDialog").open) $("personDialog").close();
-  $("relationsPersonName").textContent = nameOf(item.id);
-  renderRelations();
-  $("relationsDialog").showModal();
+  setPersonSection("relations", true);
 }
 
 function renderRelations() {
@@ -553,7 +587,8 @@ function documentPeopleMarkup(selectedIds = []) {
   ).join("") || '<span class="hint">Ajoutez d’abord une personne.</span>';
 }
 
-function openDocument(item = null, preselectedPersonId = "") {
+function openDocument(item = null, preselectedPersonId = "", returnContext = null) {
+  documentReturnContext = returnContext;
   $("documentForm").reset();
   $("documentId").value = item?.id || "";
   $("documentDialogTitle").textContent = item ? "Modifier le document" : "Ajouter un document";
@@ -575,8 +610,8 @@ function openDocument(item = null, preselectedPersonId = "") {
 function renderDocuments() {
   const query = searchable($("documentSearch").value);
   const type = $("documentTypeFilter").value;
-  const filtered = documents.filter(item => (!type || item.type === type) && (!query || searchable(`${item.title} ${item.type} ${item.place || ""} ${(item.personIds || []).map(nameOf).join(" ")}`).includes(query)));
-  $("documentsList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card"><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(item.title)}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${item.place ? ` · ${esc(item.place)}` : ""}</p><div><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">Fichier optimisé : ${formatBytes(item.storedSize)}</p>` : ""}</div><div class="card-actions">${item.chunkCount || item.fileData || item.fileUrl || item.externalUrl ? `<button class="btn small primary" data-open-document="${item.id}">Consulter</button>` : ""}<button class="btn small" data-edit-document="${item.id}">Modifier</button></div></article>`).join("") : '<div class="empty-list">Aucun document ne correspond à ces critères.</div>';
+  const filtered = documents.filter(item => (!type || item.type === type) && (!query || searchable(`${documentDisplayLabel(item)} ${item.fileName || ""} ${item.type || ""} ${item.place || ""} ${(item.personIds || []).map(nameOf).join(" ")}`).includes(query)));
+  $("documentsList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card"><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(documentDisplayLabel(item))}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${item.place ? ` · ${esc(item.place)}` : ""}</p><div><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">Fichier optimisé : ${formatBytes(item.storedSize)}</p>` : ""}</div><div class="card-actions">${item.chunkCount || item.fileData || item.fileUrl || item.externalUrl ? `<button class="btn small primary" data-open-document="${item.id}">Consulter</button>` : ""}<button class="btn small" data-edit-document="${item.id}">Modifier</button></div></article>`).join("") : '<div class="empty-list">Aucun document ne correspond à ces critères.</div>';
   setContentMode("documents", viewModes.documents || "cards", false);
   if (activeId && $("personDialog").open) renderPersonDocuments(activeId);
 }
@@ -846,7 +881,7 @@ async function restoreCompleteBackup(file) {
 
 async function openStoredDocument(item) {
   if (!item) return;
-  $("viewerTitle").textContent = item.title || item.fileName || "Consulter le document";
+  $("viewerTitle").textContent = documentDisplayLabel(item);
   $("viewerSubtitle").textContent = item.fileName || "Aperçu dans Family Tree";
   $("viewerImage").hidden = true;
   $("viewerFrame").hidden = true;
@@ -1304,7 +1339,7 @@ function startData() {
     loadedFamilies = true;
     syncState();
     renderDirectory();
-    if ($("relationsDialog").open) renderRelations();
+    if ($("personDialog").open && activePersonSection === "relations" && activeId) renderRelations();
   }, dataError));
   unsubs.push(onSnapshot(refs.documents, snapshot => {
     documents = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
@@ -1400,8 +1435,12 @@ $("personForm").addEventListener("submit", async event => {
       people.push({ id: created.id, ...data, inTree: true });
       activeId = created.id;
       focusAfterRender = created.id;
-      $("personDialog").close();
-      setTimeout(openRelations, 150);
+      $("personId").value = created.id;
+      $("dialogTitle").textContent = "Modifier la personne";
+      $("savePersonBtn").textContent = "Enregistrer";
+      $("deleteBtn").hidden = false;
+      $("deleteBtn").textContent = personDialogSource === "directory" ? "Supprimer définitivement" : "Retirer de l’arbre";
+      setPersonSection("relations", true);
       toast("Personne ajoutée — indiquez maintenant ses liens familiaux");
     }
   } catch (error) {
@@ -1409,6 +1448,7 @@ $("personForm").addEventListener("submit", async event => {
     toast("Enregistrement impossible");
   }
 });
+$("personForm").addEventListener("invalid", () => setPersonSection("identity"), true);
 
 $("deleteBtn").onclick = async () => {
   const id = $("personId").value;
@@ -1454,7 +1494,17 @@ $("restoreTreeBtn").onclick = async () => {
   toast("Personne ajoutée à l’arbre");
 };
 
-$("relationsBtn").onclick = openRelations;
+document.querySelectorAll("[data-person-section]").forEach(button => {
+  button.onclick = () => setPersonSection(button.dataset.personSection, true);
+  button.onkeydown = event => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = [...document.querySelectorAll("[data-person-section]")];
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const index = (tabs.indexOf(button) + direction + tabs.length) % tabs.length;
+    setPersonSection(tabs[index].dataset.personSection, true);
+  };
+});
 $("addLinkBtn").onclick = openManualLink;
 $("manualLinkForm").addEventListener("submit", saveManualLink);
 $("addPartnerBtn").onclick = () => runSafely(addPartner, "Ajout du partenaire impossible");
@@ -1473,6 +1523,13 @@ document.addEventListener("click", event => {
   if (miniDocument) {
     const item = documents.find(value => value.id === miniDocument.dataset.viewDocument);
     openStoredDocument(item);
+  }
+  const editPersonDocument = event.target.closest("[data-edit-person-document]");
+  if (editPersonDocument) {
+    const item = documents.find(value => value.id === editPersonDocument.dataset.editPersonDocument);
+    const context = activeId ? { personId: activeId, source: personDialogSource, draft: capturePersonDraft() } : null;
+    if ($("personDialog").open) $("personDialog").close();
+    openDocument(item, "", context);
   }
 });
 
@@ -1623,12 +1680,26 @@ $("autoLayoutBtn").onclick = () => {
 };
 $("linkDocumentBtn").onclick = () => {
   const personId = activeId;
+  if (!personId) return;
+  const context = { personId, source: personDialogSource, draft: capturePersonDraft() };
   $("personDialog").close();
-  openDocument(null, personId);
+  openDocument(null, personId, context);
 };
 $("addDocumentBtn").onclick = () => openDocument();
 $("documentForm").addEventListener("submit", saveDocument);
 $("deleteDocumentBtn").onclick = () => runSafely(removeDocument, "Suppression du document impossible");
+$("documentDialog").addEventListener("close", () => {
+  const context = documentReturnContext;
+  documentReturnContext = null;
+  if (!context) return;
+  setTimeout(() => {
+    const item = person(context.personId);
+    if (!item || $("personDialog").open) return;
+    openPerson(item, context.source);
+    restorePersonDraft(context.draft);
+    setPersonSection("documents");
+  }, 0);
+});
 $("documentSearch").oninput = renderDocuments;
 $("documentTypeFilter").onchange = renderDocuments;
 $("documentViewerDialog").addEventListener("close", () => {
