@@ -59,6 +59,10 @@ function esc(value = "") {
   return node.innerHTML;
 }
 
+function searchable(value = "") {
+  return String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
 function formatBytes(value = 0) {
   if (!value) return "0 Ko";
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} Ko`;
@@ -71,7 +75,9 @@ function setContentMode(section, mode, persist = true) {
   if (!list) return;
   list.classList.toggle("list-mode", normalized === "list");
   document.querySelectorAll(`[data-switch="${section}"] [data-mode]`).forEach(button => {
-    button.classList.toggle("active", button.dataset.mode === normalized);
+    const active = button.dataset.mode === normalized;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
   viewModes[section] = normalized;
   if (persist) localStorage.setItem("familyTreeViewModes", JSON.stringify(viewModes));
@@ -81,6 +87,15 @@ function toast(message) {
   $("toast").textContent = message;
   $("toast").classList.add("show");
   setTimeout(() => $("toast").classList.remove("show"), 2600);
+}
+
+async function runSafely(action, fallback = "Action impossible") {
+  try { return await action(); }
+  catch (error) {
+    console.error(error);
+    toast(error.message || fallback);
+    return null;
+  }
 }
 
 function person(id) { return people.find(item => item.id === id); }
@@ -171,8 +186,8 @@ function syncState() {
 }
 
 function applySearch(focus = true) {
-  const query = $("search").value.trim().toLowerCase();
-  const matches = query ? treePeople().filter(item => `${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.place || ""} ${item.branch || ""}`.toLowerCase().includes(query)) : [];
+  const query = searchable($("search").value);
+  const matches = query ? treePeople().filter(item => searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.place || ""} ${item.branch || ""}`).includes(query)) : [];
   renderer.setHighlights(matches.map(item => item.id));
   if (focus && matches[0] && currentLayout?.positions.has(matches[0].id)) camera.focus(currentLayout.positions.get(matches[0].id));
 }
@@ -346,6 +361,7 @@ function renderRelations() {
 async function addPartner() {
   const other = $("partnerSelect").value;
   if (!other) return toast("Choisissez une personne");
+  if (ancestorsOf(activeId).has(other) || ancestorsOf(other).has(activeId)) return toast("Un lien de couple ne peut pas relier un parent à son descendant");
   if (families.some(family => {
     const ids = new Set(family.partnerIds || []);
     return ids.has(activeId) && ids.has(other);
@@ -361,29 +377,21 @@ async function addChild() {
   const child = $("childSelect").value;
   if (!child) return toast("Choisissez un enfant");
   const familyId = $("childFamilySelect").value;
-  await ensurePeopleInTree([activeId, child]);
-  if (familyId === "new") await addDoc(refs.families, { partnerIds: [activeId], childIds: [child], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-  else {
-    const family = families.find(item => item.id === familyId);
-    if (!family) return;
-    if ((family.partnerIds || []).includes(child)) return toast("Une personne ne peut pas être partenaire et enfant dans le même foyer");
-    await updateDoc(doc(db, "families", familyId), { childIds: [...new Set([...(family.childIds || []), child])], updatedAt: serverTimestamp() });
-  }
-  toast("Enfant rattaché");
+  const family = familyId === "new" ? null : families.find(item => item.id === familyId);
+  if (familyId !== "new" && !family) return toast("Ce foyer est introuvable");
+  try {
+    await linkChildToParents(child, family?.partnerIds || [activeId], family?.id || "");
+    toast("Enfant rattaché");
+  } catch (error) { toast(error.message || "Lien impossible"); }
 }
 
 async function addParent() {
   const parentId = $("parentSelect").value;
   if (!parentId) return toast("Choisissez un parent");
-  await ensurePeopleInTree([activeId, parentId]);
-  const family = families.find(item => (item.childIds || []).includes(activeId) && (item.partnerIds || []).length < 2);
-  if (family) {
-    if ((family.partnerIds || []).includes(parentId)) return toast("Ce parent est déjà rattaché");
-    await updateDoc(doc(db, "families", family.id), { partnerIds: [...(family.partnerIds || []), parentId], updatedAt: serverTimestamp() });
-  } else {
-    await addDoc(refs.families, { partnerIds: [parentId], childIds: [activeId], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-  }
-  toast("Parent rattaché");
+  try {
+    await linkChildToParents(activeId, [parentId]);
+    toast("Parent rattaché");
+  } catch (error) { toast(error.message || "Lien impossible"); }
 }
 
 async function removeRelation(familyId, personId, type) {
@@ -409,6 +417,41 @@ function ancestorsOf(personId, seen = new Set()) {
   return seen;
 }
 
+function sameIds(left = [], right = []) {
+  const a = [...new Set(left)].sort(), b = [...new Set(right)].sort();
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+async function linkChildToParents(childId, requestedParentIds, preferredFamilyId = "") {
+  const parentIds = [...new Set(requestedParentIds.filter(Boolean))];
+  if (!childId || !parentIds.length) throw new Error("Choisissez l’enfant et au moins un parent");
+  if (parentIds.length > 2) throw new Error("Un foyer ne peut pas contenir plus de deux parents");
+  if (parentIds.includes(childId)) throw new Error("Une personne ne peut pas être son propre parent");
+  if (parentIds.some(parentId => ancestorsOf(parentId).has(childId))) throw new Error("Ce lien créerait une boucle dans l’arbre");
+
+  const childFamilies = families.filter(item => (item.childIds || []).includes(childId));
+  if (childFamilies.length > 1) throw new Error("Cette personne est déjà rattachée à plusieurs foyers. Corrigez d’abord ses liens existants.");
+  let family = preferredFamilyId ? families.find(item => item.id === preferredFamilyId) : childFamilies[0];
+  if (family && childFamilies.length && childFamilies[0].id !== family.id) throw new Error("Cet enfant est déjà rattaché à un autre foyer");
+  if (!family) family = families.find(item => sameIds(item.partnerIds || [], parentIds));
+
+  const mergedParents = [...new Set([...(family?.partnerIds || []), ...parentIds])];
+  if (mergedParents.length > 2) throw new Error("Cet enfant possède déjà deux parents dans son foyer");
+  if (mergedParents.includes(childId)) throw new Error("Une personne ne peut pas être partenaire et enfant dans le même foyer");
+  if (family && (family.childIds || []).includes(childId) && sameIds(family.partnerIds || [], mergedParents)) throw new Error("Ce lien existe déjà");
+
+  await ensurePeopleInTree([childId, ...mergedParents]);
+  if (family) {
+    await updateDoc(doc(db, "families", family.id), {
+      partnerIds: mergedParents,
+      childIds: [...new Set([...(family.childIds || []), childId])],
+      updatedAt: serverTimestamp()
+    });
+  } else {
+    await addDoc(refs.families, { partnerIds: mergedParents, childIds: [childId], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  }
+}
+
 function openManualLink() {
   if (people.length < 2) return toast("Ajoutez au moins deux personnes");
   const options = availableOptions();
@@ -423,33 +466,12 @@ async function saveManualLink(event) {
   event.preventDefault();
   const childId = $("manualChild").value;
   const parentIds = [...new Set([$("manualParent1").value, $("manualParent2").value].filter(Boolean))];
-  if (!childId || !parentIds.length) return toast("Choisissez l’enfant et au moins un parent");
-  if (parentIds.includes(childId)) return toast("Une personne ne peut pas être son propre parent");
-  if (parentIds.some(parentId => ancestorsOf(parentId).has(childId))) return toast("Ce lien créerait une boucle dans l’arbre");
-  await ensurePeopleInTree([childId, ...parentIds]);
-
-  let family = families.find(item => {
-    const current = new Set(item.partnerIds || []);
-    return current.size === parentIds.length && parentIds.every(id => current.has(id));
-  });
-  if (!family && parentIds.length === 1) {
-    family = families.find(item => (item.childIds || []).includes(childId) && (item.partnerIds || []).length < 2);
-  }
-  if (family) {
-    const partnerIds = [...new Set([...(family.partnerIds || []), ...parentIds])];
-    if (partnerIds.length > 2) return toast("Cet enfant possède déjà deux parents dans ce foyer");
-    if ((family.childIds || []).includes(childId) && parentIds.every(id => (family.partnerIds || []).includes(id))) return toast("Ce lien existe déjà");
-    await updateDoc(doc(db, "families", family.id), {
-      partnerIds,
-      childIds: [...new Set([...(family.childIds || []), childId])],
-      updatedAt: serverTimestamp()
-    });
-  } else {
-    await addDoc(refs.families, { partnerIds, childIds: [childId], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-  }
-  focusAfterRender = childId;
-  close("manualLinkDialog");
-  toast("Lien parent-enfant créé");
+  try {
+    await linkChildToParents(childId, parentIds);
+    focusAfterRender = childId;
+    close("manualLinkDialog");
+    toast("Lien parent-enfant créé");
+  } catch (error) { toast(error.message || "Lien impossible"); }
 }
 
 function personInitials(item) {
@@ -503,11 +525,11 @@ function renderDirectoryAlphabet(items) {
 }
 
 function renderDirectory() {
-  const query = $("directorySearch").value.trim().toLowerCase();
+  const query = searchable($("directorySearch").value);
   const branch = $("directoryBranchFilter").value;
   const filtered = people.filter(item =>
     (!branch || item.branch === branch) &&
-    (!query || `${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.place || ""} ${item.deathPlace || ""} ${item.branch || ""} ${item.notes || ""}`.toLowerCase().includes(query))
+    (!query || searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.place || ""} ${item.deathPlace || ""} ${item.branch || ""} ${item.notes || ""}`).includes(query))
   );
   filtered.sort((a, b) => directoryDisplayName(a).localeCompare(directoryDisplayName(b), "fr", { sensitivity: "base" }));
   renderDirectoryAlphabet(filtered);
@@ -523,8 +545,8 @@ function renderDirectory() {
 
 function documentPeopleMarkup(selectedIds = []) {
   const selected = new Set(selectedIds);
-  return people.slice().sort((a, b) => nameOf(a.id).localeCompare(nameOf(b.id))).map(item =>
-    `<label><input type="checkbox" value="${item.id}" ${selected.has(item.id) ? "checked" : ""}> ${esc(nameOf(item.id))}</label>`
+  return people.slice().sort(comparePeopleBySurname).map(item =>
+    `<label><input type="checkbox" value="${item.id}" ${selected.has(item.id) ? "checked" : ""}> ${esc(relationOptionName(item))}</label>`
   ).join("") || '<span class="hint">Ajoutez d’abord une personne.</span>';
 }
 
@@ -548,9 +570,9 @@ function openDocument(item = null, preselectedPersonId = "") {
 }
 
 function renderDocuments() {
-  const query = $("documentSearch").value.trim().toLowerCase();
+  const query = searchable($("documentSearch").value);
   const type = $("documentTypeFilter").value;
-  const filtered = documents.filter(item => (!type || item.type === type) && (!query || `${item.title} ${item.type} ${item.place || ""} ${(item.personIds || []).map(nameOf).join(" ")}`.toLowerCase().includes(query)));
+  const filtered = documents.filter(item => (!type || item.type === type) && (!query || searchable(`${item.title} ${item.type} ${item.place || ""} ${(item.personIds || []).map(nameOf).join(" ")}`).includes(query)));
   $("documentsList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card"><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(item.title)}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${item.place ? ` · ${esc(item.place)}` : ""}</p><div><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">Fichier optimisé : ${formatBytes(item.storedSize)}</p>` : ""}</div><div class="card-actions">${item.chunkCount || item.fileData || item.fileUrl || item.externalUrl ? `<button class="btn small primary" data-open-document="${item.id}">Consulter</button>` : ""}<button class="btn small" data-edit-document="${item.id}">Modifier</button></div></article>`).join("") : '<div class="empty-list">Aucun document ne correspond à ces critères.</div>';
   setContentMode("documents", viewModes.documents || "cards", false);
   if (activeId && $("personDialog").open) renderPersonDocuments(activeId);
@@ -650,6 +672,175 @@ async function readChunkedFile(item) {
   return new Blob(parts, { type: item.mimeType || "application/octet-stream" });
 }
 
+async function documentBlob(item) {
+  if (item.chunkCount && item.chunkVersion) return readChunkedFile(item);
+  if (item.fileData) return fetch(item.fileData).then(response => response.blob());
+  if (item.fileUrl) return fetch(item.fileUrl).then(response => response.blob());
+  return null;
+}
+
+async function zipLibrary() {
+  const module = await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm");
+  return module.default || module;
+}
+
+function exportableRecord(item) {
+  return JSON.parse(JSON.stringify(item));
+}
+
+function importedData(item) {
+  const { id, createdAt, updatedAt, backupFile, ...data } = item || {};
+  return { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+}
+
+function safeBackupName(value = "document") {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "document";
+}
+
+function validateFamilyDataset(personRecords = [], familyRecords = []) {
+  const personIds = new Set();
+  for (const item of personRecords) {
+    if (!item?.id || item.id.includes("/") || personIds.has(item.id)) throw new Error("La sauvegarde contient un identifiant de personne invalide ou dupliqué");
+    personIds.add(item.id);
+  }
+  const familyIds = new Set();
+  const childHomes = new Map();
+  const childrenByParent = new Map();
+  for (const family of familyRecords) {
+    if (!family?.id || family.id.includes("/") || familyIds.has(family.id)) throw new Error("La sauvegarde contient un identifiant de foyer invalide ou dupliqué");
+    familyIds.add(family.id);
+    const parentIds = Array.isArray(family.partnerIds) ? [...new Set(family.partnerIds)] : [];
+    const childIds = Array.isArray(family.childIds) ? [...new Set(family.childIds)] : [];
+    if (!parentIds.length || parentIds.length > 2 || parentIds.length !== (family.partnerIds || []).length || childIds.length !== (family.childIds || []).length) throw new Error(`Le foyer ${family.id} contient des liens invalides`);
+    if ([...parentIds, ...childIds].some(id => !personIds.has(id))) throw new Error(`Le foyer ${family.id} fait référence à une personne absente`);
+    if (parentIds.some(id => childIds.includes(id))) throw new Error(`Le foyer ${family.id} place une personne parmi ses propres parents`);
+    for (const childId of childIds) {
+      if (childHomes.has(childId) && childHomes.get(childId) !== family.id) throw new Error("Une personne est rattachée comme enfant à plusieurs foyers");
+      childHomes.set(childId, family.id);
+      for (const parentId of parentIds) {
+        if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, []);
+        childrenByParent.get(parentId).push(childId);
+      }
+    }
+  }
+  const visited = new Set(), active = new Set();
+  function visit(id) {
+    if (active.has(id)) throw new Error("La sauvegarde contient une boucle dans les liens parent-enfant");
+    if (visited.has(id)) return;
+    active.add(id);
+    for (const childId of childrenByParent.get(id) || []) visit(childId);
+    active.delete(id);
+    visited.add(id);
+  }
+  personIds.forEach(visit);
+}
+
+async function exportCompleteBackup() {
+  const button = $("exportBtn");
+  button.disabled = true;
+  button.innerHTML = '… <span class="label">Préparation</span>';
+  try {
+    const JSZip = await zipLibrary();
+    const zip = new JSZip();
+    const manifest = {
+      format: "family-tree-backup",
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      people: people.map(exportableRecord),
+      families: families.map(exportableRecord),
+      tasks: tasks.map(exportableRecord),
+      documents: []
+    };
+    for (let index = 0; index < documents.length; index++) {
+      const item = exportableRecord(documents[index]);
+      button.innerHTML = `… <span class="label">Document ${index + 1}/${documents.length}</span>`;
+      const blob = await documentBlob(documents[index]);
+      if (blob) {
+        item.backupFile = `documents/${item.id}/${safeBackupName(item.fileName || `document-${item.id}`)}`;
+        zip.file(item.backupFile, blob);
+        delete item.fileData;
+        delete item.fileUrl;
+        delete item.storagePath;
+        delete item.chunkVersion;
+        delete item.chunkCount;
+      }
+      manifest.documents.push(item);
+    }
+    zip.file("family-tree.json", JSON.stringify(manifest, null, 2));
+    button.innerHTML = '… <span class="label">Compression</span>';
+    const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `family-tree-complet-${new Date().toISOString().slice(0, 10)}.zip`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 2000);
+    toast(`Sauvegarde complète créée · ${formatBytes(blob.size)}`);
+  } catch (error) {
+    console.error(error);
+    toast(error.message || "Création de la sauvegarde impossible");
+  } finally {
+    button.disabled = false;
+    button.innerHTML = '↓ <span class="label">Sauvegarder</span>';
+  }
+}
+
+async function writeImportedRecords(collectionName, records = []) {
+  for (let start = 0; start < records.length; start += 400) {
+    const batch = writeBatch(db);
+    for (const item of records.slice(start, start + 400)) {
+      if (!item?.id || item.id.includes("/")) throw new Error(`Identifiant invalide dans ${collectionName}`);
+      batch.set(doc(db, collectionName, item.id), importedData(item));
+    }
+    await batch.commit();
+  }
+}
+
+async function restoreCompleteBackup(file) {
+  const button = $("importBtn");
+  button.disabled = true;
+  button.innerHTML = '… <span class="label">Lecture</span>';
+  try {
+    const JSZip = await zipLibrary();
+    const zip = await JSZip.loadAsync(file);
+    const manifestEntry = zip.file("family-tree.json");
+    if (!manifestEntry) throw new Error("Cette archive ne contient pas de sauvegarde Family Tree");
+    const manifest = JSON.parse(await manifestEntry.async("string"));
+    if (manifest.format !== "family-tree-backup" || !Array.isArray(manifest.people) || !Array.isArray(manifest.families)) throw new Error("Format de sauvegarde non reconnu");
+    validateFamilyDataset(manifest.people, manifest.families);
+    if (!confirm(`Fusionner cette sauvegarde avec les données actuelles ?\n\n${manifest.people.length} personnes · ${manifest.documents?.length || 0} documents · ${manifest.tasks?.length || 0} tâches\n\nLes éléments de même identifiant seront mis à jour. Les autres données actuelles seront conservées.`)) return;
+
+    button.innerHTML = '… <span class="label">Personnes</span>';
+    await writeImportedRecords("people", manifest.people);
+    await writeImportedRecords("families", manifest.families);
+    await writeImportedRecords("tasks", manifest.tasks || []);
+
+    for (let index = 0; index < (manifest.documents || []).length; index++) {
+      const item = manifest.documents[index];
+      if (!item?.id || item.id.includes("/")) throw new Error("Identifiant de document invalide");
+      button.innerHTML = `… <span class="label">Document ${index + 1}/${manifest.documents.length}</span>`;
+      const data = importedData(item);
+      const backupEntry = item.backupFile ? zip.file(item.backupFile) : null;
+      const existing = documents.find(value => value.id === item.id);
+      if (backupEntry) {
+        const blob = await backupEntry.async("blob");
+        const version = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+        const count = await writeFileChunks(item.id, version, blob);
+        Object.assign(data, { storageMode: "firestore-chunks", chunkVersion: version, chunkCount: count, storedSize: blob.size });
+      }
+      await setDoc(doc(db, "documents", item.id), data);
+      if (backupEntry && existing?.chunkVersion) await deleteFileChunks(existing);
+    }
+    toast("Sauvegarde restaurée avec succès");
+  } catch (error) {
+    console.error(error);
+    toast(error.message || "Restauration impossible");
+  } finally {
+    button.disabled = false;
+    button.innerHTML = '↑ <span class="label">Restaurer</span>';
+    $("importFile").value = "";
+  }
+}
+
 async function openStoredDocument(item) {
   if (!item) return;
   $("viewerTitle").textContent = item.title || item.fileName || "Consulter le document";
@@ -658,6 +849,8 @@ async function openStoredDocument(item) {
   $("viewerFrame").hidden = true;
   $("viewerMessage").hidden = false;
   $("viewerMessage").textContent = "Chargement du document…";
+  $("viewerExternalBtn").hidden = true;
+  $("viewerExternalBtn").removeAttribute("href");
   $("documentViewerDialog").showModal();
   try {
     let source = item.fileUrl || item.externalUrl || "";
@@ -674,6 +867,8 @@ async function openStoredDocument(item) {
       mimeType = blob.type;
     }
     if (!source) throw new Error("Aucun fichier n’est associé");
+    $("viewerExternalBtn").href = source;
+    $("viewerExternalBtn").hidden = false;
     $("viewerMessage").hidden = true;
     if (mimeType.startsWith("image/")) {
       $("viewerImage").src = source;
@@ -766,7 +961,7 @@ const statusLabels = { todo: "À faire", progress: "En cours", done: "Terminée"
 const priorityLabels = { high: "Haute", medium: "Moyenne", low: "Basse" };
 
 function renderTasks() {
-  const query = $("taskSearch").value.trim().toLowerCase();
+  const query = searchable($("taskSearch").value);
   const status = $("taskStatusFilter").value;
   const priority = $("taskPriorityFilter").value;
   const mine = $("myTasksFilter").checked;
@@ -775,7 +970,7 @@ function renderTasks() {
     (!status || item.status === status) &&
     (!priority || item.priority === priority) &&
     (!mine || (item.assignee || "").toLowerCase() === email) &&
-    (!query || `${item.title} ${item.description || ""} ${item.comments || ""} ${item.assignee || ""}`.toLowerCase().includes(query))
+    (!query || searchable(`${item.title} ${item.description || ""} ${item.comments || ""} ${item.assignee || ""}`).includes(query))
   ).sort((a, b) => (a.status === "done") - (b.status === "done") || (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
   $("tasksList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card status-${item.status || "todo"}"><div><span class="badge priority-${item.priority || "medium"}">Priorité ${priorityLabels[item.priority] || "Moyenne"}</span><h3>${esc(item.title)}</h3></div><p class="card-meta"><strong>${statusLabels[item.status] || "À faire"}</strong>${item.dueDate ? ` · ${esc(new Date(item.dueDate + "T12:00:00").toLocaleDateString("fr-FR"))}` : ""}</p><div><p>Responsable : ${esc(item.assignee || "Non attribuée")}</p>${item.personId ? `<p>Personne : ${esc(nameOf(item.personId))}</p>` : ""}${item.description ? `<p class="card-description">${esc(item.description)}</p>` : ""}${item.comments ? `<p class="card-description"><strong>Commentaires :</strong> ${esc(item.comments)}</p>` : ""}</div><div class="card-actions"><button class="btn small" data-edit-task="${item.id}">Modifier</button>${item.status !== "done" ? `<button class="btn small primary" data-complete-task="${item.id}">Terminer</button>` : ""}</div></article>`).join("") : '<div class="empty-list">Aucune tâche ne correspond à ces critères.</div>';
   setContentMode("tasks", viewModes.tasks || "cards", false);
@@ -803,10 +998,12 @@ async function saveTask(event) {
   const id = $("taskId").value;
   const data = Object.fromEntries(taskFields.map(key => [key, $("task" + key[0].toUpperCase() + key.slice(1)).value.trim()]));
   data.updatedAt = serverTimestamp();
-  if (id) await updateDoc(doc(db, "tasks", id), data);
-  else await addDoc(refs.tasks, { ...data, createdAt: serverTimestamp() });
-  close("taskDialog");
-  toast(id ? "Tâche mise à jour" : "Tâche ajoutée");
+  await runSafely(async () => {
+    if (id) await updateDoc(doc(db, "tasks", id), data);
+    else await addDoc(refs.tasks, { ...data, createdAt: serverTimestamp() });
+    close("taskDialog");
+    toast(id ? "Tâche mise à jour" : "Tâche ajoutée");
+  }, "Enregistrement de la tâche impossible");
 }
 
 async function removeTask() {
@@ -824,7 +1021,11 @@ function setView(view) {
   $("tasksView").hidden = view !== "tasks";
   $("addBtn").hidden = view !== "tree";
   $("addLinkBtn").hidden = view !== "tree";
-  document.querySelectorAll("[data-view]").forEach(button => button.classList.toggle("active", button.dataset.view === view));
+  document.querySelectorAll("[data-view]").forEach(button => {
+    const active = button.dataset.view === view;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
   if (view === "directory") renderDirectory();
   if (view === "documents") renderDocuments();
   if (view === "tasks") renderTasks();
@@ -906,6 +1107,8 @@ $("personForm").addEventListener("submit", async event => {
   data.updatedAt = serverTimestamp();
   try {
     const id = $("personId").value;
+    const duplicate = people.find(item => item.id !== id && searchable(item.firstName) === searchable(data.firstName) && searchable(item.lastName) === searchable(data.lastName) && (!data.birthDate || !item.birthDate || item.birthDate === data.birthDate));
+    if (duplicate && !confirm(`Une fiche proche existe déjà : ${nameOf(duplicate.id)}${duplicate.birthDate ? ` (${duplicate.birthDate})` : ""}.\n\nEnregistrer quand même cette personne ?`)) return;
     if (id) {
       await updateDoc(doc(db, "people", id), data);
       focusAfterRender = id;
@@ -973,13 +1176,13 @@ $("restoreTreeBtn").onclick = async () => {
 $("relationsBtn").onclick = openRelations;
 $("addLinkBtn").onclick = openManualLink;
 $("manualLinkForm").addEventListener("submit", saveManualLink);
-$("addPartnerBtn").onclick = addPartner;
-$("addChildBtn").onclick = addChild;
-$("addParentBtn").onclick = addParent;
+$("addPartnerBtn").onclick = () => runSafely(addPartner, "Ajout du partenaire impossible");
+$("addChildBtn").onclick = () => runSafely(addChild, "Ajout de l’enfant impossible");
+$("addParentBtn").onclick = () => runSafely(addParent, "Ajout du parent impossible");
 $("relationsList").onclick = event => {
   const button = event.target.closest("[data-remove-partner],[data-remove-child]");
   if (!button) return;
-  removeRelation(button.dataset.removePartner || button.dataset.removeChild, button.dataset.person, button.dataset.removePartner ? "partner" : "child");
+  runSafely(() => removeRelation(button.dataset.removePartner || button.dataset.removeChild, button.dataset.person, button.dataset.removePartner ? "partner" : "child"), "Suppression du lien impossible");
 };
 
 document.addEventListener("click", event => {
@@ -1030,7 +1233,7 @@ $("tasksList").onclick = async event => {
   const editButton = event.target.closest("[data-edit-task]");
   const completeButton = event.target.closest("[data-complete-task]");
   if (editButton) openTask(tasks.find(value => value.id === editButton.dataset.editTask));
-  if (completeButton) await updateDoc(doc(db, "tasks", completeButton.dataset.completeTask), { status: "done", updatedAt: serverTimestamp() });
+  if (completeButton) await runSafely(() => updateDoc(doc(db, "tasks", completeButton.dataset.completeTask), { status: "done", updatedAt: serverTimestamp() }), "Mise à jour de la tâche impossible");
 };
 
 $("logoutBtn").onclick = () => signOut(auth);
@@ -1087,7 +1290,7 @@ $("linkDocumentBtn").onclick = () => {
 };
 $("addDocumentBtn").onclick = () => openDocument();
 $("documentForm").addEventListener("submit", saveDocument);
-$("deleteDocumentBtn").onclick = removeDocument;
+$("deleteDocumentBtn").onclick = () => runSafely(removeDocument, "Suppression du document impossible");
 $("documentSearch").oninput = renderDocuments;
 $("documentTypeFilter").onchange = renderDocuments;
 $("documentViewerDialog").addEventListener("close", () => {
@@ -1096,10 +1299,12 @@ $("documentViewerDialog").addEventListener("close", () => {
   activeViewerUrl = "";
   $("viewerFrame").removeAttribute("src");
   $("viewerImage").removeAttribute("src");
+  $("viewerExternalBtn").removeAttribute("href");
+  $("viewerExternalBtn").hidden = true;
 });
 $("addTaskBtn").onclick = () => openTask();
 $("taskForm").addEventListener("submit", saveTask);
-$("deleteTaskBtn").onclick = removeTask;
+$("deleteTaskBtn").onclick = () => runSafely(removeTask, "Suppression de la tâche impossible");
 ["taskSearch", "taskStatusFilter", "taskPriorityFilter", "myTasksFilter"].forEach(id => {
   $(id).addEventListener(id === "taskSearch" ? "input" : "change", renderTasks);
 });
@@ -1112,12 +1317,9 @@ document.querySelectorAll("[data-switch] [data-mode]").forEach(button => {
 for (const section of ["directory", "documents", "tasks"]) setContentMode(section, viewModes[section] || "cards", false);
 document.querySelectorAll("[data-view]").forEach(button => button.onclick = () => setView(button.dataset.view));
 
-$("exportBtn").onclick = () => {
-  const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), people, families, documents, tasks }, null, 2)], { type: "application/json" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `family-tree-${new Date().toISOString().slice(0, 10)}.json`;
-  link.click();
-  URL.revokeObjectURL(link.href);
-  toast("Sauvegarde téléchargée");
+$("exportBtn").onclick = exportCompleteBackup;
+$("importBtn").onclick = () => $("importFile").click();
+$("importFile").onchange = event => {
+  const file = event.target.files?.[0];
+  if (file) restoreCompleteBackup(file);
 };
