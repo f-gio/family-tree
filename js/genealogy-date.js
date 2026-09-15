@@ -9,7 +9,9 @@ function validExact(value) {
   const text = String(value || "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return "";
   const [year, month, day] = text.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
+  if (year < 1) return "";
+  const date = new Date(Date.UTC(0, month - 1, day));
+  date.setUTCFullYear(year);
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? text : "";
 }
 
@@ -37,7 +39,9 @@ export function formatGenealogyDate(value, legacyExact = "", locale = "fr-FR") {
   if (date.type === "about") return `vers ${date.year}`;
   if (date.type === "between") return `entre ${date.from} et ${date.to}`;
   const [year, month, day] = date.value.split("-").map(Number);
-  return new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(year, month - 1, day)));
+  const exact = new Date(Date.UTC(0, month - 1, day));
+  exact.setUTCFullYear(year);
+  return new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(exact);
 }
 
 export function genealogyDateYears(value, legacyExact = "") {
