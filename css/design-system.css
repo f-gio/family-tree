@@ -738,8 +738,7 @@ label .field { margin-top: var(--space-2); }
 .compact-photo-trigger:focus-within { box-shadow: var(--shadow-focus); }
 .compact-photo-trigger .ui-icon { width: 0.875rem; height: 0.875rem; }
 
-.compact-photo-uploader:has(#personPhotoFile:focus-visible) .compact-photo-trigger,
-.compact-photo-uploader:has(#personPhotoFile:focus-visible) .compact-photo-picker {
+.compact-photo-uploader:has(#personPhotoFile:focus-visible) .compact-photo-trigger {
   outline: 3px solid var(--color-focus);
   outline-offset: 2px;
 }
@@ -757,20 +756,6 @@ label .field { margin-top: var(--space-2); }
   gap: var(--space-1);
 }
 
-.compact-photo-picker {
-  min-height: var(--control-sm);
-  padding: var(--space-1) var(--space-2);
-  border-color: transparent;
-  background: transparent;
-  color: var(--color-brand);
-  font-size: var(--text-sm);
-}
-
-.compact-photo-picker:hover {
-  border-color: transparent;
-  background: var(--color-brand-soft);
-}
-
 .compact-photo-uploader .btn.small {
   min-height: var(--control-sm);
   padding-inline: var(--space-2);
@@ -784,6 +769,8 @@ label .field { margin-top: var(--space-2); }
   margin: 0;
   line-height: 1.35;
 }
+
+.compact-photo-uploader .photo-status:empty { display: none; }
 
 .identity-life-sections { margin-top: var(--space-6); }
 

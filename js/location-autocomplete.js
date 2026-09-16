@@ -188,7 +188,7 @@ export function createLocationAutocomplete({ input, username, endpoint = DEFAULT
 
   function choose(location) {
     selected = sanitizeStoredLocation(location);
-    input.value = selected?.name || input.value;
+    input.value = selected ? formatLocationSuggestion(selected) : input.value;
     input.dispatchEvent(new Event("change", { bubbles: true }));
     setStatus("");
     closeList();
@@ -240,7 +240,7 @@ export function createLocationAutocomplete({ input, username, endpoint = DEFAULT
 
   function onInput() {
     const value = input.value;
-    if (!selected || value !== selected.name) selected = null;
+    if (!selected || value !== formatLocationSuggestion(selected)) selected = null;
     clearTimeout(timer);
     request?.abort();
     closeList();
@@ -282,17 +282,17 @@ export function createLocationAutocomplete({ input, username, endpoint = DEFAULT
     setValue(value = "", placeInfo = null) {
       clearTimeout(timer);
       request?.abort();
-      input.value = value || "";
       selected = sanitizeStoredLocation(placeInfo);
+      input.value = selected ? formatLocationSuggestion(selected) : value || "";
       results = [];
       setStatus("");
       closeList();
     },
     getValue() {
-      return { text: input.value.trim(), placeInfo: selected ? { ...selected } : null };
+      return { text: selected?.name || input.value.trim(), placeInfo: selected ? { ...selected } : null };
     },
     snapshot() {
-      return { text: input.value, placeInfo: selected ? { ...selected } : null };
+      return { text: selected?.name || input.value, placeInfo: selected ? { ...selected } : null };
     },
     close: closeList,
     destroy() {

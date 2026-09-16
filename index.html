@@ -259,11 +259,10 @@
 <section class="compact-photo-uploader identity-photo" aria-labelledby="photoUploadTitle">
 <span class="sr-only" id="photoUploadTitle">Photo de la personne</span>
 <div class="compact-photo-avatar"><span class="photo-preview" id="personPhotoPreview" aria-hidden="true">?</span><label class="compact-photo-trigger" for="personPhotoFile" aria-label="Ajouter ou remplacer la photo" title="Ajouter ou remplacer la photo"><svg class="ui-icon" aria-hidden="true"><use href="#icon-edit"></use></svg></label></div>
-<div class="compact-photo-content"><div class="photo-upload-actions">
-<label class="photo-picker compact-photo-picker" for="personPhotoFile"><svg class="ui-icon" aria-hidden="true"><use href="#icon-upload"></use></svg><span id="personPhotoActionLabel">Ajouter une photo</span></label>
 <input class="sr-only" id="personPhotoFile" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif">
+<div class="compact-photo-content"><div class="photo-upload-actions">
 <button class="btn small" id="removePersonPhotoBtn" type="button" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-unlink"></use></svg><span>Retirer la photo</span></button>
-</div><p class="photo-status" id="personPhotoStatus" role="status" aria-live="polite">Compression automatique · 5 Ko maximum.</p></div>
+</div><p class="photo-status" id="personPhotoStatus" role="status" aria-live="polite"></p></div>
 </section>
 <div class="identity-fields">
 <label>Prénom *<input class="field" id="firstName" autocomplete="off" autocapitalize="words" spellcheck="false" required maxlength="80">
