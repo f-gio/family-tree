@@ -9,7 +9,7 @@ import { directoryPersonName, formatDirectoryDate, filterAndSortDirectory } from
 import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
-import { createLocationAutocomplete, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
+import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",
@@ -106,9 +106,10 @@ configureResponsiveFormSemantics();
 
 function initializeLocationAutocompletes() {
   const username = geoNamesUsernameFromDocument();
+  const endpoint = geoNamesEndpointFromDocument();
   for (const inputId of Object.keys(locationFieldDefinitions)) {
     const input = $(inputId);
-    if (input) locationControls[inputId] = createLocationAutocomplete({ input, username });
+    if (input) locationControls[inputId] = createLocationAutocomplete({ input, username, endpoint });
   }
 }
 

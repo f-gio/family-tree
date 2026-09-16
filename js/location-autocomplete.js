@@ -51,6 +51,11 @@ export function formatLocationSuggestion(location = {}) {
 }
 
 export function buildGeoNamesUrl(query, { username, maxResults = 8, language = "fr", endpoint = DEFAULT_ENDPOINT } = {}) {
+  const target = new URL(endpoint);
+  if (!target.hostname.endsWith("geonames.org")) {
+    target.searchParams.set("q", clean(query));
+    return target.toString();
+  }
   const params = new URLSearchParams({
     name_startsWith: clean(query),
     featureClass: "P",
@@ -65,15 +70,16 @@ export function buildGeoNamesUrl(query, { username, maxResults = 8, language = "
 
 export function createGeoNamesSearch({ username, fetchImpl = globalThis.fetch, maxResults = 8, language = "fr", endpoint = DEFAULT_ENDPOINT, now = () => Date.now() } = {}) {
   const configuredUsername = clean(username);
+  const usesDirectGeoNames = new URL(endpoint).hostname.endsWith("geonames.org");
   return async function searchPlaces(query, { signal } = {}) {
     const normalizedQuery = clean(query);
     if (normalizedQuery.length < 3) return [];
-    if (!configuredUsername) {
+    if (usesDirectGeoNames && !configuredUsername) {
       const error = new Error("GeoNames n’est pas encore configuré");
       error.code = "geonames/not-configured";
       throw error;
     }
-    const cacheKey = `${language}:${normalizedQuery.toLocaleLowerCase("fr")}`;
+    const cacheKey = `${endpoint}:${language}:${normalizedQuery.toLocaleLowerCase("fr")}`;
     const cached = sharedCache.get(cacheKey);
     if (cached && now() - cached.createdAt < CACHE_TTL) return cached.items;
     const response = await fetchImpl(buildGeoNamesUrl(normalizedQuery, { username: configuredUsername, maxResults, language, endpoint }), { signal });
@@ -98,9 +104,14 @@ export function geoNamesUsernameFromDocument(source = globalThis.document) {
   return clean(value).replace(/^YOUR_GEONAMES_USERNAME$/i, "");
 }
 
-export function createLocationAutocomplete({ input, username, minChars = 3, debounceMs = 320, maxResults = 8, searchPlaces, documentRef = globalThis.document } = {}) {
+export function geoNamesEndpointFromDocument(source = globalThis.document) {
+  const value = source?.querySelector?.('meta[name="geonames-endpoint"]')?.content;
+  return clean(value) || DEFAULT_ENDPOINT;
+}
+
+export function createLocationAutocomplete({ input, username, endpoint = DEFAULT_ENDPOINT, minChars = 3, debounceMs = 320, maxResults = 8, searchPlaces, documentRef = globalThis.document } = {}) {
   if (!input || !documentRef) throw new Error("Un champ de lieu est requis");
-  const search = searchPlaces || createGeoNamesSearch({ username, maxResults });
+  const search = searchPlaces || createGeoNamesSearch({ username, endpoint, maxResults });
   const wrapper = documentRef.createElement("div");
   wrapper.className = "location-autocomplete";
   input.before(wrapper);
