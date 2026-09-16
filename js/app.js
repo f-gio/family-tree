@@ -521,6 +521,9 @@ function openPerson(item = null, source = "tree") {
   updatePersonPhotoPreview();
   updateMarriedNameVisibility();
   if (item) renderPersonDocuments(item.id);
+  $("relationBuilder").hidden = true;
+  $("toggleRelationBuilderBtn").setAttribute("aria-expanded", "false");
+  setRelationBuilderKind("parent");
   setPersonSection("identity");
   $("personDialog").showModal();
   setTimeout(() => $("firstName").focus(), 30);
@@ -563,31 +566,123 @@ function openRelations() {
   setPersonSection("relations", true);
 }
 
+function relationAvatarMarkup(item) {
+  return item?.photoUrl ? `<img src="${esc(item.photoUrl)}" alt="">` : esc(personInitials(item));
+}
+
+function relationRole(item, kind) {
+  if (kind === "parent") return item?.gender === "F" ? "Mère" : item?.gender === "M" ? "Père" : "Parent";
+  if (kind === "child") return item?.gender === "F" ? "Fille" : item?.gender === "M" ? "Fils" : "Enfant";
+  return "Partenaire";
+}
+
+function relationMetadata(parts = []) {
+  const values = parts.filter(value => value && value !== "—" && value !== "Non précisé" && value !== "Non précisée");
+  return values.length ? `<p class="relation-person-meta">${values.map(value => esc(value)).join(" <span aria-hidden=\"true\">·</span> ")}</p>` : "";
+}
+
+function relationActions({ familyId, personId = "", removeType = "", detailsLabel = "Détails du lien", removeLabel = "Dissocier", accessibleName = "cette relation" }) {
+  const remove = removeType
+    ? `<button class="relation-menu-action danger" type="button" data-remove-${removeType}="${familyId}" data-person="${personId}">${icon("unlink")}<span>${esc(removeLabel)}</span></button>`
+    : "";
+  return `<details class="relation-actions-menu"><summary aria-label="Actions pour ${esc(accessibleName)}" title="Actions">⋯</summary><div class="relation-actions-popover"><button class="relation-menu-action" type="button" data-edit-family="${familyId}">${icon("edit")}<span>${esc(detailsLabel)}</span></button>${remove}</div></details>`;
+}
+
+function relationPersonRow({ relative, family, kind, meta = [], removeType = "", removePersonId = "", detailsLabel = "Détails du lien", removeLabel = "Dissocier" }) {
+  if (!relative) return "";
+  return `<article class="relation-person-row"><span class="relation-person-avatar">${relationAvatarMarkup(relative)}</span><div class="relation-person-copy"><strong>${esc(relationOptionName(relative))}</strong>${relationMetadata([relationRole(relative, kind), ...meta])}</div>${relationActions({ familyId: family.id, personId: removePersonId, removeType, detailsLabel, removeLabel, accessibleName: relationOptionName(relative) })}</article>`;
+}
+
+function relationGroup(title, entries, emptyLabel, footer = "") {
+  return `<section class="relation-group"><header class="relation-group-head"><h4>${esc(title)}</h4><span>${entries.length}</span></header><div class="relation-group-list">${entries.length ? entries.join("") : `<p class="relation-group-empty">${esc(emptyLabel)}</p>`}</div>${footer}</section>`;
+}
+
+function setRelationBuilderKind(kind = "parent") {
+  const normalized = ["parent", "partner", "child"].includes(kind) ? kind : "parent";
+  document.querySelectorAll("[data-relation-kind]").forEach(button => {
+    const active = button.dataset.relationKind === normalized;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  document.querySelectorAll("[data-relation-add-panel]").forEach(panel => {
+    panel.hidden = panel.dataset.relationAddPanel !== normalized;
+  });
+}
+
+function setRelationBuilderOpen(open, kind = "parent") {
+  $("relationBuilder").hidden = !open;
+  $("toggleRelationBuilderBtn").setAttribute("aria-expanded", String(open));
+  if (open) {
+    setRelationBuilderKind(kind);
+    setTimeout(() => document.querySelector(`[data-relation-add-panel="${kind}"] select`)?.focus(), 30);
+  } else {
+    $("toggleRelationBuilderBtn").focus();
+  }
+}
+
 function renderRelations() {
   const item = person(activeId);
   if (!item) return;
-  const related = families.filter(family => (family.partnerIds || []).includes(item.id) || (family.childIds || []).includes(item.id));
-  $("relationsList").innerHTML = related.length ? related.map(family => {
-    const isPartner = (family.partnerIds || []).includes(item.id);
-    const others = (family.partnerIds || []).filter(id => id !== item.id);
-    const children = family.childIds || [];
-    const unionDate = formatGenealogyDate(family.unionDateInfo, family.marriageDate || family.unionDate);
-    const relationLabel = RELATION_TYPE_LABELS[normalizeRelationType(family.relationType)];
+  const parentFamilies = families.filter(family => (family.childIds || []).includes(item.id));
+  const ownFamilies = families.filter(family => (family.partnerIds || []).includes(item.id));
+  const parentEntries = parentFamilies.flatMap(family => (family.partnerIds || []).map(parentId => {
+    const relative = person(parentId);
+    const filiationType = parentChildLinkType(family, parentId, item.id);
+    const filiation = filiationType === "unknown" ? "" : `Filiation ${FILIATION_TYPE_LABELS[filiationType].toLocaleLowerCase("fr-FR")}`;
+    return { relative, family, html: relationPersonRow({ relative, family, kind: "parent", meta: [filiation], detailsLabel: "Détails de la famille" }) };
+  })).filter(entry => entry.relative).sort((a, b) => comparePeopleBySurname(a.relative, b.relative));
+  const partnerEntries = ownFamilies.flatMap(family => (family.partnerIds || []).filter(id => id !== item.id).map(partnerId => {
+    const relative = person(partnerId);
+    const relationType = normalizeRelationType(family.relationType);
     const endType = normalizeEndType(family.endType);
-    const unionPlace = family.unionPlace || family.marriagePlace || "";
-    const summary = `${relationLabel} · ${unionDate}${unionPlace ? ` · ${unionPlace}` : ""}${endType !== "none" ? ` · ${END_TYPE_LABELS[endType]} ${formatGenealogyDate(family.endDateInfo, family.separationDate || family.divorceDate)}` : ""}`;
-    const edit = `<button class="btn small" type="button" data-edit-family="${family.id}">${icon("edit")}<span>Modifier la relation</span></button>`;
-    if (isPartner) return `<div class="relation-card"><div class="relation-card-head"><strong>${others.length ? `Union avec ${esc(others.map(nameOf).join(" et "))}` : "Foyer monoparental"}</strong>${edit}</div><p class="relation-summary">${esc(summary)}</p>${others.map(id => `<div class="relation-line"><span>Partenaire : ${esc(nameOf(id))}</span><button class="btn small danger" type="button" data-remove-partner="${family.id}" data-person="${id}">${icon("unlink")}<span>Dissocier</span></button></div>`).join("")}${children.map(id => `<div class="relation-line"><span>Enfant : ${esc(nameOf(id))} · filiation ${esc(FILIATION_TYPE_LABELS[parentChildLinkType(family, item.id, id)].toLocaleLowerCase("fr-FR"))}</span><button class="btn small danger" type="button" data-remove-child="${family.id}" data-person="${id}">${icon("unlink")}<span>Dissocier</span></button></div>`).join("") || '<div class="relation-line"><span>Aucun enfant rattaché</span></div>'}</div>`;
-    return `<div class="relation-card"><div class="relation-card-head"><strong>Parents</strong>${edit}</div><p class="relation-summary">${esc(summary)}</p>${(family.partnerIds || []).map(parentId => `<div class="relation-line"><span>${esc(nameOf(parentId))} · filiation ${esc(FILIATION_TYPE_LABELS[parentChildLinkType(family, parentId, item.id)].toLocaleLowerCase("fr-FR"))}</span></div>`).join("") || '<div class="relation-line"><span>Non renseigné</span></div>'}<div class="relation-line"><span></span><button class="btn small danger" type="button" data-remove-child="${family.id}" data-person="${item.id}">${icon("unlink")}<span>Dissocier</span></button></div></div>`;
-  }).join("") : emptyState({ iconName: "link", title: "Aucun lien familial", description: "Ajoutez un parent, un enfant ou un partenaire depuis les options ci-dessous." });
+    const unionDate = formatGenealogyDate(family.unionDateInfo, family.marriageDate || family.unionDate);
+    const endDate = formatGenealogyDate(family.endDateInfo, family.separationDate || family.divorceDate);
+    const childCount = (family.childIds || []).length;
+    const meta = [
+      relationType === "unknown" ? "" : RELATION_TYPE_LABELS[relationType],
+      unionDate === "—" ? "" : unionDate,
+      ["none", "unknown"].includes(endType) ? "" : `${END_TYPE_LABELS[endType]}${endDate === "—" ? "" : ` · ${endDate}`}`,
+      childCount ? `${childCount} enfant${childCount > 1 ? "s" : ""}` : ""
+    ];
+    return { relative, family, html: relationPersonRow({ relative, family, kind: "partner", meta, removeType: "partner", removePersonId: partnerId, detailsLabel: "Détails de l’union", removeLabel: "Dissocier le partenaire" }) };
+  })).filter(entry => entry.relative).sort((a, b) => comparePeopleBySurname(a.relative, b.relative));
+  const childEntries = ownFamilies.flatMap(family => (family.childIds || []).map(childId => {
+    const relative = person(childId);
+    const filiationType = parentChildLinkType(family, item.id, childId);
+    const filiation = filiationType === "unknown" ? "" : `Filiation ${FILIATION_TYPE_LABELS[filiationType].toLocaleLowerCase("fr-FR")}`;
+    const otherParents = (family.partnerIds || []).filter(id => id !== item.id).map(nameOf);
+    return { relative, family, html: relationPersonRow({ relative, family, kind: "child", meta: [filiation, otherParents.length ? `Avec ${otherParents.join(" et ")}` : ""], removeType: "child", removePersonId: childId, detailsLabel: "Détails du lien", removeLabel: "Dissocier l’enfant" }) };
+  })).filter(entry => entry.relative).sort((a, b) => comparePeopleBySurname(a.relative, b.relative));
+
+  const parentCount = parentEntries.length;
+  const partnerCount = partnerEntries.length;
+  const childCount = childEntries.length;
+  const total = parentCount + partnerCount + childCount;
+  $("relationsSummary").textContent = total
+    ? `${parentCount} parent${parentCount > 1 ? "s" : ""} · ${partnerCount} partenaire${partnerCount > 1 ? "s" : ""} · ${childCount} enfant${childCount > 1 ? "s" : ""}`
+    : "Aucun lien familial";
+
+  if (!total) {
+    $("relationsList").innerHTML = emptyState({ iconName: "link", title: "Aucun lien familial", description: "Ajoutez un parent, un partenaire ou un enfant pour commencer à relier cette personne à l’arbre." });
+  } else {
+    const parentFooter = parentFamilies.length
+      ? `<div class="relation-group-footer">${parentFamilies.map(family => `<button class="btn tertiary danger" type="button" data-remove-child="${family.id}" data-person="${item.id}">${icon("unlink")}<span>Dissocier de ce groupe de parents</span></button>`).join("")}</div>`
+      : "";
+    $("relationsList").innerHTML = [
+      relationGroup("Parents", parentEntries.map(entry => entry.html), "Aucun parent renseigné", parentFooter),
+      relationGroup("Partenaires et unions", partnerEntries.map(entry => entry.html), "Aucun partenaire renseigné"),
+      relationGroup("Enfants", childEntries.map(entry => entry.html), "Aucun enfant renseigné")
+    ].join("");
+  }
   const options = availableOptions([item.id]);
   $("partnerSelect").innerHTML = options;
   $("childSelect").innerHTML = options;
   $("parentSelect").innerHTML = options;
-  const ownFamilies = families.filter(family => (family.partnerIds || []).includes(item.id));
-  $("childFamilySelect").innerHTML = '<option value="new">Nouveau foyer monoparental</option>' + ownFamilies.map(family => {
+  $("parent2Select").innerHTML = options;
+  const hasSingleParentFamily = ownFamilies.some(family => (family.partnerIds || []).length === 1);
+  $("childFamilySelect").innerHTML = (hasSingleParentFamily ? "" : '<option value="new">Cette personne uniquement</option>') + ownFamilies.map(family => {
     const others = (family.partnerIds || []).filter(id => id !== item.id);
-    return `<option value="${family.id}">${others.length ? `Union avec ${esc(others.map(nameOf).join(" et "))}` : "Foyer monoparental"}</option>`;
+    return `<option value="${family.id}">${others.length ? `Avec ${esc(others.map(nameOf).join(" et "))}` : "Cette personne uniquement"}</option>`;
   }).join("");
 }
 
@@ -605,6 +700,7 @@ async function addPartner() {
     const nextFamily = { ...single, partnerIds: [activeId, other] };
     await updateDoc(doc(db, "families", single.id), { partnerIds: nextFamily.partnerIds, parentChildLinks: normalizedParentChildLinks(nextFamily), updatedAt: serverTimestamp() });
   } else await addDoc(refs.families, { partnerIds: [activeId, other], childIds: [], relationType: "unknown", unionDateInfo: { type: "unknown" }, unionPlace: "", endType: "none", endDateInfo: { type: "unknown" }, endPlace: "", parentChildLinks: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  setRelationBuilderOpen(false);
   toast("Partenaire ajouté");
 }
 
@@ -617,25 +713,35 @@ async function addChild() {
   try {
     const types = Object.fromEntries((family?.partnerIds || [activeId]).map(parentId => [parentId, $("childFiliationType").value]));
     await linkChildToParents(child, family?.partnerIds || [activeId], family?.id || "", types);
+    setRelationBuilderOpen(false);
     toast("Enfant rattaché");
   } catch (error) { toast(error.message || "Lien impossible", "error"); }
 }
 
 async function addParent() {
-  const parentId = $("parentSelect").value;
-  if (!parentId) return toast("Choisissez un parent", "error");
+  const firstParentId = $("parentSelect").value;
+  const secondParentId = $("parent2Select").value;
+  if (!firstParentId) return toast("Choisissez au moins un parent", "error");
+  if (firstParentId === secondParentId) return toast("Choisissez deux personnes différentes", "error");
   try {
-    await linkChildToParents(activeId, [parentId], "", { [parentId]: $("parentFiliationType").value });
-    toast("Parent rattaché");
+    const parentIds = [firstParentId, secondParentId].filter(Boolean);
+    const linkTypes = { [firstParentId]: $("parentFiliationType").value };
+    if (secondParentId) linkTypes[secondParentId] = $("parent2FiliationType").value;
+    await linkChildToParents(activeId, parentIds, "", linkTypes);
+    setRelationBuilderOpen(false);
+    toast(parentIds.length > 1 ? "Parents rattachés" : "Parent rattaché");
   } catch (error) { toast(error.message || "Lien impossible", "error"); }
 }
 
 async function removeRelation(familyId, personId, type) {
   const family = families.find(item => item.id === familyId);
   if (!family) return;
+  const removesCurrentFromParentGroup = type !== "partner" && personId === activeId && (family.partnerIds || []).length > 1;
   const consequence = type === "partner"
     ? "Dissocier ce partenaire ? Les fiches des deux personnes resteront dans l’annuaire."
-    : "Dissocier ce lien parent-enfant ? Les fiches des personnes resteront dans l’annuaire.";
+    : removesCurrentFromParentGroup
+      ? "Dissocier cette personne de ce groupe de parents ? Ses liens avec les deux parents seront retirés, mais toutes les fiches resteront dans l’annuaire."
+      : "Dissocier ce lien parent-enfant ? Les fiches des personnes resteront dans l’annuaire.";
   if (!confirm(consequence)) return;
   const field = type === "partner" ? "partnerIds" : "childIds";
   const next = (family[field] || []).filter(id => id !== personId);
@@ -732,6 +838,15 @@ function updateEndDetailsVisibility() {
 function openFamilyDetails(familyId) {
   const family = families.find(item => item.id === familyId);
   if (!family) return toast("Cette relation est introuvable", "error");
+  const current = person(activeId);
+  const currentIsPartner = (family.partnerIds || []).includes(activeId);
+  const currentIsChild = (family.childIds || []).includes(activeId);
+  const otherPartners = (family.partnerIds || []).filter(id => id !== activeId).map(nameOf);
+  $("familyDetailsTitle").textContent = currentIsPartner && otherPartners.length
+    ? `Union avec ${otherPartners.join(" et ")}`
+    : currentIsChild && current
+      ? `Parents de ${nameOf(current.id)}`
+      : "Détails de la relation";
   familyDetailsReturnContext = { personId: activeId, source: personDialogSource, draft: capturePersonDraft() };
   $("familyDetailsId").value = family.id;
   $("familyRelationType").value = normalizeRelationType(family.relationType);
@@ -741,7 +856,9 @@ function openFamilyDetails(familyId) {
   setLocationField("endPlace", family.endPlace || "", family.endPlaceInfo);
   setGenealogyDateForm("end", family.endDateInfo, family.separationDate || family.divorceDate);
   updateEndDetailsVisibility();
-  $("filiationEditors").innerHTML = normalizedParentChildLinks(family).map((link, index) => `<div class="filiation-editor"><span><strong>${esc(nameOf(link.parentId))}</strong> → ${esc(nameOf(link.childId))}</span><label>Type<select class="field" data-filiation-index="${index}" data-parent-id="${link.parentId}" data-child-id="${link.childId}"><option value="unknown" ${link.type === "unknown" ? "selected" : ""}>Non précisée</option><option value="biological" ${link.type === "biological" ? "selected" : ""}>Biologique</option><option value="adoptive" ${link.type === "adoptive" ? "selected" : ""}>Adoptive</option><option value="uncertain" ${link.type === "uncertain" ? "selected" : ""}>Incertaine</option></select></label></div>`).join("") || '<p class="hint">Aucun lien parent-enfant dans ce foyer.</p>';
+  const relevantLinks = normalizedParentChildLinks(family).filter(link => currentIsPartner ? link.parentId === activeId : currentIsChild ? link.childId === activeId : true);
+  $("filiationDetailsTitle").textContent = currentIsChild ? "Liens avec les parents" : "Liens avec les enfants";
+  $("filiationEditors").innerHTML = relevantLinks.map((link, index) => `<div class="filiation-editor"><span><strong>${esc(nameOf(link.parentId))}</strong> → ${esc(nameOf(link.childId))}</span><label>Type de filiation<select class="field" data-filiation-index="${index}" data-parent-id="${link.parentId}" data-child-id="${link.childId}"><option value="unknown" ${link.type === "unknown" ? "selected" : ""}>Non précisée</option><option value="biological" ${link.type === "biological" ? "selected" : ""}>Biologique</option><option value="adoptive" ${link.type === "adoptive" ? "selected" : ""}>Adoptive</option><option value="uncertain" ${link.type === "uncertain" ? "selected" : ""}>Incertaine</option></select></label></div>`).join("") || '<p class="hint">Aucun lien parent-enfant à modifier pour cette personne.</p>';
   $("personDialog").close();
   $("familyDetailsDialog").showModal();
 }
@@ -766,7 +883,8 @@ async function saveFamilyDetails(event) {
   try {
     const unionDateInfo = readGenealogyDateForm("union");
     const endDateInfo = readGenealogyDateForm("end");
-    const parentChildLinks = [...document.querySelectorAll("[data-filiation-index]")].map(select => ({ parentId: select.dataset.parentId, childId: select.dataset.childId, type: normalizeFiliationType(select.value) }));
+    const editedLinks = new Map([...document.querySelectorAll("[data-filiation-index]")].map(select => [`${select.dataset.parentId}:${select.dataset.childId}`, normalizeFiliationType(select.value)]));
+    const parentChildLinks = normalizedParentChildLinks(family).map(link => ({ ...link, type: editedLinks.get(`${link.parentId}:${link.childId}`) || link.type }));
     const data = {
       relationType: normalizeRelationType($("familyRelationType").value), unionDateInfo,
       endType: normalizeEndType($("familyEndType").value), endDateInfo, parentChildLinks,
@@ -1832,6 +1950,11 @@ document.querySelectorAll("[data-person-section]").forEach(button => {
 });
 $("addLinkBtn").onclick = openManualLink;
 $("manualLinkForm").addEventListener("submit", saveManualLink);
+$("toggleRelationBuilderBtn").onclick = () => setRelationBuilderOpen($("relationBuilder").hidden, "parent");
+$("closeRelationBuilderBtn").onclick = () => setRelationBuilderOpen(false);
+document.querySelectorAll("[data-relation-kind]").forEach(button => {
+  button.onclick = () => setRelationBuilderKind(button.dataset.relationKind);
+});
 $("addPartnerBtn").onclick = event => withButtonPending(event.currentTarget, () => runSafely(addPartner, "Ajout du partenaire impossible"), "Ajout…");
 $("addChildBtn").onclick = event => withButtonPending(event.currentTarget, () => runSafely(addChild, "Ajout de l’enfant impossible"), "Ajout…");
 $("addParentBtn").onclick = event => withButtonPending(event.currentTarget, () => runSafely(addParent, "Ajout du parent impossible"), "Ajout…");
