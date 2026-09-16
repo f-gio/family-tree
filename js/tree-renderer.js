@@ -1,6 +1,7 @@
 import { formatGenealogyDate } from "./genealogy-date.js";
 import { childLineType, normalizeEndType } from "./family-relations.js";
 import { emptyState } from "./ui-components.js";
+import { formatCompactPlace } from "./place-format.js";
 
 function escapeHtml(value = '') {
   const node = document.createElement('div');
@@ -12,9 +13,9 @@ function initials(person) {
   return `${person.firstName?.[0] || ''}${person.lastName?.[0] || ''}`.toUpperCase() || '?';
 }
 
-function lifeEvent(label, icon, dateInfo, legacyDate, place) {
+function lifeEvent(label, icon, dateInfo, legacyDate, place, placeInfo) {
   const dateText = formatGenealogyDate(dateInfo, legacyDate);
-  const placeText = place?.trim() || '—';
+  const placeText = formatCompactPlace(place, placeInfo) || '—';
   return `<span class="life-event" title="${label}"><span class="life-icon" aria-hidden="true">${icon}</span><span class="sr-only">${label} : </span><span class="life-value">${escapeHtml(dateText)} · ${escapeHtml(placeText)}</span></span>`;
 }
 
@@ -152,7 +153,7 @@ export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmpty
         const avatar = person.photoUrl ? `<img src="${escapeHtml(person.photoUrl)}" alt="">` : initials(person);
         const birthName = [person.firstName, person.middleName, person.lastName].filter(Boolean).join(' ');
         const middleName = person.middleName ? `<span class="person-middle-name">${escapeHtml(person.middleName)}</span>` : '';
-        return `<button class="person" type="button" data-person-id="${person.id}" style="left:${position.x}px;top:${position.y}px" aria-label="Ouvrir et modifier ${escapeHtml(birthName)}"><span class="drag-hint" aria-hidden="true">⋮⋮</span><span class="avatar">${avatar}</span><span class="person-name"><span class="person-first-name">${escapeHtml(person.firstName || '')}</span>${middleName}<span class="person-surname">${escapeHtml(person.lastName || '')}</span></span>${lifeEvent('Naissance', '✦', person.birthDateInfo, person.birthDate, person.place)}${lifeEvent('Décès', '†', person.deathDateInfo, person.deathDate, person.deathPlace)}</button>`;
+        return `<button class="person" type="button" data-person-id="${person.id}" style="left:${position.x}px;top:${position.y}px" aria-label="Ouvrir et modifier ${escapeHtml(birthName)}"><span class="drag-hint" aria-hidden="true">⋮⋮</span><span class="avatar">${avatar}</span><span class="person-name"><span class="person-first-name">${escapeHtml(person.firstName || '')}</span>${middleName}<span class="person-surname">${escapeHtml(person.lastName || '')}</span></span>${lifeEvent('Naissance', '✦', person.birthDateInfo, person.birthDate, person.place, person.birthPlaceInfo)}${lifeEvent('Décès', '†', person.deathDateInfo, person.deathDate, person.deathPlace, person.deathPlaceInfo)}</button>`;
       }).join('');
       scene.innerHTML = `<svg class="tree-svg" viewBox="0 0 ${layout.bounds.width} ${layout.bounds.height}" aria-hidden="true">${paths}</svg>${cards}`;
       applyState();

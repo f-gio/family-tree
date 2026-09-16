@@ -10,6 +10,7 @@ import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText } 
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
 import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
+import { formatCompactPlace } from "./place-format.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",
@@ -881,7 +882,10 @@ function renderDocuments() {
   const query = searchable($("documentSearch").value);
   const type = $("documentTypeFilter").value;
   const filtered = documents.filter(item => (!type || item.type === type) && (!query || searchable(`${documentDisplayLabel(item)} ${item.fileName || ""} ${item.type || ""} ${item.place || ""} ${(item.personIds || []).map(nameOf).join(" ")}`).includes(query)));
-  $("documentsList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card"><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(documentDisplayLabel(item))}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${item.place ? ` · ${esc(item.place)}` : ""}</p><div><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">Fichier optimisé : ${formatBytes(item.storedSize)}</p>` : ""}</div><div class="card-actions">${item.chunkCount || item.fileData || item.fileUrl || item.externalUrl ? `<button class="btn small primary" type="button" data-open-document="${item.id}">${icon("eye")}<span>Consulter</span></button>` : ""}<button class="btn small" type="button" data-edit-document="${item.id}">${icon("edit")}<span>Modifier</span></button></div></article>`).join("") : (documents.length
+  $("documentsList").innerHTML = filtered.length ? filtered.map(item => {
+    const compactPlace = formatCompactPlace(item.place, item.placeInfo);
+    return `<article class="content-card"><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(documentDisplayLabel(item))}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${compactPlace ? ` · ${esc(compactPlace)}` : ""}</p><div><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">Fichier optimisé : ${formatBytes(item.storedSize)}</p>` : ""}</div><div class="card-actions">${item.chunkCount || item.fileData || item.fileUrl || item.externalUrl ? `<button class="btn small primary" type="button" data-open-document="${item.id}">${icon("eye")}<span>Consulter</span></button>` : ""}<button class="btn small" type="button" data-edit-document="${item.id}">${icon("edit")}<span>Modifier</span></button></div></article>`;
+  }).join("") : (documents.length
     ? emptyState({ iconName: "document", title: "Aucun document trouvé", description: "Modifiez la recherche ou le type de document sélectionné." })
     : emptyState({ iconName: "document", title: "Aucun document", description: "Centralisez ici les actes, photos et autres archives familiales.", action: `<button class="btn primary" type="button" data-empty-add-document>${icon("plus")}<span>Ajouter un document</span></button>` }));
   setContentMode("documents", viewModes.documents || "cards", false);
