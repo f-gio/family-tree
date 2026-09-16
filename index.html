@@ -251,13 +251,24 @@
 <form class="modal-body person-modal-form" id="personForm">
 <input type="hidden" id="personId">
 <section class="person-section-panel" id="personIdentityPanel" role="tabpanel" aria-labelledby="personIdentityTab" data-person-panel="identity">
-<div class="grid">
-<header class="form-section-heading wide"><h4>Identité</h4><p>Noms et informations utilisées pour identifier cette personne.</p></header>
+<div class="identity-overview">
+<input id="photoUrl" type="hidden">
+<section class="photo-upload identity-photo" aria-labelledby="photoUploadTitle">
+<span class="photo-preview" id="personPhotoPreview" aria-hidden="true">?</span>
+<div><span class="photo-upload-title" id="photoUploadTitle">Photo de la personne</span><div class="photo-upload-actions">
+<label class="photo-picker" for="personPhotoFile">Choisir une photo</label>
+<input class="sr-only" id="personPhotoFile" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif">
+<button class="btn small" id="removePersonPhotoBtn" type="button" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-unlink"></use></svg><span>Retirer la photo</span></button>
+</div><p class="photo-status" id="personPhotoStatus">Recadrage carré et compression automatique à 5 Ko maximum.</p></div>
+</section>
+<div class="identity-fields">
 <label>Prénom *<input class="field" id="firstName" autocomplete="off" autocapitalize="words" spellcheck="false" required maxlength="80">
 </label>
 <label>Second prénom<input class="field" id="middleName" autocomplete="off" autocapitalize="words" spellcheck="false" maxlength="80">
 </label>
 <label>Nom de naissance *<input class="field" id="lastName" autocomplete="off" autocapitalize="words" spellcheck="false" required maxlength="80">
+</label>
+<label id="marriedNameField">Nom d’usage<input class="field" id="marriedName" autocomplete="off" autocapitalize="words" spellcheck="false" maxlength="80" placeholder="Nom utilisé au quotidien">
 </label>
 <label>Sexe<select class="field" id="gender">
 <option value="">Non précisé</option>
@@ -266,35 +277,25 @@
 <option value="X">Autre</option>
 </select>
 </label>
-<label id="marriedNameField">Nom d’épouse<input class="field" id="marriedName" autocomplete="off" autocapitalize="words" spellcheck="false" maxlength="80" placeholder="Nom porté après mariage">
-</label>
 <label>Branche familiale<input class="field" id="branch" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Ex. Giovannoni" maxlength="80">
 </label>
-<header class="form-section-heading wide"><h4>Événements de vie</h4><p>Conservez uniquement le niveau de précision réellement connu.</p></header>
-<fieldset class="life-fields wide"><legend>Naissance</legend><div class="life-fields-grid">
-<div class="genealogy-date" data-date-control="birth"><label>Précision de la date</label><div class="date-type-switch" role="group" aria-label="Précision de la date de naissance"><button class="date-type-button active" type="button" data-date-prefix="birth" data-date-type="exact">Date précise</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="year">Année</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="about">Vers</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="between">Entre</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="unknown">Inconnue</button></div><div class="date-value-panel single" data-date-panel="birth-exact"><label>Date précise<input class="field" id="birthDate" type="date"></label></div><div class="date-value-panel single" data-date-panel="birth-year" hidden><label>Année<input class="field" id="birthYear" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div><div class="date-value-panel" data-date-panel="birth-between" hidden><label>De<input class="field" id="birthYearFrom" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label><label>À<input class="field" id="birthYearTo" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div><div class="date-unknown" data-date-panel="birth-unknown" hidden>La date sera affichée « — ».</div></div>
-<label>Lieu<input class="field" id="place" autocomplete="off" autocapitalize="words" placeholder="Ex. Orino, Varese, Italie" maxlength="140">
+</div>
+</div>
+<div class="identity-life-sections">
+<fieldset class="life-fields identity-life-section"><legend>Naissance</legend><div class="life-fields-grid">
+<div class="genealogy-date" data-date-control="birth"><label>Type de date</label><div class="date-type-switch" role="group" aria-label="Type de date de naissance"><button class="date-type-button active" type="button" data-date-prefix="birth" data-date-type="exact">Date précise</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="year">Année</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="about">Vers</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="between">Entre</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="unknown">Inconnue</button></div><div class="date-value-panel single" data-date-panel="birth-exact"><label>Date de naissance<input class="field" id="birthDate" type="date"></label></div><div class="date-value-panel single" data-date-panel="birth-year" hidden><label>Année<input class="field" id="birthYear" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div><div class="date-value-panel" data-date-panel="birth-between" hidden><label>De<input class="field" id="birthYearFrom" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label><label>À<input class="field" id="birthYearTo" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div></div>
+<label class="life-place">Lieu de naissance<input class="field" id="place" autocomplete="off" autocapitalize="words" placeholder="Ex. Orino, Varese, Italie" maxlength="140">
 </label>
 </div></fieldset>
-<fieldset class="life-fields wide"><legend>Décès</legend><div class="life-fields-grid">
-<div class="genealogy-date" data-date-control="death"><label>Précision de la date</label><div class="date-type-switch" role="group" aria-label="Précision de la date de décès"><button class="date-type-button active" type="button" data-date-prefix="death" data-date-type="exact">Date précise</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="year">Année</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="about">Vers</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="between">Entre</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="unknown">Inconnue</button></div><div class="date-value-panel single" data-date-panel="death-exact"><label>Date précise<input class="field" id="deathDate" type="date"></label></div><div class="date-value-panel single" data-date-panel="death-year" hidden><label>Année<input class="field" id="deathYear" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div><div class="date-value-panel" data-date-panel="death-between" hidden><label>De<input class="field" id="deathYearFrom" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label><label>À<input class="field" id="deathYearTo" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div><div class="date-unknown" data-date-panel="death-unknown" hidden>La date sera affichée « — ».</div></div>
-<label>Lieu<input class="field" id="deathPlace" autocomplete="off" autocapitalize="words" placeholder="Ville, province, pays" maxlength="140">
+<fieldset class="life-fields identity-life-section"><legend>Décès</legend><div class="life-fields-grid">
+<div class="genealogy-date" data-date-control="death"><label>Type de date</label><div class="date-type-switch" role="group" aria-label="Type de date de décès"><button class="date-type-button active" type="button" data-date-prefix="death" data-date-type="exact">Date précise</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="year">Année</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="about">Vers</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="between">Entre</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="unknown">Inconnue</button></div><div class="date-value-panel single" data-date-panel="death-exact"><label>Date de décès<input class="field" id="deathDate" type="date"></label></div><div class="date-value-panel single" data-date-panel="death-year" hidden><label>Année<input class="field" id="deathYear" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div><div class="date-value-panel" data-date-panel="death-between" hidden><label>De<input class="field" id="deathYearFrom" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label><label>À<input class="field" id="deathYearTo" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div></div>
+<label class="life-place">Lieu de décès<input class="field" id="deathPlace" autocomplete="off" autocapitalize="words" placeholder="Ville, province, pays" maxlength="140">
 </label>
 </div></fieldset>
-<header class="form-section-heading wide"><h4>Informations complémentaires</h4><p>Ajoutez une photo ou des éléments utiles à la recherche familiale.</p></header>
-<input id="photoUrl" type="hidden">
-<section class="photo-upload wide" aria-labelledby="photoUploadTitle">
-<span class="photo-preview" id="personPhotoPreview" aria-hidden="true">?</span>
-<div><span class="photo-upload-title" id="photoUploadTitle">Photo de la personne</span><div class="photo-upload-actions">
-<label class="photo-picker" for="personPhotoFile">Choisir une photo</label>
-<input class="sr-only" id="personPhotoFile" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif">
-<button class="btn small" id="removePersonPhotoBtn" type="button" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-unlink"></use></svg><span>Retirer la photo</span></button>
-</div><p class="photo-status" id="personPhotoStatus">Recadrage carré et compression automatique à 5 Ko maximum.</p></div>
-</section>
-<label class="wide">Notes<textarea class="field" id="notes" rows="3" maxlength="800" autocapitalize="sentences" placeholder="Profession, histoire, sources…">
+</div>
+<label class="identity-notes">Notes<textarea class="field" id="notes" rows="3" maxlength="800" autocapitalize="sentences" placeholder="Profession, histoire, sources…">
 </textarea>
 </label>
-</div>
 </section>
 <section class="person-section-panel" id="personRelationsPanel" role="tabpanel" aria-labelledby="personRelationsTab" data-person-panel="relations" hidden>
 <div id="personRelationsUnavailable" class="person-section-placeholder" hidden><strong>Enregistrez d’abord l’identité</strong>Les liens familiaux pourront ensuite être ajoutés sans fermer cette fiche.</div>

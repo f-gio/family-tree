@@ -675,6 +675,102 @@ label .field { margin-top: var(--space-2); }
   background: color-mix(in srgb, var(--color-surface-soft) 62%, transparent);
 }
 
+/* Fiche Personne — l'onglet actif donne déjà le contexte « Identité ». */
+.identity-overview {
+  display: grid;
+  grid-template-columns: minmax(10rem, 11rem) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-6);
+}
+
+.identity-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--space-4);
+  row-gap: var(--space-4);
+}
+
+.identity-photo {
+  grid-template-columns: 1fr;
+  align-content: start;
+  justify-items: center;
+  min-width: 0;
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.identity-photo > div { min-width: 0; }
+
+.identity-photo .photo-preview {
+  width: 4.5rem;
+  height: 4.5rem;
+  font-size: var(--text-xl);
+}
+
+.identity-photo .photo-upload-actions {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.identity-photo .photo-picker,
+.identity-photo .photo-upload-actions .btn { width: 100%; }
+
+.identity-life-sections { margin-top: var(--space-6); }
+
+.identity-life-section {
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-5) 0 0;
+  border: 0;
+  border-top: var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+}
+
+.identity-life-section + .identity-life-section { margin-top: var(--space-6); }
+
+.identity-life-section legend {
+  padding: 0 var(--space-3) 0 0;
+  color: var(--color-text);
+  font: var(--weight-semibold) var(--text-lg)/1.25 var(--font-display);
+}
+
+.identity-life-section .life-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.identity-life-section .genealogy-date { display: contents; }
+
+.identity-life-section .genealogy-date > label,
+.identity-life-section .date-type-switch { grid-column: 1 / -1; }
+
+.identity-life-section .date-value-panel {
+  grid-column: 1;
+  min-width: 0;
+}
+
+.identity-life-section .life-place {
+  grid-column: 2;
+  align-self: end;
+  min-width: 0;
+}
+
+/* Deux bornes de date et le lieu respirent sur deux lignes plutôt que d'être comprimés. */
+.identity-life-section .genealogy-date[data-date-type="between"] .date-value-panel,
+.identity-life-section .genealogy-date[data-date-type="between"] + .life-place,
+.identity-life-section .genealogy-date[data-date-type="unknown"] + .life-place {
+  grid-column: 1 / -1;
+}
+
+.identity-notes {
+  display: block;
+  margin-top: var(--space-6);
+}
+
 .family-detail-section {
   margin: 0;
   padding: 0;
@@ -1089,6 +1185,37 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   .photo-upload-actions { align-items: stretch; flex-direction: column; }
   .photo-picker,
   .photo-upload-actions .btn { justify-content: center; min-height: var(--control-touch); }
+
+  .identity-overview { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+
+  .identity-photo {
+    grid-template-columns: 3.5rem minmax(0, 1fr);
+    justify-items: stretch;
+    text-align: left;
+  }
+
+  .identity-photo .photo-preview { width: 3.5rem; height: 3.5rem; }
+  .identity-photo .photo-upload-actions { align-items: stretch; }
+  .identity-fields { grid-template-columns: minmax(0, 1fr); }
+  .identity-life-sections { margin-top: var(--space-5); }
+  .identity-life-section + .identity-life-section { margin-top: var(--space-5); }
+
+  .identity-life-section .life-fields-grid { grid-template-columns: minmax(0, 1fr); }
+
+  .identity-life-section .genealogy-date > label,
+  .identity-life-section .date-type-switch,
+  .identity-life-section .date-value-panel,
+  .identity-life-section .life-place,
+  .identity-life-section .genealogy-date[data-date-type="between"] .date-value-panel,
+  .identity-life-section .genealogy-date[data-date-type="between"] + .life-place,
+  .identity-life-section .genealogy-date[data-date-type="unknown"] + .life-place {
+    grid-column: 1;
+  }
+
+  .identity-life-section .date-type-button {
+    flex: 1 1 calc(33.333% - var(--space-1));
+    min-width: 6.25rem;
+  }
 
   .modal-head { padding-top: max(var(--space-4), env(safe-area-inset-top)); }
   .modal-actions { padding-bottom: max(var(--space-3), env(safe-area-inset-bottom)); }

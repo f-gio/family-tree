@@ -364,8 +364,9 @@ function setPersonSection(section = "identity", focusTab = false) {
 }
 
 function updateMarriedNameVisibility() {
-  const show = $("gender").value === "F" || !!$("marriedName").value;
-  $("marriedNameField").hidden = !show;
+  // Le champ historique reste nommé `marriedName` pour préserver les données,
+  // mais son usage est désormais neutre et accessible à toutes les personnes.
+  $("marriedNameField").hidden = false;
 }
 
 function updatePersonPhotoPreview() {
