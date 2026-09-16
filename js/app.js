@@ -375,6 +375,7 @@ function updatePersonPhotoPreview() {
   $("personPhotoPreview").innerHTML = value
     ? `<img src="${esc(value)}" alt="">`
     : esc(personInitials({ firstName: $("firstName").value || current?.firstName, lastName: $("lastName").value || current?.lastName }));
+  $("personPhotoActionLabel").textContent = value ? "Modifier la photo" : "Ajouter une photo";
   $("removePersonPhotoBtn").hidden = !value;
 }
 
@@ -468,7 +469,7 @@ function openPerson(item = null, source = "tree") {
   setGenealogyDateForm("birth", item?.birthDateInfo, item?.birthDate);
   setGenealogyDateForm("death", item?.deathDateInfo, item?.deathDate);
   $("personPhotoFile").value = "";
-  $("personPhotoStatus").textContent = "Recadrage carré et compression automatique à 5 Ko maximum.";
+  $("personPhotoStatus").textContent = "Compression automatique · 5 Ko maximum.";
   updatePersonPhotoPreview();
   updateMarriedNameVisibility();
   if (item) renderPersonDocuments(item.id);

@@ -90,6 +90,7 @@
   --modal-sm: 28rem;
   --modal-md: 36.25rem;
   --modal-lg: 45rem;
+  --modal-xl: 57.5rem;
   --modal-max-height: calc(100dvh - 1.75rem);
 }
 
@@ -546,15 +547,18 @@ dialog {
 dialog.modal-sm { width: min(var(--modal-sm), calc(100% - 1.75rem)); }
 dialog.modal-md { width: min(var(--modal-md), calc(100% - 1.75rem)); }
 dialog.modal-lg { width: min(var(--modal-lg), calc(100% - 1.75rem)); }
+dialog.modal-xl { width: min(var(--modal-xl), calc(100% - 3rem)); }
 
 dialog[open] {
   display: flex;
   flex-direction: column;
 }
 
+.person-dialog[open] { width: min(var(--modal-xl), calc(100% - 3rem)); }
+.settings-dialog[open] { width: min(var(--modal-lg), calc(100% - 1.75rem)); }
+
 .person-dialog[open],
 .settings-dialog[open] {
-  width: min(var(--modal-lg), calc(100% - 1.75rem));
   height: min(47.5rem, var(--modal-max-height));
   min-height: min(37.5rem, var(--modal-max-height));
 }
@@ -678,9 +682,9 @@ label .field { margin-top: var(--space-2); }
 /* Fiche Personne — l'onglet actif donne déjà le contexte « Identité ». */
 .identity-overview {
   display: grid;
-  grid-template-columns: minmax(10rem, 11rem) minmax(0, 1fr);
+  grid-template-columns: minmax(7.5rem, 8.25rem) minmax(0, 1fr);
   align-items: start;
-  gap: var(--space-6);
+  gap: var(--space-5);
 }
 
 .identity-fields {
@@ -690,30 +694,96 @@ label .field { margin-top: var(--space-2); }
   row-gap: var(--space-4);
 }
 
-.identity-photo {
-  grid-template-columns: 1fr;
+.compact-photo-uploader {
+  display: grid;
   align-content: start;
   justify-items: center;
+  gap: var(--space-2);
   min-width: 0;
-  padding: var(--space-4);
+  padding: var(--space-2) 0;
   text-align: center;
 }
 
-.identity-photo > div { min-width: 0; }
+.compact-photo-avatar {
+  position: relative;
+  width: 5rem;
+  height: 5rem;
+}
 
-.identity-photo .photo-preview {
-  width: 4.5rem;
-  height: 4.5rem;
+.compact-photo-uploader .photo-preview {
+  width: 5rem;
+  height: 5rem;
   font-size: var(--text-xl);
 }
 
-.identity-photo .photo-upload-actions {
-  align-items: stretch;
-  flex-direction: column;
+.compact-photo-trigger {
+  position: absolute;
+  right: -0.125rem;
+  bottom: -0.125rem;
+  display: grid;
+  place-items: center;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  border: 2px solid var(--color-surface);
+  border-radius: 50%;
+  background: var(--color-brand);
+  color: #fff;
+  box-shadow: var(--shadow-low);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
 }
 
-.identity-photo .photo-picker,
-.identity-photo .photo-upload-actions .btn { width: 100%; }
+.compact-photo-trigger:hover { background: var(--color-brand-hover); }
+.compact-photo-trigger:active { transform: translateY(1px); }
+.compact-photo-trigger:focus-within { box-shadow: var(--shadow-focus); }
+.compact-photo-trigger .ui-icon { width: 0.875rem; height: 0.875rem; }
+
+.compact-photo-uploader:has(#personPhotoFile:focus-visible) .compact-photo-trigger,
+.compact-photo-uploader:has(#personPhotoFile:focus-visible) .compact-photo-picker {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.compact-photo-content {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  width: 100%;
+}
+
+.compact-photo-uploader .photo-upload-actions {
+  justify-content: center;
+  gap: var(--space-1);
+}
+
+.compact-photo-picker {
+  min-height: var(--control-sm);
+  padding: var(--space-1) var(--space-2);
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-brand);
+  font-size: var(--text-sm);
+}
+
+.compact-photo-picker:hover {
+  border-color: transparent;
+  background: var(--color-brand-soft);
+}
+
+.compact-photo-uploader .btn.small {
+  min-height: var(--control-sm);
+  padding-inline: var(--space-2);
+  border-color: transparent;
+  background: transparent;
+  font-size: var(--text-sm);
+}
+
+.compact-photo-uploader .photo-status {
+  max-width: 8.25rem;
+  margin: 0;
+  line-height: 1.35;
+}
 
 .identity-life-sections { margin-top: var(--space-6); }
 
@@ -743,6 +813,13 @@ label .field { margin-top: var(--space-2); }
   margin-top: var(--space-4);
 }
 
+.event-information-group {
+  padding: var(--space-4);
+  border: var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-surface-soft) 72%, transparent);
+}
+
 .identity-life-section .genealogy-date { display: contents; }
 
 .identity-life-section .genealogy-date > label,
@@ -760,11 +837,16 @@ label .field { margin-top: var(--space-2); }
 }
 
 /* Deux bornes de date et le lieu respirent sur deux lignes plutôt que d'être comprimés. */
-.identity-life-section .genealogy-date[data-date-type="between"] .date-value-panel,
-.identity-life-section .genealogy-date[data-date-type="between"] + .life-place,
 .identity-life-section .genealogy-date[data-date-type="unknown"] + .life-place {
   grid-column: 1 / -1;
 }
+
+.event-information-group:has(.genealogy-date[data-date-type="between"]) {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.identity-life-section .genealogy-date[data-date-type="between"] .date-value-panel { grid-column: 1 / 3; }
+.identity-life-section .genealogy-date[data-date-type="between"] + .life-place { grid-column: 3; }
 
 .identity-notes {
   display: block;
@@ -845,6 +927,7 @@ label .field { margin-top: var(--space-2); }
   dialog.modal-sm,
   dialog.modal-md,
   dialog.modal-lg,
+  dialog.modal-xl,
   .person-dialog[open],
   .settings-dialog[open],
   .viewer-dialog {
@@ -1188,19 +1271,28 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
 
   .identity-overview { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
 
-  .identity-photo {
+.compact-photo-uploader {
     grid-template-columns: 3.5rem minmax(0, 1fr);
+    align-items: center;
     justify-items: stretch;
+    gap: var(--space-3);
+    padding: 0;
     text-align: left;
   }
 
-  .identity-photo .photo-preview { width: 3.5rem; height: 3.5rem; }
-  .identity-photo .photo-upload-actions { align-items: stretch; }
+  .compact-photo-avatar,
+  .compact-photo-uploader .photo-preview { width: 3.5rem; height: 3.5rem; }
+  .compact-photo-content { justify-items: start; }
+  .compact-photo-uploader .photo-upload-actions { justify-content: flex-start; }
+  .compact-photo-uploader .photo-status { max-width: none; }
   .identity-fields { grid-template-columns: minmax(0, 1fr); }
   .identity-life-sections { margin-top: var(--space-5); }
   .identity-life-section + .identity-life-section { margin-top: var(--space-5); }
 
-  .identity-life-section .life-fields-grid { grid-template-columns: minmax(0, 1fr); }
+  .identity-life-section .life-fields-grid,
+  .event-information-group:has(.genealogy-date[data-date-type="between"]) {
+    grid-template-columns: minmax(0, 1fr);
+  }
 
   .identity-life-section .genealogy-date > label,
   .identity-life-section .date-type-switch,
@@ -1275,6 +1367,7 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   dialog.modal-sm,
   dialog.modal-md,
   dialog.modal-lg,
+  dialog.modal-xl,
   .person-dialog[open],
   .settings-dialog[open],
   .viewer-dialog[open],
