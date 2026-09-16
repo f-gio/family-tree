@@ -405,6 +405,136 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   }
 }
 
+/* Sections 17–22 — langage d'interaction commun. */
+.svg-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.ui-icon {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ui-icon-sm { width: 0.875rem; height: 0.875rem; }
+.ui-icon-lg { width: 1.75rem; height: 1.75rem; }
+.nav-icon .ui-icon { width: 1.25rem; height: 1.25rem; }
+.icon-btn .ui-icon { width: 1.25rem; height: 1.25rem; }
+.tree-controls button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); }
+
+/* Visibilité de l'état : un toast unique, typé et lisible par les aides techniques. */
+.toast {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  min-width: min(20rem, calc(100vw - 2rem));
+  max-width: min(27rem, calc(100vw - 2rem));
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: var(--radius-md);
+  background: #24352f;
+  color: #fff;
+  box-shadow: var(--shadow-medium);
+}
+
+.toast[data-type="success"] { background: var(--color-success); }
+.toast[data-type="error"] { background: var(--color-danger); }
+.toast[data-type="info"] { background: var(--color-brand); }
+.toast-icon { display: grid; place-items: center; }
+.toast-message { min-width: 0; font-size: var(--text-md); font-weight: var(--weight-medium); }
+
+.status[data-state="loading"] .dot { background: #d69a3e; animation: ft-pulse 1.3s ease-in-out infinite; }
+.status[data-state="saved"] .dot { background: var(--color-success); }
+.status[data-state="error"] { color: var(--color-danger); }
+.status[data-state="error"] .dot { background: var(--color-danger); }
+@keyframes ft-pulse { 50% { opacity: 0.35; transform: scale(0.8); } }
+
+/* Destruction et dissociation restent secondaires, éloignées du CTA principal. */
+.btn.danger,
+.account-action.danger { color: var(--color-danger); }
+.btn.danger .ui-icon,
+.account-action.danger .ui-icon { stroke-width: 1.9; }
+.modal-actions > .btn.danger { margin-right: auto; }
+
+/* Navigation et menus : état actif stable, menus alignés et actions prévisibles. */
+.main-nav .nav-btn.active { color: var(--color-brand); }
+.main-nav .nav-btn[aria-current="page"]::after { background: var(--color-brand); }
+.account-dropdown { padding: var(--space-2); border: var(--border-subtle); border-radius: var(--radius-md); }
+.account-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-md);
+  padding: var(--space-2) var(--space-3);
+}
+.account-action .ui-icon { color: var(--color-text-muted); }
+.account-action.danger .ui-icon { color: currentColor; }
+.account-menu-btn[aria-expanded="true"] { border-color: var(--color-border-strong); background: var(--color-brand-soft); }
+.account-menu-btn[aria-expanded="true"] .account-caret { transform: rotate(180deg); }
+.account-caret { transition: transform var(--transition-fast); }
+
+/* État vide unique : situation, explication, puis action seulement si utile. */
+.empty-state {
+  grid-column: 1 / -1;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-8) var(--space-5);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-soft);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+.empty-state-icon {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  background: var(--color-brand-soft);
+  color: var(--color-brand);
+}
+.empty-state h3 { margin: var(--space-1) 0 0; color: var(--color-text); font: var(--weight-semibold) var(--text-lg)/1.25 var(--font-display); }
+.empty-state p { max-width: 32rem; margin: 0; }
+.empty-state-action { margin-top: var(--space-2); }
+.relations-list .empty-state,
+.directory-document-list .empty-state,
+.mini-docs .empty-state { padding: var(--space-5); }
+.empty .empty-state { border: 0; background: transparent; padding: 0; }
+
+/* Cartes et conteneurs : un niveau de surface, avec la profondeur réservée au survol. */
+:where(.content-card, .directory-entry, .relation-card, .mini-doc, .directory-document-item, .data-stat, .admin-user) {
+  border: var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.content-card,
+.directory-grid.cards-mode .directory-entry { box-shadow: var(--shadow-low); }
+.mini-doc,
+.directory-document-item,
+.data-stat,
+.admin-user { background: var(--color-surface-soft); }
+.directory-entry,
+.content-card { transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast); }
+.directory-entry:hover,
+.content-card:hover { border-color: var(--color-border-strong); box-shadow: var(--shadow-medium); }
+
+@media (max-width: 760px) {
+  .toast { right: 1rem; bottom: 1rem; }
+  .empty-state { padding: var(--space-6) var(--space-4); }
+}
+
 /* Sections 8–16 — structure commune des fenêtres et formulaires. */
 dialog {
   overflow: hidden;

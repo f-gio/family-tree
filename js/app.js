@@ -8,6 +8,7 @@ import { documentDisplayLabel } from "./document-utils.js";
 import { directoryPersonName, formatDirectoryDate, filterAndSortDirectory } from "./directory-utils.js";
 import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
+import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",
@@ -142,19 +143,31 @@ function setContentMode(section, mode, persist = true) {
   if (persist) localStorage.setItem("familyTreeViewModes", JSON.stringify(viewModes));
 }
 
-function toast(message) {
-  $("toast").textContent = message;
-  $("toast").classList.add("show");
-  setTimeout(() => $("toast").classList.remove("show"), 2600);
+let toastTimer = 0;
+function toast(message, type = "success") {
+  const normalizedType = ["success", "error", "info"].includes(type) ? type : "info";
+  const toastElement = $("toast");
+  toastElement.dataset.type = normalizedType;
+  toastElement.setAttribute("role", normalizedType === "error" ? "alert" : "status");
+  $("toastIcon").innerHTML = icon(normalizedType === "error" ? "error" : normalizedType === "success" ? "check" : "info");
+  $("toastMessage").textContent = message;
+  toastElement.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastElement.classList.remove("show"), normalizedType === "error" ? 4200 : 2800);
 }
 
 async function runSafely(action, fallback = "Action impossible") {
   try { return await action(); }
   catch (error) {
     console.error(error);
-    toast(error.message || fallback);
+    toast(error.message || fallback, "error");
     return null;
   }
+}
+
+function setActionLabel(button, label, iconName = "") {
+  if (!button) return;
+  button.innerHTML = `${iconName ? icon(iconName) : ""}<span>${esc(label)}</span>`;
 }
 
 function person(id) { return people.find(item => item.id === id); }
@@ -237,6 +250,7 @@ function syncState() {
   if (loadedPeople && loadedFamilies && loadedDocuments && loadedTasks) {
     $("syncDot").classList.add("ok");
     $("syncText").textContent = "Synchronisé avec Firebase";
+    $("syncText").closest(".status")?.setAttribute("data-state", "saved");
   }
   const visibleCount = treePeople().length;
   $("peopleCount").textContent = `${visibleCount} personne${visibleCount > 1 ? "s" : ""} dans l’arbre`;
@@ -254,8 +268,8 @@ function applySearch(focus = true) {
 function renderPersonDocuments(personId) {
   const linked = documents.filter(item => (item.personIds || []).includes(personId));
   $("personDocumentsList").innerHTML = linked.length
-    ? linked.map(item => `<div class="mini-doc"><span class="mini-doc-info"><strong>${esc(documentDisplayLabel(item))}</strong><span>${esc(item.type || item.fileName || "Document")}</span></span><span class="mini-doc-actions"><button class="btn small" type="button" data-view-document="${item.id}">Consulter</button><button class="btn small" type="button" data-edit-person-document="${item.id}">Modifier</button></span></div>`).join("")
-    : '<div class="hint">Aucun document associé.</div>';
+    ? linked.map(item => `<div class="mini-doc"><span class="mini-doc-info"><strong>${esc(documentDisplayLabel(item))}</strong><span>${esc(item.type || item.fileName || "Document")}</span></span><span class="mini-doc-actions"><button class="btn small" type="button" data-view-document="${item.id}">${icon("eye")}<span>Consulter</span></button><button class="btn small" type="button" data-edit-person-document="${item.id}">${icon("edit")}<span>Modifier</span></button></span></div>`).join("")
+    : emptyState({ iconName: "document", title: "Aucun document associé", description: "Les documents ajoutés pour cette personne apparaîtront ici." });
 }
 
 function setPersonSection(section = "identity", focusTab = false) {
@@ -377,7 +391,7 @@ function openPerson(item = null, source = "tree") {
   $("dialogTitle").textContent = item ? "Modifier la personne" : "Ajouter une personne";
   $("savePersonBtn").textContent = item ? "Enregistrer" : "Enregistrer et ajouter ses liens";
   $("deleteBtn").hidden = !item;
-  $("deleteBtn").textContent = source === "directory" ? "Supprimer définitivement" : "Retirer de l’arbre";
+  setActionLabel($("deleteBtn"), source === "directory" ? "Supprimer définitivement" : "Retirer de l’arbre", source === "directory" ? "trash" : "unlink");
   $("restoreTreeBtn").hidden = !item || item.inTree !== false || source !== "directory";
   $("personId").value = item?.id || "";
   for (const key of personFields) $(key).value = item?.[key] || "";
@@ -443,10 +457,10 @@ function renderRelations() {
     const endType = normalizeEndType(family.endType);
     const unionPlace = family.unionPlace || family.marriagePlace || "";
     const summary = `${relationLabel} · ${unionDate}${unionPlace ? ` · ${unionPlace}` : ""}${endType !== "none" ? ` · ${END_TYPE_LABELS[endType]} ${formatGenealogyDate(family.endDateInfo, family.separationDate || family.divorceDate)}` : ""}`;
-    const edit = `<button class="btn small" type="button" data-edit-family="${family.id}">Détails</button>`;
-    if (isPartner) return `<div class="relation-card"><div class="relation-card-head"><strong>${others.length ? `Union avec ${esc(others.map(nameOf).join(" et "))}` : "Foyer monoparental"}</strong>${edit}</div><p class="relation-summary">${esc(summary)}</p>${others.map(id => `<div class="relation-line"><span>Partenaire : ${esc(nameOf(id))}</span><button class="btn small danger" data-remove-partner="${family.id}" data-person="${id}">Retirer</button></div>`).join("")}${children.map(id => `<div class="relation-line"><span>Enfant : ${esc(nameOf(id))} · filiation ${esc(FILIATION_TYPE_LABELS[parentChildLinkType(family, item.id, id)].toLocaleLowerCase("fr-FR"))}</span><button class="btn small danger" data-remove-child="${family.id}" data-person="${id}">Retirer</button></div>`).join("") || '<div class="relation-line"><span>Aucun enfant rattaché</span></div>'}</div>`;
-    return `<div class="relation-card"><div class="relation-card-head"><strong>Parents</strong>${edit}</div><p class="relation-summary">${esc(summary)}</p>${(family.partnerIds || []).map(parentId => `<div class="relation-line"><span>${esc(nameOf(parentId))} · filiation ${esc(FILIATION_TYPE_LABELS[parentChildLinkType(family, parentId, item.id)].toLocaleLowerCase("fr-FR"))}</span></div>`).join("") || '<div class="relation-line"><span>Non renseigné</span></div>'}<div class="relation-line"><span></span><button class="btn small danger" data-remove-child="${family.id}" data-person="${item.id}">Détacher</button></div></div>`;
-  }).join("") : '<div class="empty-relations">Aucun lien familial pour cette personne.</div>';
+    const edit = `<button class="btn small" type="button" data-edit-family="${family.id}">${icon("edit")}<span>Détails</span></button>`;
+    if (isPartner) return `<div class="relation-card"><div class="relation-card-head"><strong>${others.length ? `Union avec ${esc(others.map(nameOf).join(" et "))}` : "Foyer monoparental"}</strong>${edit}</div><p class="relation-summary">${esc(summary)}</p>${others.map(id => `<div class="relation-line"><span>Partenaire : ${esc(nameOf(id))}</span><button class="btn small danger" data-remove-partner="${family.id}" data-person="${id}">${icon("unlink")}<span>Dissocier</span></button></div>`).join("")}${children.map(id => `<div class="relation-line"><span>Enfant : ${esc(nameOf(id))} · filiation ${esc(FILIATION_TYPE_LABELS[parentChildLinkType(family, item.id, id)].toLocaleLowerCase("fr-FR"))}</span><button class="btn small danger" data-remove-child="${family.id}" data-person="${id}">${icon("unlink")}<span>Dissocier</span></button></div>`).join("") || '<div class="relation-line"><span>Aucun enfant rattaché</span></div>'}</div>`;
+    return `<div class="relation-card"><div class="relation-card-head"><strong>Parents</strong>${edit}</div><p class="relation-summary">${esc(summary)}</p>${(family.partnerIds || []).map(parentId => `<div class="relation-line"><span>${esc(nameOf(parentId))} · filiation ${esc(FILIATION_TYPE_LABELS[parentChildLinkType(family, parentId, item.id)].toLocaleLowerCase("fr-FR"))}</span></div>`).join("") || '<div class="relation-line"><span>Non renseigné</span></div>'}<div class="relation-line"><span></span><button class="btn small danger" data-remove-child="${family.id}" data-person="${item.id}">${icon("unlink")}<span>Dissocier</span></button></div></div>`;
+  }).join("") : emptyState({ iconName: "link", title: "Aucun lien familial", description: "Ajoutez un parent, un enfant ou un partenaire depuis les options ci-dessous." });
   const options = availableOptions([item.id]);
   $("partnerSelect").innerHTML = options;
   $("childSelect").innerHTML = options;
@@ -460,12 +474,12 @@ function renderRelations() {
 
 async function addPartner() {
   const other = $("partnerSelect").value;
-  if (!other) return toast("Choisissez une personne");
-  if (ancestorsOf(activeId).has(other) || ancestorsOf(other).has(activeId)) return toast("Un lien de couple ne peut pas relier un parent à son descendant");
+  if (!other) return toast("Choisissez une personne", "error");
+  if (ancestorsOf(activeId).has(other) || ancestorsOf(other).has(activeId)) return toast("Un lien de couple ne peut pas relier un parent à son descendant", "error");
   if (families.some(family => {
     const ids = new Set(family.partnerIds || []);
     return ids.has(activeId) && ids.has(other);
-  })) return toast("Cette union existe déjà");
+  })) return toast("Cette union existe déjà", "info");
   await ensurePeopleInTree([activeId, other]);
   const single = families.find(family => (family.partnerIds || []).length === 1 && (family.partnerIds || []).includes(activeId));
   if (single) {
@@ -477,29 +491,33 @@ async function addPartner() {
 
 async function addChild() {
   const child = $("childSelect").value;
-  if (!child) return toast("Choisissez un enfant");
+  if (!child) return toast("Choisissez un enfant", "error");
   const familyId = $("childFamilySelect").value;
   const family = familyId === "new" ? null : families.find(item => item.id === familyId);
-  if (familyId !== "new" && !family) return toast("Ce foyer est introuvable");
+  if (familyId !== "new" && !family) return toast("Ce foyer est introuvable", "error");
   try {
     const types = Object.fromEntries((family?.partnerIds || [activeId]).map(parentId => [parentId, $("childFiliationType").value]));
     await linkChildToParents(child, family?.partnerIds || [activeId], family?.id || "", types);
     toast("Enfant rattaché");
-  } catch (error) { toast(error.message || "Lien impossible"); }
+  } catch (error) { toast(error.message || "Lien impossible", "error"); }
 }
 
 async function addParent() {
   const parentId = $("parentSelect").value;
-  if (!parentId) return toast("Choisissez un parent");
+  if (!parentId) return toast("Choisissez un parent", "error");
   try {
     await linkChildToParents(activeId, [parentId], "", { [parentId]: $("parentFiliationType").value });
     toast("Parent rattaché");
-  } catch (error) { toast(error.message || "Lien impossible"); }
+  } catch (error) { toast(error.message || "Lien impossible", "error"); }
 }
 
 async function removeRelation(familyId, personId, type) {
   const family = families.find(item => item.id === familyId);
   if (!family) return;
+  const consequence = type === "partner"
+    ? "Dissocier ce partenaire ? Les fiches des deux personnes resteront dans l’annuaire."
+    : "Dissocier ce lien parent-enfant ? Les fiches des personnes resteront dans l’annuaire.";
+  if (!confirm(consequence)) return;
   const field = type === "partner" ? "partnerIds" : "childIds";
   const next = (family[field] || []).filter(id => id !== personId);
   if (field === "partnerIds" && !next.length) await deleteDoc(doc(db, "families", familyId));
@@ -507,7 +525,7 @@ async function removeRelation(familyId, personId, type) {
     const nextFamily = { ...family, [field]: next };
     await updateDoc(doc(db, "families", familyId), { [field]: next, parentChildLinks: normalizedParentChildLinks(nextFamily), updatedAt: serverTimestamp() });
   }
-  toast("Lien retiré");
+  toast("Lien familial dissocié");
 }
 
 function ancestorsOf(personId, seen = new Set()) {
@@ -562,7 +580,7 @@ async function linkChildToParents(childId, requestedParentIds, preferredFamilyId
 }
 
 function openManualLink() {
-  if (people.length < 2) return toast("Ajoutez au moins deux personnes");
+  if (people.length < 2) return toast("Ajoutez au moins deux personnes", "info");
   const options = availableOptions();
   $("manualChild").innerHTML = options;
   $("manualParent1").innerHTML = options;
@@ -573,16 +591,19 @@ function openManualLink() {
 
 async function saveManualLink(event) {
   event.preventDefault();
+  const submitButton = event.submitter;
   const childId = $("manualChild").value;
   const parentIds = [...new Set([$("manualParent1").value, $("manualParent2").value].filter(Boolean))];
   try {
-    const linkTypes = { [$("manualParent1").value]: $("manualParent1Type").value };
-    if ($("manualParent2").value) linkTypes[$("manualParent2").value] = $("manualParent2Type").value;
-    await linkChildToParents(childId, parentIds, "", linkTypes);
+    await withButtonPending(submitButton, async () => {
+      const linkTypes = { [$("manualParent1").value]: $("manualParent1Type").value };
+      if ($("manualParent2").value) linkTypes[$("manualParent2").value] = $("manualParent2Type").value;
+      await linkChildToParents(childId, parentIds, "", linkTypes);
+    });
     focusAfterRender = childId;
     close("manualLinkDialog");
     toast("Lien parent-enfant créé");
-  } catch (error) { toast(error.message || "Lien impossible"); }
+  } catch (error) { toast(error.message || "Lien impossible", "error"); }
 }
 
 function updateEndDetailsVisibility() {
@@ -591,7 +612,7 @@ function updateEndDetailsVisibility() {
 
 function openFamilyDetails(familyId) {
   const family = families.find(item => item.id === familyId);
-  if (!family) return toast("Cette relation est introuvable");
+  if (!family) return toast("Cette relation est introuvable", "error");
   familyDetailsReturnContext = { personId: activeId, source: personDialogSource, draft: capturePersonDraft() };
   $("familyDetailsId").value = family.id;
   $("familyRelationType").value = normalizeRelationType(family.relationType);
@@ -619,22 +640,23 @@ function returnFromFamilyDetails() {
 
 async function saveFamilyDetails(event) {
   event.preventDefault();
+  const submitButton = event.submitter;
   const familyId = $("familyDetailsId").value;
   const family = families.find(item => item.id === familyId);
-  if (!family) return toast("Cette relation est introuvable");
+  if (!family) return toast("Cette relation est introuvable", "error");
   try {
     const unionDateInfo = readGenealogyDateForm("union");
     const endDateInfo = readGenealogyDateForm("end");
     const parentChildLinks = [...document.querySelectorAll("[data-filiation-index]")].map(select => ({ parentId: select.dataset.parentId, childId: select.dataset.childId, type: normalizeFiliationType(select.value) }));
-    await updateDoc(doc(db, "families", familyId), {
-      relationType: normalizeRelationType($("familyRelationType").value), unionDateInfo, unionPlace: $("unionPlace").value.trim(),
-      endType: normalizeEndType($("familyEndType").value), endDateInfo, endPlace: $("endPlace").value.trim(), parentChildLinks,
-      updatedAt: serverTimestamp()
-    });
+    await withButtonPending(submitButton, () => updateDoc(doc(db, "families", familyId), {
+        relationType: normalizeRelationType($("familyRelationType").value), unionDateInfo, unionPlace: $("unionPlace").value.trim(),
+        endType: normalizeEndType($("familyEndType").value), endDateInfo, endPlace: $("endPlace").value.trim(), parentChildLinks,
+        updatedAt: serverTimestamp()
+      }));
     $("familyDetailsDialog").close();
     toast("Détails de la relation enregistrés");
     returnFromFamilyDetails();
-  } catch (error) { toast(error.message || "Enregistrement impossible"); }
+  } catch (error) { toast(error.message || "Enregistrement impossible", "error"); }
 }
 
 function personInitials(item) {
@@ -684,11 +706,13 @@ function renderDirectory() {
     const presence = item.inTree === false ? '<span class="badge muted directory-presence">Masquée de l’arbre</span>' : "";
     const documentCount = documents.filter(documentItem => (documentItem.personIds || []).includes(item.id)).length;
     const documentAction = documentCount
-      ? `<button class="directory-action directory-doc-action" type="button" data-directory-documents="${item.id}" aria-label="Afficher ${documentCount} document${documentCount > 1 ? "s" : ""} associé${documentCount > 1 ? "s" : ""} à ${esc(directoryDisplayName(item))}"><span aria-hidden="true">▧</span> ${documentCount} document${documentCount > 1 ? "s" : ""}</button>`
-      : '<span class="directory-action directory-doc-action" aria-label="Aucun document associé"><span aria-hidden="true">▧</span> 0 document</span>';
+      ? `<button class="directory-action directory-doc-action" type="button" data-directory-documents="${item.id}" aria-label="Afficher ${documentCount} document${documentCount > 1 ? "s" : ""} associé${documentCount > 1 ? "s" : ""} à ${esc(directoryDisplayName(item))}">${icon("document")}<span>${documentCount} document${documentCount > 1 ? "s" : ""}</span></button>`
+      : `<span class="directory-action directory-doc-action" aria-label="Aucun document associé">${icon("document")}<span>0 document</span></span>`;
     const middleName = item.middleName ? `<span class="person-middle-name">${esc(item.middleName)}</span>` : "";
-    return `<article class="directory-entry" data-letter="${surnameLetter(item)}" data-directory-person="${item.id}" tabindex="0" aria-label="Ouvrir la fiche de ${esc(directoryDisplayName(item))}"><span class="directory-avatar">${avatar}</span><div class="directory-main"><h3><span class="directory-surname">${esc(item.lastName || "—")}</span> <span class="directory-first-name">${esc(item.firstName || "")}</span>${middleName}</h3><p class="directory-life"><span><span class="directory-life-symbol" aria-hidden="true">✦</span> ${esc(formatDirectoryDate(item.birthDateInfo, item.birthDate))}</span><span class="directory-life-divider" aria-hidden="true">—</span><span><span class="directory-life-symbol" aria-hidden="true">†</span> ${esc(formatDirectoryDate(item.deathDateInfo, item.deathDate))}</span></p>${presence}</div><div class="directory-entry-actions">${documentAction}<button class="directory-action directory-open-action" type="button" data-directory-open-person="${item.id}" aria-label="Voir la fiche de ${esc(directoryDisplayName(item))}" title="Voir la fiche">→</button></div></article>`;
-  }).join("") : '<div class="empty-list">Aucune personne ne correspond à ces critères.</div>';
+    return `<article class="directory-entry" data-letter="${surnameLetter(item)}" data-directory-person="${item.id}" tabindex="0" aria-label="Ouvrir la fiche de ${esc(directoryDisplayName(item))}"><span class="directory-avatar">${avatar}</span><div class="directory-main"><h3><span class="directory-surname">${esc(item.lastName || "—")}</span> <span class="directory-first-name">${esc(item.firstName || "")}</span>${middleName}</h3><p class="directory-life"><span><span class="directory-life-symbol" aria-hidden="true">✦</span> ${esc(formatDirectoryDate(item.birthDateInfo, item.birthDate))}</span><span class="directory-life-divider" aria-hidden="true">—</span><span><span class="directory-life-symbol" aria-hidden="true">†</span> ${esc(formatDirectoryDate(item.deathDateInfo, item.deathDate))}</span></p>${presence}</div><div class="directory-entry-actions">${documentAction}<button class="directory-action directory-open-action" type="button" data-directory-open-person="${item.id}" aria-label="Voir la fiche de ${esc(directoryDisplayName(item))}" title="Voir la fiche">${icon("arrow-right")}</button></div></article>`;
+  }).join("") : (people.length
+    ? emptyState({ iconName: "people", title: "Aucune personne trouvée", description: "Modifiez la recherche ou retirez un filtre pour afficher d’autres résultats." })
+    : emptyState({ iconName: "people", title: "Votre annuaire est vide", description: "Ajoutez une première personne pour commencer votre histoire familiale.", action: `<button class="btn primary" type="button" data-empty-add-person>${icon("plus")}<span>Ajouter une personne</span></button>` }));
   setContentMode("directory", viewModes.directory || "list", false);
 }
 
@@ -699,8 +723,8 @@ function openDirectoryDocuments(personId) {
   $("directoryDocumentsTitle").textContent = "Documents associés";
   $("directoryDocumentsSubtitle").textContent = directoryDisplayName(item);
   $("directoryDocumentsList").innerHTML = linked.length
-    ? linked.map(documentItem => `<div class="directory-document-item"><div><strong>${esc(documentDisplayLabel(documentItem))}</strong><small>${esc(documentItem.type || documentItem.fileName || "Document")}</small></div><button class="btn small primary" type="button" data-view-directory-document="${documentItem.id}">Consulter</button></div>`).join("")
-    : '<div class="empty-relations">Aucun document associé à cette personne.</div>';
+    ? linked.map(documentItem => `<div class="directory-document-item"><div><strong>${esc(documentDisplayLabel(documentItem))}</strong><small>${esc(documentItem.type || documentItem.fileName || "Document")}</small></div><button class="btn small primary" type="button" data-view-directory-document="${documentItem.id}">${icon("eye")}<span>Consulter</span></button></div>`).join("")
+    : emptyState({ iconName: "document", title: "Aucun document associé", description: "Cette personne ne possède pas encore de document consultable." });
   $("directoryDocumentsDialog").showModal();
 }
 
@@ -708,7 +732,7 @@ function documentPeopleMarkup(selectedIds = []) {
   const selected = new Set(selectedIds);
   return people.slice().sort(comparePeopleBySurname).map(item =>
     `<label><input type="checkbox" value="${item.id}" ${selected.has(item.id) ? "checked" : ""}> ${esc(relationOptionName(item))}</label>`
-  ).join("") || '<span class="hint">Ajoutez d’abord une personne.</span>';
+  ).join("") || emptyState({ iconName: "people", title: "Aucune personne disponible", description: "Ajoutez une personne avant de lui associer ce document." });
 }
 
 function openDocument(item = null, preselectedPersonId = "", returnContext = null) {
@@ -735,7 +759,9 @@ function renderDocuments() {
   const query = searchable($("documentSearch").value);
   const type = $("documentTypeFilter").value;
   const filtered = documents.filter(item => (!type || item.type === type) && (!query || searchable(`${documentDisplayLabel(item)} ${item.fileName || ""} ${item.type || ""} ${item.place || ""} ${(item.personIds || []).map(nameOf).join(" ")}`).includes(query)));
-  $("documentsList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card"><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(documentDisplayLabel(item))}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${item.place ? ` · ${esc(item.place)}` : ""}</p><div><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">Fichier optimisé : ${formatBytes(item.storedSize)}</p>` : ""}</div><div class="card-actions">${item.chunkCount || item.fileData || item.fileUrl || item.externalUrl ? `<button class="btn small primary" data-open-document="${item.id}">Consulter</button>` : ""}<button class="btn small" data-edit-document="${item.id}">Modifier</button></div></article>`).join("") : '<div class="empty-list">Aucun document ne correspond à ces critères.</div>';
+  $("documentsList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card"><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(documentDisplayLabel(item))}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${item.place ? ` · ${esc(item.place)}` : ""}</p><div><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">Fichier optimisé : ${formatBytes(item.storedSize)}</p>` : ""}</div><div class="card-actions">${item.chunkCount || item.fileData || item.fileUrl || item.externalUrl ? `<button class="btn small primary" data-open-document="${item.id}">${icon("eye")}<span>Consulter</span></button>` : ""}<button class="btn small" data-edit-document="${item.id}">${icon("edit")}<span>Modifier</span></button></div></article>`).join("") : (documents.length
+    ? emptyState({ iconName: "document", title: "Aucun document trouvé", description: "Modifiez la recherche ou le type de document sélectionné." })
+    : emptyState({ iconName: "document", title: "Aucun document", description: "Centralisez ici les actes, photos et autres archives familiales.", action: `<button class="btn primary" type="button" data-empty-add-document>${icon("plus")}<span>Ajouter un document</span></button>` }));
   setContentMode("documents", viewModes.documents || "cards", false);
   if (activeId && $("personDialog").open) renderPersonDocuments(activeId);
 }
@@ -921,6 +947,7 @@ function validateFamilyDataset(personRecords = [], familyRecords = []) {
 async function exportCompleteBackup() {
   const button = $("exportBtn");
   button.disabled = true;
+  button.setAttribute("aria-busy", "true");
   button.innerHTML = '… <span class="label">Préparation</span>';
   try {
     const JSZip = await zipLibrary();
@@ -960,10 +987,11 @@ async function exportCompleteBackup() {
     toast(`Sauvegarde complète créée · ${formatBytes(blob.size)}`);
   } catch (error) {
     console.error(error);
-    toast(error.message || "Création de la sauvegarde impossible");
+    toast(error.message || "Création de la sauvegarde impossible", "error");
   } finally {
     button.disabled = false;
-    button.innerHTML = '↓ <span class="label">Sauvegarder</span>';
+    button.removeAttribute("aria-busy");
+    button.innerHTML = `${icon("download")}<span class="label">Sauvegarder</span>`;
   }
 }
 
@@ -981,6 +1009,7 @@ async function writeImportedRecords(collectionName, records = []) {
 async function restoreCompleteBackup(file) {
   const button = $("importBtn");
   button.disabled = true;
+  button.setAttribute("aria-busy", "true");
   button.innerHTML = '… <span class="label">Lecture</span>';
   try {
     const JSZip = await zipLibrary();
@@ -1016,10 +1045,11 @@ async function restoreCompleteBackup(file) {
     toast("Sauvegarde restaurée avec succès");
   } catch (error) {
     console.error(error);
-    toast(error.message || "Restauration impossible");
+    toast(error.message || "Restauration impossible", "error");
   } finally {
     button.disabled = false;
-    button.innerHTML = '↑ <span class="label">Restaurer</span>';
+    button.removeAttribute("aria-busy");
+    button.innerHTML = `${icon("upload")}<span class="label">Restaurer</span>`;
     $("importFile").value = "";
   }
 }
@@ -1063,7 +1093,7 @@ async function openStoredDocument(item) {
   } catch (error) {
     console.error(error);
     $("viewerMessage").textContent = error.message || "Impossible d’ouvrir ce fichier";
-    toast("Impossible d’ouvrir ce fichier");
+    toast("Impossible d’ouvrir ce fichier", "error");
   }
 }
 
@@ -1073,10 +1103,10 @@ async function saveDocument(event) {
   const existing = documents.find(item => item.id === id);
   const file = $("documentFile").files[0];
   const externalUrl = $("documentUrl").value.trim();
-  if (!existing && !file && !externalUrl) return toast("Choisissez un fichier ou indiquez un lien");
-  if (file?.size > MAX_FILE_BYTES) return toast("Le fichier dépasse 20 Mo");
-  if (file && file.type !== "application/pdf" && !file.type.startsWith("image/")) return toast("Choisissez un PDF ou une image");
-  $("saveDocumentBtn").disabled = true;
+  if (!existing && !file && !externalUrl) return toast("Choisissez un fichier ou indiquez un lien", "error");
+  if (file?.size > MAX_FILE_BYTES) return toast("Le fichier dépasse 20 Mo", "error");
+  if (file && file.type !== "application/pdf" && !file.type.startsWith("image/")) return toast("Choisissez un PDF ou une image", "error");
+  setButtonPending($("saveDocumentBtn"), true);
   let newChunkVersion = "";
   let newChunkCount = 0;
   let optimizationSummary = "";
@@ -1124,16 +1154,16 @@ async function saveDocument(event) {
       ? "Envoi refusé : publiez le nouveau fichier firestore.rules dans Firebase."
       : error?.message || "Enregistrement du document impossible";
     $("documentProgress").textContent = message;
-    toast(message);
+    toast(message, "error");
   } finally {
-    $("saveDocumentBtn").disabled = false;
+    setButtonPending($("saveDocumentBtn"), false);
   }
 }
 
 async function removeDocument() {
   const id = $("documentId").value;
   const item = documents.find(documentItem => documentItem.id === id);
-  if (!item || !confirm("Supprimer ce document ?")) return;
+  if (!item || !confirm("Supprimer définitivement ce document ? Le fichier et ses associations aux personnes seront supprimés.")) return;
   await deleteFileChunks(item);
   await deleteDoc(doc(db, "documents", id));
   close("documentDialog");
@@ -1155,7 +1185,9 @@ function renderTasks() {
     (!mine || (item.assignee || "").toLowerCase() === email) &&
     (!query || searchable(`${item.title} ${item.description || ""} ${item.comments || ""} ${item.assignee || ""}`).includes(query))
   ).sort((a, b) => (a.status === "done") - (b.status === "done") || (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
-  $("tasksList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card status-${item.status || "todo"}"><div><span class="badge priority-${item.priority || "medium"}">Priorité ${priorityLabels[item.priority] || "Moyenne"}</span><h3>${esc(item.title)}</h3></div><p class="card-meta"><strong>${statusLabels[item.status] || "À faire"}</strong>${item.dueDate ? ` · ${esc(new Date(item.dueDate + "T12:00:00").toLocaleDateString("fr-FR"))}` : ""}</p><div><p>Responsable : ${esc(item.assignee || "Non attribuée")}</p>${item.personId ? `<p>Personne : ${esc(nameOf(item.personId))}</p>` : ""}${item.description ? `<p class="card-description">${esc(item.description)}</p>` : ""}${item.comments ? `<p class="card-description"><strong>Commentaires :</strong> ${esc(item.comments)}</p>` : ""}</div><div class="card-actions"><button class="btn small" data-edit-task="${item.id}">Modifier</button>${item.status !== "done" ? `<button class="btn small primary" data-complete-task="${item.id}">Terminer</button>` : ""}</div></article>`).join("") : '<div class="empty-list">Aucune tâche ne correspond à ces critères.</div>';
+  $("tasksList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card status-${item.status || "todo"}"><div><span class="badge priority-${item.priority || "medium"}">Priorité ${priorityLabels[item.priority] || "Moyenne"}</span><h3>${esc(item.title)}</h3></div><p class="card-meta"><strong>${statusLabels[item.status] || "À faire"}</strong>${item.dueDate ? ` · ${esc(new Date(item.dueDate + "T12:00:00").toLocaleDateString("fr-FR"))}` : ""}</p><div><p>Responsable : ${esc(item.assignee || "Non attribuée")}</p>${item.personId ? `<p>Personne : ${esc(nameOf(item.personId))}</p>` : ""}${item.description ? `<p class="card-description">${esc(item.description)}</p>` : ""}${item.comments ? `<p class="card-description"><strong>Commentaires :</strong> ${esc(item.comments)}</p>` : ""}</div><div class="card-actions"><button class="btn small" data-edit-task="${item.id}">${icon("edit")}<span>Modifier</span></button>${item.status !== "done" ? `<button class="btn small primary" data-complete-task="${item.id}">${icon("check")}<span>Terminer</span></button>` : ""}</div></article>`).join("") : (tasks.length
+    ? emptyState({ iconName: "tasks", title: "Aucune tâche trouvée", description: "Modifiez la recherche ou les filtres pour afficher d’autres tâches." })
+    : emptyState({ iconName: "tasks", title: "Aucune tâche", description: "Ajoutez une tâche lorsque vous avez une recherche ou une démarche à suivre.", action: `<button class="btn primary" type="button" data-empty-add-task>${icon("plus")}<span>Ajouter une tâche</span></button>` }));
   setContentMode("tasks", viewModes.tasks || "cards", false);
 }
 
@@ -1178,20 +1210,21 @@ function openTask(item = null) {
 
 async function saveTask(event) {
   event.preventDefault();
+  const submitButton = event.submitter;
   const id = $("taskId").value;
   const data = Object.fromEntries(taskFields.map(key => [key, $("task" + key[0].toUpperCase() + key.slice(1)).value.trim()]));
   data.updatedAt = serverTimestamp();
-  await runSafely(async () => {
+  await withButtonPending(submitButton, () => runSafely(async () => {
     if (id) await updateDoc(doc(db, "tasks", id), data);
     else await addDoc(refs.tasks, { ...data, createdAt: serverTimestamp() });
     close("taskDialog");
     toast(id ? "Tâche mise à jour" : "Tâche ajoutée");
-  }, "Enregistrement de la tâche impossible");
+  }, "Enregistrement de la tâche impossible"));
 }
 
 async function removeTask() {
   const id = $("taskId").value;
-  if (!id || !confirm("Supprimer cette tâche ?")) return;
+  if (!id || !confirm("Supprimer définitivement cette tâche ? Cette action ne peut pas être annulée.")) return;
   await deleteDoc(doc(db, "tasks", id));
   close("taskDialog");
   toast("Tâche supprimée");
@@ -1359,7 +1392,7 @@ async function saveProfileSettings() {
     $("profileMessage").textContent = "Le nom affiché est obligatoire.";
     return;
   }
-  $("saveProfileBtn").disabled = true;
+  setButtonPending($("saveProfileBtn"), true);
   $("profileMessage").textContent = "Enregistrement…";
   try {
     await updateDoc(doc(db, "users", user.uid), { displayName, photo: currentProfilePhoto, updatedAt: serverTimestamp() });
@@ -1370,7 +1403,7 @@ async function saveProfileSettings() {
     console.error(error);
     $("profileMessage").textContent = "Enregistrement impossible.";
     $("profileMessage").classList.remove("success");
-  } finally { $("saveProfileBtn").disabled = false; }
+  } finally { setButtonPending($("saveProfileBtn"), false); }
 }
 
 async function changeAccountPassword() {
@@ -1381,7 +1414,7 @@ async function changeAccountPassword() {
   $("passwordMessage").classList.remove("success");
   if (!user?.email || !currentPassword || newPassword.length < 6) return $("passwordMessage").textContent = "Complétez les champs ; le nouveau mot de passe doit contenir au moins 6 caractères.";
   if (newPassword !== confirmation) return $("passwordMessage").textContent = "Les deux nouveaux mots de passe ne correspondent pas.";
-  $("changePasswordBtn").disabled = true;
+  setButtonPending($("changePasswordBtn"), true, "Modification…");
   try {
     await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
     await updatePassword(user, newPassword);
@@ -1391,7 +1424,7 @@ async function changeAccountPassword() {
   } catch (error) {
     console.error(error);
     $("passwordMessage").textContent = error.code === "auth/invalid-credential" ? "Le mot de passe actuel est incorrect." : "Modification impossible. Réessayez.";
-  } finally { $("changePasswordBtn").disabled = false; }
+  } finally { setButtonPending($("changePasswordBtn"), false); }
 }
 
 const userStatusLabels = { pending: "En attente", approved: "Actif", suspended: "Suspendu", rejected: "Refusé" };
@@ -1414,11 +1447,11 @@ function renderAdminUsers() {
       actions += `<select class="field" data-user-role="${item.id}" aria-label="Rôle de ${esc(item.displayName || item.email)}"><option value="member"${item.role !== "admin" ? " selected" : ""}>Membre</option><option value="admin"${item.role === "admin" ? " selected" : ""}>Administrateur</option></select>`;
     }
     return `<article class="admin-user"><div><h4>${esc(item.displayName || "Sans nom")}</h4><p>${esc(item.email || "Sans e-mail")}</p><p><span class="status-pill status-${item.status || "pending"}">${userStatusLabels[item.status] || item.status}</span> · ${item.role === "admin" ? "Administrateur" : "Membre"}</p>${primary ? '<p class="primary-note">Administrateur principal — accès protégé</p>' : ""}</div><div class="admin-user-actions">${actions}</div></article>`;
-  }).join("") : '<div class="empty-list">Aucun utilisateur trouvé.</div>';
+  }).join("") : emptyState({ iconName: "people", title: "Aucun utilisateur trouvé", description: "Modifiez la recherche pour afficher d’autres comptes." });
 }
 
 function openAdministration() {
-  if (!(auth.currentUser?.uid === primaryAdminUid || currentUserProfile?.role === "admin")) return toast("Accès réservé aux administrateurs");
+  if (!(auth.currentUser?.uid === primaryAdminUid || currentUserProfile?.role === "admin")) return toast("Accès réservé aux administrateurs", "error");
   $("accountDropdown").hidden = true;
   $("accountMenuBtn").setAttribute("aria-expanded", "false");
   $("adminSearch").value = "";
@@ -1428,13 +1461,13 @@ function openAdministration() {
     renderAdminUsers();
   }, error => {
     console.error(error);
-    $("adminUsers").innerHTML = '<div class="empty-list">Impossible de charger les utilisateurs. Vérifiez les règles Firestore.</div>';
+    $("adminUsers").innerHTML = emptyState({ iconName: "error", title: "Chargement impossible", description: "Vérifiez les règles Firestore puis réessayez." });
   });
   $("adminDialog").showModal();
 }
 
 async function updateManagedUser(userId, changes) {
-  if (!userId || userId === primaryAdminUid) return toast("Le compte administrateur principal est protégé");
+  if (!userId || userId === primaryAdminUid) return toast("Le compte administrateur principal est protégé", "info");
   await updateDoc(doc(db, "users", userId), { ...changes, updatedAt: serverTimestamp() });
   toast("Accès utilisateur mis à jour");
 }
@@ -1464,12 +1497,15 @@ function dataError(error) {
   console.error(error);
   $("syncDot").classList.remove("ok");
   $("syncText").textContent = "Accès refusé — publiez les nouvelles règles Firebase";
+  $("syncText").closest(".status")?.setAttribute("data-state", "error");
 }
 
 function startData() {
   unsubs.forEach(unsub => unsub());
   unsubs = [];
   loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = false;
+  $("syncText").textContent = "Synchronisation en cours…";
+  $("syncText").closest(".status")?.setAttribute("data-state", "loading");
   unsubs.push(onSnapshot(refs.people, snapshot => {
     people = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
     loadedPeople = true;
@@ -1531,14 +1567,14 @@ onAuthStateChanged(auth, async user => {
 $("loginForm").addEventListener("submit", async event => {
   event.preventDefault();
   $("authError").textContent = "";
-  $("loginBtn").disabled = true;
+  setButtonPending($("loginBtn"), true, "Connexion…");
   try {
     await signInWithEmailAndPassword(auth, $("loginEmail").value.trim(), $("loginPassword").value);
   } catch (error) {
     console.error(error);
     $("authError").textContent = error.code === "auth/invalid-credential" ? "E-mail ou mot de passe incorrect." : "Connexion impossible. Vérifiez Firebase Authentication.";
   } finally {
-    $("loginBtn").disabled = false;
+    setButtonPending($("loginBtn"), false);
   }
 });
 
@@ -1555,16 +1591,18 @@ $("signupForm").addEventListener("submit", async event => {
   const confirmation = $("signupPasswordConfirm").value;
   $("signupError").textContent = "";
   if (password !== confirmation) return $("signupError").textContent = "Les deux mots de passe ne correspondent pas.";
-  $("signupSubmitBtn").disabled = true;
+  setButtonPending($("signupSubmitBtn"), true, "Envoi…");
   try { await createUserWithEmailAndPassword(auth, email, password); }
   catch (error) {
     console.error(error);
     $("signupError").textContent = error.code === "auth/email-already-in-use" ? "Un compte utilise déjà cette adresse e-mail." : error.code === "auth/weak-password" ? "Le mot de passe doit contenir au moins 6 caractères." : "Création du compte impossible.";
-  } finally { $("signupSubmitBtn").disabled = false; }
+  } finally { setButtonPending($("signupSubmitBtn"), false); }
 });
 
 $("personForm").addEventListener("submit", async event => {
   event.preventDefault();
+  const saveButton = $("savePersonBtn");
+  setButtonPending(saveButton, true);
   const data = Object.fromEntries(personFields.map(key => [key, $(key).value.trim()]));
   data.updatedAt = serverTimestamp();
   try {
@@ -1594,14 +1632,18 @@ $("personForm").addEventListener("submit", async event => {
       $("personId").value = created.id;
       $("dialogTitle").textContent = "Modifier la personne";
       $("savePersonBtn").textContent = "Enregistrer";
+      $("savePersonBtn").dataset.idleLabel = "Enregistrer";
+      $("savePersonBtn").dataset.idleContent = "Enregistrer";
       $("deleteBtn").hidden = false;
-      $("deleteBtn").textContent = personDialogSource === "directory" ? "Supprimer définitivement" : "Retirer de l’arbre";
+      setActionLabel($("deleteBtn"), personDialogSource === "directory" ? "Supprimer définitivement" : "Retirer de l’arbre", personDialogSource === "directory" ? "trash" : "unlink");
       setPersonSection("relations", true);
       toast("Personne ajoutée — indiquez maintenant ses liens familiaux");
     }
   } catch (error) {
     console.error(error);
-    toast(error.message || "Enregistrement impossible");
+    toast(error.message || "Enregistrement impossible", "error");
+  } finally {
+    setButtonPending(saveButton, false);
   }
 });
 $("personForm").addEventListener("invalid", () => setPersonSection("identity"), true);
@@ -1663,15 +1705,15 @@ document.querySelectorAll("[data-person-section]").forEach(button => {
 });
 $("addLinkBtn").onclick = openManualLink;
 $("manualLinkForm").addEventListener("submit", saveManualLink);
-$("addPartnerBtn").onclick = () => runSafely(addPartner, "Ajout du partenaire impossible");
-$("addChildBtn").onclick = () => runSafely(addChild, "Ajout de l’enfant impossible");
-$("addParentBtn").onclick = () => runSafely(addParent, "Ajout du parent impossible");
+$("addPartnerBtn").onclick = event => withButtonPending(event.currentTarget, () => runSafely(addPartner, "Ajout du partenaire impossible"), "Ajout…");
+$("addChildBtn").onclick = event => withButtonPending(event.currentTarget, () => runSafely(addChild, "Ajout de l’enfant impossible"), "Ajout…");
+$("addParentBtn").onclick = event => withButtonPending(event.currentTarget, () => runSafely(addParent, "Ajout du parent impossible"), "Ajout…");
 $("relationsList").onclick = event => {
   const detailsButton = event.target.closest("[data-edit-family]");
   if (detailsButton) return openFamilyDetails(detailsButton.dataset.editFamily);
   const button = event.target.closest("[data-remove-partner],[data-remove-child]");
   if (!button) return;
-  runSafely(() => removeRelation(button.dataset.removePartner || button.dataset.removeChild, button.dataset.person, button.dataset.removePartner ? "partner" : "child"), "Suppression du lien impossible");
+  withButtonPending(button, () => runSafely(() => removeRelation(button.dataset.removePartner || button.dataset.removeChild, button.dataset.person, button.dataset.removePartner ? "partner" : "child"), "Dissociation du lien impossible"), "Dissociation…");
 };
 document.querySelectorAll("[data-date-prefix]").forEach(button => button.onclick = () => setGenealogyDateType(button.dataset.datePrefix, button.dataset.dateType));
 $("familyEndType").onchange = updateEndDetailsVisibility;
@@ -1681,6 +1723,9 @@ $("familyDetailsDialog").addEventListener("close", () => { if (familyDetailsRetu
 document.addEventListener("click", event => {
   const closeButton = event.target.closest("[data-close]");
   if (closeButton) close(closeButton.dataset.close);
+  if (event.target.closest("[data-empty-add-person]")) openPerson(null, "directory");
+  if (event.target.closest("[data-empty-add-document]")) openDocument();
+  if (event.target.closest("[data-empty-add-task]")) openTask();
   const miniDocument = event.target.closest("[data-view-document]");
   if (miniDocument) {
     const item = documents.find(value => value.id === miniDocument.dataset.viewDocument);
@@ -1693,6 +1738,15 @@ document.addEventListener("click", event => {
     if ($("personDialog").open) $("personDialog").close();
     openDocument(item, "", context);
   }
+});
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  if (!$("accountDropdown").hidden) {
+    $("accountDropdown").hidden = true;
+    $("accountMenuBtn").setAttribute("aria-expanded", "false");
+    $("accountMenuBtn").focus();
+  }
+  if ($("directoryFilterMenu").open) $("directoryFilterMenu").open = false;
 });
 
 $("documentsList").onclick = event => {
@@ -1744,7 +1798,7 @@ $("tasksList").onclick = async event => {
   const editButton = event.target.closest("[data-edit-task]");
   const completeButton = event.target.closest("[data-complete-task]");
   if (editButton) openTask(tasks.find(value => value.id === editButton.dataset.editTask));
-  if (completeButton) await runSafely(() => updateDoc(doc(db, "tasks", completeButton.dataset.completeTask), { status: "done", updatedAt: serverTimestamp() }), "Mise à jour de la tâche impossible");
+  if (completeButton) await withButtonPending(completeButton, () => runSafely(() => updateDoc(doc(db, "tasks", completeButton.dataset.completeTask), { status: "done", updatedAt: serverTimestamp() }), "Mise à jour de la tâche impossible"), "Mise à jour…");
 };
 
 $("logoutBtn").onclick = () => signOut(auth);
@@ -1795,7 +1849,7 @@ $("changePasswordBtn").onclick = changeAccountPassword;
 $("adminSearch").oninput = renderAdminUsers;
 $("adminUsers").onclick = event => {
   const button = event.target.closest("[data-user-status]");
-  if (button) runSafely(() => updateManagedUser(button.dataset.userId, { status: button.dataset.userStatus }), "Mise à jour de l’accès impossible");
+  if (button) withButtonPending(button, () => runSafely(() => updateManagedUser(button.dataset.userId, { status: button.dataset.userStatus }), "Mise à jour de l’accès impossible"), "Mise à jour…");
 };
 $("adminUsers").onchange = event => {
   const select = event.target.closest("[data-user-role]");
@@ -1825,7 +1879,7 @@ $("personPhotoFile").addEventListener("change", async event => {
   } catch (error) {
     console.error(error);
     $("personPhotoStatus").textContent = error.message || "Compression impossible";
-    toast("Impossible de préparer cette photo");
+    toast("Impossible de préparer cette photo", "error");
   } finally {
     $("personPhotoFile").disabled = false;
     picker.removeAttribute("aria-disabled");

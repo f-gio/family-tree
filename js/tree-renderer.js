@@ -1,5 +1,6 @@
 import { formatGenealogyDate } from "./genealogy-date.js";
 import { childLineType, normalizeEndType } from "./family-relations.js";
+import { emptyState } from "./ui-components.js";
 
 function escapeHtml(value = '') {
   const node = document.createElement('div');
@@ -136,7 +137,12 @@ export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmpty
       scene.style.width = `${layout.bounds.width}px`;
       scene.style.height = `${layout.bounds.height}px`;
       if (!people.length) {
-        scene.innerHTML = '<div class="empty"><div class="empty-icon">♧</div><h3>Votre arbre commence ici</h3><p>Ajoutez une première personne, puis créez ses liens familiaux.</p><button class="btn primary" data-empty-add>Ajouter une personne</button></div>';
+        scene.innerHTML = `<div class="empty">${emptyState({
+          iconName: "tree",
+          title: "Votre arbre commence ici",
+          description: "Ajoutez une première personne, puis créez ses liens familiaux.",
+          action: '<button class="btn primary" data-empty-add>Ajouter une personne</button>'
+        })}</div>`;
         return;
       }
       const paths = connectionElements(layout).join('');
