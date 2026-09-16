@@ -9,6 +9,7 @@ import { directoryPersonName, formatDirectoryDate, filterAndSortDirectory } from
 import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
+import { createLocationAutocomplete, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",
@@ -49,6 +50,14 @@ const MAX_PERSON_PHOTO_BYTES = 5 * 1024;
 const viewModes = readViewModes();
 const personFields = ["firstName", "middleName", "lastName", "marriedName", "gender", "branch", "place", "deathPlace", "photoUrl", "notes"];
 const taskFields = ["title", "status", "priority", "assignee", "dueDate", "personId", "description", "comments"];
+const locationControls = {};
+const locationFieldDefinitions = {
+  place: { textKey: "place", infoKey: "birthPlaceInfo" },
+  deathPlace: { textKey: "deathPlace", infoKey: "deathPlaceInfo" },
+  unionPlace: { textKey: "unionPlace", infoKey: "unionPlaceInfo" },
+  endPlace: { textKey: "endPlace", infoKey: "endPlaceInfo" },
+  documentPlace: { textKey: "place", infoKey: "placeInfo" }
+};
 
 function configureResponsiveFormSemantics() {
   ["birthYear", "birthYearFrom", "birthYearTo", "deathYear", "deathYearFrom", "deathYearTo", "unionYear", "unionYearFrom", "unionYearTo", "endYear", "endYearFrom", "endYearTo"].forEach(id => {
@@ -57,7 +66,7 @@ function configureResponsiveFormSemantics() {
     field.inputMode = "numeric";
     field.setAttribute("pattern", "[0-9]*");
   });
-  ["unionPlace", "endPlace"].forEach(id => {
+  Object.keys(locationFieldDefinitions).forEach(id => {
     const field = $(id);
     if (!field) return;
     field.autocomplete = "off";
@@ -94,6 +103,35 @@ function configureResponsiveFormSemantics() {
 }
 
 configureResponsiveFormSemantics();
+
+function initializeLocationAutocompletes() {
+  const username = geoNamesUsernameFromDocument();
+  for (const inputId of Object.keys(locationFieldDefinitions)) {
+    const input = $(inputId);
+    if (input) locationControls[inputId] = createLocationAutocomplete({ input, username });
+  }
+}
+
+function setLocationField(inputId, text = "", placeInfo = null) {
+  const control = locationControls[inputId];
+  if (control) control.setValue(text, placeInfo);
+  else if ($(inputId)) $(inputId).value = text || "";
+}
+
+function readLocationField(inputId) {
+  return locationControls[inputId]?.getValue() || { text: $(inputId)?.value.trim() || "", placeInfo: null };
+}
+
+function applyLocationField(data, inputId, existing = null, allowDelete = false) {
+  const definition = locationFieldDefinitions[inputId];
+  const value = readLocationField(inputId);
+  data[definition.textKey] = value.text;
+  if (value.placeInfo) data[definition.infoKey] = value.placeInfo;
+  else if (allowDelete && existing?.[definition.infoKey]) data[definition.infoKey] = deleteField();
+  return value;
+}
+
+initializeLocationAutocompletes();
 
 function readOffsets() {
   try { return JSON.parse(localStorage.getItem("familyTreeManualOffsets") || "{}"); }
@@ -380,7 +418,12 @@ function updatePersonPhotoPreview() {
 }
 
 function capturePersonDraft() {
-  return { fields: Object.fromEntries(personFields.map(key => [key, $(key).value])), birth: captureGenealogyDateDraft("birth"), death: captureGenealogyDateDraft("death") };
+  return {
+    fields: Object.fromEntries(personFields.map(key => [key, $(key).value])),
+    locations: { place: locationControls.place?.snapshot(), deathPlace: locationControls.deathPlace?.snapshot() },
+    birth: captureGenealogyDateDraft("birth"),
+    death: captureGenealogyDateDraft("death")
+  };
 }
 
 function restorePersonDraft(draft) {
@@ -388,6 +431,8 @@ function restorePersonDraft(draft) {
   for (const key of personFields) {
     if (Object.prototype.hasOwnProperty.call(draft.fields || draft, key)) $(key).value = (draft.fields || draft)[key];
   }
+  setLocationField("place", draft.locations?.place?.text ?? $("place").value, draft.locations?.place?.placeInfo);
+  setLocationField("deathPlace", draft.locations?.deathPlace?.text ?? $("deathPlace").value, draft.locations?.deathPlace?.placeInfo);
   restoreGenealogyDateDraft("birth", draft.birth);
   restoreGenealogyDateDraft("death", draft.death);
   updateMarriedNameVisibility();
@@ -466,6 +511,8 @@ function openPerson(item = null, source = "tree") {
   $("restoreTreeBtn").hidden = !item || item.inTree !== false || source !== "directory";
   $("personId").value = item?.id || "";
   for (const key of personFields) $(key).value = item?.[key] || "";
+  setLocationField("place", item?.place || "", item?.birthPlaceInfo);
+  setLocationField("deathPlace", item?.deathPlace || "", item?.deathPlaceInfo);
   setGenealogyDateForm("birth", item?.birthDateInfo, item?.birthDate);
   setGenealogyDateForm("death", item?.deathDateInfo, item?.deathDate);
   $("personPhotoFile").value = "";
@@ -687,10 +734,10 @@ function openFamilyDetails(familyId) {
   familyDetailsReturnContext = { personId: activeId, source: personDialogSource, draft: capturePersonDraft() };
   $("familyDetailsId").value = family.id;
   $("familyRelationType").value = normalizeRelationType(family.relationType);
-  $("unionPlace").value = family.unionPlace || family.marriagePlace || "";
+  setLocationField("unionPlace", family.unionPlace || family.marriagePlace || "", family.unionPlaceInfo);
   setGenealogyDateForm("union", family.unionDateInfo, family.marriageDate || family.unionDate);
   $("familyEndType").value = normalizeEndType(family.endType);
-  $("endPlace").value = family.endPlace || "";
+  setLocationField("endPlace", family.endPlace || "", family.endPlaceInfo);
   setGenealogyDateForm("end", family.endDateInfo, family.separationDate || family.divorceDate);
   updateEndDetailsVisibility();
   $("filiationEditors").innerHTML = normalizedParentChildLinks(family).map((link, index) => `<div class="filiation-editor"><span><strong>${esc(nameOf(link.parentId))}</strong> → ${esc(nameOf(link.childId))}</span><label>Type<select class="field" data-filiation-index="${index}" data-parent-id="${link.parentId}" data-child-id="${link.childId}"><option value="unknown" ${link.type === "unknown" ? "selected" : ""}>Non précisée</option><option value="biological" ${link.type === "biological" ? "selected" : ""}>Biologique</option><option value="adoptive" ${link.type === "adoptive" ? "selected" : ""}>Adoptive</option><option value="uncertain" ${link.type === "uncertain" ? "selected" : ""}>Incertaine</option></select></label></div>`).join("") || '<p class="hint">Aucun lien parent-enfant dans ce foyer.</p>';
@@ -719,11 +766,14 @@ async function saveFamilyDetails(event) {
     const unionDateInfo = readGenealogyDateForm("union");
     const endDateInfo = readGenealogyDateForm("end");
     const parentChildLinks = [...document.querySelectorAll("[data-filiation-index]")].map(select => ({ parentId: select.dataset.parentId, childId: select.dataset.childId, type: normalizeFiliationType(select.value) }));
-    await withButtonPending(submitButton, () => updateDoc(doc(db, "families", familyId), {
-        relationType: normalizeRelationType($("familyRelationType").value), unionDateInfo, unionPlace: $("unionPlace").value.trim(),
-        endType: normalizeEndType($("familyEndType").value), endDateInfo, endPlace: $("endPlace").value.trim(), parentChildLinks,
-        updatedAt: serverTimestamp()
-      }));
+    const data = {
+      relationType: normalizeRelationType($("familyRelationType").value), unionDateInfo,
+      endType: normalizeEndType($("familyEndType").value), endDateInfo, parentChildLinks,
+      updatedAt: serverTimestamp()
+    };
+    applyLocationField(data, "unionPlace", family, true);
+    applyLocationField(data, "endPlace", family, true);
+    await withButtonPending(submitButton, () => updateDoc(doc(db, "families", familyId), data));
     $("familyDetailsDialog").close();
     toast("Détails de la relation enregistrés");
     returnFromFamilyDetails();
@@ -814,7 +864,7 @@ function openDocument(item = null, preselectedPersonId = "", returnContext = nul
   $("documentTitle").value = item?.title || "";
   $("documentType").value = item?.type || "";
   $("documentDate").value = item?.date || "";
-  $("documentPlace").value = item?.place || "";
+  setLocationField("documentPlace", item?.place || "", item?.placeInfo);
   $("documentUrl").value = item?.externalUrl || "";
   $("documentNotes").value = item?.notes || "";
   $("documentPeople").innerHTML = documentPeopleMarkup(item?.personIds || (preselectedPersonId ? [preselectedPersonId] : []));
@@ -1187,12 +1237,12 @@ async function saveDocument(event) {
       title: $("documentTitle").value.trim(),
       type: $("documentType").value,
       date: $("documentDate").value,
-      place: $("documentPlace").value.trim(),
       notes: $("documentNotes").value.trim(),
       externalUrl,
       personIds: [...$("documentPeople").querySelectorAll("input:checked")].map(input => input.value),
       updatedAt: serverTimestamp()
     };
+    applyLocationField(data, "documentPlace", existing, !!id);
     if (file) {
       const optimized = await optimizeFile(file);
       optimizationSummary = optimized.compressed ? `${formatBytes(optimized.originalSize)} → ${formatBytes(optimized.storedSize)}` : "qualité originale conservée";
@@ -1683,6 +1733,9 @@ $("personForm").addEventListener("submit", async event => {
     data.birthDate = birthDateInfo.type === "exact" ? birthDateInfo.value : deleteField();
     data.deathDate = deathDateInfo.type === "exact" ? deathDateInfo.value : deleteField();
     const id = $("personId").value;
+    const existing = people.find(item => item.id === id);
+    applyLocationField(data, "place", existing, !!id);
+    applyLocationField(data, "deathPlace", existing, !!id);
     const birthLabel = formatGenealogyDate(birthDateInfo);
     const duplicate = people.find(item => item.id !== id && searchable(item.firstName) === searchable(data.firstName) && searchable(item.lastName) === searchable(data.lastName) && (birthLabel === "—" || formatGenealogyDate(item.birthDateInfo, item.birthDate) === birthLabel));
     if (duplicate && !confirm(`Une fiche proche existe déjà : ${nameOf(duplicate.id)}${birthLabel !== "—" ? ` (${birthLabel})` : ""}.\n\nEnregistrer quand même cette personne ?`)) return;
