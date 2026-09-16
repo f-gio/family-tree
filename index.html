@@ -105,15 +105,15 @@
 </div>
 </div>
 <nav class="main-nav" aria-label="Navigation principale">
-<button class="nav-btn active" data-view="tree" aria-pressed="true" aria-current="page"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-tree"></use></svg></span><span>Arbre</span></button>
-<button class="nav-btn" data-view="directory" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-people"></use></svg></span><span>Annuaire</span></button>
-<button class="nav-btn" data-view="documents" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-document"></use></svg></span><span>Documents</span></button>
-<button class="nav-btn" data-view="tasks" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-tasks"></use></svg></span><span>Tâches</span></button>
+<button class="nav-btn active" type="button" data-view="tree" aria-pressed="true" aria-current="page"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-tree"></use></svg></span><span>Arbre</span></button>
+<button class="nav-btn" type="button" data-view="directory" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-people"></use></svg></span><span>Annuaire</span></button>
+<button class="nav-btn" type="button" data-view="documents" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-document"></use></svg></span><span>Documents</span></button>
+<button class="nav-btn" type="button" data-view="tasks" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-tasks"></use></svg></span><span>Tâches</span></button>
 </nav>
 <div class="header-tools" id="headerTreeActions">
-<button class="btn" id="addLinkBtn" aria-label="Créer un lien familial"><svg class="ui-icon" aria-hidden="true"><use href="#icon-link"></use></svg><span class="label">Créer un lien</span>
+<button class="btn" id="addLinkBtn" type="button" aria-label="Créer un lien familial"><svg class="ui-icon" aria-hidden="true"><use href="#icon-link"></use></svg><span class="label">Créer un lien</span>
 </button>
-<button class="btn primary" id="addBtn" aria-label="Ajouter une personne"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span class="label">Ajouter une personne</span>
+<button class="btn primary" id="addBtn" type="button" aria-label="Ajouter une personne"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span class="label">Ajouter une personne</span>
 </button>
 </div>
 <div class="account-menu" id="accountMenu"><button class="btn account-menu-btn" id="accountMenuBtn" type="button" aria-expanded="false" aria-controls="accountDropdown" aria-haspopup="menu"><span class="account-avatar" id="accountAvatar">?</span><span class="account-label" id="accountLabel">Compte</span><svg class="ui-icon ui-icon-sm account-caret" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></button><div class="account-dropdown" id="accountDropdown" role="menu" hidden><div class="account-summary"><strong id="accountSummaryName">Compte</strong><small id="accountSummaryEmail"></small></div><button class="account-action" id="profileBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Mon profil</span></button><button class="account-action" id="dataBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-database"></use></svg><span>Données</span></button><button class="account-action" id="adminBtn" type="button" role="menuitem" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span>Administration</span></button><button class="account-action danger" id="logoutBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-logout"></use></svg><span>Se déconnecter</span></button></div></div>
@@ -138,7 +138,7 @@
 <section class="toolbar">
 <label class="sr-only" for="search">Rechercher</label>
 <input class="field" id="search" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher et centrer une personne…">
-<button class="btn tertiary" id="resetBtn">Effacer</button>
+<button class="btn tertiary" id="resetBtn" type="button">Effacer</button>
 </section>
 <section class="tree-shell" id="treeViewport">
 <div class="tree" id="treeScene">
@@ -159,7 +159,7 @@
 </section>
 </main>
 <main class="workspace-view" id="directoryView" hidden>
-<section class="section-head"><div><p class="eyebrow">Famille</p><h2>Annuaire</h2><p>Retrouvez toutes les personnes enregistrées, y compris celles masquées de l’arbre.</p></div><button class="btn primary" id="addDirectoryPersonBtn"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une personne</span></button></section>
+<section class="section-head"><div><p class="eyebrow">Famille</p><h2>Annuaire</h2><p>Retrouvez toutes les personnes enregistrées, y compris celles masquées de l’arbre.</p></div><button class="btn primary" id="addDirectoryPersonBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une personne</span></button></section>
 <section class="directory-toolbar" aria-label="Recherche, filtres et affichage de l’annuaire">
 <label class="directory-search"><span class="sr-only">Rechercher une personne</span><span class="directory-search-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="directorySearch" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher un nom ou un prénom…"></label>
 <details class="directory-filter-menu" id="directoryFilterMenu"><summary><svg class="ui-icon" aria-hidden="true"><use href="#icon-filter"></use></svg><span>Filtres</span><span class="filter-count" id="directoryFilterCount" hidden>0</span></summary><div class="directory-filter-panel">
@@ -184,7 +184,7 @@
 <h2>Documents</h2>
 <p>Consultez les actes et attribuez chaque document à une ou plusieurs personnes.</p>
 </div>
-<button class="btn primary" id="addDocumentBtn"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter un document</span></button>
+<button class="btn primary" id="addDocumentBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter un document</span></button>
 </section>
 <div class="list-toolbar">
 <label class="sr-only" for="documentSearch">Rechercher un document</label><input class="field" id="documentSearch" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="sentences" placeholder="Rechercher un document…">
@@ -211,7 +211,7 @@
 <h2>Tâches</h2>
 <p>Centralisez les démarches, échéances et commentaires liés à vos recherches.</p>
 </div>
-<button class="btn primary" id="addTaskBtn"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une tâche</span></button>
+<button class="btn primary" id="addTaskBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une tâche</span></button>
 </section>
 <div class="list-toolbar">
 <label class="sr-only" for="taskSearch">Rechercher une tâche</label><input class="field" id="taskSearch" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="sentences" placeholder="Rechercher une tâche…">

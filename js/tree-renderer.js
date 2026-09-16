@@ -141,7 +141,7 @@ export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmpty
           iconName: "tree",
           title: "Votre arbre commence ici",
           description: "Ajoutez une première personne, puis créez ses liens familiaux.",
-          action: '<button class="btn primary" data-empty-add>Ajouter une personne</button>'
+          action: '<button class="btn primary" type="button" data-empty-add>Ajouter une personne</button>'
         })}</div>`;
         return;
       }
@@ -152,7 +152,7 @@ export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmpty
         const avatar = person.photoUrl ? `<img src="${escapeHtml(person.photoUrl)}" alt="">` : initials(person);
         const birthName = [person.firstName, person.middleName, person.lastName].filter(Boolean).join(' ');
         const middleName = person.middleName ? `<span class="person-middle-name">${escapeHtml(person.middleName)}</span>` : '';
-        return `<button class="person" data-person-id="${person.id}" style="left:${position.x}px;top:${position.y}px" aria-label="Ouvrir et modifier ${escapeHtml(birthName)}"><span class="drag-hint" aria-hidden="true">⋮⋮</span><span class="avatar">${avatar}</span><span class="person-name"><span class="person-first-name">${escapeHtml(person.firstName || '')}</span>${middleName}<span class="person-surname">${escapeHtml(person.lastName || '')}</span></span>${lifeEvent('Naissance', '✦', person.birthDateInfo, person.birthDate, person.place)}${lifeEvent('Décès', '†', person.deathDateInfo, person.deathDate, person.deathPlace)}</button>`;
+        return `<button class="person" type="button" data-person-id="${person.id}" style="left:${position.x}px;top:${position.y}px" aria-label="Ouvrir et modifier ${escapeHtml(birthName)}"><span class="drag-hint" aria-hidden="true">⋮⋮</span><span class="avatar">${avatar}</span><span class="person-name"><span class="person-first-name">${escapeHtml(person.firstName || '')}</span>${middleName}<span class="person-surname">${escapeHtml(person.lastName || '')}</span></span>${lifeEvent('Naissance', '✦', person.birthDateInfo, person.birthDate, person.place)}${lifeEvent('Décès', '†', person.deathDateInfo, person.deathDate, person.deathPlace)}</button>`;
       }).join('');
       scene.innerHTML = `<svg class="tree-svg" viewBox="0 0 ${layout.bounds.width} ${layout.bounds.height}" aria-hidden="true">${paths}</svg>${cards}`;
       applyState();

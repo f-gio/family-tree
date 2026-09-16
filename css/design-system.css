@@ -955,7 +955,7 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   }
 
   .nav-icon { width: 1.125rem; height: 1.125rem; }
-  .header-tools .btn { min-height: 2.75rem; }
+  .header-tools .btn { min-height: var(--control-touch); }
 
   .workspace-view { padding: var(--space-4) var(--space-3) var(--space-8); }
 
@@ -987,7 +987,7 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   .list-toolbar label,
   .list-toolbar .view-switch { width: 100%; min-width: 0; }
   .list-toolbar .view-switch { margin-left: 0; }
-  .list-toolbar .view-switch button { flex: 1; min-height: 2.75rem; }
+  .list-toolbar .view-switch button { flex: 1; min-height: var(--control-touch); }
 
   .directory-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
   .directory-search { grid-column: 1 / -1; }
@@ -1040,7 +1040,7 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
     margin-top: var(--space-2);
   }
 
-  .content-card .card-actions .btn { min-height: 2.75rem; }
+  .content-card .card-actions .btn { min-height: var(--control-touch); }
 
   .alphabet-nav {
     scroll-snap-type: x proximity;
@@ -1048,15 +1048,15 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   }
 
   .alphabet-nav button {
-    flex-basis: 2.75rem;
-    min-width: 2.75rem;
-    min-height: 2.75rem;
+    flex-basis: var(--control-touch);
+    min-width: var(--control-touch);
+    min-height: var(--control-touch);
     scroll-snap-align: start;
   }
 
   .directory-entry,
   .cards-mode .directory-entry { align-items: start; }
-  .directory-entry-actions .directory-action { min-height: 2.75rem; }
+  .directory-entry-actions .directory-action { min-height: var(--control-touch); }
 
   .person-section-nav,
   .settings-nav {
@@ -1072,7 +1072,7 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   .settings-tab {
     flex: 0 0 auto;
     min-width: max-content;
-    min-height: 2.75rem;
+    min-height: var(--control-touch);
     scroll-snap-align: start;
     text-align: center;
   }
@@ -1083,18 +1083,18 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   .relation-line,
   .relation-card-head { align-items: flex-start; flex-direction: column; }
   .relation-line .btn,
-  .relation-card-head .btn { width: 100%; min-height: 2.75rem; }
+  .relation-card-head .btn { width: 100%; min-height: var(--control-touch); }
 
   .photo-upload { align-items: start; }
   .photo-upload-actions { align-items: stretch; flex-direction: column; }
   .photo-picker,
-  .photo-upload-actions .btn { justify-content: center; min-height: 2.75rem; }
+  .photo-upload-actions .btn { justify-content: center; min-height: var(--control-touch); }
 
   .modal-head { padding-top: max(var(--space-4), env(safe-area-inset-top)); }
   .modal-actions { padding-bottom: max(var(--space-3), env(safe-area-inset-bottom)); }
 
   .modal-actions .right { gap: var(--space-2); }
-  .modal-actions .btn { min-height: 2.75rem; }
+  .modal-actions .btn { min-height: var(--control-touch); }
 
   .person-actions #savePersonBtn {
     grid-column: 1 / -1;
@@ -1102,7 +1102,7 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   }
 
   .viewer-head-actions { flex: 0 0 auto; }
-  .viewer-head-actions .btn.small { min-height: 2.75rem; }
+  .viewer-head-actions .btn.small { min-height: var(--control-touch); }
 
   .account-dropdown {
     position: fixed;
@@ -1114,7 +1114,7 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
     overflow: auto;
   }
 
-  .account-action { min-height: 2.75rem; }
+  .account-action { min-height: var(--control-touch); }
 
   .tree-controls {
     right: 0.5rem;
@@ -1139,7 +1139,7 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   .admin-user-actions,
   .settings-actions { width: 100%; }
   .admin-user-actions .btn,
-  .settings-actions .btn { min-height: 2.75rem; }
+  .settings-actions .btn { min-height: var(--control-touch); }
 }
 
 /* Sur petit smartphone, les modales importantes deviennent de vrais écrans. */
@@ -1197,7 +1197,7 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   .directory-life { font-size: 0.75rem; }
 
   .view-control button span { display: none; }
-  .view-control button { min-width: 2.75rem; }
+  .view-control button { min-width: var(--control-touch); }
   .zoom-level { min-width: 3.5rem; }
 }
 
