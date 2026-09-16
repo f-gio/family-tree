@@ -50,6 +50,51 @@ const viewModes = readViewModes();
 const personFields = ["firstName", "middleName", "lastName", "marriedName", "gender", "branch", "place", "deathPlace", "photoUrl", "notes"];
 const taskFields = ["title", "status", "priority", "assignee", "dueDate", "personId", "description", "comments"];
 
+function configureResponsiveFormSemantics() {
+  ["birthYear", "birthYearFrom", "birthYearTo", "deathYear", "deathYearFrom", "deathYearTo", "unionYear", "unionYearFrom", "unionYearTo", "endYear", "endYearFrom", "endYearTo"].forEach(id => {
+    const field = $(id);
+    if (!field) return;
+    field.inputMode = "numeric";
+    field.setAttribute("pattern", "[0-9]*");
+  });
+  ["unionPlace", "endPlace"].forEach(id => {
+    const field = $(id);
+    if (!field) return;
+    field.autocomplete = "off";
+    field.setAttribute("autocapitalize", "words");
+  });
+  Object.entries({
+    profileDisplayName: { autocomplete: "name", autocapitalize: "words" },
+    profileEmail: { autocomplete: "email", inputmode: "email", autocapitalize: "none" }
+  }).forEach(([id, attributes]) => {
+    const field = $(id);
+    if (!field) return;
+    Object.entries(attributes).forEach(([name, value]) => field.setAttribute(name, value));
+  });
+  document.querySelectorAll("[data-date-control] .date-type-switch").forEach(group => {
+    const prefix = group.closest("[data-date-control]")?.dataset.dateControl;
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", prefix === "union" ? "Précision de la date de l’union" : prefix === "end" ? "Précision de la date de fin de relation" : `Précision de la date de ${prefix === "birth" ? "naissance" : "décès"}`);
+  });
+  const settingsNav = document.querySelector(".settings-nav");
+  settingsNav?.setAttribute("role", "tablist");
+  document.querySelectorAll("[data-settings-tab]").forEach(button => {
+    const tab = button.dataset.settingsTab;
+    const panel = tab === "profile" ? $("profileSettingsPanel") : $("securitySettingsPanel");
+    const tabId = `${tab}SettingsTab`;
+    button.id ||= tabId;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-controls", panel.id);
+    const active = tab === "profile";
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", button.id);
+  });
+}
+
+configureResponsiveFormSemantics();
+
 function readOffsets() {
   try { return JSON.parse(localStorage.getItem("familyTreeManualOffsets") || "{}"); }
   catch { return {}; }
@@ -252,10 +297,34 @@ function syncState() {
     $("syncText").textContent = "Synchronisé avec Firebase";
     $("syncText").closest(".status")?.setAttribute("data-state", "saved");
   }
-  const visibleCount = treePeople().length;
-  $("peopleCount").textContent = `${visibleCount} personne${visibleCount > 1 ? "s" : ""} dans l’arbre`;
-  $("familyCount").textContent = `${families.length} union${families.length > 1 ? "s" : ""}`;
-  renderTree();
+  if (loadedPeople && loadedFamilies) {
+    setLoadingSurface("treeViewport", false);
+    const visibleCount = treePeople().length;
+    $("peopleCount").textContent = `${visibleCount} personne${visibleCount > 1 ? "s" : ""} dans l’arbre`;
+    $("familyCount").textContent = `${families.length} union${families.length > 1 ? "s" : ""}`;
+    renderTree();
+  }
+}
+
+function setLoadingSurface(id, loading) {
+  const element = $(id);
+  if (!element) return;
+  element.classList.toggle("loading-surface", loading);
+  element.setAttribute("aria-busy", String(loading));
+}
+
+function updateReadyViews() {
+  if (loadedPeople && loadedDocuments) {
+    setLoadingSurface("directoryList", false);
+    setLoadingSurface("documentsList", false);
+    updateDirectoryBranches();
+    renderDirectory();
+    renderDocuments();
+  }
+  if (loadedPeople && loadedTasks) {
+    setLoadingSurface("tasksList", false);
+    renderTasks();
+  }
 }
 
 function applySearch(focus = true) {
@@ -457,7 +526,7 @@ function renderRelations() {
     const endType = normalizeEndType(family.endType);
     const unionPlace = family.unionPlace || family.marriagePlace || "";
     const summary = `${relationLabel} · ${unionDate}${unionPlace ? ` · ${unionPlace}` : ""}${endType !== "none" ? ` · ${END_TYPE_LABELS[endType]} ${formatGenealogyDate(family.endDateInfo, family.separationDate || family.divorceDate)}` : ""}`;
-    const edit = `<button class="btn small" type="button" data-edit-family="${family.id}">${icon("edit")}<span>Détails</span></button>`;
+    const edit = `<button class="btn small" type="button" data-edit-family="${family.id}">${icon("edit")}<span>Modifier la relation</span></button>`;
     if (isPartner) return `<div class="relation-card"><div class="relation-card-head"><strong>${others.length ? `Union avec ${esc(others.map(nameOf).join(" et "))}` : "Foyer monoparental"}</strong>${edit}</div><p class="relation-summary">${esc(summary)}</p>${others.map(id => `<div class="relation-line"><span>Partenaire : ${esc(nameOf(id))}</span><button class="btn small danger" data-remove-partner="${family.id}" data-person="${id}">${icon("unlink")}<span>Dissocier</span></button></div>`).join("")}${children.map(id => `<div class="relation-line"><span>Enfant : ${esc(nameOf(id))} · filiation ${esc(FILIATION_TYPE_LABELS[parentChildLinkType(family, item.id, id)].toLocaleLowerCase("fr-FR"))}</span><button class="btn small danger" data-remove-child="${family.id}" data-person="${id}">${icon("unlink")}<span>Dissocier</span></button></div>`).join("") || '<div class="relation-line"><span>Aucun enfant rattaché</span></div>'}</div>`;
     return `<div class="relation-card"><div class="relation-card-head"><strong>Parents</strong>${edit}</div><p class="relation-summary">${esc(summary)}</p>${(family.partnerIds || []).map(parentId => `<div class="relation-line"><span>${esc(nameOf(parentId))} · filiation ${esc(FILIATION_TYPE_LABELS[parentChildLinkType(family, parentId, item.id)].toLocaleLowerCase("fr-FR"))}</span></div>`).join("") || '<div class="relation-line"><span>Non renseigné</span></div>'}<div class="relation-line"><span></span><button class="btn small danger" data-remove-child="${family.id}" data-person="${item.id}">${icon("unlink")}<span>Dissocier</span></button></div></div>`;
   }).join("") : emptyState({ iconName: "link", title: "Aucun lien familial", description: "Ajoutez un parent, un enfant ou un partenaire depuis les options ci-dessous." });
@@ -1355,6 +1424,7 @@ function selectSettingsTab(tab) {
     const active = button.dataset.settingsTab === tab;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
   });
   $("profileSettingsPanel").hidden = tab !== "profile";
   $("securitySettingsPanel").hidden = tab !== "security";
@@ -1495,6 +1565,7 @@ function setView(view) {
 
 function dataError(error) {
   console.error(error);
+  ["treeViewport", "directoryList", "documentsList", "tasksList"].forEach(id => setLoadingSurface(id, false));
   $("syncDot").classList.remove("ok");
   $("syncText").textContent = "Accès refusé — publiez les nouvelles règles Firebase";
   $("syncText").closest(".status")?.setAttribute("data-state", "error");
@@ -1504,36 +1575,33 @@ function startData() {
   unsubs.forEach(unsub => unsub());
   unsubs = [];
   loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = false;
+  ["treeViewport", "directoryList", "documentsList", "tasksList"].forEach(id => setLoadingSurface(id, true));
+  $("directoryResultCount").textContent = "Chargement de l’annuaire…";
   $("syncText").textContent = "Synchronisation en cours…";
   $("syncText").closest(".status")?.setAttribute("data-state", "loading");
   unsubs.push(onSnapshot(refs.people, snapshot => {
     people = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
     loadedPeople = true;
     syncState();
-    updateDirectoryBranches();
-    renderDirectory();
-    renderDocuments();
-    renderTasks();
+    updateReadyViews();
   }, dataError));
   unsubs.push(onSnapshot(refs.families, snapshot => {
     families = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
     loadedFamilies = true;
     syncState();
-    renderDirectory();
     if ($("personDialog").open && activePersonSection === "relations" && activeId) renderRelations();
   }, dataError));
   unsubs.push(onSnapshot(refs.documents, snapshot => {
     documents = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
     loadedDocuments = true;
     syncState();
-    renderDirectory();
-    renderDocuments();
+    updateReadyViews();
   }, dataError));
   unsubs.push(onSnapshot(refs.tasks, snapshot => {
     tasks = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
     loadedTasks = true;
     syncState();
-    renderTasks();
+    updateReadyViews();
   }, dataError));
 }
 
@@ -1809,6 +1877,29 @@ $("accountMenuBtn").onclick = event => {
   $("accountDropdown").hidden = !open;
   $("accountMenuBtn").setAttribute("aria-expanded", String(open));
 };
+$("accountMenuBtn").addEventListener("keydown", event => {
+  if (!['ArrowDown', 'Enter', ' '].includes(event.key)) return;
+  if ((event.key === 'Enter' || event.key === ' ') && !$("accountDropdown").hidden) return;
+  event.preventDefault();
+  $("accountDropdown").hidden = false;
+  $("accountMenuBtn").setAttribute("aria-expanded", "true");
+  $("accountDropdown").querySelector("button:not([hidden]):not([disabled])")?.focus();
+});
+$("accountDropdown").addEventListener("keydown", event => {
+  const items = [...$("accountDropdown").querySelectorAll("button:not([hidden]):not([disabled])")];
+  const current = items.indexOf(document.activeElement);
+  if (event.key === "Escape") {
+    event.preventDefault();
+    $("accountDropdown").hidden = true;
+    $("accountMenuBtn").setAttribute("aria-expanded", "false");
+    $("accountMenuBtn").focus();
+    return;
+  }
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) || !items.length) return;
+  event.preventDefault();
+  const index = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : event.key === "ArrowDown" ? (current + 1 + items.length) % items.length : (current - 1 + items.length) % items.length;
+  items[index].focus();
+});
 document.addEventListener("click", event => {
   if (!$("accountMenu").contains(event.target)) {
     $("accountDropdown").hidden = true;
@@ -1818,7 +1909,18 @@ document.addEventListener("click", event => {
 $("profileBtn").onclick = openProfileSettings;
 $("dataBtn").onclick = openDataManagement;
 $("adminBtn").onclick = openAdministration;
-document.querySelectorAll("[data-settings-tab]").forEach(button => button.onclick = () => selectSettingsTab(button.dataset.settingsTab));
+document.querySelectorAll("[data-settings-tab]").forEach(button => {
+  button.onclick = () => selectSettingsTab(button.dataset.settingsTab);
+  button.onkeydown = event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const tabs = [...document.querySelectorAll("[data-settings-tab]")];
+    const current = tabs.indexOf(button);
+    const index = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : event.key === "ArrowRight" ? (current + 1) % tabs.length : (current - 1 + tabs.length) % tabs.length;
+    event.preventDefault();
+    selectSettingsTab(tabs[index].dataset.settingsTab);
+    tabs[index].focus();
+  };
+});
 $("profilePhotoFile").onchange = async event => {
   const file = event.target.files?.[0];
   if (!file) return;

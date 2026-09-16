@@ -76,7 +76,7 @@
 <div class="brand-mark">⌘</div>
 <h2>Bienvenue dans votre histoire</h2>
 <p>Connectez-vous pour consulter et compléter votre arbre familial.</p>
-<label>Adresse e-mail<input class="field" id="loginEmail" type="email" autocomplete="username" required>
+<label>Adresse e-mail<input class="field" id="loginEmail" type="email" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" required>
 </label>
 <label>Mot de passe<input class="field" id="loginPassword" type="password" autocomplete="current-password" required minlength="6">
 </label>
@@ -87,7 +87,7 @@
 </form>
 <form class="auth-card" id="signupForm" hidden>
 <div class="brand-mark">⌘</div><h2>Créer un compte</h2><p>Votre demande devra être validée par un administrateur.</p>
-<label>Adresse e-mail<input class="field" id="signupEmail" type="email" autocomplete="email" required></label>
+<label>Adresse e-mail<input class="field" id="signupEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" required></label>
 <label>Mot de passe<input class="field" id="signupPassword" type="password" autocomplete="new-password" required minlength="6"></label>
 <label>Confirmer le mot de passe<input class="field" id="signupPasswordConfirm" type="password" autocomplete="new-password" required minlength="6"></label>
 <p class="auth-error" id="signupError" role="alert"></p>
@@ -137,7 +137,7 @@
 </section>
 <section class="toolbar">
 <label class="sr-only" for="search">Rechercher</label>
-<input class="field" id="search" type="search" placeholder="Rechercher et centrer une personne…">
+<input class="field" id="search" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher et centrer une personne…">
 <button class="btn tertiary" id="resetBtn">Effacer</button>
 </section>
 <section class="tree-shell" id="treeViewport">
@@ -151,8 +151,8 @@
 <button id="zoomInBtn" type="button" aria-label="Zoomer" title="Zoomer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-zoom-in"></use></svg></button>
 </div>
 <div class="view-control">
-<button id="fitTreeBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-fit"></use></svg><span>Ajuster</span></button>
-<button id="centerTreeBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-center"></use></svg><span>Recentrer</span></button>
+<button id="fitTreeBtn" type="button" aria-label="Ajuster l’arbre à l’écran" title="Ajuster"><svg class="ui-icon" aria-hidden="true"><use href="#icon-fit"></use></svg><span>Ajuster</span></button>
+<button id="centerTreeBtn" type="button" aria-label="Recentrer l’arbre" title="Recentrer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-center"></use></svg><span>Recentrer</span></button>
 <button id="autoLayoutBtn" type="button">Réorganiser</button>
 </div>
 </div>
@@ -161,12 +161,12 @@
 <main class="workspace-view" id="directoryView" hidden>
 <section class="section-head"><div><p class="eyebrow">Famille</p><h2>Annuaire</h2><p>Retrouvez toutes les personnes enregistrées, y compris celles masquées de l’arbre.</p></div><button class="btn primary" id="addDirectoryPersonBtn"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une personne</span></button></section>
 <section class="directory-toolbar" aria-label="Recherche, filtres et affichage de l’annuaire">
-<label class="directory-search"><span class="sr-only">Rechercher une personne</span><span class="directory-search-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="directorySearch" type="search" autocomplete="off" placeholder="Rechercher un nom ou un prénom…"></label>
+<label class="directory-search"><span class="sr-only">Rechercher une personne</span><span class="directory-search-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="directorySearch" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher un nom ou un prénom…"></label>
 <details class="directory-filter-menu" id="directoryFilterMenu"><summary><svg class="ui-icon" aria-hidden="true"><use href="#icon-filter"></use></svg><span>Filtres</span><span class="filter-count" id="directoryFilterCount" hidden>0</span></summary><div class="directory-filter-panel">
-<label>Nom<input class="field" id="directoryNameFilter" type="search" autocomplete="off" placeholder="Nom de naissance ou d’épouse"></label>
-<label>Lieu<input class="field" id="directoryPlaceFilter" type="search" autocomplete="off" placeholder="Naissance ou décès"></label>
-<label>Naissance<input class="field" id="directoryBirthFilter" type="text" inputmode="numeric" maxlength="4" placeholder="Année"></label>
-<label>Décès<input class="field" id="directoryDeathFilter" type="text" inputmode="numeric" maxlength="4" placeholder="Année"></label>
+<label>Nom<input class="field" id="directoryNameFilter" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Nom de naissance ou d’épouse"></label>
+<label>Lieu<input class="field" id="directoryPlaceFilter" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Naissance ou décès"></label>
+<label>Naissance<input class="field" id="directoryBirthFilter" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" enterkeyhint="search" placeholder="Année"></label>
+<label>Décès<input class="field" id="directoryDeathFilter" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" enterkeyhint="search" placeholder="Année"></label>
 <label class="wide">Branche familiale<select class="field" id="directoryBranchFilter"><option value="">Toutes les branches</option></select></label>
 <button class="btn small tertiary directory-clear-filters" id="clearDirectoryFiltersBtn" type="button">Effacer les filtres</button>
 </div></details>
@@ -187,7 +187,8 @@
 <button class="btn primary" id="addDocumentBtn"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter un document</span></button>
 </section>
 <div class="list-toolbar">
-<input class="field" id="documentSearch" type="search" placeholder="Rechercher un document…">
+<label class="sr-only" for="documentSearch">Rechercher un document</label><input class="field" id="documentSearch" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="sentences" placeholder="Rechercher un document…">
+<label class="sr-only" for="documentTypeFilter">Filtrer par type de document</label>
 <select class="field" id="documentTypeFilter">
 <option value="">Tous les types</option>
 <option>Acte de naissance</option>
@@ -198,7 +199,7 @@
 <option>Photo</option>
 <option>Autre</option>
 </select>
-<div class="view-switch" data-switch="documents"><button type="button" data-mode="cards" class="active">Cartes</button><button type="button" data-mode="list">Liste</button></div>
+<div class="view-switch" data-switch="documents" role="group" aria-label="Mode d’affichage des documents"><button type="button" data-mode="cards" class="active">Cartes</button><button type="button" data-mode="list">Liste</button></div>
 </div>
 <div class="content-grid" id="documentsList">
 </div>
@@ -213,14 +214,15 @@
 <button class="btn primary" id="addTaskBtn"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une tâche</span></button>
 </section>
 <div class="list-toolbar">
-<input class="field" id="taskSearch" type="search" placeholder="Rechercher une tâche…">
+<label class="sr-only" for="taskSearch">Rechercher une tâche</label><input class="field" id="taskSearch" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="sentences" placeholder="Rechercher une tâche…">
+<label class="sr-only" for="taskStatusFilter">Filtrer par statut</label>
 <select class="field" id="taskStatusFilter">
 <option value="">Tous les statuts</option>
 <option value="todo">À faire</option>
 <option value="progress">En cours</option>
 <option value="done">Terminée</option>
 </select>
-<select class="field" id="taskPriorityFilter">
+<label class="sr-only" for="taskPriorityFilter">Filtrer par priorité</label><select class="field" id="taskPriorityFilter">
 <option value="">Toutes les priorités</option>
 <option value="high">Haute</option>
 <option value="medium">Moyenne</option>
@@ -228,7 +230,7 @@
 </select>
 <label>
 <input type="checkbox" id="myTasksFilter"> Mes tâches</label>
-<div class="view-switch" data-switch="tasks"><button type="button" data-mode="cards" class="active">Cartes</button><button type="button" data-mode="list">Liste</button></div>
+<div class="view-switch" data-switch="tasks" role="group" aria-label="Mode d’affichage des tâches"><button type="button" data-mode="cards" class="active">Cartes</button><button type="button" data-mode="list">Liste</button></div>
 </div>
 <div class="content-grid" id="tasksList">
 </div>
@@ -251,11 +253,11 @@
 <section class="person-section-panel" id="personIdentityPanel" role="tabpanel" aria-labelledby="personIdentityTab" data-person-panel="identity">
 <div class="grid">
 <header class="form-section-heading wide"><h4>Identité</h4><p>Noms et informations utilisées pour identifier cette personne.</p></header>
-<label>Prénom *<input class="field" id="firstName" required maxlength="80">
+<label>Prénom *<input class="field" id="firstName" autocomplete="off" autocapitalize="words" spellcheck="false" required maxlength="80">
 </label>
-<label>Second prénom<input class="field" id="middleName" maxlength="80">
+<label>Second prénom<input class="field" id="middleName" autocomplete="off" autocapitalize="words" spellcheck="false" maxlength="80">
 </label>
-<label>Nom de naissance *<input class="field" id="lastName" required maxlength="80">
+<label>Nom de naissance *<input class="field" id="lastName" autocomplete="off" autocapitalize="words" spellcheck="false" required maxlength="80">
 </label>
 <label>Sexe<select class="field" id="gender">
 <option value="">Non précisé</option>
@@ -264,19 +266,19 @@
 <option value="X">Autre</option>
 </select>
 </label>
-<label id="marriedNameField">Nom d’épouse<input class="field" id="marriedName" maxlength="80" placeholder="Nom porté après mariage">
+<label id="marriedNameField">Nom d’épouse<input class="field" id="marriedName" autocomplete="off" autocapitalize="words" spellcheck="false" maxlength="80" placeholder="Nom porté après mariage">
 </label>
-<label>Branche familiale<input class="field" id="branch" placeholder="Ex. Giovannoni" maxlength="80">
+<label>Branche familiale<input class="field" id="branch" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Ex. Giovannoni" maxlength="80">
 </label>
 <header class="form-section-heading wide"><h4>Événements de vie</h4><p>Conservez uniquement le niveau de précision réellement connu.</p></header>
 <fieldset class="life-fields wide"><legend>Naissance</legend><div class="life-fields-grid">
-<div class="genealogy-date" data-date-control="birth"><label>Précision de la date</label><div class="date-type-switch" role="group" aria-label="Précision de la date de naissance"><button class="date-type-button active" type="button" data-date-prefix="birth" data-date-type="exact">Date précise</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="year">Année</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="about">Vers</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="between">Entre</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="unknown">Inconnue</button></div><div class="date-value-panel single" data-date-panel="birth-exact"><label>Date précise<input class="field" id="birthDate" type="date"></label></div><div class="date-value-panel single" data-date-panel="birth-year" hidden><label>Année<input class="field" id="birthYear" type="number" min="1" max="9999" inputmode="numeric"></label></div><div class="date-value-panel" data-date-panel="birth-between" hidden><label>De<input class="field" id="birthYearFrom" type="number" min="1" max="9999" inputmode="numeric"></label><label>À<input class="field" id="birthYearTo" type="number" min="1" max="9999" inputmode="numeric"></label></div><div class="date-unknown" data-date-panel="birth-unknown" hidden>La date sera affichée « — ».</div></div>
-<label>Lieu<input class="field" id="place" placeholder="Ex. Orino, Varese, Italie" maxlength="140">
+<div class="genealogy-date" data-date-control="birth"><label>Précision de la date</label><div class="date-type-switch" role="group" aria-label="Précision de la date de naissance"><button class="date-type-button active" type="button" data-date-prefix="birth" data-date-type="exact">Date précise</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="year">Année</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="about">Vers</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="between">Entre</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="unknown">Inconnue</button></div><div class="date-value-panel single" data-date-panel="birth-exact"><label>Date précise<input class="field" id="birthDate" type="date"></label></div><div class="date-value-panel single" data-date-panel="birth-year" hidden><label>Année<input class="field" id="birthYear" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div><div class="date-value-panel" data-date-panel="birth-between" hidden><label>De<input class="field" id="birthYearFrom" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label><label>À<input class="field" id="birthYearTo" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div><div class="date-unknown" data-date-panel="birth-unknown" hidden>La date sera affichée « — ».</div></div>
+<label>Lieu<input class="field" id="place" autocomplete="off" autocapitalize="words" placeholder="Ex. Orino, Varese, Italie" maxlength="140">
 </label>
 </div></fieldset>
 <fieldset class="life-fields wide"><legend>Décès</legend><div class="life-fields-grid">
-<div class="genealogy-date" data-date-control="death"><label>Précision de la date</label><div class="date-type-switch" role="group" aria-label="Précision de la date de décès"><button class="date-type-button active" type="button" data-date-prefix="death" data-date-type="exact">Date précise</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="year">Année</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="about">Vers</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="between">Entre</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="unknown">Inconnue</button></div><div class="date-value-panel single" data-date-panel="death-exact"><label>Date précise<input class="field" id="deathDate" type="date"></label></div><div class="date-value-panel single" data-date-panel="death-year" hidden><label>Année<input class="field" id="deathYear" type="number" min="1" max="9999" inputmode="numeric"></label></div><div class="date-value-panel" data-date-panel="death-between" hidden><label>De<input class="field" id="deathYearFrom" type="number" min="1" max="9999" inputmode="numeric"></label><label>À<input class="field" id="deathYearTo" type="number" min="1" max="9999" inputmode="numeric"></label></div><div class="date-unknown" data-date-panel="death-unknown" hidden>La date sera affichée « — ».</div></div>
-<label>Lieu<input class="field" id="deathPlace" placeholder="Ville, province, pays" maxlength="140">
+<div class="genealogy-date" data-date-control="death"><label>Précision de la date</label><div class="date-type-switch" role="group" aria-label="Précision de la date de décès"><button class="date-type-button active" type="button" data-date-prefix="death" data-date-type="exact">Date précise</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="year">Année</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="about">Vers</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="between">Entre</button><button class="date-type-button" type="button" data-date-prefix="death" data-date-type="unknown">Inconnue</button></div><div class="date-value-panel single" data-date-panel="death-exact"><label>Date précise<input class="field" id="deathDate" type="date"></label></div><div class="date-value-panel single" data-date-panel="death-year" hidden><label>Année<input class="field" id="deathYear" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div><div class="date-value-panel" data-date-panel="death-between" hidden><label>De<input class="field" id="deathYearFrom" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label><label>À<input class="field" id="deathYearTo" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div><div class="date-unknown" data-date-panel="death-unknown" hidden>La date sera affichée « — ».</div></div>
+<label>Lieu<input class="field" id="deathPlace" autocomplete="off" autocapitalize="words" placeholder="Ville, province, pays" maxlength="140">
 </label>
 </div></fieldset>
 <header class="form-section-heading wide"><h4>Informations complémentaires</h4><p>Ajoutez une photo ou des éléments utiles à la recherche familiale.</p></header>
@@ -289,7 +291,7 @@
 <button class="btn small" id="removePersonPhotoBtn" type="button" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-unlink"></use></svg><span>Retirer la photo</span></button>
 </div><p class="photo-status" id="personPhotoStatus">Recadrage carré et compression automatique à 5 Ko maximum.</p></div>
 </section>
-<label class="wide">Notes<textarea class="field" id="notes" rows="3" maxlength="800" placeholder="Profession, histoire, sources…">
+<label class="wide">Notes<textarea class="field" id="notes" rows="3" maxlength="800" autocapitalize="sentences" placeholder="Profession, histoire, sources…">
 </textarea>
 </label>
 </div>
@@ -299,9 +301,9 @@
 <div id="personRelationsContent">
 <div class="relations-list" id="relationsList"></div>
 <div class="relation-builder">
-<div class="relation-row"><strong class="relation-type">Partenaire</strong><label>Choisir la personne<select class="field" id="partnerSelect"></select></label><button class="btn primary" type="button" id="addPartnerBtn">Ajouter</button></div>
-<div class="relation-row"><strong class="relation-type">Enfant</strong><div><label>Union ou foyer<select class="field" id="childFamilySelect"></select></label><label style="margin-top:8px">Choisir l’enfant<select class="field" id="childSelect"></select></label><label style="margin-top:8px">Type de filiation<select class="field" id="childFiliationType"><option value="unknown">Non précisée</option><option value="biological">Biologique</option><option value="adoptive">Adoptive</option><option value="uncertain">Incertaine</option></select></label></div><button class="btn primary" type="button" id="addChildBtn">Ajouter</button></div>
-<div class="relation-row"><strong class="relation-type">Parent</strong><div><label>Choisir le parent<select class="field" id="parentSelect"></select></label><label style="margin-top:8px">Type de filiation<select class="field" id="parentFiliationType"><option value="unknown">Non précisée</option><option value="biological">Biologique</option><option value="adoptive">Adoptive</option><option value="uncertain">Incertaine</option></select></label></div><button class="btn primary" type="button" id="addParentBtn">Ajouter</button></div>
+<div class="relation-row"><strong class="relation-type">Partenaire</strong><label>Choisir la personne<select class="field" id="partnerSelect"></select></label><button class="btn primary" type="button" id="addPartnerBtn">Ajouter le partenaire</button></div>
+<div class="relation-row"><strong class="relation-type">Enfant</strong><div><label>Union ou foyer<select class="field" id="childFamilySelect"></select></label><label style="margin-top:8px">Choisir l’enfant<select class="field" id="childSelect"></select></label><label style="margin-top:8px">Type de filiation<select class="field" id="childFiliationType"><option value="unknown">Non précisée</option><option value="biological">Biologique</option><option value="adoptive">Adoptive</option><option value="uncertain">Incertaine</option></select></label></div><button class="btn primary" type="button" id="addChildBtn">Ajouter l’enfant</button></div>
+<div class="relation-row"><strong class="relation-type">Parent</strong><div><label>Choisir le parent<select class="field" id="parentSelect"></select></label><label style="margin-top:8px">Type de filiation<select class="field" id="parentFiliationType"><option value="unknown">Non précisée</option><option value="biological">Biologique</option><option value="adoptive">Adoptive</option><option value="uncertain">Incertaine</option></select></label></div><button class="btn primary" type="button" id="addParentBtn">Ajouter le parent</button></div>
 <p class="hint">Pour représenter deux parents, ajoutez-les successivement. Pour une famille, créez d’abord le couple puis rattachez les enfants à cette union.</p>
 </div>
 </div>
@@ -344,16 +346,16 @@
 <div class="modal-head"><div><h3 id="documentDialogTitle">Ajouter un document</h3><p>Le même document peut être associé à plusieurs personnes.</p></div><button class="btn icon-btn" type="button" data-close="documentDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
 <form class="modal-body modal-form" id="documentForm"><div class="modal-scroll"><input type="hidden" id="documentId"><div class="grid">
 <header class="form-section-heading wide"><h4>Identification</h4><p>Le titre personnalisé reste facultatif.</p></header>
-<label class="wide">Titre <span class="hint">(facultatif)</span><input class="field" id="documentTitle" maxlength="140" placeholder="Ex. Acte de naissance de Carlo"></label>
+<label class="wide">Titre <span class="hint">(facultatif)</span><input class="field" id="documentTitle" maxlength="140" placeholder="Ex. Acte de naissance de Carlo" autocomplete="off" autocapitalize="sentences"></label>
 <label>Type *<select class="field" id="documentType" required><option value="">Sélectionner…</option><option>Acte de naissance</option><option>Acte de décès</option><option>Acte de baptême</option><option>Acte de mariage</option><option>Recensement</option><option>Photo</option><option>Autre</option></select></label>
 <label>Date du document<input class="field" id="documentDate" type="date"></label>
-<label class="wide">Lieu<input class="field" id="documentPlace" maxlength="140"></label>
+<label class="wide">Lieu<input class="field" id="documentPlace" maxlength="140" autocomplete="off" autocapitalize="words"></label>
 <header class="form-section-heading wide"><h4>Source du document</h4><p>Ajoutez un fichier ou, à défaut, une adresse permettant de le consulter.</p></header>
 <label class="wide">Fichier PDF ou image<input class="field" id="documentFile" type="file" accept=".pdf,application/pdf,image/*"><span class="file-note" id="currentDocumentFile">Les images sont automatiquement optimisées en haute qualité. Les PDF restent inchangés pour préserver leur lisibilité.</span></label>
-<label class="wide">Ou lien vers le document<input class="field" id="documentUrl" type="url" placeholder="https://…"><span class="file-note">Vous pouvez utiliser un lien Google Drive, Dropbox ou vers une archive en ligne.</span></label>
+<label class="wide">Ou lien vers le document<input class="field" id="documentUrl" type="url" placeholder="https://…" inputmode="url" autocomplete="url" autocapitalize="none" spellcheck="false"><span class="file-note">Vous pouvez utiliser un lien Google Drive, Dropbox ou vers une archive en ligne.</span></label>
 <header class="form-section-heading wide"><h4>Association et notes</h4><p>Un document peut concerner plusieurs personnes.</p></header>
 <div class="wide"><label>Personnes concernées</label><div class="checkbox-list" id="documentPeople"></div></div>
-<label class="wide">Notes<textarea class="field" id="documentNotes" rows="3" maxlength="1200"></textarea></label>
+<label class="wide">Notes<textarea class="field" id="documentNotes" rows="3" maxlength="1200" autocapitalize="sentences"></textarea></label>
 </div><div class="upload-progress" id="documentProgress" role="status" aria-live="polite"></div></div><div class="modal-actions"><button class="btn danger" type="button" id="deleteDocumentBtn" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-trash"></use></svg><span>Supprimer</span></button><div class="right"><button class="btn" type="button" data-close="documentDialog">Annuler</button><button class="btn primary" type="submit" id="saveDocumentBtn">Enregistrer</button></div></div></form>
 </dialog>
 <dialog id="documentViewerDialog" class="viewer-dialog modal-lg" aria-labelledby="viewerTitle">
@@ -368,15 +370,15 @@
 <div class="modal-head"><div><h3 id="taskDialogTitle">Ajouter une tâche</h3><p>Suivez vos démarches et recherches généalogiques.</p></div><button class="btn icon-btn" type="button" data-close="taskDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
 <form class="modal-body modal-form" id="taskForm"><div class="modal-scroll"><input type="hidden" id="taskId"><div class="grid">
 <header class="form-section-heading wide"><h4>Organisation</h4><p>Définissez ce qui doit être fait et son niveau de priorité.</p></header>
-<label class="wide">Titre *<input class="field" id="taskTitle" required maxlength="160"></label>
+<label class="wide">Titre *<input class="field" id="taskTitle" required maxlength="160" autocomplete="off" autocapitalize="sentences"></label>
 <label>Statut<select class="field" id="taskStatus"><option value="todo">À faire</option><option value="progress">En cours</option><option value="done">Terminée</option></select></label>
 <label>Priorité<select class="field" id="taskPriority"><option value="medium">Moyenne</option><option value="high">Haute</option><option value="low">Basse</option></select></label>
-<label>Responsable<input class="field" id="taskAssignee" maxlength="120"></label>
+<label>Responsable<input class="field" id="taskAssignee" maxlength="120" autocomplete="off" autocapitalize="words"></label>
 <label>Échéance<input class="field" id="taskDueDate" type="date"></label>
 <label class="wide">Personne concernée<select class="field" id="taskPersonId"></select></label>
 <header class="form-section-heading wide"><h4>Détails du suivi</h4><p>Ces informations peuvent être complétées au fil de la recherche.</p></header>
-<label class="wide">Description<textarea class="field" id="taskDescription" rows="3" maxlength="1500"></textarea></label>
-<label class="wide">Commentaires<textarea class="field" id="taskComments" rows="3" maxlength="2000" placeholder="Résultats, relances, informations utiles…"></textarea></label>
+<label class="wide">Description<textarea class="field" id="taskDescription" rows="3" maxlength="1500" autocapitalize="sentences"></textarea></label>
+<label class="wide">Commentaires<textarea class="field" id="taskComments" rows="3" maxlength="2000" placeholder="Résultats, relances, informations utiles…" autocapitalize="sentences"></textarea></label>
 </div></div><div class="modal-actions"><button class="btn danger" type="button" id="deleteTaskBtn" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-trash"></use></svg><span>Supprimer</span></button><div class="right"><button class="btn" type="button" data-close="taskDialog">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></div></form>
 </dialog>
   <dialog id="dataDialog" class="data-dialog modal-md" aria-labelledby="dataDialogTitle">
@@ -394,7 +396,7 @@
 </dialog>
   <dialog id="adminDialog" class="admin-dialog modal-lg" aria-labelledby="adminDialogTitle">
 <div class="modal-head"><div><h3 id="adminDialogTitle">Administration des utilisateurs</h3><p>Validez les demandes, gérez les accès et les droits administrateur.</p></div><button class="btn icon-btn" type="button" data-close="adminDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
-<div class="modal-body"><div class="admin-stats"><span class="pill" id="adminTotalCount">0 utilisateur</span><span class="pill" id="adminPendingCount">0 en attente</span><span class="pill" id="adminActiveCount">0 actif</span></div><label class="admin-search-label">Rechercher un utilisateur<input class="field" id="adminSearch" type="search" placeholder="Nom ou adresse e-mail"></label><div class="admin-users" id="adminUsers"></div></div>
+<div class="modal-body"><div class="admin-stats"><span class="pill" id="adminTotalCount">0 utilisateur</span><span class="pill" id="adminPendingCount">0 en attente</span><span class="pill" id="adminActiveCount">0 actif</span></div><label class="admin-search-label">Rechercher un utilisateur<input class="field" id="adminSearch" type="search" placeholder="Nom ou adresse e-mail" enterkeyhint="search" autocomplete="off" autocapitalize="none" spellcheck="false"></label><div class="admin-users" id="adminUsers"></div></div>
 </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true">
     <span class="toast-icon" id="toastIcon" aria-hidden="true"></span>
