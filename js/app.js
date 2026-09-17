@@ -339,9 +339,6 @@ function syncState() {
   }
   if (loadedPeople && loadedFamilies) {
     setLoadingSurface("treeViewport", false);
-    const visibleCount = treePeople().length;
-    $("peopleCount").textContent = `${visibleCount} personne${visibleCount > 1 ? "s" : ""} dans l’arbre`;
-    $("familyCount").textContent = `${families.length} union${families.length > 1 ? "s" : ""}`;
     renderTree();
   }
 }
