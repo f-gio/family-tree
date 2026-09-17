@@ -2,6 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebas
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
 import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, doc, getDoc, setDoc, onSnapshot, serverTimestamp, writeBatch, runTransaction, Bytes } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 import { calculateTreeLayout } from "./tree-layout.js";
+import { calculateTreeLayout as calculateHybridTreeLayout, validateLayout as validateHybridLayout } from "./tree-layout-engine.js";
 import { createTreeRenderer } from "./tree-renderer.js";
 import { createTreeCamera } from "./tree-camera.js";
 import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree-branch-view.js";
@@ -43,6 +44,7 @@ let unsubs = [];
 let profileUnsub = null, adminUsersUnsub = null, activeDataUid = "";
 let currentUserProfile = null, primaryAdminUid = "", adminUsersCache = [], currentProfilePhoto = "";
 let manualOffsets = readOffsets();
+let treeLayoutEngine = "hybrid";
 let activeViewerUrl = "";
 let activePersonSection = "identity";
 let documentReturnContext = null;
@@ -315,6 +317,19 @@ const renderer = createTreeRenderer({
   }
 });
 
+// Bascule de comparaison OLD/NEW sans interface permanente (console).
+if (typeof window !== "undefined") {
+  window.familyTreeLayoutEngine = {
+    get mode() { return treeLayoutEngine; },
+    set(mode) {
+      treeLayoutEngine = mode === "legacy" ? "legacy" : "hybrid";
+      cameraPositioned = false;
+      if (loadedPeople && loadedFamilies) renderTree();
+      return treeLayoutEngine;
+    }
+  };
+}
+
 function currentTreeScope() {
   const basePeople = treePeople();
   if (branchView && basePeople.some(item => item.id === branchView.personId)) {
@@ -365,10 +380,23 @@ function updateBranchBanner(scope = currentTreeScope()) {
   });
 }
 
+function computeTreeLayout(scope) {
+  if (treeLayoutEngine === "legacy") return calculateTreeLayout(scope.people, scope.families);
+  try {
+    const layout = calculateHybridTreeLayout(scope.people, scope.families);
+    const report = validateHybridLayout(layout, { peopleCount: scope.people.length });
+    if (report.valid) return layout;
+    console.warn("Layout hybride invalide, repli sur l'ancien moteur.", report);
+  } catch (error) {
+    console.error("Échec du layout hybride, repli sur l'ancien moteur.", error);
+  }
+  return calculateTreeLayout(scope.people, scope.families);
+}
+
 function renderTree() {
   if (!loadedPeople || !loadedFamilies) return;
   const scope = currentTreeScope();
-  currentLayout = applyManualPositions(calculateTreeLayout(scope.people, scope.families));
+  currentLayout = applyManualPositions(computeTreeLayout(scope));
   renderer.render(scope.people, currentLayout);
   renderer.setActive(activeId);
   camera.setBounds(currentLayout.bounds);

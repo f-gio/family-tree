@@ -26,36 +26,54 @@ function familyColorIndex(family, index) {
   return Math.abs(hash) % 6;
 }
 
-function connectionElements(layout) {
+/**
+ * Géométrie pure des connecteurs d'une union (famille). Origine propre à
+ * l'union, segments entre partenaires consécutifs, et descente limitée aux
+ * enfants de cette union uniquement.
+ */
+export function unionConnection(family, positions, geometry = {}) {
+  const partners = (family.partnerIds || []).map(id => positions.get(id)).filter(Boolean).sort((a, b) => a.x - b.x);
+  if (!partners.length) return null;
+  const segments = [];
+  for (let index = 0; index < partners.length - 1; index++) {
+    const left = partners[index], right = partners[index + 1];
+    segments.push({ x1: left.x + left.width, x2: right.x, y: (left.y + right.y) / 2 + left.height / 2 });
+  }
+  const first = partners[0], last = partners[partners.length - 1];
+  const origin = { x: (first.x + first.width + last.x) / 2, y: (first.y + last.y) / 2 + first.height / 2 };
+  const children = (family.childIds || [])
+    .map(id => ({ id, position: positions.get(id) }))
+    .filter(item => item.position)
+    .map(item => ({ id: item.id, x: item.position.x + item.position.width / 2, y: item.position.y }));
+  let busY = null, bar = null;
+  if (children.length) {
+    const gap = geometry.generationGap ?? geometry.levelGap ?? 116;
+    busY = Math.min(...children.map(child => child.y)) - gap / 2;
+    const allX = [origin.x, ...children.map(child => child.x)];
+    bar = { minX: Math.min(...allX), maxX: Math.max(...allX) };
+  }
+  return { partners, segments, origin, children, busY, bar };
+}
+
+export function connectionElements(layout) {
   const { positions, families, geometry } = layout;
   const elements = [];
   families.forEach((family, familyIndex) => {
     const colorClass = `family-${familyColorIndex(family, familyIndex)}`;
-    const partners = (family.partnerIds || []).map(id => positions.get(id)).filter(Boolean).sort((a, b) => a.x - b.x);
-    const children = (family.childIds || []).map(id => ({ id, position: positions.get(id) })).filter(item => item.position);
-    if (!partners.length) return;
-    let origin;
-    if (partners.length > 1) {
-      const left = partners[0], right = partners[partners.length - 1];
-      const y = (left.y + right.y) / 2 + left.height / 2;
-      const x1 = left.x + left.width, x2 = right.x;
-      const endedClass = ["separation", "divorce", "other"].includes(normalizeEndType(family.endType)) ? "ended-union" : "";
-      elements.push(`<path class="union-line ${colorClass} ${endedClass}" d="M ${x1} ${y} H ${x2}"/>`);
-      origin = { x: (x1 + x2) / 2, y };
-    } else {
-      origin = { x: partners[0].x + partners[0].width / 2, y: partners[0].y + partners[0].height };
+    const connection = unionConnection(family, positions, geometry);
+    if (!connection) return;
+    const endedClass = ["separation", "divorce", "other"].includes(normalizeEndType(family.endType)) ? "ended-union" : "";
+    for (const segment of connection.segments) {
+      elements.push(`<path class="union-line ${colorClass} ${endedClass}" d="M ${segment.x1} ${segment.y} H ${segment.x2}"/>`);
     }
-    if (!children.length) return;
-    const childPoints = children.map(child => ({ id: child.id, x: child.position.x + child.position.width / 2, y: child.position.y }));
-    const busY = Math.min(...childPoints.map(point => point.y)) - geometry.levelGap / 2;
+    if (!connection.children.length) return;
+    const { origin, busY, bar, children } = connection;
     elements.push(`<path class="descent-line ${colorClass}" d="M ${origin.x} ${origin.y} V ${busY}"/>`);
-    const allX = [origin.x, ...childPoints.map(point => point.x)];
-    const minX = Math.min(...allX), maxX = Math.max(...allX);
-    if (maxX - minX > 0.5) elements.push(`<path class="descent-line ${colorClass}" d="M ${minX} ${busY} H ${maxX}"/>`);
-    childPoints.forEach((point, index) => {
-      const lineType = childLineType(family, point.id);
+    if (bar.maxX - bar.minX > 0.5) elements.push(`<path class="descent-line ${colorClass}" d="M ${bar.minX} ${busY} H ${bar.maxX}"/>`);
+    children.forEach(child => {
+      const lineType = childLineType(family, child.id);
       const relationClass = lineType === "adoptive" ? "adoptive-line" : lineType === "uncertain" ? "uncertain-line" : "";
-      elements.push(`<path class="descent-line ${colorClass} ${relationClass}" d="M ${point.x} ${busY} V ${point.y}"/>`);
+      elements.push(`<path class="descent-line ${colorClass} ${relationClass}" d="M ${child.x} ${busY} V ${child.y}"/>`);
     });
     elements.push(`<circle class="junction ${colorClass}" cx="${origin.x}" cy="${origin.y}" r="5"/>`);
     elements.push(`<circle class="junction ${colorClass}" cx="${origin.x}" cy="${busY}" r="4"/>`);
