@@ -4,6 +4,7 @@ import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, do
 import { calculateTreeLayout } from "./tree-layout.js";
 import { createTreeRenderer } from "./tree-renderer.js";
 import { createTreeCamera } from "./tree-camera.js";
+import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree-branch-view.js";
 import { documentDisplayLabel } from "./document-utils.js";
 import { directoryPersonName, formatDirectoryDate, filterAndSortDirectory } from "./directory-utils.js";
 import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText } from "./genealogy-date.js";
@@ -36,6 +37,7 @@ let people = [], families = [], documents = [], tasks = [];
 let activeId = null, currentLayout = null, automaticPositions = new Map();
 let personDialogSource = "tree";
 let cameraPositioned = false, focusAfterRender = null;
+let branchView = null;
 let loadedPeople = false, loadedFamilies = false, loadedDocuments = false, loadedTasks = false;
 let unsubs = [];
 let profileUnsub = null, adminUsersUnsub = null, activeDataUid = "";
@@ -313,11 +315,61 @@ const renderer = createTreeRenderer({
   }
 });
 
+function currentTreeScope() {
+  const basePeople = treePeople();
+  if (branchView && basePeople.some(item => item.id === branchView.personId)) {
+    try {
+      return computeBranchView({ people: basePeople, families, rootId: branchView.personId, ancestorDepth: branchView.ancestorDepth });
+    } catch (error) {
+      console.error(error);
+      branchView = null;
+    }
+  } else if (branchView) {
+    branchView = null;
+  }
+  return { people: basePeople, families, hiddenAncestorCounts: new Map(), rootId: null };
+}
+
+function branchDepthLabel(depth) {
+  if (depth === ALL_ANCESTORS || depth === Infinity) return "Toute l’ascendance";
+  const value = Number(depth) || DEFAULT_ANCESTOR_DEPTH;
+  return `${value} génération${value > 1 ? "s" : ""} d’ancêtres`;
+}
+
+function updateBranchBanner(scope = currentTreeScope()) {
+  const banner = $("branchBanner");
+  if (!banner) return;
+  const active = !!(branchView && person(branchView.personId));
+  banner.hidden = !active;
+  document.querySelectorAll("[data-branch-depth]").forEach(button => {
+    const value = button.dataset.branchDepth === "all" ? ALL_ANCESTORS : Number(button.dataset.branchDepth);
+    const isActive = active && (branchView.ancestorDepth === value || (value === ALL_ANCESTORS && branchView.ancestorDepth === Infinity));
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+  document.querySelectorAll("#treeScene .branch-frontier").forEach(node => node.remove());
+  if (!active) return;
+  const item = person(branchView.personId);
+  $("branchBannerName").textContent = item ? [item.firstName, item.lastName].filter(Boolean).join(" ") : "";
+  $("branchBannerDepth").textContent = branchDepthLabel(branchView.ancestorDepth);
+  const counts = scope.hiddenAncestorCounts || new Map();
+  if (!counts.size) return;
+  document.querySelectorAll("#treeScene [data-person-id]").forEach(card => {
+    const count = counts.get(card.dataset.personId);
+    if (!count) return;
+    const badge = document.createElement("span");
+    badge.className = "branch-frontier";
+    badge.textContent = `↑ ${count} ancêtre${count > 1 ? "s" : ""}`;
+    badge.title = `${count} ancêtre${count > 1 ? "s" : ""} supplémentaire${count > 1 ? "s" : ""}`;
+    card.appendChild(badge);
+  });
+}
+
 function renderTree() {
   if (!loadedPeople || !loadedFamilies) return;
-  const visiblePeople = treePeople();
-  currentLayout = applyManualPositions(calculateTreeLayout(visiblePeople, families));
-  renderer.render(visiblePeople, currentLayout);
+  const scope = currentTreeScope();
+  currentLayout = applyManualPositions(calculateTreeLayout(scope.people, scope.families));
+  renderer.render(scope.people, currentLayout);
   renderer.setActive(activeId);
   camera.setBounds(currentLayout.bounds);
   if (!cameraPositioned) {
@@ -329,6 +381,26 @@ function renderTree() {
     focusAfterRender = null;
   }
   applySearch(false);
+  updateBranchBanner(scope);
+}
+
+function activateBranchView(personId) {
+  const item = person(personId);
+  if (!item) return;
+  const depth = branchView && branchView.ancestorDepth ? branchView.ancestorDepth : DEFAULT_ANCESTOR_DEPTH;
+  branchView = { personId, ancestorDepth: depth };
+  if ($("personDialog").open) close("personDialog");
+  setView("tree");
+  focusAfterRender = personId;
+  renderTree();
+}
+
+function exitBranchView() {
+  if (!branchView) return;
+  branchView = null;
+  renderTree();
+  camera.fit();
+  toast("Arbre complet restauré");
 }
 
 function syncState() {
@@ -505,6 +577,7 @@ function openPerson(item = null, source = "tree") {
   $("dialogTitle").textContent = item ? "Modifier la personne" : "Ajouter une personne";
   $("savePersonBtn").textContent = item ? "Enregistrer" : "Enregistrer et ajouter ses liens";
   $("deleteBtn").hidden = !item;
+  $("viewBranchBtn").hidden = !item;
   setActionLabel($("deleteBtn"), source === "directory" ? "Supprimer définitivement" : "Retirer de l’arbre", source === "directory" ? "trash" : "unlink");
   $("restoreTreeBtn").hidden = !item || item.inTree !== false || source !== "directory";
   $("personId").value = item?.id || "";
@@ -1731,7 +1804,7 @@ function setView(view) {
   if (view === "directory") renderDirectory();
   if (view === "documents") renderDocuments();
   if (view === "tasks") renderTasks();
-  if (view === "tree") setTimeout(() => camera.recenter(), 0);
+  if (view === "tree" && !branchView) setTimeout(() => camera.recenter(), 0);
 }
 
 function dataError(error) {
@@ -2141,6 +2214,20 @@ $("adminDialog").addEventListener("close", () => {
   adminUsersUnsub = null;
 });
 $("addBtn").onclick = () => openPerson();
+$("viewBranchBtn").onclick = () => {
+  const id = $("personId").value;
+  if (id) activateBranchView(id);
+};
+$("branchExitBtn").onclick = exitBranchView;
+document.querySelectorAll("[data-branch-depth]").forEach(button => {
+  button.onclick = () => {
+    if (!branchView) return;
+    const value = button.dataset.branchDepth === "all" ? ALL_ANCESTORS : Number(button.dataset.branchDepth);
+    branchView = { ...branchView, ancestorDepth: value };
+    focusAfterRender = branchView.personId;
+    renderTree();
+  };
+});
 $("addDirectoryPersonBtn").onclick = () => openPerson(null, "directory");
 $("gender").onchange = updateMarriedNameVisibility;
 $("firstName").addEventListener("input", updatePersonPhotoPreview);
