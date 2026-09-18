@@ -6,6 +6,7 @@ import { calculateTreeLayout as calculateHybridTreeLayout, validateLayout as val
 import { createTreeRenderer } from "./tree-renderer.js";
 import { createTreeCamera } from "./tree-camera.js";
 import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree-branch-view.js";
+import { computeLineageScope } from "./family-lineage.js";
 import { documentDisplayLabel } from "./document-utils.js";
 import { directoryPersonName, formatDirectoryDate, filterAndSortDirectory } from "./directory-utils.js";
 import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText } from "./genealogy-date.js";
@@ -39,6 +40,8 @@ let activeId = null, currentLayout = null, automaticPositions = new Map();
 let personDialogSource = "tree";
 let cameraPositioned = false, focusAfterRender = null;
 let branchView = null;
+let lineageSurname = "";
+let currentScope = null;
 let loadedPeople = false, loadedFamilies = false, loadedDocuments = false, loadedTasks = false;
 let unsubs = [];
 let profileUnsub = null, adminUsersUnsub = null, activeDataUid = "";
@@ -342,6 +345,10 @@ function currentTreeScope() {
   } else if (branchView) {
     branchView = null;
   }
+  if (lineageSurname) {
+    const lineageScope = computeLineageScope({ people: basePeople, families, surname: lineageSurname });
+    if (lineageScope) return lineageScope;
+  }
   return { people: basePeople, families, hiddenAncestorCounts: new Map(), rootId: null };
 }
 
@@ -396,6 +403,7 @@ function computeTreeLayout(scope) {
 function renderTree() {
   if (!loadedPeople || !loadedFamilies) return;
   const scope = currentTreeScope();
+  currentScope = scope;
   currentLayout = applyManualPositions(computeTreeLayout(scope));
   renderer.render(scope.people, currentLayout);
   renderer.setActive(activeId);
@@ -416,6 +424,8 @@ function activateBranchView(personId) {
   const item = person(personId);
   if (!item) return;
   const depth = branchView && branchView.ancestorDepth ? branchView.ancestorDepth : DEFAULT_ANCESTOR_DEPTH;
+  lineageSurname = "";
+  if ($("treeBranchFilter")) $("treeBranchFilter").value = "";
   branchView = { personId, ancestorDepth: depth };
   if ($("personDialog").open) close("personDialog");
   setView("tree");
@@ -466,7 +476,8 @@ function updateReadyViews() {
 
 function applySearch(focus = true) {
   const query = searchable($("search").value);
-  const matches = query ? treePeople().filter(item => searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.place || ""} ${item.branch || ""} ${genealogyDateSearchText(item.birthDateInfo, item.birthDate)} ${genealogyDateSearchText(item.deathDateInfo, item.deathDate)}`).includes(query)) : [];
+  const scopePeople = currentScope?.people || treePeople();
+  const matches = query ? scopePeople.filter(item => searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.place || ""} ${item.branch || ""} ${genealogyDateSearchText(item.birthDateInfo, item.birthDate)} ${genealogyDateSearchText(item.deathDateInfo, item.deathDate)}`).includes(query)) : [];
   renderer.setHighlights(matches.map(item => item.id));
   if (focus && matches[0] && currentLayout?.positions.has(matches[0].id)) camera.focus(currentLayout.positions.get(matches[0].id));
 }
@@ -2289,6 +2300,13 @@ $("removePersonPhotoBtn").onclick = () => {
 };
 $("search").oninput = () => applySearch(true);
 $("resetBtn").onclick = () => { $("search").value = ""; applySearch(false); };
+$("treeBranchFilter").onchange = () => {
+  lineageSurname = $("treeBranchFilter").value;
+  branchView = null;
+  focusAfterRender = null;
+  renderTree();
+  camera.fit();
+};
 $("zoomOutBtn").onclick = () => camera.zoomBy(1 / 1.2);
 $("zoomInBtn").onclick = () => camera.zoomBy(1.2);
 $("fitTreeBtn").onclick = () => camera.fit();
