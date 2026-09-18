@@ -1348,6 +1348,18 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   .list-mode .content-card .card-description { display: none; }
 }
 
+/* Tablette : cibles tactiles portées à 44 px sans restructurer la mise en page. */
+@media (max-width: 1024px) and (min-width: 761px) {
+  .nav-btn,
+  .account-action,
+  .directory-action,
+  .directory-filter-menu summary,
+  .directory-view-switch button,
+  .location-suggestion {
+    min-height: var(--control-touch);
+  }
+}
+
 @media (max-width: 760px) {
   body { padding-bottom: env(safe-area-inset-bottom); }
 

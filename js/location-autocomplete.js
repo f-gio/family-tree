@@ -157,20 +157,33 @@ export function createLocationAutocomplete({ input, username, endpoint = DEFAULT
     input.removeAttribute("aria-activedescendant");
   }
 
+  function viewportBounds() {
+    const visual = globalThis.visualViewport;
+    if (visual && Number.isFinite(visual.width) && Number.isFinite(visual.offsetTop)) {
+      return { left: 0, top: visual.offsetTop, right: visual.width, bottom: visual.offsetTop + visual.height };
+    }
+    return { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+  }
+
   function positionList() {
     if (list.hidden) return;
+    const bounds = viewportBounds();
     const inputRect = input.getBoundingClientRect();
-    const boundary = host instanceof HTMLDialogElement ? host.getBoundingClientRect() : { left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight };
+    const hostRect = host instanceof HTMLDialogElement ? host.getBoundingClientRect() : bounds;
     const margin = 8;
-    const left = Math.max(boundary.left + margin, Math.min(inputRect.left, boundary.right - inputRect.width - margin));
-    const width = Math.min(inputRect.width, boundary.right - boundary.left - margin * 2);
-    const roomBelow = boundary.bottom - inputRect.bottom - margin;
-    const roomAbove = inputRect.top - boundary.top - margin;
+    const leftLimit = Math.max(bounds.left, hostRect.left);
+    const rightLimit = Math.min(bounds.right, hostRect.right);
+    const width = Math.min(inputRect.width, Math.max(0, rightLimit - leftLimit - margin * 2));
+    const left = Math.max(leftLimit + margin, Math.min(inputRect.left, rightLimit - width - margin));
+    const roomBelow = Math.max(0, Math.min(bounds.bottom, hostRect.bottom) - inputRect.bottom - margin);
+    const roomAbove = Math.max(0, inputRect.top - Math.max(bounds.top, hostRect.top) - margin);
     const placeAbove = roomBelow < 150 && roomAbove > roomBelow;
     list.style.left = `${left}px`;
     list.style.width = `${Math.max(width, 180)}px`;
     list.style.maxHeight = `${Math.max(96, Math.min(288, placeAbove ? roomAbove : roomBelow))}px`;
-    list.style.top = placeAbove ? `${Math.max(boundary.top + margin, inputRect.top - list.offsetHeight - 4)}px` : `${inputRect.bottom + 4}px`;
+    list.style.top = placeAbove
+      ? `${Math.max(Math.max(bounds.top, hostRect.top) + margin, inputRect.top - list.offsetHeight - 4)}px`
+      : `${inputRect.bottom + 4}px`;
   }
 
   function setActive(index) {
@@ -189,6 +202,7 @@ export function createLocationAutocomplete({ input, username, endpoint = DEFAULT
   function choose(location) {
     selected = sanitizeStoredLocation(location);
     input.value = selected ? formatLocationSuggestion(selected) : input.value;
+    input.focus({ preventScroll: true });
     input.dispatchEvent(new Event("change", { bubbles: true }));
     setStatus("");
     closeList();
@@ -211,10 +225,8 @@ export function createLocationAutocomplete({ input, username, endpoint = DEFAULT
       option.setAttribute("role", "option");
       option.setAttribute("aria-selected", "false");
       option.textContent = formatLocationSuggestion(location);
-      option.addEventListener("pointerdown", event => {
-        event.preventDefault();
-        choose(location);
-      });
+      option.addEventListener("pointerdown", event => event.preventDefault());
+      option.addEventListener("click", () => choose(location));
       list.append(option);
     });
     list.hidden = false;
@@ -276,7 +288,19 @@ export function createLocationAutocomplete({ input, username, endpoint = DEFAULT
   input.addEventListener("focus", () => { if (results.length && clean(input.value).length >= minChars) { list.hidden = false; input.setAttribute("aria-expanded", "true"); positionList(); } });
   documentRef.addEventListener("pointerdown", onOutsidePointer, true);
   documentRef.addEventListener("scroll", positionList, true);
-  globalThis.addEventListener?.("resize", positionList);
+
+  let viewportTimer = 0;
+  function onViewportChange() {
+    clearTimeout(viewportTimer);
+    viewportTimer = setTimeout(positionList, 100);
+  }
+  const visualViewportTarget = globalThis.visualViewport;
+  if (visualViewportTarget) {
+    visualViewportTarget.addEventListener("resize", onViewportChange);
+    visualViewportTarget.addEventListener("scroll", onViewportChange);
+  }
+  globalThis.addEventListener?.("resize", onViewportChange);
+  globalThis.addEventListener?.("orientationchange", onViewportChange);
 
   return {
     setValue(value = "", placeInfo = null) {
@@ -297,12 +321,18 @@ export function createLocationAutocomplete({ input, username, endpoint = DEFAULT
     close: closeList,
     destroy() {
       clearTimeout(timer);
+      clearTimeout(viewportTimer);
       request?.abort();
       input.removeEventListener("input", onInput);
       input.removeEventListener("keydown", onKeyDown);
       documentRef.removeEventListener("pointerdown", onOutsidePointer, true);
       documentRef.removeEventListener("scroll", positionList, true);
-      globalThis.removeEventListener?.("resize", positionList);
+      if (visualViewportTarget) {
+        visualViewportTarget.removeEventListener("resize", onViewportChange);
+        visualViewportTarget.removeEventListener("scroll", onViewportChange);
+      }
+      globalThis.removeEventListener?.("resize", onViewportChange);
+      globalThis.removeEventListener?.("orientationchange", onViewportChange);
       list.remove();
     }
   };
