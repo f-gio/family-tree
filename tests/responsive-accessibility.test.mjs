@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
+// Fixtures v17 : snapshot historique de non-régression (firestore.rules)
+// extrait de la baseline Git d58f668. Ne PAS mettre à jour automatiquement ;
+// sa modification requiert une justification explicite.
 const root = new URL("../", import.meta.url);
 const [html, css, app, rules, referenceRules] = await Promise.all([
   readFile(new URL("index.html", root), "utf8"),
   readFile(new URL("css/design-system.css", root), "utf8"),
   readFile(new URL("js/app.js", root), "utf8"),
   readFile(new URL("firestore.rules", root), "utf8"),
-  readFile(new URL("../family-tree-v17-interaction-language/firestore.rules", root), "utf8")
+  readFile(new URL("tests/fixtures/v17/firestore.rules", root), "utf8")
 ]);
 
 // 23 et 29 — adaptation réelle et progressive, au-delà d'un couple desktop/mobile.

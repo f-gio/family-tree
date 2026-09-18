@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { icon, emptyState, setButtonPending } from "../js/ui-components.js";
 
+// Fixtures v16 : snapshot historique de non-régression (firestore.rules)
+// extrait de la baseline Git d58f668. Ne PAS mettre à jour automatiquement ;
+// sa modification requiert une justification explicite.
 const root = new URL("../", import.meta.url);
 const [html, css, app, renderer, rules, previousRules] = await Promise.all([
   readFile(new URL("index.html", root), "utf8"),
@@ -9,7 +12,7 @@ const [html, css, app, renderer, rules, previousRules] = await Promise.all([
   readFile(new URL("js/app.js", root), "utf8"),
   readFile(new URL("js/tree-renderer.js", root), "utf8"),
   readFile(new URL("firestore.rules", root), "utf8"),
-  readFile(new URL("../family-tree-v16-modals-forms/firestore.rules", root), "utf8")
+  readFile(new URL("tests/fixtures/v16/firestore.rules", root), "utf8")
 ]);
 
 // 17 — visibilité de l'état du système.

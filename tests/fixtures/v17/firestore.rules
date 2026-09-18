@@ -1,0 +1,169 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasAccessDocument() {
+      return exists(/databases/$(database)/documents/settings/access);
+    }
+
+    function isPrimaryAdmin() {
+      return signedIn()
+        && hasAccessDocument()
+        && get(/databases/$(database)/documents/settings/access).data.primaryAdminUid == request.auth.uid;
+    }
+
+    function isApproved() {
+      return isPrimaryAdmin()
+        || (signedIn()
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved');
+    }
+
+    function isAdmin() {
+      return isPrimaryAdmin()
+        || (isApproved()
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+    }
+
+    function isBootstrapOwnerAfter() {
+      return signedIn()
+        && !hasAccessDocument()
+        && existsAfter(/databases/$(database)/documents/settings/access)
+        && getAfter(/databases/$(database)/documents/settings/access).data.primaryAdminUid == request.auth.uid;
+    }
+
+    function validGenealogyDate(value) {
+      return value is map && value.type in ['exact', 'year', 'about', 'between', 'unknown']
+        && (value.type == 'unknown'
+          || (value.type == 'exact' && value.value is string && value.value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+          || ((value.type == 'year' || value.type == 'about') && value.year is int && value.year >= 1 && value.year <= 9999)
+          || (value.type == 'between' && value.from is int && value.to is int && value.from >= 1 && value.to <= 9999 && value.from <= value.to));
+    }
+
+    function validPerson() {
+      return (!('photoUrl' in request.resource.data)
+          || (request.resource.data.photoUrl is string && request.resource.data.photoUrl.size() <= 8 * 1024))
+        && (!('birthDateInfo' in request.resource.data) || validGenealogyDate(request.resource.data.birthDateInfo))
+        && (!('deathDateInfo' in request.resource.data) || validGenealogyDate(request.resource.data.deathDateInfo));
+    }
+
+    function validFamily() {
+      return request.resource.data.partnerIds is list
+        && request.resource.data.childIds is list
+        && request.resource.data.partnerIds.size() >= 1
+        && request.resource.data.partnerIds.size() <= 2
+        && request.resource.data.partnerIds.toSet().size() == request.resource.data.partnerIds.size()
+        && request.resource.data.childIds.toSet().size() == request.resource.data.childIds.size()
+        && !request.resource.data.partnerIds.hasAny(request.resource.data.childIds)
+        && (!('relationType' in request.resource.data) || request.resource.data.relationType in ['marriage', 'civil', 'partner', 'other', 'unknown'])
+        && (!('unionDateInfo' in request.resource.data) || validGenealogyDate(request.resource.data.unionDateInfo))
+        && (!('unionPlace' in request.resource.data) || request.resource.data.unionPlace is string)
+        && (!('endType' in request.resource.data) || request.resource.data.endType in ['none', 'separation', 'divorce', 'other', 'unknown'])
+        && (!('endDateInfo' in request.resource.data) || validGenealogyDate(request.resource.data.endDateInfo))
+        && (!('endPlace' in request.resource.data) || request.resource.data.endPlace is string)
+        && (!('parentChildLinks' in request.resource.data) || (request.resource.data.parentChildLinks is list && request.resource.data.parentChildLinks.size() <= 200));
+    }
+
+    function validChunk() {
+      return request.resource.data.documentId is string
+        && request.resource.data.version is string
+        && request.resource.data.index is int
+        && request.resource.data.index >= 0
+        && request.resource.data.data is bytes
+        && request.resource.data.data.size() <= 700 * 1024;
+    }
+
+    function validUser() {
+      return request.resource.data.email is string
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 60
+        && request.resource.data.photo is string
+        && request.resource.data.photo.size() <= 8 * 1024
+        && request.resource.data.role in ['member', 'admin']
+        && request.resource.data.status in ['pending', 'approved', 'suspended', 'rejected'];
+    }
+
+    function adminMayManage(userId) {
+      return !hasAccessDocument()
+        || userId != get(/databases/$(database)/documents/settings/access).data.primaryAdminUid;
+    }
+
+    // Configuration minimale lisible avant connexion pour afficher l'inscription.
+    match /publicConfig/auth {
+      allow read: if true;
+      allow create: if isBootstrapOwnerAfter() || isAdmin();
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // Le premier compte déjà créé qui se connecte initialise l'administrateur principal.
+    match /settings/access {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && !hasAccessDocument()
+        && request.resource.data.primaryAdminUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if signedIn() && (userId == request.auth.uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn() && userId == request.auth.uid && validUser() && (
+        (request.resource.data.email == request.auth.token.email
+          && request.resource.data.role == 'member'
+          && request.resource.data.status == 'pending')
+        || (isBootstrapOwnerAfter()
+          && request.resource.data.role == 'admin'
+          && request.resource.data.status == 'approved')
+        || (isPrimaryAdmin()
+          && request.resource.data.role == 'admin'
+          && request.resource.data.status == 'approved')
+      );
+      allow update: if validUser() && (
+        (isAdmin() && adminMayManage(userId))
+        || (signedIn()
+          && userId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photo', 'updatedAt']))
+      );
+      allow delete: if false;
+    }
+
+    // L'arbre est accessible uniquement aux comptes approuvés.
+    match /people/{personId} {
+      allow read, delete: if isApproved();
+      allow create, update: if isApproved() && validPerson();
+    }
+
+    // Une famille relie un ou deux partenaires à leurs enfants.
+    match /families/{familyId} {
+      allow read, delete: if isApproved();
+      allow create, update: if isApproved() && validFamily();
+    }
+
+    // Métadonnées des actes, photos et autres sources familiales.
+    match /documents/{documentId} {
+      allow read, create, update, delete: if isApproved();
+    }
+
+    // Contenu binaire des fichiers, découpé en blocs inférieurs à 1 Mio.
+    // Cette solution utilise uniquement Firestore et reste compatible avec Spark.
+    match /documentChunks/{chunkId} {
+      allow read, delete: if isApproved();
+      allow create, update: if isApproved() && validChunk();
+    }
+
+    // Tâches de recherche et démarches à effectuer.
+    match /tasks/{taskId} {
+      allow read, create, update, delete: if isApproved();
+    }
+
+    // Aucun autre document Firestore n'est exposé.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

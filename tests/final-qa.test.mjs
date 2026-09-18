@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
+// Fixtures v18 : snapshots historiques de non-régression extraits de la
+// baseline Git d58f668. Elles ne doivent PAS être mises à jour
+// automatiquement quand le code actuel évolue ; leur modification requiert
+// une justification explicite et n'est jamais justifiée par un test rouge.
 const root = new URL("../", import.meta.url);
-const reference = new URL("../family-tree-v18-responsive-accessibility/", root);
+const reference = new URL("tests/fixtures/v18/", root);
 const read = path => readFile(new URL(path, root), "utf8");
 const readReference = path => readFile(new URL(path, reference), "utf8");
 
