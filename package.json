@@ -3,11 +3,14 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Infrastructure de test navigateur (responsive) uniquement. La suite standard reste 'node --test' et ne dépend pas de npm.",
+  "description": "Infrastructure de test navigateur (responsive) et d'intégration Firestore via l'émulateur local. La suite standard reste 'node --test' et ne dépend pas de npm.",
   "scripts": {
-    "test:responsive": "node tests/responsive-real.mjs"
+    "test:responsive": "node tests/responsive-real.mjs",
+    "test:firestore": "firebase emulators:exec --only firestore,auth \"npm run test:firestore:run\"",
+    "test:firestore:run": "node --test tests/firestore-emulator.mjs"
   },
   "devDependencies": {
+    "firebase": "12.2.1",
     "playwright": "^1.63.0"
   }
 }
