@@ -4,6 +4,8 @@ import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, do
 import { calculateTreeLayout } from "./tree-layout.js";
 import { calculateTreeLayout as calculateHybridTreeLayout, validateLayout as validateHybridLayout } from "./tree-layout-engine.js";
 import { createTreeRenderer } from "./tree-renderer.js";
+import { treeExportSvg } from "./tree-export.js";
+import { lifeTimelineEvents } from "./life-timeline.js";
 import { createTreeCamera } from "./tree-camera.js";
 import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree-branch-view.js";
 import { computeLineageScope } from "./family-lineage.js";
@@ -153,6 +155,17 @@ function readViewModes() {
 
 function saveOffsets() {
   localStorage.setItem("familyTreeManualOffsets", JSON.stringify(manualOffsets));
+}
+
+const DIRECTORY_SORT_OPTIONS = ["name-asc", "name-desc", "birth-asc", "birth-desc"];
+
+function readDirectorySort() {
+  const value = localStorage.getItem("familyTreeDirectorySort");
+  return DIRECTORY_SORT_OPTIONS.includes(value) ? value : "name-asc";
+}
+
+function saveDirectorySort(value) {
+  localStorage.setItem("familyTreeDirectorySort", value);
 }
 
 function esc(value = "") {
@@ -382,6 +395,17 @@ function currentTreeScope() {
   return { people: basePeople, families, hiddenAncestorCounts: new Map(), rootId: null };
 }
 
+/**
+ * Contexte de hiérarchie transmis au renderer sans modifier le modèle ni le
+ * moteur de layout : 'focus' pour le point focal choisi dans « Voir sa
+ * branche » (la personne cliquée, jamais appelée « Souche »).
+ */
+function treeContextMarkers(scope) {
+  const markers = new Map();
+  if (scope.rootId && !scope.lineage) markers.set(scope.rootId, "focus");
+  return markers;
+}
+
 function branchDepthLabel(depth) {
   if (depth === ALL_ANCESTORS || depth === Infinity) return "Toute l’ascendance";
   const value = Number(depth) || DEFAULT_ANCESTOR_DEPTH;
@@ -483,7 +507,7 @@ function renderTree() {
   const scope = currentTreeScope();
   currentScope = scope;
   currentLayout = applyManualPositions(computeTreeLayout(scope));
-  renderer.render(scope.people, currentLayout);
+  renderer.render(scope.people, currentLayout, treeContextMarkers(scope));
   renderer.setActive(activeId);
   camera.setBounds(currentLayout.bounds);
   if (!cameraPositioned) {
@@ -513,6 +537,79 @@ function scheduleTreeViewportFit() {
 
 window.addEventListener("orientationchange", scheduleTreeViewportFit);
 window.addEventListener("resize", scheduleTreeViewportFit, { passive: true });
+
+// Export PNG de l'arbre entier cadré, fidèle à la vue courante (positions et
+// couleurs réutilisées) ; les photos externes sont pré-chargées en CORS pour
+// ne pas souiller le canvas et retombent sur les initiales en cas d'échec.
+async function exportTreeImage() {
+  const buttons = [$("exportTreeBtn"), $("menuExportTreeBtn")];
+  const setBusy = pending => buttons.forEach(button => { button.disabled = pending; button.setAttribute("aria-busy", String(pending)); });
+  if (!treePeople().length || !currentLayout) {
+    toast("Aucun arbre à exporter", "error");
+    return;
+  }
+  setBusy(true);
+  try {
+    const scope = currentTreeScope();
+    const markers = treeContextMarkers(scope);
+    const photoUrls = new Map();
+    await Promise.all(scope.people.map(person => {
+      const url = person.photoUrl;
+      if (!url) return Promise.resolve();
+      if (/^data:/i.test(url)) {
+        photoUrls.set(person.id, url);
+        return Promise.resolve();
+      }
+      return new Promise(resolve => {
+        const image = new Image();
+        image.crossOrigin = "anonymous";
+        image.onload = () => { photoUrls.set(person.id, url); resolve(); };
+        image.onerror = () => resolve();
+      });
+    }));
+    const svgText = treeExportSvg({ people: scope.people, layout: currentLayout, markers, photoUrls });
+    const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const MAX_EDGE = 8192;
+        const scale = Math.min(2, MAX_EDGE / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(pngBlob => {
+          URL.revokeObjectURL(svgUrl);
+          if (!pngBlob) {
+            toast("Export de l’image impossible", "error");
+            return;
+          }
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(pngBlob);
+          link.download = `arbre-familial-${new Date().toISOString().slice(0, 10)}.png`;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(link.href), 2000);
+          toast(`Image de l’arbre exportée · ${formatBytes(pngBlob.size)}`);
+        }, "image/png");
+      } catch (error) {
+        console.error(error);
+        URL.revokeObjectURL(svgUrl);
+        toast("Export de l’image impossible", "error");
+      }
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(svgUrl);
+      toast("Export de l’image impossible", "error");
+    };
+    image.src = svgUrl;
+  } catch (error) {
+    console.error(error);
+    toast(error.message || "Export de l’image impossible", "error");
+  } finally {
+    setBusy(false);
+  }
+}
 
 function activateBranchView(personId) {
   const item = person(personId);
@@ -576,10 +673,29 @@ function applySearch(focus = true) {
   if (focus && matches[0] && currentLayout?.positions.has(matches[0].id)) camera.focus(currentLayout.positions.get(matches[0].id));
 }
 
+function personDocThumbSource(item) {
+  if (item.chunkCount) return "";
+  const source = item.fileUrl || item.externalUrl || (typeof item.fileData === "string" && item.fileData.startsWith("data:image/") ? item.fileData : "");
+  if (!source) return "";
+  const mime = String(item.mimeType || "").startsWith("image/");
+  return mime || /^data:image\//.test(source) ? source : "";
+}
+
+function personDocCard(item) {
+  const label = documentDisplayLabel(item);
+  const thumb = personDocThumbSource(item);
+  const type = item.type || item.fileName || "Document";
+  const date = item.date ? new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR") : "";
+  const preview = thumb
+    ? `<img class="person-doc-thumb-img" src="${esc(thumb)}" alt="" loading="lazy">`
+    : `<span class="person-doc-tile" aria-hidden="true">${icon("document", "ui-icon-lg")}</span>`;
+  return `<article class="person-doc-card" tabindex="0" aria-label="Consulter ${esc(label)}" data-view-document="${item.id}"><div class="person-doc-thumb">${preview}</div><div class="person-doc-meta"><strong class="person-doc-title">${esc(label)}</strong><span class="person-doc-subrow"><span class="person-doc-type">${esc(type)}</span>${date ? `<time class="person-doc-date">${esc(date)}</time>` : ""}<button class="btn small person-doc-edit" type="button" data-edit-person-document="${item.id}">${icon("edit")}<span class="sr-only">Modifier</span></button></span></div></article>`;
+}
+
 function renderPersonDocuments(personId) {
   const linked = documents.filter(item => (item.personIds || []).includes(personId));
   $("personDocumentsList").innerHTML = linked.length
-    ? linked.map(item => `<div class="mini-doc"><span class="mini-doc-info"><strong>${esc(documentDisplayLabel(item))}</strong><span>${esc(item.type || item.fileName || "Document")}</span></span><span class="mini-doc-actions"><button class="btn small" type="button" data-view-document="${item.id}">${icon("eye")}<span>Consulter</span></button><button class="btn small" type="button" data-edit-person-document="${item.id}">${icon("edit")}<span>Modifier</span></button></span></div>`).join("")
+    ? `<div class="person-doc-gallery">${linked.map(personDocCard).join("")}</div>`
     : emptyState({ iconName: "document", title: "Aucun document associé", description: "Les documents ajoutés pour cette personne apparaîtront ici." });
 }
 
@@ -601,8 +717,26 @@ function setPersonSection(section = "identity", focusTab = false) {
   $("personRelationsContent").hidden = !hasPerson;
   $("personDocumentsUnavailable").hidden = hasPerson;
   $("personDocumentsSection").hidden = !hasPerson;
+  if (hasPerson && normalized === "identity") renderLifeTimeline();
   if (hasPerson && normalized === "relations") renderRelations();
   if (hasPerson && normalized === "documents") renderPersonDocuments($("personId").value);
+}
+
+function timelineItemHtml(event) {
+  const date = event.date !== "—" ? `<span class="timeline-date">${esc(event.date)}</span>` : "";
+  const detail = event.detail ? `<span class="timeline-detail">${esc(event.detail)}</span>` : "";
+  return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-content"><strong class="timeline-title">${esc(event.title)}</strong>${date}${detail}</div></li>`;
+}
+
+function renderLifeTimeline() {
+  const container = $("personLifeTimeline");
+  if (!container) return;
+  const item = activeId ? person(activeId) : null;
+  const events = item ? lifeTimelineEvents(item, { people, families }) : [];
+  container.hidden = !events.length;
+  container.innerHTML = events.length
+    ? `<h3 class="timeline-heading">Parcours de vie</h3><ol class="life-timeline-list">${events.map(timelineItemHtml).join("")}</ol>`
+    : "";
 }
 
 function updateMarriedNameVisibility() {
@@ -887,6 +1021,7 @@ function renderRelations() {
     const others = (family.partnerIds || []).filter(id => id !== item.id);
     return `<option value="${family.id}">${others.length ? `Avec ${esc(others.map(nameOf).join(" et "))}` : "Cette personne uniquement"}</option>`;
   }).join("");
+  renderLifeTimeline();
 }
 
 async function addPartner() {
@@ -1129,6 +1264,7 @@ function renderDirectoryAlphabet(items) {
 }
 
 function renderDirectory() {
+  $("directorySort").value = readDirectorySort();
   const filters = {
     query: $("directorySearch").value,
     name: $("directoryNameFilter").value,
@@ -1201,7 +1337,7 @@ function openDocument(item = null, preselectedPersonId = "", returnContext = nul
 function renderDocuments() {
   const query = searchable($("documentSearch").value);
   const type = $("documentTypeFilter").value;
-  const filtered = documents.filter(item => (!type || item.type === type) && (!query || searchable(`${documentDisplayLabel(item)} ${item.fileName || ""} ${item.type || ""} ${item.place || ""} ${(item.personIds || []).map(nameOf).join(" ")}`).includes(query)));
+  const filtered = documents.filter(item => (!type || item.type === type) && (!query || searchable(`${documentDisplayLabel(item)} ${item.fileName || ""} ${item.type || ""} ${item.place || ""} ${item.notes || ""} ${(item.personIds || []).map(nameOf).join(" ")}`).includes(query)));
   $("documentsList").innerHTML = filtered.length ? filtered.map(item => {
     const compactPlace = formatCompactPlace(item.place, item.placeInfo);
     return `<article class="content-card"><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(documentDisplayLabel(item))}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${compactPlace ? ` · ${esc(compactPlace)}` : ""}</p><div><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">Fichier optimisé : ${formatBytes(item.storedSize)}</p>` : ""}</div><div class="card-actions">${item.chunkCount || item.fileData || item.fileUrl || item.externalUrl ? `<button class="btn small primary" type="button" data-open-document="${item.id}">${icon("eye")}<span>Consulter</span></button>` : ""}<button class="btn small" type="button" data-edit-document="${item.id}">${icon("edit")}<span>Modifier</span></button></div></article>`;
@@ -2091,16 +2227,17 @@ document.addEventListener("click", event => {
   if (event.target.closest("[data-empty-add-document]")) openDocument();
   if (event.target.closest("[data-empty-add-task]")) openTask();
   const miniDocument = event.target.closest("[data-view-document]");
-  if (miniDocument) {
-    const item = documents.find(value => value.id === miniDocument.dataset.viewDocument);
-    openStoredDocument(item);
-  }
   const editPersonDocument = event.target.closest("[data-edit-person-document]");
   if (editPersonDocument) {
     const item = documents.find(value => value.id === editPersonDocument.dataset.editPersonDocument);
     const context = activeId ? { personId: activeId, source: personDialogSource, draft: capturePersonDraft() } : null;
     if ($("personDialog").open) $("personDialog").close();
     openDocument(item, "", context);
+    return;
+  }
+  if (miniDocument) {
+    const item = documents.find(value => value.id === miniDocument.dataset.viewDocument);
+    openStoredDocument(item);
   }
 });
 document.addEventListener("keydown", event => {
@@ -2142,6 +2279,16 @@ $("directoryList").addEventListener("keydown", event => {
   if (!entry) return;
   event.preventDefault();
   openPerson(person(entry.dataset.directoryPerson), "directory");
+});
+
+$("personDocumentsList").addEventListener("keydown", event => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  if (event.target.closest("button")) return;
+  const card = event.target.closest("[data-view-document]");
+  if (!card) return;
+  event.preventDefault();
+  const item = documents.find(value => value.id === card.dataset.viewDocument);
+  openStoredDocument(item);
 });
 
 $("directoryDocumentsList").addEventListener("click", event => {
@@ -2325,6 +2472,7 @@ function showZoomBadge() {
 $("zoomOutBtn").onclick = () => { camera.zoomBy(1 / 1.2); showZoomBadge(); };
 $("zoomInBtn").onclick = () => { camera.zoomBy(1.2); showZoomBadge(); };
 $("fitTreeBtn").onclick = () => camera.fit();
+$("exportTreeBtn").onclick = exportTreeImage;
 function setTreeMenu(open) {
   const menu = $("treeMenu");
   menu.hidden = !open;
@@ -2358,6 +2506,11 @@ $("autoLayoutBtn").onclick = () => {
   renderTree();
   camera.fit();
   toast("Disposition automatique restaurée");
+};
+$("menuExportTreeBtn").onclick = () => {
+  setTreeMenu(false);
+  exportTreeImage();
+  $("treeMoreBtn").focus();
 };
 document.addEventListener("click", event => {
   const menu = $("treeMenu");
@@ -2409,7 +2562,11 @@ $("deleteTaskBtn").onclick = () => runSafely(removeTask, "Suppression de la tâc
     renderDirectory();
   });
 });
-[$("directoryBranchFilter"), $("directorySort")].forEach(field => field.addEventListener("change", renderDirectory));
+$("directoryBranchFilter").addEventListener("change", renderDirectory);
+$("directorySort").addEventListener("change", () => {
+  saveDirectorySort($("directorySort").value);
+  renderDirectory();
+});
 $("clearDirectoryFiltersBtn").onclick = () => {
   ["directoryNameFilter", "directoryPlaceFilter", "directoryBirthFilter", "directoryDeathFilter"].forEach(id => $(id).value = "");
   $("directoryBranchFilter").value = "";

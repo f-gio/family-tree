@@ -1,4 +1,4 @@
-import { formatGenealogyDate } from "./genealogy-date.js";
+import { formatGenealogyDate, normalizeGenealogyDate } from "./genealogy-date.js";
 import { childLineType, normalizeEndType } from "./family-relations.js";
 import { emptyState } from "./ui-components.js";
 import { formatCompactPlace } from "./place-format.js";
@@ -19,11 +19,21 @@ function lifeEvent(label, icon, dateInfo, legacyDate, place, placeInfo) {
   return `<span class="life-event" title="${label}"><span class="life-icon" aria-hidden="true">${icon}</span><span class="sr-only">${label} : </span><span class="life-value">${escapeHtml(dateText)} · ${escapeHtml(placeText)}</span></span>`;
 }
 
-function familyColorIndex(family, index) {
+export function familyColorIndex(family, index) {
   if (!family?.id) return index % 6;
   let hash = 0;
   for (const character of family.id) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
   return Math.abs(hash) % 6;
+}
+
+/** Étiquette compacte de la date d'union, uniquement lorsque des données existent réellement. */
+export function unionDateLabel(family) {
+  const date = normalizeGenealogyDate(family.unionDateInfo, family.marriageDate || family.unionDate);
+  if (date.type === "unknown") return "";
+  if (date.type === "about") return `v. ${date.year}`;
+  if (date.type === "between") return `${date.from}–${date.to}`;
+  if (date.type === "exact") return String(date.value.slice(0, 4));
+  return String(date.year);
 }
 
 /**
@@ -66,6 +76,8 @@ export function connectionElements(layout) {
     for (const segment of connection.segments) {
       elements.push(`<path class="union-line ${colorClass} ${endedClass}" d="M ${segment.x1} ${segment.y} H ${segment.x2}"/>`);
     }
+    const label = unionDateLabel(family);
+    if (label) elements.push(`<text class="union-label" x="${connection.origin.x}" y="${connection.origin.y + 16}" text-anchor="middle">${escapeHtml(label)}</text>`);
     if (!connection.children.length) return;
     const { origin, busY, bar, children } = connection;
     elements.push(`<path class="descent-line ${colorClass}" d="M ${origin.x} ${origin.y} V ${busY}"/>`);
@@ -85,6 +97,7 @@ export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmpty
   let activeId = null;
   let highlighted = new Set();
   let currentLayout = null;
+  let currentMarkers = new Map();
   let drag = null;
   let draggedUntil = 0;
 
@@ -151,8 +164,9 @@ export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmpty
   }
 
   return {
-    render(people, layout) {
+    render(people, layout, renderMarkers = new Map()) {
       currentLayout = layout;
+      currentMarkers = renderMarkers;
       scene.style.width = `${layout.bounds.width}px`;
       scene.style.height = `${layout.bounds.height}px`;
       if (!people.length) {
@@ -169,9 +183,11 @@ export function createTreeRenderer({ scene, onPersonClick, onPersonMove, onEmpty
         const position = layout.positions.get(person.id);
         if (!position) return '';
         const avatar = person.photoUrl ? `<img src="${escapeHtml(person.photoUrl)}" alt="">` : initials(person);
+        const marker = currentMarkers.get(person.id);
+        const markerBadge = marker === "focus" ? '<span class="card-marker focus">Personne centrale</span>' : '';
         const birthName = [person.firstName, person.middleName, person.lastName].filter(Boolean).join(' ');
         const middleName = person.middleName ? `<span class="person-middle-name">${escapeHtml(person.middleName)}</span>` : '';
-        return `<button class="person" type="button" data-person-id="${person.id}" style="left:${position.x}px;top:${position.y}px" aria-label="Ouvrir et modifier ${escapeHtml(birthName)}"><span class="drag-hint" aria-hidden="true">⋮⋮</span><span class="avatar">${avatar}</span><span class="person-name"><span class="person-first-name">${escapeHtml(person.firstName || '')}</span>${middleName}<span class="person-surname">${escapeHtml(person.lastName || '')}</span></span>${lifeEvent('Naissance', '✦', person.birthDateInfo, person.birthDate, person.place, person.birthPlaceInfo)}${lifeEvent('Décès', '†', person.deathDateInfo, person.deathDate, person.deathPlace, person.deathPlaceInfo)}</button>`;
+        return `<button class="person" type="button" data-person-id="${person.id}" style="left:${position.x}px;top:${position.y}px" aria-label="Ouvrir et modifier ${escapeHtml(birthName)}"><span class="drag-hint" aria-hidden="true">⋮⋮</span><span class="avatar">${avatar}</span><span class="person-name"><span class="person-first-name">${escapeHtml(person.firstName || '')}</span>${middleName}<span class="person-surname">${escapeHtml(person.lastName || '')}</span></span>${lifeEvent('Naissance', '✦', person.birthDateInfo, person.birthDate, person.place, person.birthPlaceInfo)}${lifeEvent('Décès', '†', person.deathDateInfo, person.deathDate, person.deathPlace, person.deathPlaceInfo)}${markerBadge}</button>`;
       }).join('');
       scene.innerHTML = `<svg class="tree-svg" viewBox="0 0 ${layout.bounds.width} ${layout.bounds.height}" aria-hidden="true">${paths}</svg>${cards}`;
       applyState();
