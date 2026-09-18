@@ -23,8 +23,17 @@ export function lifeTimelineEvents(person, { people = [], families = [] } = {}) 
     events.push({ id: "birth", type: "birth", title: "Naissance", date: birthDate, detail: birthPlace, sortValue: genealogyDateSortValue(person.birthDateInfo, person.birthDate) });
   }
 
+  // Une union n'existe que pour un couple : la personne doit être explicitement
+  // dans `partnerIds` du foyer, et le foyer doit avoir exactement un autre
+  // adulte (le conjoint), dont la fiche existe. Être enfant, parent ou ancêtre
+  // d'une famille ne crée jamais d'événement « Union ».
   const unions = (families || [])
-    .filter(family => (family.partnerIds || []).includes(person.id))
+    .filter(family => {
+      const partners = family.partnerIds || [];
+      if (!partners.includes(person.id)) return false;
+      const coParents = partners.filter(id => id !== person.id);
+      return coParents.length === 1 && byId.has(coParents[0]);
+    })
     .map(family => {
       const partners = (family.partnerIds || [])
         .filter(id => id !== person.id)
