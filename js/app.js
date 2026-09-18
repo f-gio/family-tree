@@ -330,6 +330,39 @@ if (typeof window !== "undefined") {
   };
 }
 
+// Sonde à usage exclusif des tests de rendu (Playwright) : permet d'afficher
+// une généalogie fictive et d'inspecter l'état réel de la caméra et des
+// contrôles sans dépendre des données Firestore de production.
+if (typeof window !== "undefined") {
+  window.__treeProbe = {
+    get state() { return camera.getState(); },
+    layout: () => currentLayout,
+    viewport: () => {
+      const viewport = $("treeViewport");
+      return { width: viewport.clientWidth, height: viewport.clientHeight, rect: viewport.getBoundingClientRect().toJSON() };
+    },
+    render(peopleData, familiesData) {
+      people = peopleData;
+      families = familiesData || [];
+      loadedPeople = loadedFamilies = true;
+      cameraPositioned = false;
+      renderTree();
+      return { state: camera.getState(), layout: currentLayout };
+    },
+    controls: () => {
+      const selectors = ["#fitTreeBtn", "#treeMoreBtn", "#treeMenu", "#centerTreeBtn", "#autoLayoutBtn", "#menuFitBtn", "#zoomInBtn", "#zoomOutBtn", "#zoomLevel", ".zoom-control", ".view-control", ".tree-controls"];
+      const out = {};
+      selectors.forEach(sel => {
+        const element = document.querySelector(sel);
+        if (!element) { out[sel] = null; return; }
+        const rect = element.getBoundingClientRect();
+        out[sel] = { x: rect.x, y: rect.y, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom };
+      });
+      return out;
+    }
+  };
+}
+
 function currentTreeScope() {
   const basePeople = treePeople();
   if (branchView && basePeople.some(item => item.id === branchView.personId)) {
@@ -397,6 +430,54 @@ function computeTreeLayout(scope) {
   return calculateTreeLayout(scope.people, scope.families);
 }
 
+function clampTreeScale(value) {
+  return Math.max(TREE_SCALE_MIN, Math.min(TREE_SCALE_MAX, value));
+}
+
+// Cadrage initial lisible : on affiche l'arbre entier seulement s'il tient à
+// une échelle de lecture confortable ; sinon on se place sur la zone haute
+// (premières générations) à un zoom où les cartes restent réellement lisibles.
+const TREE_SCALE_MIN = 0.25, TREE_SCALE_MAX = 2, TREE_VIEW_PADDING = 64;
+const TREE_CARD_WIDTH = 282, TREE_CARD_READABLE_WIDTH = 150;
+
+function mergeTreeRects(base, rect) {
+  if (!base) return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  const left = Math.min(base.x, rect.x);
+  const top = Math.min(base.y, rect.y);
+  const right = Math.max(base.x + base.width, rect.x + rect.width);
+  const bottom = Math.max(base.y + base.height, rect.y + rect.height);
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function frameInitialTreeView() {
+  const bounds = currentLayout.bounds;
+  const viewport = $("treeViewport");
+  const viewportWidth = viewport.clientWidth;
+  const viewportHeight = viewport.clientHeight;
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0 || !viewportWidth || !viewportHeight) {
+    camera.fit();
+    return;
+  }
+  const fitScale = clampTreeScale(Math.min(
+    (viewportWidth - TREE_VIEW_PADDING * 2) / bounds.width,
+    (viewportHeight - TREE_VIEW_PADDING * 2) / bounds.height
+  ));
+  const readableScale = clampTreeScale(TREE_CARD_READABLE_WIDTH / TREE_CARD_WIDTH);
+  const targetScale = Math.max(fitScale, readableScale);
+  if (targetScale <= fitScale * 1.01) {
+    camera.fit();
+    return;
+  }
+  const bandBottom = bounds.y + Math.min(bounds.height * 0.5, viewportHeight / targetScale);
+  let focusRect = null;
+  for (const position of currentLayout.positions.values()) {
+    if (position.y < bandBottom) focusRect = mergeTreeRects(focusRect, position);
+  }
+  camera.fit();
+  camera.zoomBy(targetScale / fitScale);
+  camera.focus(focusRect || { x: bounds.x, y: bounds.y, width: bounds.width, height: Math.min(bounds.height, viewportHeight / targetScale) });
+}
+
 function renderTree() {
   if (!loadedPeople || !loadedFamilies) return;
   const scope = currentTreeScope();
@@ -406,8 +487,7 @@ function renderTree() {
   renderer.setActive(activeId);
   camera.setBounds(currentLayout.bounds);
   if (!cameraPositioned) {
-    if (treeViewportQuery.matches) camera.fit();
-    else camera.recenter();
+    frameInitialTreeView();
     cameraPositioned = true;
   }
   if (focusAfterRender && currentLayout.positions.has(focusAfterRender)) {
@@ -2031,6 +2111,10 @@ document.addEventListener("keydown", event => {
     $("accountMenuBtn").focus();
   }
   if ($("directoryFilterMenu").open) $("directoryFilterMenu").open = false;
+  if (!$("treeMenu").hidden) {
+    setTreeMenu(false);
+    $("treeMoreBtn").focus();
+  }
 });
 
 $("documentsList").onclick = event => {
@@ -2232,11 +2316,42 @@ $("treeBranchFilter").onchange = () => {
   renderTree();
   camera.fit();
 };
-$("zoomOutBtn").onclick = () => camera.zoomBy(1 / 1.2);
-$("zoomInBtn").onclick = () => camera.zoomBy(1.2);
+let zoomBadgeTimer = 0;
+function showZoomBadge() {
+  $("zoomLevel").classList.add("show");
+  clearTimeout(zoomBadgeTimer);
+  zoomBadgeTimer = setTimeout(() => $("zoomLevel").classList.remove("show"), 1500);
+}
+$("zoomOutBtn").onclick = () => { camera.zoomBy(1 / 1.2); showZoomBadge(); };
+$("zoomInBtn").onclick = () => { camera.zoomBy(1.2); showZoomBadge(); };
 $("fitTreeBtn").onclick = () => camera.fit();
-$("centerTreeBtn").onclick = () => camera.recenter();
+function setTreeMenu(open) {
+  const menu = $("treeMenu");
+  menu.hidden = !open;
+  $("treeMoreBtn").setAttribute("aria-expanded", String(open));
+  if (!open) return;
+  const canvas = $("treeViewport");
+  const host = $("treeMoreBtn").closest(".view-control");
+  const headroom = host.getBoundingClientRect().top - canvas.getBoundingClientRect().top - 6;
+  menu.style.maxHeight = `${Math.max(0, Math.floor(headroom))}px`;
+  const firstVisible = $("menuFitBtn").offsetParent !== null ? $("menuFitBtn") : $("centerTreeBtn");
+  firstVisible.focus();
+}
+$("treeMoreBtn").onclick = () => {
+  setTreeMenu($("treeMenu").hidden);
+};
+$("menuFitBtn").onclick = () => {
+  setTreeMenu(false);
+  camera.fit();
+  $("treeMoreBtn").focus();
+};
+$("centerTreeBtn").onclick = () => {
+  setTreeMenu(false);
+  camera.recenter();
+  $("treeMoreBtn").focus();
+};
 $("autoLayoutBtn").onclick = () => {
+  setTreeMenu(false);
   if (Object.keys(manualOffsets).length && !confirm("Réinitialiser toutes les positions manuelles ?")) return;
   manualOffsets = {};
   saveOffsets();
@@ -2244,6 +2359,11 @@ $("autoLayoutBtn").onclick = () => {
   camera.fit();
   toast("Disposition automatique restaurée");
 };
+document.addEventListener("click", event => {
+  const menu = $("treeMenu");
+  if (menu.hidden) return;
+  if (!event.target.closest(".view-control")) setTreeMenu(false);
+});
 $("linkDocumentBtn").onclick = () => {
   const personId = activeId;
   if (!personId) return;

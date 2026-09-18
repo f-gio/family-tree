@@ -386,7 +386,8 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   }
 
   .icon-btn,
-  .tree-controls button {
+  .tree-controls .zoom-control button,
+  .tree-controls .view-control > button {
     min-width: var(--control-touch);
     width: var(--control-touch);
     height: var(--control-touch);
@@ -430,6 +431,14 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 .nav-icon .ui-icon { width: 1.25rem; height: 1.25rem; }
 .icon-btn .ui-icon { width: 1.25rem; height: 1.25rem; }
 .tree-controls button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); }
+
+/* Contrôles Arbre : Ajuster est un bouton permanent sur desktop, un item de menu (⋯) sur mobile. */
+@media (max-width: 760px) {
+  #fitTreeBtn { display: none; }
+}
+@media (min-width: 761px) {
+  #menuFitBtn { display: none; }
+}
 
 /* Visibilité de l'état : un toast unique, typé et lisible par les aides techniques. */
 .toast {
@@ -1594,14 +1603,14 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   .account-action { min-height: var(--control-touch); }
 
   .tree-controls {
+    left: 0.5rem;
     right: 0.5rem;
-    bottom: 0.5rem;
-    max-width: calc(100% - 1rem);
+    bottom: max(0.5rem, env(safe-area-inset-bottom));
   }
 
   .zoom-control,
   .view-control { width: max-content; max-width: 100%; }
-  .view-control button { min-width: 0; padding-inline: 0.5rem; font-size: 0.75rem; }
+  .view-control > button { min-width: 0; width: auto; max-width: 100%; padding-inline: 0.5rem; font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   .toast {
     left: 0.75rem;
@@ -1617,6 +1626,36 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   .settings-actions { width: 100%; }
   .admin-user-actions .btn,
   .settings-actions .btn { min-height: var(--control-touch); }
+}
+
+/* Vue Arbre : le canvas occupe la bande visible du viewport, les contrôles
+   (ancrés au canvas) restent donc visibles à l'écran sans défilement de page.
+   #appMain n'est visible que dans la vue Arbre (setView), aucune autre vue
+   n'est donc contrainte. */
+body:has(main#appMain:not([hidden])) { height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
+body:has(main#appMain:not([hidden])) main#appMain { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+body:has(main#appMain:not([hidden])) main#appMain > .intro,
+body:has(main#appMain:not([hidden])) main#appMain > .toolbar,
+body:has(main#appMain:not([hidden])) main#appMain > .branch-banner { flex: 0 0 auto; }
+body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; min-height: 100px; }
+
+/* Sur écran court (portrait petit ou paysage), on compacte le hero pour
+   laisser toute la place possible au canvas de l'arbre. */
+@media (max-height: 620px) {
+  body:has(main#appMain:not([hidden])) .intro .eyebrow,
+  body:has(main#appMain:not([hidden])) .intro .lead,
+  body:has(main#appMain:not([hidden])) .intro .summary,
+  body:has(main#appMain:not([hidden])) .status { display: none; }
+  body:has(main#appMain:not([hidden])) .intro h2 { font-size: 20px; line-height: 1.05; }
+  body:has(main#appMain:not([hidden])) main#appMain { padding-top: 10px; padding-bottom: 6px; }
+}
+
+/* Paysage court sur format desktop : on libère tout l'espace vertical au
+   canvas (le hero disparaît, topbar et toolbar se compriment). */
+@media (max-height: 620px) and (min-width: 761px) {
+  body:has(main#appMain:not([hidden])) main#appMain > .intro { display: none; }
+  body:has(main#appMain:not([hidden])) main#appMain > .toolbar { margin-bottom: 8px; }
+  body:has(main#appMain:not([hidden])) .topbar { padding-top: 10px; padding-bottom: 8px; }
 }
 
 /* Sur petit smartphone, les modales importantes deviennent de vrais écrans. */
@@ -1674,8 +1713,8 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
   .cards-mode .directory-avatar { width: 3rem; height: 3rem; }
   .directory-life { font-size: 0.75rem; }
 
-  .view-control button span { display: none; }
-  .view-control button { min-width: var(--control-touch); }
+  .view-control > button span { display: none; }
+  .view-control > button { min-width: var(--control-touch); width: auto; }
   .zoom-level { min-width: 3.5rem; }
 }
 

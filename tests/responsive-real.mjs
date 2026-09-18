@@ -131,6 +131,12 @@ async function boundingBox(page, selector) {
   return locator.boundingBox();
 }
 
+function boxesOverlap(a, b) {
+  if (!a || !b) return false;
+  const eps = 0.5;
+  return !(a.right <= b.x + eps || b.right <= a.x + eps || a.bottom <= b.y + eps || b.bottom <= a.y + eps);
+}
+
 async function resetState(page, baseURL) {
   await page.evaluate(baseURL => {
     const set = (id, hidden) => {
@@ -329,6 +335,249 @@ async function runViewport(view, page, baseURL) {
 
   const branchBoxes = treeControls["#treeBranchFilter"];
   check(`${line} · filtre de branche de l'arbre présent et utilisable (${branchBoxes.map(b => `${b.w}×${b.h}`).join(", ") || "absent"})`, branchBoxes.length > 0 && branchBoxes.every(b => b.h >= 36 && b.w >= 100));
+
+  /* ---------- Phase B1′ : arbre avec généalogie fictive — cadrage initial réel
+     et géométrie des contrôles flottants (aucune donnée réelle, aucune écriture) ---------- */
+  console.log(`  -- B1′ · Cadrage initial + géométrie des contrôles (données fictives) --`);
+  const fictive = await page.evaluate(() => {
+    const people = [];
+    const families = [];
+    const add = id => people.push({ id, firstName: "Personne", lastName: `Fictive ${id}`, birthDateInfo: { type: "year", year: 1805 + people.length * 11 } });
+    const unit = (id, partnerIds, childIds) => families.push({ id, partnerIds, childIds, relationType: "marriage" });
+    add("p0"); add("p1"); unit("f1", ["p0", "p1"], ["p2", "p3", "p4"]);
+    add("p2"); add("p3"); add("p4"); add("p5"); add("p6"); add("p7");
+    unit("f2", ["p2", "p5"], ["p8", "p9"]); unit("f3", ["p3", "p6"], ["p10", "p11"]); unit("f4", ["p4", "p7"], ["p12"]);
+    add("p8"); add("p9"); add("p10"); add("p11"); add("p12"); add("p13"); add("p14"); add("p15");
+    unit("f5", ["p8", "p13"], ["p16", "p17"]); unit("f6", ["p10", "p14"], ["p18", "p19"]); unit("f7", ["p12", "p15"], ["p20"]);
+    add("p16"); add("p17"); add("p18"); add("p19"); add("p20"); add("p21"); add("p22"); add("p23");
+    unit("f8", ["p16", "p21"], ["p24", "p25"]); unit("f9", ["p18", "p22"], ["p26"]);
+    add("p24"); add("p25"); add("p26");
+    const result = window.__treeProbe.render(people, families);
+    return { state: result.state, bounds: result.layout.bounds, positionCount: result.layout.positions.size };
+  });
+  check(`${line} · rendu de la généalogie fictive : 27 cartes positionnées`, fictive.positionCount === 27, `${fictive.positionCount} cartes`);
+
+  const frame = await page.evaluate(() => {
+    const probe = window.__treeProbe;
+    const state = probe.state;
+    const layout = probe.layout();
+    const vp = probe.viewport();
+    const cards = [];
+    let minTop = Infinity;
+    for (const [id, pos] of layout.positions) {
+      minTop = Math.min(minTop, pos.y);
+      cards.push({ id, left: vp.rect.x + pos.x * state.scale + state.x, top: vp.rect.y + pos.y * state.scale + state.y, width: pos.width * state.scale, height: pos.height * state.scale });
+    }
+    return { state, vp, bounds: layout.bounds, cards, minTop };
+  });
+  const stateFinite = ["scale", "x", "y"].every(key => Number.isFinite(frame.state[key]));
+  check(`${line} · cadrage initial : états de caméra finis`, stateFinite, JSON.stringify(frame.state));
+  const scaleInLimits = frame.state.scale >= 0.25 - 1e-9 && frame.state.scale <= 2 + 1e-9;
+  check(`${line} · cadrage initial : échelle bornée entre 25 % et 200 %`, scaleInLimits, `${Math.round(frame.state.scale * 100)} %`);
+  const vpRect = frame.vp.rect;
+  const inside = card => card.left < vpRect.x + vpRect.width && card.left + card.width > vpRect.x && card.top < vpRect.y + vpRect.height && card.top + card.height > vpRect.y;
+  const readableCard = frame.cards.find(card => inside(card) && card.width >= 120);
+  check(`${line} · cadrage initial : au moins une carte lisible dans le viewport (largeur rendue ≥ 120 px)`, Boolean(readableCard), readableCard ? `${readableCard.width.toFixed(0)} px (« ${readableCard.id} »)` : "aucune");
+  const expectedRowTop = vpRect.y + frame.minTop * frame.state.scale + frame.state.y;
+  const topRowCard = frame.cards.find(card => Math.abs(card.top - expectedRowTop) <= 2 && inside(card));
+  check(`${line} · cadrage initial : la première génération (rangée haute) est visible`, Boolean(topRowCard), frame.minTop > 1e9 ? "layout vide" : `rangée à y=${frame.minTop.toFixed(0)} px`);
+  const readableFloor = 150 / 282;
+  check(`${line} · cadrage initial : échelle au moins aussi lisible que le plancher ≈ 53 % (${Math.round(frame.state.scale * 100)} %)`, frame.state.scale >= readableFloor - 0.05);
+
+  const interaction = await page.evaluate(async () => {
+    const probe = window.__treeProbe;
+    const click = (id) => document.getElementById(id).click();
+    const steps = { s0: probe.state.scale };
+    click("zoomInBtn");
+    await new Promise(resolve => setTimeout(resolve, 40));
+    steps.sIn = probe.state.scale;
+    click("zoomOutBtn");
+    await new Promise(resolve => setTimeout(resolve, 40));
+    steps.sOut = probe.state.scale;
+    click("fitTreeBtn");
+    await new Promise(resolve => setTimeout(resolve, 40));
+    steps.fit = probe.state;
+    steps.fitLabel = document.getElementById("zoomLevel").textContent;
+    click("centerTreeBtn");
+    await new Promise(resolve => setTimeout(resolve, 40));
+    steps.center = probe.state;
+    return steps;
+  });
+  check(`${line} · bouton « + » : le zoom augmente (${Math.round(interaction.sIn * 100)} % > ${Math.round(interaction.s0 * 100)} %)`, interaction.sIn > interaction.s0 + 0.001);
+  check(`${line} · bouton « − » : retour proche du niveau initial (${Math.round(interaction.sOut * 100)} % ≈ ${Math.round(interaction.s0 * 100)} %)`, Math.abs(interaction.sOut - interaction.s0) < 0.02);
+  const fitExpected = Math.min(2, Math.max(0.25, Math.min((frame.vp.width - 128) / frame.bounds.width, (frame.vp.height - 128) / frame.bounds.height)));
+  check(`${line} · bouton « Ajuster » : échelle = arbre complet calculé (${Math.round(fitExpected * 100)} %)`, Math.abs(interaction.fit.scale - fitExpected) < 0.02, `${Math.round(interaction.fit.scale * 100)} %`);
+  check(`${line} · zoom affiché synchrone (« ${interaction.fitLabel} »)`, interaction.fitLabel === `${Math.round(interaction.fit.scale * 100)} %`);
+  const expectCenter = {
+    x: (frame.vp.width - frame.bounds.width * interaction.fit.scale) / 2 - frame.bounds.x * interaction.fit.scale,
+    y: (frame.vp.height - frame.bounds.height * interaction.fit.scale) / 2 - frame.bounds.y * interaction.fit.scale
+  };
+  check(`${line} · « Ajuster » centre l'arbre (x ${interaction.fit.x.toFixed(1)}/${expectCenter.x.toFixed(1)}, y ${interaction.fit.y.toFixed(1)}/${expectCenter.y.toFixed(1)})`, Math.abs(interaction.fit.x - expectCenter.x) <= 1.5 && Math.abs(interaction.fit.y - expectCenter.y) <= 1.5);
+  check(`${line} · « Recentrer » conserve l'échelle (« Ajuster » puis centrage à zoom inchangé)`, Math.abs(interaction.center.scale - interaction.fit.scale) < 1e-6, `${Math.round(interaction.center.scale * 100)} %`);
+
+  const controls = await page.evaluate(() => window.__treeProbe.controls());
+  const moreBtnBox = controls["#treeMoreBtn"];
+  const fitBtnBox = controls["#fitTreeBtn"];
+  const mobileLayout = Boolean(fitBtnBox) && fitBtnBox.width === 0;
+  const zoomBox = controls[".zoom-control"];
+  const viewBox = controls[".view-control"];
+  const panelBox = controls[".tree-controls"];
+  check(`${line} · bouton ⋯ du menu d'actions présent en bas à droite`, Boolean(moreBtnBox) && Boolean(viewBox) && viewBox.x > zoomBox.x, JSON.stringify(controls));
+  if (mobileLayout) {
+    check(`${line} · mobile (≤760) : Ajuster permanent masqué (⋯ seul en bas à droite)`, Boolean(fitBtnBox) && fitBtnBox.width === 0 && fitBtnBox.height === 0, fitBtnBox ? `fit masqué ${Math.round(fitBtnBox.width)}×${Math.round(fitBtnBox.height)}px` : "Ajuster absent");
+    assessTouch({ viewport: line, label: "bouton d'action « ⋯ (menu d'actions) »", box: moreBtnBox, cls, essential: true });
+  } else {
+    check(`${line} · desktop/paysage : « Ajuster » permanent visible à gauche du bouton ⋯`, Boolean(fitBtnBox) && fitBtnBox.width > 0 && fitBtnBox.x < moreBtnBox.x, fitBtnBox ? `${fitBtnBox.x.toFixed(0)} vs ${moreBtnBox.x.toFixed(0)} px` : "Ajuster absent");
+    check(`${line} · desktop/paysage : aucun chevauchement Ajuster ↔ ⋯`, !boxesOverlap(fitBtnBox, moreBtnBox), boxesOverlap(fitBtnBox, moreBtnBox) ? "boîtes intersectées" : `${fitBtnBox.x.toFixed(0)}px..${fitBtnBox.right.toFixed(0)}px / ${moreBtnBox.x.toFixed(0)}px..${moreBtnBox.right.toFixed(0)}px`);
+    assessTouch({ viewport: line, label: "bouton d'action « Ajuster »", box: fitBtnBox, cls, essential: true });
+    assessTouch({ viewport: line, label: "bouton d'action « ⋯ (menu d'actions) »", box: moreBtnBox, cls, essential: true });
+  }
+  check(`${line} · zoom compact à gauche, groupe d'actions à droite (coins bas du canvas)`, zoomBox.x < viewBox.x, `${zoomBox.x.toFixed(0)} vs ${viewBox.x.toFixed(0)} px`);
+  check(`${line} · le zoom ([+][−]) n'intersecte pas le groupe d'actions (Ajuster/⋯)`, !boxesOverlap(viewBox, zoomBox));
+  const panelInViewport = Boolean(panelBox) && panelBox.x >= -1 && panelBox.y >= -1 && panelBox.right <= view.width + 1 && panelBox.bottom <= view.height + 1;
+  check(`${line} · panneau de contrôles entièrement dans le viewport (${panelBox ? `${panelBox.x.toFixed(0)},${panelBox.y.toFixed(0)} → ${panelBox.right.toFixed(0)},${panelBox.bottom.toFixed(0)}` : "absent"})`, panelInViewport);
+  if (!panelInViewport) reportIssue(line, "bloquant", "Panneau des contrôles arbre hors viewport", JSON.stringify(panelBox));
+  const shellRect = frame.vp.rect;
+  const panelInCanvas = Boolean(panelBox) && panelBox.x >= shellRect.x - 1 && panelBox.y >= shellRect.y - 1 && panelBox.right <= shellRect.right + 1 && panelBox.bottom <= shellRect.bottom + 1;
+  check(`${line} · panneau de contrôles ancré au canvas (dans .tree-shell)`, panelInCanvas);
+  const zoomInfo = await page.evaluate(() => {
+    const r = id => { const b = document.getElementById(id).getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height, right: b.right, bottom: b.bottom }; };
+    return { in: r("zoomInBtn"), out: r("zoomOutBtn") };
+  });
+  check(`${line} · zoom vertical compact : « + » au-dessus de « − »`, zoomInfo.in.y < zoomInfo.out.y, `${Math.round(zoomInfo.in.y)} < ${Math.round(zoomInfo.out.y)} px`);
+  assessTouch({ viewport: line, label: "bouton « + » du zoom", box: zoomInfo.in, cls, essential: true });
+  assessTouch({ viewport: line, label: "bouton « − » du zoom", box: zoomInfo.out, cls, essential: true });
+
+  /* ---------- Phase B1″ : le pourcentage de zoom est un badge temporaire ---------- */
+  console.log(`  -- B1″ · Pourcentage : badge temporaire après zoom --`);
+  await page.waitForTimeout(1800);
+  const badgeAtRest = await page.evaluate(() => {
+    const el = document.getElementById("zoomLevel");
+    const cs = getComputedStyle(el);
+    return { show: el.classList.contains("show"), visibility: cs.visibility, opacity: Number(cs.opacity) };
+  });
+  check(`${line} · % absent au repos (badge masqué)`, !badgeAtRest.show && badgeAtRest.visibility === "hidden" && badgeAtRest.opacity === 0, JSON.stringify(badgeAtRest));
+  const badgeAfterZoom = await page.evaluate(async () => {
+    const r = sel => { const b = document.querySelector(sel).getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height), right: Math.round(b.right), bottom: Math.round(b.bottom) }; };
+    const before = { zoomControl: r(".zoom-control"), zoomIn: r("#zoomInBtn"), zoomOut: r("#zoomOutBtn") };
+    document.getElementById("zoomInBtn").click();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const el = document.getElementById("zoomLevel");
+    const cs = getComputedStyle(el);
+    return {
+      before,
+      after: { zoomControl: r(".zoom-control"), zoomIn: r("#zoomInBtn"), zoomOut: r("#zoomOutBtn"), badge: r(".zoom-level") },
+      show: el.classList.contains("show"),
+      visibility: cs.visibility,
+      text: el.textContent.trim(),
+      scaleText: `${Math.round(window.__treeProbe.state.scale * 100)} %`
+    };
+  });
+  check(`${line} · « + » : le % apparaît (badge « ${badgeAfterZoom.text} » synchrone)`, badgeAfterZoom.show && badgeAfterZoom.visibility === "visible" && badgeAfterZoom.text === badgeAfterZoom.scaleText, JSON.stringify({ text: badgeAfterZoom.text, expected: badgeAfterZoom.scaleText }));
+  const layoutStable = JSON.stringify(badgeAfterZoom.before) === JSON.stringify({ zoomControl: badgeAfterZoom.after.zoomControl, zoomIn: badgeAfterZoom.after.zoomIn, zoomOut: badgeAfterZoom.after.zoomOut });
+  check(`${line} · le badge s'affiche sans déplacer les contrôles de zoom`, layoutStable, JSON.stringify(badgeAfterZoom.after));
+  check(`${line} · badge % juste au-dessus du zoom, centré`, badgeAfterZoom.after.badge.bottom <= badgeAfterZoom.after.zoomIn.y + 1 && Math.abs((badgeAfterZoom.after.badge.x + badgeAfterZoom.after.badge.w / 2) - (badgeAfterZoom.after.zoomControl.x + badgeAfterZoom.after.zoomControl.w / 2)) <= 40, JSON.stringify(badgeAfterZoom.after.badge));
+  await page.waitForTimeout(1900);
+  const badgeGone = await page.evaluate(() => {
+    const el = document.getElementById("zoomLevel");
+    const cs = getComputedStyle(el);
+    return { show: el.classList.contains("show"), visibility: cs.visibility };
+  });
+  check(`${line} · le % disparaît automatiquement après ~1,5 s`, !badgeGone.show && badgeGone.visibility === "hidden", JSON.stringify(badgeGone));
+
+  /* ---------- Phase B1‴ : menu d'actions de l'arbre (⋯) = Ajuster (mobile) + Recentrer + Réorganiser ---------- */
+  console.log(`  -- B1‴ · Menu d'actions de l'arbre (⋯) --`);
+  const menuInit = await page.evaluate(() => ({
+    hidden: document.getElementById("treeMenu").hidden,
+    expanded: document.getElementById("treeMoreBtn").getAttribute("aria-expanded")
+  }));
+  check(`${line} · menu d'actions : initialement fermé (aria-expanded="false")`, menuInit.hidden && menuInit.expanded === "false");
+  await page.click("#treeMoreBtn");
+  await page.waitForTimeout(60);
+  const menuOpened = await page.evaluate(() => {
+    const visible = [...document.querySelectorAll('#treeMenu [role="menuitem"]')]
+      .filter(el => getComputedStyle(el).display !== "none")
+      .map(el => (el.querySelector("span")?.textContent || el.getAttribute("aria-label")).trim());
+    return {
+      hidden: document.getElementById("treeMenu").hidden,
+      expanded: document.getElementById("treeMoreBtn").getAttribute("aria-expanded"),
+      items: visible,
+      count: visible.length
+    };
+  });
+  const expectedItems = mobileLayout ? ["Ajuster", "Recentrer", "Réorganiser"] : ["Recentrer", "Réorganiser"];
+  check(`${line} · clic sur ⋯ : menu ouvert (aria-expanded="true")`, !menuOpened.hidden && menuOpened.expanded === "true", JSON.stringify(menuOpened));
+  check(`${line} · menu ${mobileLayout ? "mobile (≤760)" : "desktop/paysage"} : items « ${expectedItems.join(" / ")} » (${menuOpened.count})`, JSON.stringify(menuOpened.items) === JSON.stringify(expectedItems), JSON.stringify(menuOpened.items));
+  const menuBoxes = await page.evaluate(() => {
+    const out = {};
+    for (const id of ["treeMenu", "centerTreeBtn", "autoLayoutBtn", "menuFitBtn"]) {
+      const r = document.getElementById(id).getBoundingClientRect();
+      out[id] = { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+    }
+    return out;
+  });
+  const menuBox = menuBoxes["treeMenu"];
+  check(`${line} · menu ouvert au-dessus du bouton ⋯`, Boolean(menuBox && moreBtnBox) && menuBox.bottom <= moreBtnBox.y + 1, menuBox && moreBtnBox ? `bas du menu ${menuBox.bottom.toFixed(0)}px / haut de ⋯ ${moreBtnBox.y.toFixed(0)}px` : "boîtes indisponibles");
+  check(`${line} · menu entièrement dans le canvas`, Boolean(menuBox) && menuBox.x >= shellRect.x - 1 && menuBox.y >= shellRect.y - 1 && menuBox.right <= shellRect.right + 1 && menuBox.bottom <= shellRect.bottom + 1, menuBox ? `${menuBox.x.toFixed(0)},${menuBox.y.toFixed(0)} → ${menuBox.right.toFixed(0)},${menuBox.bottom.toFixed(0)}` : "menu absent");
+  check(`${line} · menu entièrement dans le viewport`, Boolean(menuBox) && menuBox.x >= -1 && menuBox.y >= -1 && menuBox.right <= view.width + 1 && menuBox.bottom <= view.height + 1, menuBox ? `${menuBox.x.toFixed(0)},${menuBox.y.toFixed(0)} → ${menuBox.right.toFixed(0)},${menuBox.bottom.toFixed(0)}` : "menu absent");
+  check(`${line} · menu ouvert n'intersecte pas le zoom`, !boxesOverlap(menuBox, (await page.evaluate(() => window.__treeProbe.controls()))[".zoom-control"]));
+  if (mobileLayout) {
+    assessTouch({ viewport: line, label: "« Ajuster » (menu mobile)", box: menuBoxes["menuFitBtn"], cls, essential: true });
+  }
+  assessTouch({ viewport: line, label: "« Recentrer » (menu)", box: menuBoxes["centerTreeBtn"], cls, essential: true });
+  assessTouch({ viewport: line, label: "« Réorganiser » (menu)", box: menuBoxes["autoLayoutBtn"], cls, essential: true });
+  await page.evaluate(() => document.body.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  await page.waitForTimeout(60);
+  const menuOutside = await page.evaluate(() => ({
+    hidden: document.getElementById("treeMenu").hidden,
+    expanded: document.getElementById("treeMoreBtn").getAttribute("aria-expanded")
+  }));
+  check(`${line} · clic hors du menu : fermeture`, menuOutside.hidden && menuOutside.expanded === "false");
+  await page.click("#treeMoreBtn");
+  await page.waitForTimeout(40);
+  const recenterFromMenu = await page.evaluate(async () => {
+    const probe = window.__treeProbe;
+    const before = { ...probe.state };
+    document.getElementById("centerTreeBtn").click();
+    await new Promise(resolve => setTimeout(resolve, 40));
+    return { before, after: probe.state, menuHidden: document.getElementById("treeMenu").hidden, expanded: document.getElementById("treeMoreBtn").getAttribute("aria-expanded") };
+  });
+  check(`${line} · « Recentrer » depuis le menu : échelle inchangée`, Math.abs(recenterFromMenu.after.scale - recenterFromMenu.before.scale) < 1e-6, `${Math.round(recenterFromMenu.after.scale * 100)} %`);
+  check(`${line} · « Recentrer » depuis le menu : menu refermé`, recenterFromMenu.menuHidden && recenterFromMenu.expanded === "false");
+  await page.click("#treeMoreBtn");
+  await page.waitForTimeout(40);
+  const reorgFromMenu = await page.evaluate(async () => {
+    const probe = window.__treeProbe;
+    document.getElementById("autoLayoutBtn").click();
+    await new Promise(resolve => setTimeout(resolve, 40));
+    return { menuHidden: document.getElementById("treeMenu").hidden, expanded: document.getElementById("treeMoreBtn").getAttribute("aria-expanded"), positionCount: probe.layout().positions.size, scale: probe.state.scale };
+  });
+  check(`${line} · « Réorganiser » depuis le menu : menu refermé`, reorgFromMenu.menuHidden && reorgFromMenu.expanded === "false");
+  check(`${line} · « Réorganiser » : aucune perte de données (27 cartes toujours présentes)`, reorgFromMenu.positionCount === 27, `${reorgFromMenu.positionCount} cartes`);
+  check(`${line} · « Réorganiser » : échelle ajustée à l'arbre complet (${Math.round(reorgFromMenu.scale * 100)} %)`, Math.abs(reorgFromMenu.scale - fitExpected) < 0.02);
+  await page.click("#treeMoreBtn");
+  await page.waitForTimeout(40);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(40);
+  const menuEscape = await page.evaluate(() => ({
+    hidden: document.getElementById("treeMenu").hidden,
+    expanded: document.getElementById("treeMoreBtn").getAttribute("aria-expanded"),
+    focusedId: document.activeElement ? document.activeElement.id : ""
+  }));
+  check(`${line} · Échap referme le menu d'actions (desktop)`, menuEscape.hidden && menuEscape.expanded === "false");
+  check(`${line} · focus restitué au bouton ⋯ après Échap`, menuEscape.focusedId === "treeMoreBtn", menuEscape.focusedId || "aucun");
+  if (mobileLayout) {
+    await page.click("#treeMoreBtn");
+    await page.waitForTimeout(40);
+    const fitFromMenu = await page.evaluate(async () => {
+      const probe = window.__treeProbe;
+      document.getElementById("menuFitBtn").click();
+      await new Promise(resolve => setTimeout(resolve, 60));
+      return { scale: probe.state.scale, menuHidden: document.getElementById("treeMenu").hidden, expanded: document.getElementById("treeMoreBtn").getAttribute("aria-expanded"), focusedId: document.activeElement ? document.activeElement.id : "" };
+    });
+    check(`${line} · mobile : « Ajuster » depuis le menu → échelle = arbre complet (${Math.round(fitFromMenu.scale * 100)} %)`, Math.abs(fitFromMenu.scale - fitExpected) < 0.02);
+    check(`${line} · mobile : « Ajuster » depuis le menu → menu refermé, focus sur ⋯`, fitFromMenu.menuHidden && fitFromMenu.expanded === "false" && fitFromMenu.focusedId === "treeMoreBtn");
+  }
 
   /* ---------- Phase B2 : vue Annuaire (coquille réelle + fiches fictives) ---------- */
   console.log(`  -- B2 · Vue Annuaire (coquille réelle + fiches fictives) --`);
