@@ -305,6 +305,10 @@ const camera = createTreeCamera({
   onChange: state => { $("zoomLevel").textContent = `${Math.round(state.scale * 100)} %`; }
 });
 
+const treeViewportQuery = window.matchMedia("(max-width: 760px)");
+let treeViewportPortrait = window.matchMedia("(orientation: portrait)").matches;
+let treeViewportFitTimer = 0;
+
 const renderer = createTreeRenderer({
   scene: $("treeScene"),
   onPersonClick: id => openPerson(person(id)),
@@ -409,7 +413,8 @@ function renderTree() {
   renderer.setActive(activeId);
   camera.setBounds(currentLayout.bounds);
   if (!cameraPositioned) {
-    camera.recenter();
+    if (treeViewportQuery.matches) camera.fit();
+    else camera.recenter();
     cameraPositioned = true;
   }
   if (focusAfterRender && currentLayout.positions.has(focusAfterRender)) {
@@ -419,6 +424,22 @@ function renderTree() {
   applySearch(false);
   updateBranchBanner(scope);
 }
+
+// Sur mobile, un vrai changement d'orientation recadre l'arbre. Un simple
+// redimensionnement (barre d'adresse, clavier virtuel) ou un resize desktop
+// ne déclenche aucun fit.
+function scheduleTreeViewportFit() {
+  clearTimeout(treeViewportFitTimer);
+  treeViewportFitTimer = setTimeout(() => {
+    const portrait = window.matchMedia("(orientation: portrait)").matches;
+    if (portrait === treeViewportPortrait) return;
+    treeViewportPortrait = portrait;
+    if (treeViewportQuery.matches && !$("appMain").hidden) camera.fit();
+  }, 180);
+}
+
+window.addEventListener("orientationchange", scheduleTreeViewportFit);
+window.addEventListener("resize", scheduleTreeViewportFit, { passive: true });
 
 function activateBranchView(personId) {
   const item = person(personId);
