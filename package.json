@@ -1,0 +1,13 @@
+{
+  "name": "family-tree",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Infrastructure de test navigateur (responsive) uniquement. La suite standard reste 'node --test' et ne dépend pas de npm.",
+  "scripts": {
+    "test:responsive": "node tests/responsive-real.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}
