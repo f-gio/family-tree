@@ -121,6 +121,18 @@ body {
 }
 
 .brand h1 { font-size: var(--text-xl); line-height: var(--leading-tight); }
+.topbar .brand { color: inherit; text-decoration: none; }
+.topbar .brand:hover .brand-mark { background: var(--color-brand-hover); }
+.topbar .brand-mark { object-fit: cover; }
+.auth-card .brand-mark { object-fit: cover; }
+#accessStatus {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+#accessStatus .brand-mark,
+#accessStatus .auth-status,
+#accessStatus #statusLogoutBtn { margin: 0; }
 .modal-head h3 { font-size: var(--text-2xl); line-height: var(--leading-tight); }
 .content-card h3,
 .family-detail-section h4,
@@ -351,6 +363,43 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   color: var(--color-brand);
 }
 
+/* Liste et Cartes reprennent chacune le langage d'un contrôle indépendant. */
+.view-switch {
+  display: flex;
+  gap: var(--space-2);
+  width: auto;
+  margin-left: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.view-switch button {
+  flex: 0 0 auto;
+  width: var(--control-md);
+  min-width: var(--control-md);
+  height: var(--control-md);
+  min-height: var(--control-md);
+  padding: 0;
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.view-switch button:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.view-switch button.active {
+  background: var(--color-surface-soft);
+  color: var(--color-brand);
+  box-shadow: none;
+}
+
 /* Regroupements cohérents, sans introduire de nouvelle structure d'écran. */
 .content-card,
 .directory-entry,
@@ -438,14 +487,49 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 .icon-btn .ui-icon { width: 1.25rem; height: 1.25rem; }
 .tree-controls button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); }
 
-/* Contrôles Arbre : Ajuster est un bouton permanent sur desktop, un item de menu (⋯) sur mobile. */
+/* Arbre : l'action principale reste dans l'introduction, les filtres forment
+   une ligne distincte dont le groupe commence à gauche. */
+.tree-filter-toolbar {
+  align-items: center;
+  justify-content: start;
+}
+
+/* Le menu reste attaché au bord droit du groupe de contrôles, sans dépasser
+   la fenêtre sur les petits écrans. */
+.view-control { position: relative; }
+.tree-menu {
+  left: auto;
+  right: 0;
+  max-width: calc(100vw - var(--space-4));
+  width: max-content;
+  min-width: 0;
+  padding: var(--space-1);
+  gap: var(--space-1);
+}
+.tree-menu button {
+  min-width: 0;
+  min-height: var(--control-md);
+  padding: var(--space-2) var(--space-3);
+  white-space: nowrap;
+}
+
 @media (max-width: 760px) {
-  #fitTreeBtn,
-  #exportTreeBtn { display: none; }
+  .tree-filter-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .tree-filter-toolbar #search { grid-column: 1 / -1; }
+  .tree-filter-toolbar .toolbar-branch { grid-column: 1; }
+  .tree-filter-toolbar #resetBtn { grid-column: 2; }
+  .tree-menu button { min-height: var(--control-touch); }
+}
+
+/* Contrôles Arbre : Ajuster reste permanent sur desktop, les autres actions passent par le menu (⋯). */
+@media (max-width: 760px) {
+  #fitTreeBtn { display: none; }
 }
 @media (min-width: 761px) {
-  #menuFitBtn,
-  #menuExportTreeBtn { display: none; }
+  #menuFitBtn { display: none; }
 }
 
 /* Arbre : ombres des cartes plus subtiles sur desktop (souris), l'affordance tactile mobile est conservée. */
@@ -1474,6 +1558,30 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   dialog { border-color: var(--color-text); }
 }
 
+/* La toolbar des documents reprend le langage visuel de l'Annuaire. */
+.documents-toolbar {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(150px, 190px) auto;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: var(--space-6);
+}
+
+.documents-toolbar .view-switch { margin-left: 0; white-space: nowrap; }
+.documents-toolbar select.field { min-width: 0; }
+
+/* Les labels de toolbar contiennent directement leurs champs : ils doivent
+   former une ligne de 42 px, sans la marge verticale des formulaires. */
+.directory-toolbar > label,
+.documents-toolbar > label {
+  display: flex;
+  align-items: center;
+}
+
+.directory-toolbar > label .field,
+.documents-toolbar > label .field { margin-top: 0; }
+
 /* Desktop étroit : la navigation passe sur sa propre ligne avant de saturer. */
 @media (max-width: 1180px) and (min-width: 761px) {
   .topbar {
@@ -1606,6 +1714,20 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 
   .directory-filter-menu summary { position: relative; z-index: 91; }
   .directory-view-switch { grid-column: 1 / -1; }
+
+  .documents-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .documents-view-switch { grid-column: 1 / -1; }
+
+  .view-switch { width: auto; gap: var(--space-2); }
+  .view-switch button {
+    flex: 0 0 auto;
+    width: var(--control-touch);
+    min-width: var(--control-touch);
+    height: var(--control-touch);
+    min-height: var(--control-touch);
+  }
+  .directory-view-switch,
+  .documents-view-switch { justify-self: end; }
 
   .content-grid,
   .content-grid:not(.list-mode),

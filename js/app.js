@@ -542,7 +542,7 @@ window.addEventListener("resize", scheduleTreeViewportFit, { passive: true });
 // couleurs réutilisées) ; les photos externes sont pré-chargées en CORS pour
 // ne pas souiller le canvas et retombent sur les initiales en cas d'échec.
 async function exportTreeImage() {
-  const buttons = [$("exportTreeBtn"), $("menuExportTreeBtn")];
+  const buttons = [$("menuExportTreeBtn")].filter(Boolean);
   const setBusy = pending => buttons.forEach(button => { button.disabled = pending; button.setAttribute("aria-busy", String(pending)); });
   if (!treePeople().length || !currentLayout) {
     toast("Aucun arbre à exporter", "error");
@@ -1140,33 +1140,6 @@ async function linkChildToParents(childId, requestedParentIds, preferredFamilyId
   } else {
     await addDoc(refs.families, { partnerIds: mergedParents, childIds: [childId], relationType: "unknown", unionDateInfo: { type: "unknown" }, unionPlace: "", endType: "none", endDateInfo: { type: "unknown" }, endPlace: "", parentChildLinks, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   }
-}
-
-function openManualLink() {
-  if (people.length < 2) return toast("Ajoutez au moins deux personnes", "info");
-  const options = availableOptions();
-  $("manualChild").innerHTML = options;
-  $("manualParent1").innerHTML = options;
-  $("manualParent2").innerHTML = options;
-  $("manualLinkForm").reset();
-  $("manualLinkDialog").showModal();
-}
-
-async function saveManualLink(event) {
-  event.preventDefault();
-  const submitButton = event.submitter;
-  const childId = $("manualChild").value;
-  const parentIds = [...new Set([$("manualParent1").value, $("manualParent2").value].filter(Boolean))];
-  try {
-    await withButtonPending(submitButton, async () => {
-      const linkTypes = { [$("manualParent1").value]: $("manualParent1Type").value };
-      if ($("manualParent2").value) linkTypes[$("manualParent2").value] = $("manualParent2Type").value;
-      await linkChildToParents(childId, parentIds, "", linkTypes);
-    });
-    focusAfterRender = childId;
-    close("manualLinkDialog");
-    toast("Lien parent-enfant créé");
-  } catch (error) { toast(error.message || "Lien impossible", "error"); }
 }
 
 function updateEndDetailsVisibility() {
@@ -1972,7 +1945,6 @@ function setView(view) {
   $("documentsView").hidden = view !== "documents";
   $("tasksView").hidden = view !== "tasks";
   $("addBtn").hidden = view !== "tree";
-  $("addLinkBtn").hidden = view !== "tree";
   $("headerTreeActions").hidden = view !== "tree";
   document.querySelectorAll("[data-view]").forEach(button => {
     const active = button.dataset.view === view;
@@ -2198,8 +2170,6 @@ document.querySelectorAll("[data-person-section]").forEach(button => {
     setPersonSection(tabs[index].dataset.personSection, true);
   };
 });
-$("addLinkBtn").onclick = openManualLink;
-$("manualLinkForm").addEventListener("submit", saveManualLink);
 $("toggleRelationBuilderBtn").onclick = () => setRelationBuilderOpen($("relationBuilder").hidden, "parent");
 $("closeRelationBuilderBtn").onclick = () => setRelationBuilderOpen(false);
 document.querySelectorAll("[data-relation-kind]").forEach(button => {
@@ -2472,7 +2442,6 @@ function showZoomBadge() {
 $("zoomOutBtn").onclick = () => { camera.zoomBy(1 / 1.2); showZoomBadge(); };
 $("zoomInBtn").onclick = () => { camera.zoomBy(1.2); showZoomBadge(); };
 $("fitTreeBtn").onclick = () => camera.fit();
-$("exportTreeBtn").onclick = exportTreeImage;
 function setTreeMenu(open) {
   const menu = $("treeMenu");
   menu.hidden = !open;
@@ -2573,6 +2542,10 @@ $("clearDirectoryFiltersBtn").onclick = () => {
   $("directoryFilterMenu").open = false;
   renderDirectory();
 };
+document.querySelector(".brand")?.addEventListener("click", event => {
+  event.preventDefault();
+  setView("tree");
+});
 document.querySelectorAll("[data-switch] [data-mode]").forEach(button => {
   button.onclick = () => setContentMode(button.closest("[data-switch]").dataset.switch, button.dataset.mode);
 });

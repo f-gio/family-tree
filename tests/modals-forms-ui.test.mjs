@@ -24,11 +24,10 @@ for (const rule of [
 
 assert.match(html, /class="person-dialog modal-xl"/);
 assert.match(html, /class="modal-body person-modal-form" id="personForm"/);
-assert.equal((html.match(/class="modal-body modal-form"/g) || []).length, 4);
+assert.equal((html.match(/class="modal-body modal-form"/g) || []).length, 3);
 assert.equal((html.match(/class="person-section-panel"/g) || []).length, 3);
 
 for (const heading of [
-  "Personnes concernées",
   "Identification",
   "Source du document",
   "Association et notes",
@@ -40,8 +39,6 @@ for (const redundantHeading of ["Événements de vie", "Informations complément
   assert.ok(!html.includes(`<h4>${redundantHeading}</h4>`), `Titre redondant présent : ${redundantHeading}`);
 }
 
-assert.match(html, /Type de filiation avec le premier parent<select/);
-assert.match(html, /Type de filiation avec le second parent<select/);
 assert.match(html, /id="endDetailsFields" hidden/);
 assert.ok((html.match(/data-date-panel="[^"]+" hidden/g) || []).length >= 10);
 assert.doesNotMatch(html, /data-date-panel="(?:birth|death)-unknown"/);

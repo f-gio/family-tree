@@ -11,14 +11,14 @@ const [html, app, lineage] = await Promise.all([
 ]);
 
 test("A. le filtre est présent à droite de la recherche, dans la même zone de contrôles", () => {
-  const toolbar = html.match(/<section class="toolbar">([\s\S]*?)<\/section>/);
+  const toolbar = html.match(/<section class="toolbar[^\"]*"[^>]*>([\s\S]*?)<\/section>/);
   assert.ok(toolbar, "barre de recherche introuvable");
   const body = toolbar[1];
   const searchIndex = body.indexOf('id="search"');
   const filterIndex = body.indexOf('id="treeBranchFilter"');
   const resetIndex = body.indexOf('id="resetBtn"');
-  assert.ok(searchIndex >= 0 && filterIndex > searchIndex && resetIndex > filterIndex,
-    "le filtre doit être placé entre la recherche et le bouton Effacer");
+  assert.ok(searchIndex >= 0 && resetIndex > searchIndex && filterIndex > resetIndex,
+    "Effacer doit précéder le filtre de branche dans la toolbar");
   assert.ok(!html.includes('data-view="lineage"'), "aucune entrée de navigation ajoutée");
   assert.ok(!html.includes("Arbre global"), "pas de menu « Arbres » ni de bandeau de lignée");
 });
@@ -56,7 +56,7 @@ test("F. responsive : filtre aligné desktop, empilé mobile, sans débordement"
   assert.match(html, /\.toolbar\{display:grid;grid-template-columns:minmax\(190px,1fr\) auto auto/);
   assert.match(html, /\.toolbar-branch \.field\{width:auto;min-width:168px;margin-top:0\}/);
   assert.match(html, /\.toolbar-branch \.field\{min-height:44px\}/);
-  assert.match(html, /@media\(max-width:760px\)\{\.toolbar #search\{grid-column:1;grid-row:1\}\.toolbar #resetBtn\{grid-column:2;grid-row:1\}\.toolbar \.toolbar-branch\{grid-column:1\/-1;grid-row:2\}/);
+  assert.ok(html.includes('class="toolbar tree-filter-toolbar"'), "toolbar Arbre dédiée absente");
 });
 
 test("G. « Voir sa branche » remet le filtre à Toutes les branches", () => {

@@ -7,8 +7,10 @@
 <!-- Renseignez ici le nom d’utilisateur gratuit activé pour les services web GeoNames. -->
 <meta name="geonames-username" content="giovannoni.f">
 <meta name="geonames-endpoint" content="https://family-tree-geonames.giovannoni-f.workers.dev/">
-<link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <title>Notre histoire — Arbre généalogique</title>
+<link rel="icon" type="image/png" sizes="32x32" href="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-180.png">
+  <title>La Nostra Storia — Arbre généalogique</title>
   <style>
     :root{--ink:#26332e;--muted:#68746f;--paper:#f7f3ea;--card:#fffdf8;--line:#ae9878;--brand:#284b3f;--accent:#b77745;--soft:#e8efe9;--danger:#a64238;--shadow:0 18px 45px #2837301f}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}button,input,select,textarea{font:inherit}button{cursor:pointer}[hidden]{display:none!important}
     .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:15px clamp(18px,4vw,56px);background:#fffdf8ed;border-bottom:1px solid #e5ddce;backdrop-filter:blur(14px)}.brand{display:flex;align-items:center;gap:12px;min-width:0}.brand-mark{display:grid;place-items:center;width:42px;height:42px;border-radius:14px;background:var(--brand);color:#fff;font-size:21px}.brand h1{margin:0;font:700 clamp(18px,2.2vw,23px)/1.1 Georgia,serif}.brand p{margin:3px 0 0;color:var(--muted);font-size:12px}.actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;justify-content:flex-end}
@@ -85,8 +87,8 @@
   </svg>
   <section class="auth-screen" id="authScreen">
 <form class="auth-card" id="loginForm">
-<div class="brand-mark">⌘</div>
-<h2>Bienvenue dans votre histoire</h2>
+<img class="brand-mark" src="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-48.png" alt="">
+<h2>La Nostra Storia</h2>
 <p>Connectez-vous pour consulter et compléter votre arbre familial.</p>
 <label>Adresse e-mail<input class="field" id="loginEmail" type="email" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" required>
 </label>
@@ -98,7 +100,7 @@
 <div class="auth-switch" id="signupSwitch" hidden><p>Vous n’avez pas encore de compte ?</p><button class="btn" type="button" id="showSignupBtn">Créer un compte</button></div>
 </form>
 <form class="auth-card" id="signupForm" hidden>
-<div class="brand-mark">⌘</div><h2>Créer un compte</h2><p>Votre demande devra être validée par un administrateur.</p>
+<img class="brand-mark" src="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-48.png" alt=""><h2>Créer un compte</h2><p>Votre demande devra être validée par un administrateur.</p>
 <label>Adresse e-mail<input class="field" id="signupEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" required></label>
 <label>Mot de passe<input class="field" id="signupPassword" type="password" autocomplete="new-password" required minlength="6"></label>
 <label>Confirmer le mot de passe<input class="field" id="signupPasswordConfirm" type="password" autocomplete="new-password" required minlength="6"></label>
@@ -106,16 +108,16 @@
 <button class="btn primary" type="submit" id="signupSubmitBtn">Envoyer la demande</button>
 <button class="btn" type="button" id="backToLoginBtn">Retour à la connexion</button>
 </form>
-<div class="auth-card" id="accessStatus" hidden><div class="brand-mark">⌘</div><h2>Accès au Family Tree</h2><div class="auth-status"><strong id="accessStatusTitle">Demande en attente</strong><span id="accessStatusMessage">Un administrateur doit valider votre compte.</span></div><button class="btn" type="button" id="statusLogoutBtn">Se déconnecter</button></div>
+<div class="auth-card" id="accessStatus" hidden><img class="brand-mark" src="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-48.png" alt=""><h2>Accès à La Nostra Storia</h2><div class="auth-status"><strong id="accessStatusTitle">Demande en attente</strong><span id="accessStatusMessage">Un administrateur doit valider votre compte.</span></div><button class="btn" type="button" id="statusLogoutBtn">Se déconnecter</button></div>
 </section>
   <header class="topbar" id="topbar" hidden>
-<div class="brand">
-<div class="brand-mark">⌘</div>
+<a class="brand" href="#appMain" aria-label="Accueil — La Nostra Storia">
+<img class="brand-mark" src="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-48.png" alt="">
 <div>
-<h1>Notre histoire</h1>
+<h1>La Nostra Storia</h1>
 <p>Arbre généalogique familial</p>
 </div>
-</div>
+</a>
 <nav class="main-nav" aria-label="Navigation principale">
 <button class="nav-btn active" type="button" data-view="tree" aria-pressed="true" aria-current="page"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-tree"></use></svg></span><span>Arbre</span></button>
 <button class="nav-btn" type="button" data-view="directory" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-people"></use></svg></span><span>Annuaire</span></button>
@@ -137,17 +139,15 @@
 </div>
 </div>
 <div class="hero-actions" id="headerTreeActions">
-<button class="btn" id="addLinkBtn" type="button" aria-label="Créer un lien familial"><svg class="ui-icon" aria-hidden="true"><use href="#icon-link"></use></svg><span class="label">Créer un lien</span>
-</button>
 <button class="btn primary" id="addBtn" type="button" aria-label="Ajouter une personne"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span class="label">Ajouter une personne</span>
 </button>
 </div>
 </section>
-<section class="toolbar">
+<section class="toolbar tree-filter-toolbar" aria-label="Recherche et filtres de l’arbre">
 <label class="sr-only" for="search">Rechercher</label>
 <input class="field" id="search" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher et centrer une personne…">
-<label class="toolbar-branch"><span class="sr-only">Filtrer par branche familiale</span><select class="field" id="treeBranchFilter" aria-label="Filtrer par branche familiale"><option value="">Toutes les branches</option><option value="Giovannoni">Giovannoni</option><option value="Conti">Conti</option><option value="Pianezza">Pianezza</option><option value="Paglia">Paglia</option><option value="Piolini">Piolini</option></select></label>
 <button class="btn tertiary" id="resetBtn" type="button">Effacer</button>
+<label class="toolbar-branch"><span class="sr-only">Filtrer par branche familiale</span><select class="field" id="treeBranchFilter" aria-label="Filtrer par branche familiale"><option value="">Toutes les branches</option><option value="Giovannoni">Giovannoni</option><option value="Conti">Conti</option><option value="Pianezza">Pianezza</option><option value="Paglia">Paglia</option><option value="Piolini">Piolini</option></select></label>
 </section>
 <section class="branch-banner" id="branchBanner" hidden aria-label="Mode branche">
 <span class="branch-banner-name">Branche de <strong id="branchBannerName"></strong></span>
@@ -173,13 +173,12 @@
 </div>
 <div class="view-control">
 <button id="fitTreeBtn" type="button" aria-label="Ajuster l’arbre à l’écran" title="Ajuster"><svg class="ui-icon" aria-hidden="true"><use href="#icon-fit"></use></svg><span>Ajuster</span></button>
-<button id="exportTreeBtn" type="button" aria-label="Exporter l’arbre en image PNG" title="Exporter en image"><svg class="ui-icon" aria-hidden="true"><use href="#icon-download"></use></svg><span>Image</span></button>
 <button id="treeMoreBtn" type="button" aria-label="Plus d’actions sur l’arbre" aria-haspopup="menu" aria-expanded="false" title="Plus d’actions">⋯</button>
 <div class="tree-menu" id="treeMenu" role="menu" aria-label="Plus d’actions sur l’arbre" hidden>
 <button id="menuFitBtn" type="button" role="menuitem" aria-label="Ajuster l’arbre à l’écran" title="Ajuster"><svg class="ui-icon" aria-hidden="true"><use href="#icon-fit"></use></svg><span>Ajuster</span></button>
 <button id="centerTreeBtn" type="button" role="menuitem" aria-label="Recentrer l’arbre" title="Recentrer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-center"></use></svg><span>Recentrer</span></button>
 <button id="autoLayoutBtn" type="button" role="menuitem" aria-label="Réorganiser l’arbre" title="Réorganiser"><svg class="ui-icon" aria-hidden="true"><use href="#icon-reorder"></use></svg><span>Réorganiser</span></button>
-<button id="menuExportTreeBtn" type="button" role="menuitem" aria-label="Exporter l’arbre en image PNG" title="Exporter en image"><svg class="ui-icon" aria-hidden="true"><use href="#icon-download"></use></svg><span>Exporter l’image</span></button>
+<button id="menuExportTreeBtn" type="button" role="menuitem" aria-label="Exporter l’arbre en image PNG" title="Exporter"><svg class="ui-icon" aria-hidden="true"><use href="#icon-download"></use></svg><span>Exporter</span></button>
 </div>
 </div>
 </div>
@@ -198,7 +197,7 @@
 <button class="btn small tertiary directory-clear-filters" id="clearDirectoryFiltersBtn" type="button">Effacer les filtres</button>
 </div></details>
 <label class="directory-sort"><span class="sr-only">Trier l’annuaire</span><select class="field" id="directorySort"><option value="name-asc">A → Z</option><option value="name-desc">Z → A</option><option value="birth-asc">Plus ancien</option><option value="birth-desc">Plus récent</option></select></label>
-<div class="view-switch directory-view-switch" data-switch="directory" role="group" aria-label="Mode d’affichage"><button type="button" data-mode="list" class="active"><svg class="ui-icon" aria-hidden="true"><use href="#icon-list"></use></svg><span>Liste</span></button><button type="button" data-mode="cards"><svg class="ui-icon" aria-hidden="true"><use href="#icon-grid"></use></svg><span>Cartes</span></button></div>
+<div class="view-switch directory-view-switch" data-switch="directory" role="group" aria-label="Mode d’affichage"><button type="button" data-mode="list" class="active" aria-label="Liste" title="Liste"><svg class="ui-icon" aria-hidden="true"><use href="#icon-list"></use></svg></button><button type="button" data-mode="cards" aria-label="Cartes" title="Cartes"><svg class="ui-icon" aria-hidden="true"><use href="#icon-grid"></use></svg></button></div>
 </section>
 <div class="directory-results-meta"><span id="directoryResultCount" role="status" aria-live="polite"></span></div>
 <nav class="alphabet-nav" id="directoryAlphabet" aria-label="Accès rapide par nom"></nav>
@@ -213,9 +212,9 @@
 </div>
 <button class="btn primary" id="addDocumentBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter un document</span></button>
 </section>
-<div class="list-toolbar">
-<label class="sr-only" for="documentSearch">Rechercher un document</label><input class="field" id="documentSearch" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="sentences" placeholder="Rechercher un document…">
-<label class="sr-only" for="documentTypeFilter">Filtrer par type de document</label>
+<div class="documents-toolbar">
+<label class="directory-search"><span class="sr-only">Rechercher un document</span><span class="directory-search-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="documentSearch" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="sentences" placeholder="Rechercher un document…"></label>
+<label class="documents-type-filter"><span class="sr-only">Filtrer par type de document</span>
 <select class="field" id="documentTypeFilter">
 <option value="">Tous les types</option>
 <option>Acte de naissance</option>
@@ -226,7 +225,8 @@
 <option>Photo</option>
 <option>Autre</option>
 </select>
-<div class="view-switch" data-switch="documents" role="group" aria-label="Mode d’affichage des documents"><button type="button" data-mode="cards" class="active">Cartes</button><button type="button" data-mode="list">Liste</button></div>
+</label>
+<div class="view-switch documents-view-switch" data-switch="documents" role="group" aria-label="Mode d’affichage des documents"><button type="button" data-mode="list" aria-label="Liste" title="Liste"><svg class="ui-icon" aria-hidden="true"><use href="#icon-list"></use></svg></button><button type="button" data-mode="cards" class="active" aria-label="Cartes" title="Cartes"><svg class="ui-icon" aria-hidden="true"><use href="#icon-grid"></use></svg></button></div>
 </div>
 <div class="content-grid" id="documentsList">
 </div>
@@ -380,15 +380,6 @@
 </div>
 </div>
 </form>
-</dialog>
-  <dialog class="modal-md" id="manualLinkDialog" aria-labelledby="manualLinkDialogTitle">
-<div class="modal-head"><div><h3 id="manualLinkDialogTitle">Créer un lien parent-enfant</h3><p>Choisissez l’enfant et son ou ses parents parmi les personnes existantes.</p></div><button class="btn icon-btn" type="button" data-close="manualLinkDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
-<form class="modal-body modal-form" id="manualLinkForm"><div class="modal-scroll"><div class="grid">
-<header class="form-section-heading wide"><h4>Personnes concernées</h4><p>Le second parent reste facultatif.</p></header>
-<label class="wide">Enfant *<select class="field" id="manualChild" required></select></label>
-<div class="field-stack"><label>Premier parent *<select class="field" id="manualParent1" required></select></label><label>Type de filiation avec le premier parent<select class="field" id="manualParent1Type"><option value="unknown">Filiation non précisée</option><option value="biological">Biologique</option><option value="adoptive">Adoptive</option><option value="uncertain">Incertaine</option></select></label></div>
-<div class="field-stack"><label>Second parent <span class="label-optional">(facultatif)</span><select class="field" id="manualParent2"></select></label><label>Type de filiation avec le second parent<select class="field" id="manualParent2Type"><option value="unknown">Filiation non précisée</option><option value="biological">Biologique</option><option value="adoptive">Adoptive</option><option value="uncertain">Incertaine</option></select></label></div>
-</div><p class="hint form-context-help">Si les deux parents forment déjà une union, l’enfant sera rattaché à cette union. Sinon, elle sera créée automatiquement.</p></div><div class="modal-actions"><div class="right"><button class="btn" type="button" data-close="manualLinkDialog">Annuler</button><button class="btn primary" type="submit">Créer le lien</button></div></div></form>
 </dialog>
   <dialog class="modal-lg" id="familyDetailsDialog" aria-labelledby="familyDetailsTitle">
 <div class="modal-head"><div><h3 id="familyDetailsTitle">Détails de la relation</h3><p>Ces informations appartiennent au lien familial et restent distinctes de l’identité.</p></div><button class="btn icon-btn" type="button" data-close="familyDetailsDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
