@@ -14,6 +14,7 @@ import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalize
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
 import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
 import { formatCompactPlace } from "./place-format.js";
+import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, validateFamilyDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, buildBackupManifest, parseBackupManifestText } from "./backup-utils.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",
@@ -52,8 +53,6 @@ let activeViewerUrl = "";
 let activePersonSection = "identity";
 let documentReturnContext = null;
 let familyDetailsReturnContext = null;
-const FILE_CHUNK_BYTES = 700 * 1024;
-const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_PERSON_PHOTO_BYTES = 5 * 1024;
 const viewModes = readViewModes();
 const personFields = ["firstName", "middleName", "lastName", "marriedName", "gender", "branch", "place", "deathPlace", "photoUrl", "notes"];
@@ -212,12 +211,6 @@ function readGenealogyDateForm(prefix) {
   const normalized = normalizeGenealogyDate(value);
   if (type !== "unknown" && normalized.type === "unknown") throw new Error(type === "between" ? "Renseignez une période valide, avec l’année de début avant l’année de fin" : "Renseignez une date valide");
   return normalized;
-}
-
-function formatBytes(value = 0) {
-  if (!value) return "0 Ko";
-  if (value < 1024 * 1024) return `${Math.round(value / 1024)} Ko`;
-  return `${(value / 1024 / 1024).toFixed(1).replace(".", ",")} Mo`;
 }
 
 function setContentMode(section, mode, persist = true) {
@@ -1139,13 +1132,6 @@ function renderDocuments() {
   if (activeId && $("personDialog").open) renderPersonDocuments(activeId);
 }
 
-function base64ToBytes(value) {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
-
 async function optimizeFile(file) {
   const unchanged = { blob: file, mimeType: file.type || "application/octet-stream", originalSize: file.size, storedSize: file.size, compressed: false };
   if (!file.type.startsWith("image/") || /image\/(gif|svg\+xml)/.test(file.type)) return unchanged;
@@ -1187,16 +1173,17 @@ async function optimizeFile(file) {
 }
 
 function chunkReference(documentId, version, index) {
-  return doc(db, "documentChunks", `${documentId}_${version}_${String(index).padStart(4, "0")}`);
+  return doc(db, "documentChunks", documentChunkId(documentId, version, index));
 }
 
 async function writeFileChunks(documentId, version, fileBlob) {
   const bytes = new Uint8Array(await fileBlob.arrayBuffer());
-  const count = Math.ceil(bytes.length / FILE_CHUNK_BYTES);
+  const parts = splitBytesIntoChunks(bytes, FILE_CHUNK_BYTES);
+  const count = parts.length;
   let written = 0;
   try {
     for (let index = 0; index < count; index++) {
-      const part = bytes.subarray(index * FILE_CHUNK_BYTES, (index + 1) * FILE_CHUNK_BYTES);
+      const part = parts[index];
       await setDoc(chunkReference(documentId, version, index), {
         documentId,
         version,
@@ -1225,12 +1212,13 @@ async function readChunkedFile(item) {
   const reads = [];
   for (let index = 0; index < item.chunkCount; index++) reads.push(getDoc(chunkReference(item.id, item.chunkVersion, index)));
   const snapshots = await Promise.all(reads);
-  if (snapshots.some(snapshot => !snapshot.exists())) throw new Error("Un bloc du fichier est introuvable");
-  const parts = snapshots.map(snapshot => {
+  const parts = collectChunkParts(index => {
+    const snapshot = snapshots[index];
+    if (!snapshot.exists()) return null;
     const data = snapshot.data().data;
     return typeof data === "string" ? base64ToBytes(data) : data.toUint8Array();
-  });
-  return new Blob(parts, { type: item.mimeType || "application/octet-stream" });
+  }, item.chunkCount);
+  return new Blob([concatByteArrays(parts)], { type: item.mimeType || "application/octet-stream" });
 }
 
 async function documentBlob(item) {
@@ -1245,76 +1233,8 @@ async function zipLibrary() {
   return module.default || module;
 }
 
-function exportableRecord(item) {
-  return JSON.parse(JSON.stringify(item));
-}
-
 function importedData(item) {
-  const { id, createdAt, updatedAt, backupFile, ...data } = item || {};
-  return { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
-}
-
-function safeBackupName(value = "document") {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "document";
-}
-
-function isValidStoredDate(value) {
-  if (value == null) return true;
-  if (!value || typeof value !== "object" || !["exact", "year", "about", "between", "unknown"].includes(value.type)) return false;
-  if (value.type === "unknown") return true;
-  const normalized = normalizeGenealogyDate(value);
-  return normalized.type === value.type;
-}
-
-function validateFamilyDataset(personRecords = [], familyRecords = []) {
-  const personIds = new Set();
-  for (const item of personRecords) {
-    if (!item?.id || item.id.includes("/") || personIds.has(item.id)) throw new Error("La sauvegarde contient un identifiant de personne invalide ou dupliqué");
-    personIds.add(item.id);
-    if (!isValidStoredDate(item.birthDateInfo) || !isValidStoredDate(item.deathDateInfo)) throw new Error(`La fiche ${item.id} contient une date généalogique invalide`);
-  }
-  const familyIds = new Set();
-  const childHomes = new Map();
-  const childrenByParent = new Map();
-  for (const family of familyRecords) {
-    if (!family?.id || family.id.includes("/") || familyIds.has(family.id)) throw new Error("La sauvegarde contient un identifiant de foyer invalide ou dupliqué");
-    familyIds.add(family.id);
-    const parentIds = Array.isArray(family.partnerIds) ? [...new Set(family.partnerIds)] : [];
-    const childIds = Array.isArray(family.childIds) ? [...new Set(family.childIds)] : [];
-    if (!parentIds.length || parentIds.length > 2 || parentIds.length !== (family.partnerIds || []).length || childIds.length !== (family.childIds || []).length) throw new Error(`Le foyer ${family.id} contient des liens invalides`);
-    if ([...parentIds, ...childIds].some(id => !personIds.has(id))) throw new Error(`Le foyer ${family.id} fait référence à une personne absente`);
-    if (parentIds.some(id => childIds.includes(id))) throw new Error(`Le foyer ${family.id} place une personne parmi ses propres parents`);
-    if (family.relationType != null && !Object.prototype.hasOwnProperty.call(RELATION_TYPE_LABELS, family.relationType)) throw new Error(`Le foyer ${family.id} contient un type de relation invalide`);
-    if (family.endType != null && !Object.prototype.hasOwnProperty.call(END_TYPE_LABELS, family.endType)) throw new Error(`Le foyer ${family.id} contient une fin de relation invalide`);
-    if (!isValidStoredDate(family.unionDateInfo) || !isValidStoredDate(family.endDateInfo)) throw new Error(`Le foyer ${family.id} contient une date généalogique invalide`);
-    if (family.parentChildLinks != null) {
-      if (!Array.isArray(family.parentChildLinks)) throw new Error(`Le foyer ${family.id} contient des filiations invalides`);
-      const seenLinks = new Set();
-      for (const link of family.parentChildLinks) {
-        const key = `${link?.parentId}:${link?.childId}`;
-        if (!parentIds.includes(link?.parentId) || !childIds.includes(link?.childId) || !Object.prototype.hasOwnProperty.call(FILIATION_TYPE_LABELS, link?.type) || seenLinks.has(key)) throw new Error(`Le foyer ${family.id} contient une filiation invalide ou dupliquée`);
-        seenLinks.add(key);
-      }
-    }
-    for (const childId of childIds) {
-      if (childHomes.has(childId) && childHomes.get(childId) !== family.id) throw new Error("Une personne est rattachée comme enfant à plusieurs foyers");
-      childHomes.set(childId, family.id);
-      for (const parentId of parentIds) {
-        if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, []);
-        childrenByParent.get(parentId).push(childId);
-      }
-    }
-  }
-  const visited = new Set(), active = new Set();
-  function visit(id) {
-    if (active.has(id)) throw new Error("La sauvegarde contient une boucle dans les liens parent-enfant");
-    if (visited.has(id)) return;
-    active.add(id);
-    for (const childId of childrenByParent.get(id) || []) visit(childId);
-    active.delete(id);
-    visited.add(id);
-  }
-  personIds.forEach(visit);
+  return { ...importedDataFields(item), createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
 }
 
 async function exportCompleteBackup() {
@@ -1325,29 +1245,14 @@ async function exportCompleteBackup() {
   try {
     const JSZip = await zipLibrary();
     const zip = new JSZip();
-    const manifest = {
-      format: "family-tree-backup",
-      version: 3,
-      exportedAt: new Date().toISOString(),
-      people: people.map(exportableRecord),
-      families: families.map(exportableRecord),
-      tasks: tasks.map(exportableRecord),
-      documents: []
-    };
+    const blobs = new Map();
     for (let index = 0; index < documents.length; index++) {
-      const item = exportableRecord(documents[index]);
       button.innerHTML = `… <span class="label">Document ${index + 1}/${documents.length}</span>`;
-      const blob = await documentBlob(documents[index]);
-      if (blob) {
-        item.backupFile = `documents/${item.id}/${safeBackupName(item.fileName || `document-${item.id}`)}`;
-        zip.file(item.backupFile, blob);
-        delete item.fileData;
-        delete item.fileUrl;
-        delete item.storagePath;
-        delete item.chunkVersion;
-        delete item.chunkCount;
-      }
-      manifest.documents.push(item);
+      blobs.set(documents[index].id, await documentBlob(documents[index]));
+    }
+    const manifest = buildBackupManifest({ people, families, tasks, documents, blobs });
+    for (const item of manifest.documents) {
+      if (item.backupFile) zip.file(item.backupFile, blobs.get(item.id));
     }
     zip.file("family-tree.json", JSON.stringify(manifest, null, 2));
     button.innerHTML = '… <span class="label">Compression</span>';
@@ -1369,9 +1274,9 @@ async function exportCompleteBackup() {
 }
 
 async function writeImportedRecords(collectionName, records = []) {
-  for (let start = 0; start < records.length; start += 400) {
+  for (const batchRecords of sliceIntoBatches(records, 400)) {
     const batch = writeBatch(db);
-    for (const item of records.slice(start, start + 400)) {
+    for (const item of batchRecords) {
       if (!item?.id || item.id.includes("/")) throw new Error(`Identifiant invalide dans ${collectionName}`);
       batch.set(doc(db, collectionName, item.id), importedData(item));
     }
@@ -1389,8 +1294,7 @@ async function restoreCompleteBackup(file) {
     const zip = await JSZip.loadAsync(file);
     const manifestEntry = zip.file("family-tree.json");
     if (!manifestEntry) throw new Error("Cette archive ne contient pas de sauvegarde Family Tree");
-    const manifest = JSON.parse(await manifestEntry.async("string"));
-    if (manifest.format !== "family-tree-backup" || !Array.isArray(manifest.people) || !Array.isArray(manifest.families)) throw new Error("Format de sauvegarde non reconnu");
+    const manifest = parseBackupManifestText(await manifestEntry.async("string"));
     validateFamilyDataset(manifest.people, manifest.families);
     if (!confirm(`Fusionner cette sauvegarde avec les données actuelles ?\n\n${manifest.people.length} personnes · ${manifest.documents?.length || 0} documents · ${manifest.tasks?.length || 0} tâches\n\nLes éléments de même identifiant seront mis à jour. Les autres données actuelles seront conservées.`)) return;
 
