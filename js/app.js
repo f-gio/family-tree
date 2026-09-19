@@ -845,7 +845,7 @@ function openPerson(item = null, source = "tree") {
   $("savePersonBtn").textContent = item ? "Enregistrer" : "Enregistrer et ajouter ses liens";
   $("deleteBtn").hidden = !item;
   $("viewBranchBtn").hidden = !item;
-  setActionLabel($("deleteBtn"), source === "directory" ? "Supprimer définitivement" : "Retirer de l’arbre", source === "directory" ? "trash" : "unlink");
+  setActionLabel($("deleteBtn"), source === "directory" ? "Supprimer" : "Retirer de l’arbre", source === "directory" ? "trash" : "unlink");
   $("restoreTreeBtn").hidden = !item || item.inTree !== false || source !== "directory";
   $("personId").value = item?.id || "";
   for (const key of personFields) $(key).value = item?.[key] || "";
@@ -2102,7 +2102,7 @@ $("personForm").addEventListener("submit", async event => {
       $("savePersonBtn").dataset.idleLabel = "Enregistrer";
       $("savePersonBtn").dataset.idleContent = "Enregistrer";
       $("deleteBtn").hidden = false;
-      setActionLabel($("deleteBtn"), personDialogSource === "directory" ? "Supprimer définitivement" : "Retirer de l’arbre", personDialogSource === "directory" ? "trash" : "unlink");
+      setActionLabel($("deleteBtn"), personDialogSource === "directory" ? "Supprimer" : "Retirer de l’arbre", personDialogSource === "directory" ? "trash" : "unlink");
       setPersonSection("relations", true);
       toast("Personne ajoutée — indiquez maintenant ses liens familiaux");
     }

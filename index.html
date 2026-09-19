@@ -324,6 +324,10 @@
 </textarea>
 </label>
 <section class="life-timeline" id="personLifeTimeline" aria-label="Parcours de vie" hidden></section>
+<div class="person-context-actions">
+<button class="btn danger" type="button" id="deleteBtn" hidden>Supprimer</button>
+<button class="btn" type="button" id="viewBranchBtn" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-tree"></use></svg><span>Voir sa branche</span></button>
+</div>
 </section>
 <section class="person-section-panel" id="personRelationsPanel" role="tabpanel" aria-labelledby="personRelationsTab" data-person-panel="relations" hidden>
 <div id="personRelationsUnavailable" class="person-section-placeholder" hidden><strong>Enregistrez d’abord l’identité</strong>Les liens familiaux pourront ensuite être ajoutés sans fermer cette fiche.</div>
@@ -371,8 +375,6 @@
 </section>
 </section>
 <div class="modal-actions person-actions">
-<button class="btn danger" type="button" id="deleteBtn" hidden>Supprimer</button>
-<button class="btn" type="button" id="viewBranchBtn" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-tree"></use></svg><span>Voir sa branche</span></button>
 <div class="right">
 <button class="btn" type="button" id="restoreTreeBtn" hidden>Ajouter à l’arbre</button>
 <button class="btn" type="button" data-close="personDialog">Annuler</button>

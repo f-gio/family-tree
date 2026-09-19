@@ -505,7 +505,7 @@ async function runViewport(view, page, baseURL) {
       count: visible.length
     };
   });
-  const expectedItems = mobileLayout ? ["Ajuster", "Recentrer", "Réorganiser"] : ["Recentrer", "Réorganiser"];
+  const expectedItems = mobileLayout ? ["Ajuster", "Recentrer", "Réorganiser", "Exporter"] : ["Recentrer", "Réorganiser", "Exporter"];
   check(`${line} · clic sur ⋯ : menu ouvert (aria-expanded="true")`, !menuOpened.hidden && menuOpened.expanded === "true", JSON.stringify(menuOpened));
   check(`${line} · menu ${mobileLayout ? "mobile (≤760)" : "desktop/paysage"} : items « ${expectedItems.join(" / ")} » (${menuOpened.count})`, JSON.stringify(menuOpened.items) === JSON.stringify(expectedItems), JSON.stringify(menuOpened.items));
   const menuBoxes = await page.evaluate(() => {
