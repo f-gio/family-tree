@@ -51,6 +51,11 @@ service cloud.firestore {
         && (!('deathDateInfo' in request.resource.data) || validGenealogyDate(request.resource.data.deathDateInfo));
     }
 
+    function validUpdatedBy() {
+      return !('updatedBy' in request.resource.data)
+        || request.resource.data.updatedBy == request.auth.uid;
+    }
+
     function validFamily() {
       return request.resource.data.partnerIds is list
         && request.resource.data.childIds is list
@@ -135,7 +140,7 @@ service cloud.firestore {
     // L'arbre est accessible uniquement aux comptes approuvés.
     match /people/{personId} {
       allow read, delete: if isApproved();
-      allow create, update: if isApproved() && validPerson();
+      allow create, update: if isApproved() && validPerson() && validUpdatedBy();
     }
 
     // Une famille relie un ou deux partenaires à leurs enfants.

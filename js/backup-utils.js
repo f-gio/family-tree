@@ -25,7 +25,7 @@ export function exportableRecord(item) {
 }
 
 export function importedDataFields(item) {
-  const { id, createdAt, updatedAt, backupFile, ...data } = item || {};
+  const { id, createdAt, updatedAt, backupFile, updatedBy, updatedByName, ...data } = item || {};
   return data;
 }
 

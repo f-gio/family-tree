@@ -178,6 +178,15 @@ function searchable(value = "") {
   return String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
+function formatPersonModInfo(item) {
+  if (!item?.updatedAt?.toDate) return "";
+  const date = item.updatedAt.toDate();
+  const formatted = date.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })
+    + " à " + date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  const author = item.updatedByName;
+  return author ? `${formatted} · ${esc(author)}` : formatted;
+}
+
 function dateInfoOf(item, prefix) {
   return normalizeGenealogyDate(item?.[`${prefix}DateInfo`], item?.[`${prefix}Date`]);
 }
@@ -858,6 +867,13 @@ function openPerson(item = null, source = "tree") {
   updatePersonPhotoPreview();
   updateMarriedNameVisibility();
   if (item) renderPersonDocuments(item.id);
+  $("personMetaInfo").textContent = "";
+  $("personMetaInfo").hidden = true;
+  const modInfo = formatPersonModInfo(item);
+  if (modInfo) {
+    $("personMetaInfo").textContent = "Dernière modification : " + modInfo;
+    $("personMetaInfo").hidden = false;
+  }
   $("relationBuilder").hidden = true;
   $("toggleRelationBuilderBtn").setAttribute("aria-expanded", "false");
   setRelationBuilderKind("parent");
@@ -2069,6 +2085,8 @@ $("personForm").addEventListener("submit", async event => {
   setButtonPending(saveButton, true);
   const data = Object.fromEntries(personFields.map(key => [key, $(key).value.trim()]));
   data.updatedAt = serverTimestamp();
+  data.updatedBy = auth.currentUser?.uid || "";
+  data.updatedByName = currentUserProfile?.displayName || "";
   try {
     const birthDateInfo = readGenealogyDateForm("birth");
     const deathDateInfo = readGenealogyDateForm("death");
@@ -2120,7 +2138,7 @@ $("deleteBtn").onclick = async () => {
   if (!id) return;
   if (personDialogSource === "tree") {
     if (!confirm("Retirer cette personne de l’arbre ? Sa fiche et ses liens resteront disponibles dans l’annuaire.")) return;
-    await updateDoc(doc(db, "people", id), { inTree: false, updatedAt: serverTimestamp() });
+    await updateDoc(doc(db, "people", id), { inTree: false, updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.uid || "", updatedByName: currentUserProfile?.displayName || "" });
     delete manualOffsets[id];
     saveOffsets();
     close("personDialog");

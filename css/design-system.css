@@ -2025,6 +2025,12 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; min-he
 .person-context-actions .btn { min-height: var(--control-md); }
 .person-context-actions:not(:has(.btn:not([hidden]))) { display: none; }
 
+.person-meta-info {
+  margin: var(--space-2) 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
 /* Annuaire mobile : une seconde ligne compacte pour filtres, tri et vue. */
 @media (max-width: 760px) {
   .directory-toolbar {
