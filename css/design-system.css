@@ -2031,6 +2031,128 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; min-he
   font-size: var(--text-sm);
 }
 
+.directory-results-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.tree-quality-dialog[open] { width: min(var(--modal-lg), calc(100% - 1.75rem)); }
+.tree-quality-body { display: grid; gap: var(--space-3); }
+.tree-quality-category {
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+  overflow: hidden;
+}
+.tree-quality-category-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  min-height: var(--control-touch);
+}
+.tree-quality-category > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-subtle);
+  cursor: pointer;
+  list-style: none;
+}
+.tree-quality-category > summary::-webkit-details-marker { display: none; }
+.tree-quality-category > summary::before {
+  content: "▸";
+  flex: 0 0 auto;
+  width: 1rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  transition: transform var(--transition-fast);
+}
+.tree-quality-category[open] > summary::before { transform: rotate(90deg); }
+.tree-quality-category-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.tree-quality-category-count {
+  flex: 0 0 auto;
+  min-width: 1.75rem;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  text-align: center;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+.tree-quality-category-content {
+  max-height: clamp(14rem, 40dvh, 26rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.tree-quality-scroll { position: relative; }
+.tree-quality-scroll-indicator {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.tree-quality-scroll-indicator span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--thumb-height, 20%);
+  border-radius: 999px;
+  background: var(--color-border-strong);
+  transform: translateY(var(--thumb-offset, 0));
+  transition: transform 60ms linear;
+}
+.tree-quality-scroll.is-scrollable .tree-quality-scroll-indicator { opacity: 1; }
+.tree-quality-category.is-empty { opacity: 0.78; }
+.tree-quality-category.is-empty .tree-quality-category-summary { cursor: default; }
+.tree-quality-category.is-empty .tree-quality-category-count { background: var(--color-surface-muted); }
+.tree-quality-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-subtle);
+}
+.tree-quality-item:last-child { border-bottom: 0; }
+.tree-quality-item strong { display: block; color: var(--color-text); }
+.tree-quality-item p { margin: var(--space-1) 0 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+.tree-quality-item-actions { display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: var(--space-1); white-space: nowrap; }
+.tree-quality-item-actions .btn { white-space: nowrap; flex: 0 0 auto; }
+
+@media (max-width: 760px) {
+  .tree-quality-category-summary,
+  .tree-quality-category > summary { min-height: var(--control-touch); }
+  .tree-quality-category-content { max-height: clamp(12rem, 45dvh, 20rem); }
+  .directory-results-meta { align-items: stretch; flex-wrap: wrap; }
+  .directory-results-meta .btn { margin-left: auto; min-height: var(--control-touch); }
+  .tree-quality-dialog[open] { width: calc(100% - 0.75rem); }
+  .tree-quality-item {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+  }
+  .tree-quality-item p { margin-top: var(--space-1); font-size: var(--text-sm); }
+  .tree-quality-item-actions { width: 100%; justify-content: flex-start; }
+  .tree-quality-item-actions .btn { min-height: var(--control-touch); }
+}
+
 /* Annuaire mobile : une seconde ligne compacte pour filtres, tri et vue. */
 @media (max-width: 760px) {
   .directory-toolbar {

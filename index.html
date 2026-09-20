@@ -199,10 +199,14 @@
 <label class="directory-sort"><span class="sr-only">Trier l’annuaire</span><select class="field" id="directorySort"><option value="name-asc">A → Z</option><option value="name-desc">Z → A</option><option value="birth-asc">Plus ancien</option><option value="birth-desc">Plus récent</option></select></label>
 <div class="view-switch directory-view-switch" data-switch="directory" role="group" aria-label="Mode d’affichage"><button type="button" data-mode="list" class="active" aria-label="Liste" title="Liste"><svg class="ui-icon" aria-hidden="true"><use href="#icon-list"></use></svg></button><button type="button" data-mode="cards" aria-label="Cartes" title="Cartes"><svg class="ui-icon" aria-hidden="true"><use href="#icon-grid"></use></svg></button></div>
 </section>
-<div class="directory-results-meta"><span id="directoryResultCount" role="status" aria-live="polite"></span></div>
+<div class="directory-results-meta"><span id="directoryResultCount" role="status" aria-live="polite"></span><button class="btn small tertiary" id="treeQualityBtn" type="button">Contrôle de l’arbre</button></div>
 <nav class="alphabet-nav" id="directoryAlphabet" aria-label="Accès rapide par nom"></nav>
 <div class="content-grid directory-grid" id="directoryList"></div>
 </main>
+  <dialog class="modal-lg tree-quality-dialog" id="treeQualityDialog" aria-labelledby="treeQualityTitle">
+<div class="modal-head"><div><h3 id="treeQualityTitle">Contrôle de l’arbre</h3><p id="treeQualitySummary">Vérifications non destructives</p></div><button class="btn icon-btn" type="button" data-close="treeQualityDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
+<div class="modal-body tree-quality-body" id="treeQualityContent"></div>
+</dialog>
   <main class="workspace-view" id="documentsView" hidden>
 <section class="section-head">
 <div>

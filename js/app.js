@@ -16,6 +16,7 @@ import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalize
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
 import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
 import { formatCompactPlace } from "./place-format.js";
+import { analyzeTreeQuality } from "./tree-quality.js";
 import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, validateFamilyDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, buildBackupManifest, parseBackupManifestText } from "./backup-utils.js";
 
 const firebaseConfig = {
@@ -1282,6 +1283,111 @@ function renderDirectory() {
     ? emptyState({ iconName: "people", title: "Aucune personne trouvée", description: "Modifiez la recherche ou retirez un filtre pour afficher d’autres résultats." })
     : emptyState({ iconName: "people", title: "Votre annuaire est vide", description: "Ajoutez une première personne pour commencer votre histoire familiale.", action: `<button class="btn primary" type="button" data-empty-add-person>${icon("plus")}<span>Ajouter une personne</span></button>` }));
   setContentMode("directory", viewModes.directory || "list", false);
+  updateTreeQualityButton();
+}
+
+const treeQualityCategoryLabels = Object.freeze({
+  missing: "Informations à compléter",
+  chronology: "Chronologie à vérifier",
+  duplicates: "Doublons potentiels",
+  relations: "Relations à vérifier"
+});
+
+function treeQualityPersonLabel(personId) {
+  const item = person(personId);
+  return item ? directoryDisplayName(item) : "Personne introuvable";
+}
+
+function updateTreeQualityButton(result = analyzeTreeQuality({ people, families })) {
+  const button = $("treeQualityBtn");
+  if (!button) return result;
+  const missingCount = aggregateMissing(result.diagnostics.filter(item => item.category === "missing")).length;
+  const total = missingCount + result.diagnostics.filter(item => item.category !== "missing").length;
+  button.textContent = total ? `Contrôle de l’arbre · ${total}` : "Contrôle de l’arbre";
+  button.setAttribute("aria-label", total ? `Contrôle de l’arbre : ${total} éléments à vérifier` : "Contrôle de l’arbre");
+  return result;
+}
+
+const MISSING_FIELD_ORDER = Object.freeze(["firstName", "lastName", "birthDate", "birthPlace", "deathDate", "deathPlace"]);
+
+const MISSING_FIELD_LABELS = Object.freeze({
+  firstName: "Prénom",
+  lastName: "Nom de naissance",
+  birthDate: "Date de naissance",
+  birthPlace: "Lieu de naissance",
+  deathDate: "Date de décès",
+  deathPlace: "Lieu de décès"
+});
+
+function aggregateMissing(diagnostics) {
+  const byPerson = new Map();
+  for (const item of diagnostics) {
+    const personId = (item.peopleIds || [])[0];
+    if (!personId || !item.field) continue;
+    const key = `${personId}:${item.familyId || ""}`;
+    if (!byPerson.has(key)) byPerson.set(key, { personId, familyId: item.familyId || "", fields: new Set() });
+    byPerson.get(key).fields.add(item.field);
+  }
+  return [...byPerson.values()].map(entry => ({
+    category: "missing",
+    message: `Non renseigné : ${[...entry.fields].sort((a, b) => MISSING_FIELD_ORDER.indexOf(a) - MISSING_FIELD_ORDER.indexOf(b)).map(field => MISSING_FIELD_LABELS[field] || field).join(" · ")}`,
+    peopleIds: [entry.personId],
+    ...(entry.familyId ? { familyId: entry.familyId } : {})
+  }));
+}
+
+function renderTreeQuality() {
+  const result = updateTreeQualityButton();
+  const missing = aggregateMissing(result.diagnostics.filter(item => item.category === "missing"));
+  const aggregated = [
+    ...missing,
+    ...result.diagnostics.filter(item => item.category !== "missing")
+  ];
+  const counts = { missing: missing.length };
+  for (const category of Object.keys(treeQualityCategoryLabels)) {
+    if (category === "missing") continue;
+    counts[category] = aggregated.filter(item => item.category === category).length;
+  }
+  const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
+  $("treeQualitySummary").textContent = total ? `${total} élément${total > 1 ? "s" : ""} à vérifier` : "Aucun élément à vérifier";
+  const categories = Object.entries(treeQualityCategoryLabels).map(([category, label]) => {
+    const items = aggregated.filter(item => item.category === category);
+    const rows = items.map(item => {
+      const peopleIds = item.peopleIds || [];
+      const names = peopleIds.map(treeQualityPersonLabel);
+      const actions = peopleIds.map((id, index) => `<button class="btn small tertiary" type="button" data-quality-person="${esc(id)}">${peopleIds.length > 1 ? `Voir ${index === 0 ? "la première" : "la seconde"}` : "Voir la fiche"}</button>`).join("");
+      return `<article class="tree-quality-item"><div><strong>${esc(names.join(" · "))}</strong><p>${esc(item.message)}</p></div><div class="tree-quality-item-actions">${actions}</div></article>`;
+    }).join("");
+    if (items.length) {
+      return `<details class="tree-quality-category"><summary><span class="tree-quality-category-title">${label}</span><span class="tree-quality-category-count">${items.length}</span></summary><div class="tree-quality-scroll"><div class="tree-quality-category-content">${rows}</div><div class="tree-quality-scroll-indicator" aria-hidden="true"><span></span></div></div></details>`;
+    }
+    return `<div class="tree-quality-category is-empty"><div class="tree-quality-category-summary"><span class="tree-quality-category-title">${label}</span><span class="tree-quality-category-count">0</span></div></div>`;
+  }).join("");
+  $("treeQualityContent").innerHTML = categories || emptyState({ iconName: "check", title: "Aucun élément à vérifier", description: "Les données disponibles ne remontent pas de diagnostic pour le moment." });
+  initTreeQualityScroll();
+}
+
+function initTreeQualityScroll() {
+  document.querySelectorAll(".tree-quality-scroll").forEach(wrapper => {
+    const content = wrapper.querySelector(".tree-quality-category-content");
+    const indicator = wrapper.querySelector(".tree-quality-scroll-indicator");
+    const thumb = indicator?.querySelector("span");
+    if (!content || !indicator || !thumb) return;
+    const update = () => {
+      const { scrollHeight, clientHeight, scrollTop } = content;
+      const scrollable = scrollHeight > clientHeight + 1;
+      wrapper.classList.toggle("is-scrollable", scrollable);
+      if (!scrollable) return;
+      const ratio = clientHeight / scrollHeight;
+      const maxOffset = clientHeight - clientHeight * ratio;
+      const offset = scrollTop / (scrollHeight - clientHeight) * maxOffset;
+      thumb.style.setProperty("--thumb-height", `${Math.round(ratio * 100)}%`);
+      thumb.style.setProperty("--thumb-offset", `${Math.round(offset)}px`);
+    };
+    update();
+    content.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+  });
 }
 
 function openDirectoryDocuments(personId) {
@@ -2412,6 +2518,18 @@ document.querySelectorAll("[data-branch-depth]").forEach(button => {
   };
 });
 $("addDirectoryPersonBtn").onclick = () => openPerson(null, "directory");
+$("treeQualityBtn").onclick = () => {
+  renderTreeQuality();
+  $("treeQualityDialog").showModal();
+};
+$("treeQualityContent").onclick = event => {
+  const button = event.target.closest("[data-quality-person]");
+  if (!button) return;
+  const item = person(button.dataset.qualityPerson);
+  if (!item) return;
+  close("treeQualityDialog");
+  openPerson(item, "directory");
+};
 $("gender").onchange = updateMarriedNameVisibility;
 $("firstName").addEventListener("input", updatePersonPhotoPreview);
 $("lastName").addEventListener("input", updatePersonPhotoPreview);
