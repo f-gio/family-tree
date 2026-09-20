@@ -16,9 +16,9 @@ test("A. le filtre est présent à droite de la recherche, dans la même zone de
   const body = toolbar[1];
   const searchIndex = body.indexOf('id="search"');
   const filterIndex = body.indexOf('id="treeBranchFilter"');
-  const resetIndex = body.indexOf('id="resetBtn"');
-  assert.ok(searchIndex >= 0 && resetIndex > searchIndex && filterIndex > resetIndex,
-    "Effacer doit précéder le filtre de branche dans la toolbar");
+  assert.ok(searchIndex >= 0 && filterIndex > searchIndex,
+    "le filtre de branche doit suivre la recherche dans la toolbar");
+  assert.ok(!body.includes('id="resetBtn"'), "le bouton séparé Effacer est supprimé (le X est dans la barre)");
   assert.ok(!html.includes('data-view="lineage"'), "aucune entrée de navigation ajoutée");
   assert.ok(!html.includes("Arbre global"), "pas de menu « Arbres » ni de bandeau de lignée");
 });

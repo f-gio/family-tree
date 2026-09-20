@@ -277,6 +277,76 @@ label,
     background-color var(--transition-fast);
 }
 
+/* Barre de recherche avec icône et bouton Effacer intégré. */
+.search-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.search-bar .field {
+  width: 100%;
+  padding-left: calc(var(--space-3) + 1.25rem + var(--space-2));
+  padding-right: calc(var(--space-3) + 3.5rem + var(--space-2));
+}
+
+.search-bar-icon {
+  position: absolute;
+  left: var(--space-3);
+  z-index: 1;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.search-bar-clear {
+  position: absolute;
+  right: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  display: none;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-1);
+  height: calc(var(--control-md) - var(--space-1));
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.search-bar-clear.is-visible {
+  display: inline-flex;
+}
+
+.search-bar-clear:hover {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+
+.search-bar-clear:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  .search-bar .field {
+    min-height: var(--control-touch);
+    padding-right: calc(var(--space-2) + 3rem + var(--space-2));
+  }
+
+  .search-bar-clear {
+    height: calc(var(--control-touch) - var(--space-1));
+    min-height: 0;
+  }
+}
+
+
 textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; }
 
 .field:hover:not(:disabled) { border-color: var(--color-border-strong); }
@@ -518,10 +588,9 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .tree-filter-toolbar #search { grid-column: 1 / -1; }
-  .tree-filter-toolbar .toolbar-branch { grid-column: 1; }
-  .tree-filter-toolbar #resetBtn { grid-column: 2; }
-  .tree-menu button { min-height: var(--control-touch); }
+.tree-filter-toolbar .search-bar { grid-column: 1 / -1; }
+.tree-filter-toolbar .toolbar-branch { grid-column: 1; }
+.tree-menu button { min-height: var(--control-touch); }
 }
 
 /* Contrôles Arbre : Ajuster reste permanent sur desktop, les autres actions passent par le menu (⋯). */
@@ -1580,7 +1649,20 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 }
 
 .directory-toolbar > label .field,
-.documents-toolbar > label .field { margin-top: 0; }
+.documents-toolbar > label .field,
+.tree-filter-toolbar > label .field { margin-top: 0; }
+
+@media (max-width: 760px) {
+  /* iOS zoome le viewport au focus si font-size < 16px : forcer 16px sur les
+     champs de la toolbar Arbre (recherche + branches), sinon la barre paraît
+     trop large et l'état persiste après blur. Ciblé : seule cette toolbar
+     utilise .toolbar .field. */
+  .tree-filter-toolbar .field { font-size: 16px; }
+}
+
+@media (min-width: 761px) {
+  .tree-filter-toolbar .search-bar .field { min-height: var(--control-touch); }
+}
 
 /* Desktop étroit : la navigation passe sur sa propre ligne avant de saturer. */
 @media (max-width: 1180px) and (min-width: 761px) {
@@ -1686,7 +1768,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .list-toolbar .view-switch button { flex: 1; min-height: var(--control-touch); }
 
   .directory-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
-  .directory-search { grid-column: 1 / -1; }
+  .directory-toolbar .search-bar { grid-column: 1 / -1; }
 
   .directory-filter-panel {
     position: fixed;
@@ -2167,7 +2249,7 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
     margin-bottom: var(--space-2);
   }
 
-  .directory-toolbar .directory-search { grid-column: 1 / -1; }
+  .directory-toolbar .search-bar { grid-column: 1 / -1; }
   .directory-toolbar .directory-filter-menu { grid-column: 1; }
   .directory-toolbar .directory-sort { grid-column: 2; }
   .directory-toolbar .directory-view-switch {
@@ -2190,7 +2272,7 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
     grid-template-columns: minmax(0, 1fr) var(--control-touch) var(--control-touch);
     gap: var(--space-2);
   }
-  .documents-toolbar .directory-search { grid-column: 1 / -1; }
+  .documents-toolbar .search-bar { grid-column: 1 / -1; }
   .documents-toolbar .documents-type-filter { grid-column: 1; }
   .documents-toolbar .documents-view-switch {
     display: contents;

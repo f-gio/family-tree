@@ -2560,8 +2560,21 @@ $("removePersonPhotoBtn").onclick = () => {
   $("personPhotoStatus").textContent = "La photo sera retirée après enregistrement.";
   updatePersonPhotoPreview();
 };
+const syncSearchClearBtn = (inputId, btnId) => {
+  const input = $(inputId);
+  const btn = $(btnId);
+  if (!input || !btn) return;
+  const update = () => btn.classList.toggle("is-visible", input.value.length > 0);
+  input.addEventListener("input", update);
+  update();
+};
 $("search").oninput = () => applySearch(true);
-$("resetBtn").onclick = () => { $("search").value = ""; applySearch(false); };
+syncSearchClearBtn("search", "clearTreeSearchBtn");
+$("clearTreeSearchBtn").onclick = () => {
+  $("search").value = "";
+  $("search").dispatchEvent(new Event("input"));
+  $("search").focus();
+};
 $("treeBranchFilter").onchange = () => {
   lineageSurname = $("treeBranchFilter").value;
   branchView = null;
@@ -2644,8 +2657,27 @@ $("documentDialog").addEventListener("close", () => {
     setPersonSection("documents");
   }, 0);
 });
+
 $("documentSearch").oninput = renderDocuments;
 $("documentTypeFilter").onchange = renderDocuments;
+syncSearchClearBtn("documentSearch", "clearDocumentSearchBtn");
+$("clearDocumentSearchBtn").onclick = () => {
+  $("documentSearch").value = "";
+  $("documentSearch").dispatchEvent(new Event("input"));
+  $("documentSearch").focus();
+};
+$("clearDirectorySearchBtn").onclick = () => {
+  $("directorySearch").value = "";
+  $("directorySearch").dispatchEvent(new Event("input"));
+  $("directorySearch").focus();
+};
+$("clearTaskSearchBtn").onclick = () => {
+  $("taskSearch").value = "";
+  $("taskSearch").dispatchEvent(new Event("input"));
+  $("taskSearch").focus();
+};
+syncSearchClearBtn("directorySearch", "clearDirectorySearchBtn");
+syncSearchClearBtn("taskSearch", "clearTaskSearchBtn");
 $("documentViewerDialog").addEventListener("close", () => {
   if (!activeViewerUrl) return;
   URL.revokeObjectURL(activeViewerUrl);

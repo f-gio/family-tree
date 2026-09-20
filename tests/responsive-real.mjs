@@ -300,7 +300,7 @@ async function runViewport(view, page, baseURL) {
   }
 
   const treeControls = await page.evaluate(() => {
-    const selectors = ["#addBtn", "#resetBtn", "#search", "#treeBranchFilter", "#zoomOutBtn", "#zoomInBtn", "#fitTreeBtn", "#centerTreeBtn", "#autoLayoutBtn", "#topbar .nav-btn", "#accountMenuBtn"];
+    const selectors = ["#addBtn", "#search", "#treeBranchFilter", "#zoomOutBtn", "#zoomInBtn", "#fitTreeBtn", "#centerTreeBtn", "#autoLayoutBtn", "#topbar .nav-btn", "#accountMenuBtn"];
     const out = {};
     for (const sel of selectors) {
       out[sel] = [...document.querySelectorAll(sel)].map(el => {
