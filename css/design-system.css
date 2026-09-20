@@ -2039,7 +2039,7 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; min-he
 }
 
 .tree-quality-dialog[open] { width: min(var(--modal-lg), calc(100% - 1.75rem)); }
-.tree-quality-body { display: grid; gap: var(--space-3); }
+.tree-quality-body { display: grid; gap: var(--space-3); align-items: start; align-content: start; grid-auto-rows: auto; }
 .tree-quality-category {
   border: var(--border-subtle);
   border-radius: var(--radius-md);
@@ -2095,6 +2095,7 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; min-he
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; }
 .tree-quality-scroll { position: relative; }
 .tree-quality-scroll-indicator {
   position: absolute;
@@ -2142,6 +2143,11 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; min-he
   .directory-results-meta { align-items: stretch; flex-wrap: wrap; }
   .directory-results-meta .btn { margin-left: auto; min-height: var(--control-touch); }
   .tree-quality-dialog[open] { width: calc(100% - 0.75rem); }
+  .tree-quality-category.is-empty .tree-quality-category-summary,
+  .tree-quality-category:not([open]) > summary {
+    padding-block: var(--space-2);
+    min-height: 0;
+  }
   .tree-quality-item {
     align-items: flex-start;
     flex-direction: column;
