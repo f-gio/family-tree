@@ -1559,7 +1559,14 @@ function buildPersonPrintSheet(item, scope = null) {
     return `<div class="print-parent"><span class="print-role">${esc(relationRole(parent, "parent"))}</span><span class="print-parent-name">${printFullName(parent)}</span><span class="print-meta">${printLifePeriod(parent)}</span>${filiation ? `<span class="print-meta print-filiation">${esc(filiation)}</span>` : ""}</div>`;
   }));
 
-  const unionBlocks = ownFamilies.map(family => {
+  /* Unions : uniquement lorsqu'un véritable partenaire différent de la
+     personne courante est résolu, aligné sur renderRelations() (aucun faux
+     bloc pour une family mono-parentale/technique/orpheline) ; les enfants
+     de ces dernières restent affichés dans une section neutre « Enfants ». */
+  const unionBlocks = [];
+  const extraChildRows = [];
+  const printedChildIds = new Set();
+  ownFamilies.forEach(family => {
     const partner = personOf((family.partnerIds || []).find(id => id !== item.id) || "");
     const relationType = normalizeRelationType(family.relationType);
     const endType = normalizeEndType(family.endType);
@@ -1570,19 +1577,23 @@ function buildPersonPrintSheet(item, scope = null) {
     const endPlace = printPlaceDetail(family.endPlace, family.endPlaceInfo);
     const childRows = (family.childIds || []).map(childId => {
       const child = personOf(childId);
-      if (!child) return "";
+      if (!child || printedChildIds.has(child.id)) return "";
+      printedChildIds.add(child.id);
       const filiationType = parentChildLinkType(family, item.id, childId);
       const filiation = printFiliationLabel(filiationType);
       const filiationMarkup = filiation ? `<span class="print-meta print-filiation">${esc(filiation)}</span>` : "";
       return `<li><span class="print-child-marker" aria-hidden="true">—</span><span class="print-child-body"><strong>${printFullName(child)}</strong><span class="print-meta">${printLifePeriod(child)}</span>${filiationMarkup}</span></li>`;
-    });
-    const partnerLine = partner ? esc(directoryPersonName(partner)) : "Union sans partenaire identifié";
-    return `<article class="print-union">
-<div class="print-union-head"><strong>${partnerLine}</strong>${relationType === "unknown" ? "" : `<span class="print-union-type">${esc(RELATION_TYPE_LABELS[relationType])}</span>`}</div>
+    }).filter(Boolean);
+    if (!partner) {
+      extraChildRows.push(...childRows);
+      return;
+    }
+    unionBlocks.push(`<article class="print-union">
+<div class="print-union-head"><strong>${esc(directoryPersonName(partner))}</strong>${relationType === "unknown" ? "" : `<span class="print-union-type">${esc(RELATION_TYPE_LABELS[relationType])}</span>`}</div>
 ${unionDate === "—" && !unionPlace ? "" : `<p class="print-union-meta">${unionDate === "—" ? "—" : esc(unionDate)}${unionPlace ? ` · ${unionPlace}` : ""}</p>`}
 ${!endLabel ? "" : `<p class="print-union-meta">${esc(endLabel)}${endDate === "—" ? "" : ` · ${esc(endDate)}`}${endPlace ? ` · ${endPlace}` : ""}</p>`}
-${childRows.length ? `<p class="print-union-subtitle">Enfants issus de cette union · ${childRows.filter(Boolean).length}</p><ul class="print-children">${childRows.join("")}</ul>` : ""}
-</article>`;
+${childRows.length ? `<p class="print-union-subtitle">Enfants issus de cette union · ${childRows.length}</p><ul class="print-children">${childRows.join("")}</ul>` : ""}
+</article>`);
   });
 
   const sections = [];
@@ -1593,7 +1604,8 @@ ${childRows.length ? `<p class="print-union-subtitle">Enfants issus de cette uni
     sections.push(`<section class="print-sec"><h3 class="print-sec-title">Naissance et décès</h3><div class="print-events">${birthEvent}${deathEvent}</div></section>`);
   }
   if (parentRows.filter(Boolean).length) sections.push(`<section class="print-sec"><h3 class="print-sec-title">Parents</h3><div class="print-parents">${parentRows.join("")}</div></section>`);
-  if (unionBlocks.filter(Boolean).length) sections.push(`<section class="print-sec print-unions"><h3 class="print-sec-title">Unions et descendance</h3>${unionBlocks.join("")}</section>`);
+  if (unionBlocks.length) sections.push(`<section class="print-sec print-unions"><h3 class="print-sec-title">Unions et descendance</h3>${unionBlocks.join("")}</section>`);
+  if (extraChildRows.length) sections.push(`<section class="print-sec"><h3 class="print-sec-title">Enfants</h3><ul class="print-children">${extraChildRows.join("")}</ul></section>`);
   if (item.notes?.trim()) sections.push(`<section class="print-sec"><h3 class="print-sec-title">Informations complémentaires</h3><p class="print-notes">${esc(item.notes)}</p></section>`);
   const footer = printModificationDate(item);
   if (footer) sections.push(`<footer class="print-foot">${esc(footer)}</footer>`);

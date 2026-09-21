@@ -380,3 +380,98 @@ test("I. clics réels : modale → aperçu → impression (spy), X, Annuler, suc
     await server.close();
   }
 });
+
+test("J. families sans partenaire résolu : aucun faux bloc union, enfants préservés sans doublon", async () => {
+  let chromium, startStaticServer, isAllowedRequest, blockedServiceFor, ROOT;
+  try {
+    ({ chromium } = await import("playwright"));
+    ({ startStaticServer, isAllowedRequest, blockedServiceFor, ROOT } = await import("./helpers.mjs"));
+  } catch {
+    return;
+  }
+  const browser = await chromium.launch({ headless: true });
+  const server = await startStaticServer(ROOT);
+  const errors = [];
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "fr-FR", hasTouch: true });
+    page.on("pageerror", error => errors.push("pageerror " + error));
+    await page.route("**/*", route => {
+      const url = route.request().url();
+      if (isAllowedRequest(url, server.baseURL)) return route.continue().catch(() => {});
+      if (blockedServiceFor(url)) return route.abort("blockedbyclient").catch(() => {});
+      return route.continue().catch(() => {});
+    });
+    await page.goto(server.baseURL, { waitUntil: "load" });
+    await page.waitForTimeout(900);
+
+    const result = await page.evaluate(() => {
+      const build = window.__personPrint?.build;
+      if (!build) return { missing: true };
+      const item = { id: "PX", firstName: "André", lastName: "Giovannoni", birthDateInfo: { type: "year", year: 1900 } };
+      const child = (id, surname) => ({ id, firstName: id, lastName: surname || "Pianezza", birthDateInfo: { type: "unknown" }, deathDateInfo: { type: "unknown" } });
+      const basePeople = [item,
+        { id: "PT", firstName: "Teresa", lastName: "Pianezza" },
+        { id: "PZ", firstName: "Orphelin", lastName: "Ratté" },
+        child("PC1"), child("PC2"), child("PC3"), child("PC4")
+      ];
+      const A = build(item, {
+        people: basePeople,
+        families: [
+          { id: "FA", partnerIds: ["PX", "PT"], childIds: ["PC1"], relationType: "marriage" },
+          { id: "FB", partnerIds: ["PX", "PZ"], childIds: ["PC2"], relationType: "civil" }
+        ]
+      });
+      const B = build(item, {
+        people: basePeople,
+        families: [{ id: "FB", partnerIds: ["PX"], childIds: [] }]
+      });
+      const C = build(item, {
+        people: basePeople,
+        families: [
+          { id: "FB", partnerIds: ["PX"], childIds: ["PC3"] },
+          { id: "FE", partnerIds: ["PX", "PNX"], childIds: ["PC4"] }
+        ]
+      });
+      const E = build(item, {
+        people: basePeople,
+        families: [
+          { id: "FA", partnerIds: ["PX", "PT"], childIds: ["PC1"], relationType: "marriage" },
+          { id: "FC", partnerIds: ["PX"], childIds: ["PC2"] },
+          { id: "FD", partnerIds: ["PX", "PNX"], childIds: ["PC3"] }
+        ]
+      });
+      return { A, B, C, E };
+    });
+    assert.ok(result && !result.missing, "hook disponible");
+
+    // A. Deux partenaires réels : les deux unions restent affichées
+    assert.match(result.A, /Pianezza Teresa/);
+    assert.match(result.A, /Ratt\u00e9 Orphelin/);
+    assert.equal((result.A.match(/<article class="print-union">/g) || []).length, 2);
+
+    // B. Family avec la personne seule dans partnerIds, sans enfant
+    assert.ok(!result.B.includes("Union sans partenaire identifié"));
+    assert.ok(!result.B.includes('<article class="print-union">'));
+
+    // C/D. Family sans partenaire résolu (seule ou avec partnerId introuvable) + enfants
+    assert.ok(!result.C.includes("Union sans partenaire identifié"));
+    assert.match(result.C, /Enfants<\/h3>/);
+    assert.equal((result.C.match(/PC3/g) || []).length, 1);
+    assert.match(result.C, /PC4/);
+
+    // E. Union réelle + families mono-parentales/à partenaire introuvable
+    assert.ok(!result.E.includes("Union sans partenaire identifié"));
+    assert.match(result.E, /Pianezza Teresa/);
+    // aucun enfant perdu ou dupliqué
+    ["PC1", "PC2", "PC3"].forEach(needle => {
+      assert.equal((result.E.match(new RegExp(needle, "g")) || []).length, 1, needle + " une seule fois");
+    });
+    await page.close();
+
+    const real = errors.filter(error => !/firestore|BLOCKED|unavailable|Inspector|auth/i.test(error));
+    assert.deepEqual(real, [], "aucune erreur console");
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
