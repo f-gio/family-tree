@@ -10,7 +10,8 @@ import { createTreeCamera } from "./tree-camera.js";
 import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree-branch-view.js";
 import { computeLineageScope } from "./family-lineage.js";
 import { documentDisplayLabel } from "./document-utils.js";
-import { directoryPersonName, formatDirectoryDate, filterAndSortDirectory } from "./directory-utils.js";
+import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
+import { filterAndSortDirectory, countActiveDirectoryFilters } from "./directory-advanced.js";
 import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
@@ -1257,19 +1258,26 @@ function renderDirectory() {
   $("directorySort").value = readDirectorySort();
   const filters = {
     query: $("directorySearch").value,
-    name: $("directoryNameFilter").value,
-    place: $("directoryPlaceFilter").value,
-    birthYear: $("directoryBirthFilter").value,
-    deathYear: $("directoryDeathFilter").value,
+    firstName: $("directoryFirstNameFilter").value,
+    marriedName: $("directoryMarriedNameFilter").value,
+    gender: $("directoryGenderFilter").value,
+    birthPlace: $("directoryBirthPlaceFilter").value,
+    birthYearFrom: $("directoryBirthYearFromFilter").value,
+    birthYearTo: $("directoryBirthYearToFilter").value,
+    deathPlace: $("directoryDeathPlaceFilter").value,
+    deathYearFrom: $("directoryDeathYearFromFilter").value,
+    deathYearTo: $("directoryDeathYearToFilter").value,
+    deathInfo: $("directoryDeathInfoFilter").value,
     branch: $("directoryBranchFilter").value,
     sort: $("directorySort").value
   };
   const filtered = filterAndSortDirectory(people, filters);
-  const activeFilterCount = [filters.name, filters.place, filters.birthYear, filters.deathYear, filters.branch].filter(Boolean).length;
+  const activeFilterCount = countActiveDirectoryFilters(filters);
   $("directoryFilterCount").textContent = activeFilterCount;
   $("directoryFilterCount").hidden = !activeFilterCount;
   $("directoryResultCount").textContent = `${filtered.length} personne${filtered.length > 1 ? "s" : ""}`;
   renderDirectoryAlphabet(filtered);
+  renderDirectoryChips(filters);
   $("directoryList").innerHTML = filtered.length ? filtered.map(item => {
     const avatar = item.photoUrl ? `<img src="${esc(item.photoUrl)}" alt="">` : personInitials(item);
     const presence = item.inTree === false ? '<span class="badge muted directory-presence">Masquée de l’arbre</span>' : "";
@@ -1284,6 +1292,58 @@ function renderDirectory() {
     : emptyState({ iconName: "people", title: "Votre annuaire est vide", description: "Ajoutez une première personne pour commencer votre histoire familiale.", action: `<button class="btn primary" type="button" data-empty-add-person>${icon("plus")}<span>Ajouter une personne</span></button>` }));
   setContentMode("directory", viewModes.directory || "list", false);
   updateTreeQualityButton();
+}
+
+const directoryChipLabels = {
+  firstName: "Nom / prénom",
+  marriedName: "Nom d'usage",
+  gender: "Sexe",
+  birthPlace: "Naissance",
+  birthYearFrom: "Naissance",
+  deathPlace: "Décès",
+  deathYearFrom: "Décès",
+  deathInfo: "Décès",
+  branch: "Branche"
+};
+const directoryGenderLabels = { F: "Femme", M: "Homme" };
+const directoryDeathInfoLabels = { yes: "Renseignée", no: "Non renseignée" };
+
+function renderDirectoryChips(filters) {
+  const chips = [];
+  const pushChip = (key, label, value, clear) => {
+    if (!value) return;
+    chips.push({ key, label, value, clear });
+  };
+  pushChip("firstName", "Nom / prénom", filters.firstName.trim(), () => { $("directoryFirstNameFilter").value = ""; renderDirectory(); });
+  pushChip("marriedName", "Nom d'usage", filters.marriedName.trim(), () => { $("directoryMarriedNameFilter").value = ""; renderDirectory(); });
+  pushChip("gender", "Sexe", directoryGenderLabels[filters.gender] || "", () => { $("directoryGenderFilter").value = ""; renderDirectory(); });
+  pushChip("branch", "Branche", filters.branch, () => { $("directoryBranchFilter").value = ""; renderDirectory(); });
+  pushChip("birthPlace", "Naissance", filters.birthPlace.trim(), () => { $("directoryBirthPlaceFilter").value = ""; renderDirectory(); });
+  if (filters.birthYearFrom || filters.birthYearTo) {
+    const period = [filters.birthYearFrom, "–", filters.birthYearTo].filter(Boolean).join(" ");
+    chips.push({ key: "birthYear", label: "Naissance", value: period, clear: () => { $("directoryBirthYearFromFilter").value = ""; $("directoryBirthYearToFilter").value = ""; renderDirectory(); } });
+  }
+  pushChip("deathPlace", "Décès", filters.deathPlace.trim(), () => { $("directoryDeathPlaceFilter").value = ""; renderDirectory(); });
+  if (filters.deathYearFrom || filters.deathYearTo) {
+    const period = [filters.deathYearFrom, "–", filters.deathYearTo].filter(Boolean).join(" ");
+    chips.push({ key: "deathYear", label: "Décès", value: period, clear: () => { $("directoryDeathYearFromFilter").value = ""; $("directoryDeathYearToFilter").value = ""; renderDirectory(); } });
+  }
+  pushChip("deathInfo", "Décès", directoryDeathInfoLabels[filters.deathInfo] || "", () => { $("directoryDeathInfoFilter").value = ""; renderDirectory(); });
+  const container = $("directoryFilterChips");
+  if (!container) return;
+  if (!chips.length) {
+    container.innerHTML = "";
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = chips.map(chip =>
+    `<button type="button" class="directory-filter-chip" data-filter-chip="${chip.key}" aria-label="Retirer le filtre ${esc(chip.label)}"><span class="chip-label">${esc(chip.label)} : ${esc(chip.value)}</span><span class="chip-remove" aria-hidden="true">×</span></button>`
+  ).join("");
+  container.querySelectorAll("[data-filter-chip]").forEach(button => {
+    const chip = chips.find(item => item.key === button.dataset.filterChip);
+    if (chip) button.addEventListener("click", chip.clear);
+  });
 }
 
 const treeQualityCategoryLabels = Object.freeze({
@@ -2693,22 +2753,39 @@ $("deleteTaskBtn").onclick = () => runSafely(removeTask, "Suppression de la tâc
 ["taskSearch", "taskStatusFilter", "taskPriorityFilter", "myTasksFilter"].forEach(id => {
   $(id).addEventListener(id === "taskSearch" ? "input" : "change", renderTasks);
 });
-[$("directorySearch"), $("directoryNameFilter"), $("directoryPlaceFilter"), $("directoryBirthFilter"), $("directoryDeathFilter")].forEach(field => {
+const directoryFilterFields = [
+  "directorySearch", "directoryFirstNameFilter", "directoryMarriedNameFilter",
+  "directoryGenderFilter", "directoryBirthPlaceFilter", "directoryBirthYearFromFilter",
+  "directoryBirthYearToFilter", "directoryDeathPlaceFilter", "directoryDeathYearFromFilter",
+  "directoryDeathYearToFilter", "directoryDeathInfoFilter"
+];
+const directoryYearFields = ["directoryBirthYearFromFilter", "directoryBirthYearToFilter", "directoryDeathYearFromFilter", "directoryDeathYearToFilter"];
+directoryFilterFields.forEach(id => {
+  const field = $(id);
+  if (!field) return;
   field.addEventListener("input", () => {
-    if (["directoryBirthFilter", "directoryDeathFilter"].includes(field.id)) field.value = field.value.replace(/\D/g, "").slice(0, 4);
+    if (directoryYearFields.includes(id)) field.value = field.value.replace(/\D/g, "").slice(0, 4);
     renderDirectory();
   });
 });
+$("directoryGenderFilter").addEventListener("change", renderDirectory);
+$("directoryDeathInfoFilter").addEventListener("change", renderDirectory);
 $("directoryBranchFilter").addEventListener("change", renderDirectory);
 $("directorySort").addEventListener("change", () => {
   saveDirectorySort($("directorySort").value);
   renderDirectory();
 });
 $("clearDirectoryFiltersBtn").onclick = () => {
-  ["directoryNameFilter", "directoryPlaceFilter", "directoryBirthFilter", "directoryDeathFilter"].forEach(id => $(id).value = "");
+  ["directoryFirstNameFilter", "directoryMarriedNameFilter", "directoryBirthPlaceFilter",
+   "directoryBirthYearFromFilter", "directoryBirthYearToFilter", "directoryDeathPlaceFilter",
+   "directoryDeathYearFromFilter", "directoryDeathYearToFilter"].forEach(id => $(id).value = "");
+  $("directoryGenderFilter").value = "";
+  $("directoryDeathInfoFilter").value = "";
   $("directoryBranchFilter").value = "";
-  $("directoryFilterMenu").open = false;
   renderDirectory();
+};
+$("applyDirectoryFiltersBtn").onclick = () => {
+  $("directoryFilterMenu").open = false;
 };
 document.querySelector(".brand")?.addEventListener("click", event => {
   event.preventDefault();

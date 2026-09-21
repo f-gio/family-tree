@@ -40,6 +40,6 @@ for (const selector of [
 }
 
 assert.match(css, /--control-touch:\s*2\.75rem/);
-assert.match(html, /class="btn small tertiary directory-clear-filters"/);
+assert.match(html, /id="clearDirectoryFiltersBtn"/);
 
 console.log("Design System sections 1–7 : OK");

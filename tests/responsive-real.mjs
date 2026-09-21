@@ -644,7 +644,9 @@ async function runViewport(view, page, baseURL) {
   await page.click("#directoryFilterMenu summary");
   const filterOpen = await page.evaluate(() => document.getElementById("directoryFilterMenu").open);
   check(`${line} · menu « Filtres » ouvert`, filterOpen);
-  await page.click("#directoryFilterMenu summary");
+  /* Mobile : une fois le panneau ouvert, le summary passe sous le panneau (z-index),
+     la fermeture passe donc par « Afficher les résultats » (comportement réel). */
+  await page.click("#applyDirectoryFiltersBtn");
   const filterClosed = await page.evaluate(() => !document.getElementById("directoryFilterMenu").open);
   check(`${line} · menu « Filtres » refermé`, filterClosed);
 

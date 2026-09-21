@@ -25,7 +25,7 @@ assert.match(css, /body\s*\{\s*overflow-x:\s*hidden/);
 // 24 — clavier mobile adapté aux recherches, années, adresses et URL.
 assert.match(html, /id="loginEmail"[^>]+inputmode="email"[^>]+autocomplete="username"/);
 assert.match(html, /id="documentUrl"[^>]+inputmode="url"[^>]+autocomplete="url"[^>]+autocapitalize="none"/);
-assert.match(html, /id="directoryBirthFilter"[^>]+inputmode="numeric"[^>]+pattern="\[0-9\]\*"/);
+assert.match(html, /id="directoryBirthYearFromFilter"[^>]+inputmode="numeric"[^>]+pattern="\[0-9\]\*"/);
 assert.match(app, /"unionYear"[\s\S]*?field\.inputMode = "numeric"/);
 assert.match(app, /profileDisplayName: \{ autocomplete: "name", autocapitalize: "words" \}/);
 

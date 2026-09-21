@@ -188,16 +188,33 @@
 <section class="directory-toolbar" aria-label="Recherche, filtres et affichage de l’annuaire">
 <label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="directorySearch" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher un nom ou un prénom…"><button type="button" class="search-bar-clear" id="clearDirectorySearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
 <details class="directory-filter-menu" id="directoryFilterMenu"><summary><svg class="ui-icon" aria-hidden="true"><use href="#icon-filter"></use></svg><span>Filtres</span><span class="filter-count" id="directoryFilterCount" hidden>0</span></summary><div class="directory-filter-panel">
-<label>Nom<input class="field" id="directoryNameFilter" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Nom de naissance ou d’épouse"></label>
-<label>Lieu<input class="field" id="directoryPlaceFilter" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Naissance ou décès"></label>
-<label>Naissance<input class="field" id="directoryBirthFilter" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" enterkeyhint="search" placeholder="Année"></label>
-<label>Décès<input class="field" id="directoryDeathFilter" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" enterkeyhint="search" placeholder="Année"></label>
+<span class="directory-filter-section">IDENTITÉ</span>
+<label>Nom / prénom<input class="field" id="directoryFirstNameFilter" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Chercher un prénom ou un nom"></label>
+<label>Nom d'usage<input class="field" id="directoryMarriedNameFilter" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Nom marital ou d'épouse"></label>
+<label class="wide">Sexe<select class="field" id="directoryGenderFilter"><option value="">Tous</option><option value="F">Femme</option><option value="M">Homme</option></select></label>
 <label class="wide">Branche familiale<select class="field" id="directoryBranchFilter"><option value="">Toutes les branches</option></select></label>
-<button class="btn small tertiary directory-clear-filters" id="clearDirectoryFiltersBtn" type="button">Effacer les filtres</button>
+<span class="directory-filter-section">NAISSANCE</span>
+<label>Lieu de naissance<input class="field" id="directoryBirthPlaceFilter" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Ville, région ou pays"></label>
+<div class="filter-year-row">
+<label>Dé<input class="field" id="directoryBirthYearFromFilter" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" enterkeyhint="search" placeholder="Année"></label>
+<label>À<input class="field" id="directoryBirthYearToFilter" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" enterkeyhint="search" placeholder="Année"></label>
+</div>
+<span class="directory-filter-section">DÉCÈS</span>
+<label>Lieu de décès<input class="field" id="directoryDeathPlaceFilter" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Ville, région ou pays"></label>
+<div class="filter-year-row">
+<label>Dé<input class="field" id="directoryDeathYearFromFilter" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" enterkeyhint="search" placeholder="Année"></label>
+<label>À<input class="field" id="directoryDeathYearToFilter" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" enterkeyhint="search" placeholder="Année"></label>
+</div>
+<label class="wide">Information de décès<select class="field" id="directoryDeathInfoFilter"><option value="">Toutes</option><option value="yes">Renseignée</option><option value="no">Non renseignée</option></select></label>
+<div class="filter-actions">
+<button class="btn small tertiary" id="clearDirectoryFiltersBtn" type="button">Réinitialiser</button>
+<button class="btn small primary" id="applyDirectoryFiltersBtn" type="button">Afficher les résultats</button>
+</div>
 </div></details>
 <label class="directory-sort"><span class="sr-only">Trier l’annuaire</span><select class="field" id="directorySort"><option value="name-asc">A → Z</option><option value="name-desc">Z → A</option><option value="birth-asc">Plus ancien</option><option value="birth-desc">Plus récent</option></select></label>
 <div class="view-switch directory-view-switch" data-switch="directory" role="group" aria-label="Mode d’affichage"><button type="button" data-mode="list" class="active" aria-label="Liste" title="Liste"><svg class="ui-icon" aria-hidden="true"><use href="#icon-list"></use></svg></button><button type="button" data-mode="cards" aria-label="Cartes" title="Cartes"><svg class="ui-icon" aria-hidden="true"><use href="#icon-grid"></use></svg></button></div>
 </section>
+<div class="directory-filter-chips" id="directoryFilterChips" hidden></div>
 <div class="directory-results-meta"><span id="directoryResultCount" role="status" aria-live="polite"></span><button class="btn small tertiary" id="treeQualityBtn" type="button">Contrôle de l’arbre</button></div>
 <nav class="alphabet-nav" id="directoryAlphabet" aria-label="Accès rapide par nom"></nav>
 <div class="content-grid directory-grid" id="directoryList"></div>

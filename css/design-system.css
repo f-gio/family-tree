@@ -1652,12 +1652,97 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .documents-toolbar > label .field,
 .tree-filter-toolbar > label .field { margin-top: 0; }
 
+/* Filtres avancés Annuaire : sections compactes, paires d'années et chips. */
+.directory-filter-section {
+  grid-column: 1 / -1;
+  display: block;
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: var(--border-subtle);
+  font-size: 0.6875rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.directory-filter-section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.filter-year-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+.filter-year-row label { margin: 0; }
+.filter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.filter-actions .btn { flex: 1; }
+.filter-count {
+  display: inline-flex;
+  place-items: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  margin-left: var(--space-1);
+  padding: 0 var(--space-1);
+  border-radius: 999px;
+  background: var(--color-brand);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: var(--weight-bold);
+}
+.directory-filter-chips {
+  display: flex;
+  gap: var(--space-1);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0 0 var(--space-1);
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.directory-filter-chips::-webkit-scrollbar { display: none; }
+.directory-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+  max-width: 60vw;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.directory-filter-chip:hover { background: var(--color-surface-muted); }
+.directory-filter-chip .chip-label { overflow: hidden; text-overflow: ellipsis; }
+.directory-filter-chip .chip-remove {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-weight: var(--weight-bold);
+  line-height: 1;
+}
+.directory-filter-panel label.wide { grid-column: 1 / -1; }
+.directory-filter-panel label { margin: 0; }
+
 @media (max-width: 760px) {
   /* iOS zoome le viewport au focus si font-size < 16px : forcer 16px sur les
      champs de la toolbar Arbre (recherche + branches), sinon la barre paraît
      trop large et l'état persiste après blur. Ciblé : seule cette toolbar
      utilise .toolbar .field. */
   .tree-filter-toolbar .field { font-size: 16px; }
+  /* Idem pour les champs de filtres avancés de l'Annuaire. */
+  .directory-filter-panel .field { font-size: 16px; }
 }
 
 @media (min-width: 761px) {
@@ -1795,6 +1880,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   }
 
   .directory-filter-menu summary { position: relative; z-index: 91; }
+
   .directory-view-switch { grid-column: 1 / -1; }
 
   .documents-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
@@ -2281,12 +2367,13 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
   .documents-toolbar .documents-view-switch button[data-mode="list"] { grid-column: 2; }
   .documents-toolbar .documents-view-switch button[data-mode="cards"] { grid-column: 3; }
 
+
   /* Le header sticky reste prioritaire : le panneau de filtres est un calque
      de contenu, pas une nouvelle barre de navigation. */
   .directory-filter-menu[open]::before { z-index: 11; }
   .directory-filter-menu summary { z-index: auto; }
   .directory-filter-menu[open] summary { z-index: 13; }
-  .directory-filter-menu[open] .directory-filter-panel { z-index: 12; }
+  .directory-filter-menu[open] .directory-filter-panel { z-index: 14; }
 
   .directory-results-meta { min-height: 1.25rem; margin: 0 0 var(--space-1); }
   .directory-view-switch button { margin-left: 0; }
