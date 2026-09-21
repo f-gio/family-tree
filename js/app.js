@@ -12,7 +12,7 @@ import { computeLineageScope } from "./family-lineage.js";
 import { documentDisplayLabel } from "./document-utils.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
 import { filterAndSortDirectory, countActiveDirectoryFilters } from "./directory-advanced.js";
-import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText } from "./genealogy-date.js";
+import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText, genealogyDateYears } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
 import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
@@ -855,6 +855,7 @@ function openPerson(item = null, source = "tree") {
   $("dialogTitle").textContent = item ? "Modifier la personne" : "Ajouter une personne";
   $("savePersonBtn").textContent = item ? "Enregistrer" : "Enregistrer et ajouter ses liens";
   $("deleteBtn").hidden = !item;
+  $("printPersonBtn").hidden = !item;
   $("viewBranchBtn").hidden = !item;
   setActionLabel($("deleteBtn"), source === "directory" ? "Supprimer" : "Retirer de l’arbre", source === "directory" ? "trash" : "unlink");
   $("restoreTreeBtn").hidden = !item || item.inTree !== false || source !== "directory";
@@ -1461,6 +1462,223 @@ function openDirectoryDocuments(personId) {
     : emptyState({ iconName: "document", title: "Aucun document associé", description: "Cette personne ne possède pas encore de document consultable." });
   $("directoryDocumentsDialog").showModal();
 }
+
+/* ---------- Fiche individuelle imprimable / PDF ----------
+   Lecture seule : assemblage à la volée depuis people/families/documents,
+   réutilise les lecteurs et formateurs existants (aucune transformation de
+   données, aucune écriture Firestore, aucun enrichissement legacy). */
+let personPrintScopeOverride = null;
+/* Lieux compact pour la fiche imprimée : réutilise la fonction commune
+   (Orino, IT → « Orino (ITA) ») ; texte legacy repris tel quel, jamais enrichi. */
+function printPlaceDetail(text, placeInfo = null) {
+  return esc(formatCompactPlace(text, placeInfo));
+}
+
+/* Filiation : la biologie / non précisée ne s'imprime pas ; seules les
+   indications discrètes « Adoptive » / « Incertaine » sont conservées. */
+function printFiliationLabel(filiationType) {
+  if (!["adoptive", "uncertain"].includes(filiationType)) return "";
+  return FILIATION_TYPE_LABELS[filiationType];
+}
+
+function printLifeEvent(symbol, title, dateInfo, legacyDate, placeText, placeInfo) {
+  const date = formatGenealogyDate(dateInfo, legacyDate);
+  const place = printPlaceDetail(placeText, placeInfo);
+  return `<div class="print-event"><span class="print-symbol" aria-hidden="true">${esc(symbol)}</span><div><strong>${esc(title)}</strong><span class="print-date">${esc(date)}</span>${place ? `<span class="print-place">${place}</span>` : ""}</div></div>`;
+}
+
+function printLifePeriod(item = {}) {
+  const birth = formatGenealogyDate(item.birthDateInfo, item.birthDate);
+  const death = formatGenealogyDate(item.deathDateInfo, item.deathDate);
+  return `<span class="print-symbol" aria-hidden="true">✦</span> ${esc(birth)} <span class="print-divider" aria-hidden="true">·</span> <span class="print-symbol" aria-hidden="true">†</span> ${esc(death)}`;
+}
+
+/* Date de dernière modification : uniquement la donnée réellement enregistrée
+   (champ `updatedAt` Firestore). Aucun fallback sur la date actuelle. */
+function printModificationDate(item = {}) {
+  const stamp = item.updatedAt;
+  if (!stamp) return "";
+  let date = null;
+  if (typeof stamp === "object" && Number.isFinite(Number(stamp.seconds))) {
+    date = new Date(Number(stamp.seconds) * 1000);
+  } else if (typeof stamp === "string") {
+    const parsed = new Date(stamp);
+    if (!Number.isNaN(parsed.getTime())) date = parsed;
+  }
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return "Dernière modification : " + new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric" }).format(date);
+}
+
+/* Année seule pour période de vie synthétique ; entre deux années → borne.
+   Formats inconnus → « — » (aucune date complète fabriquée). */
+function printYear(info, legacy = "", position = "first") {
+  const years = genealogyDateYears(normalizeGenealogyDate(info, legacy));
+  if (!years.length) return "—";
+  return String(position === "last" ? Math.max(...years) : Math.min(...years));
+}
+
+function printLifeSpan(item = {}) {
+  const birth = printYear(item.birthDateInfo, item.birthDate, "first");
+  const death = printYear(item.deathDateInfo, item.deathDate, "last");
+  if (birth === "—" && death === "—") return "";
+  return `${esc(birth)} <span class="print-divider" aria-hidden="true">—</span> ${esc(death)}`;
+}
+
+/* Nom d'affichage généalogique pour l'impression : prénom + second prénom
+   (typographie secondaire) + nom de naissance, jamais « Nom Prénom ». */
+function printFullName(item = {}) {
+  const middle = item.middleName ? ` <span class="print-middle-name">${esc(item.middleName)}</span>` : "";
+  return `${esc(item.firstName || "—")}${middle} ${esc(item.lastName || "")}`.replace(/\s+$/, "");
+}
+
+function buildPersonPrintSheet(item, scope = null) {
+  const sourcePeople = scope?.people || people;
+  const sourceFamilies = scope?.families || families;
+  const personOf = id => sourcePeople.find(candidate => candidate.id === id) || null;
+  const parentFamilies = sourceFamilies.filter(family => (family.childIds || []).includes(item.id));
+  const ownFamilies = sourceFamilies.filter(family => (family.partnerIds || []).includes(item.id));
+
+  const eventHasData = (dateInfo, legacyDate, placeText, placeInfo) =>
+    formatGenealogyDate(dateInfo, legacyDate) !== "—" || !!printPlaceDetail(placeText, placeInfo);
+  const birthKnown = eventHasData(item.birthDateInfo, item.birthDate, item.place, item.birthPlaceInfo);
+  const deathKnown = eventHasData(item.deathDateInfo, item.deathDate, item.deathPlace, item.deathPlaceInfo);
+
+  const photo = item.photoUrl
+    ? `<span class="print-avatar"><img src="${esc(item.photoUrl)}" alt=""></span>`
+    : `<span class="print-avatar" aria-hidden="true">${esc(personInitials(item))}</span>`;
+  const usage = item.marriedName ? `<p class="print-usage">Nom d’usage : ${esc(item.marriedName)}</p>` : "";
+
+  const birthEvent = printLifeEvent("✦", "Naissance", item.birthDateInfo, item.birthDate, item.place, item.birthPlaceInfo);
+  const deathEvent = printLifeEvent("†", "Décès", item.deathDateInfo, item.deathDate, item.deathPlace, item.deathPlaceInfo);
+
+  const parentRows = parentFamilies.flatMap(family => (family.partnerIds || []).map(parentId => {
+    const parent = personOf(parentId);
+    if (!parent) return "";
+    const filiationType = parentChildLinkType(family, parentId, item.id);
+    const filiation = printFiliationLabel(filiationType);
+    return `<div class="print-parent"><span class="print-role">${esc(relationRole(parent, "parent"))}</span><span class="print-parent-name">${printFullName(parent)}</span><span class="print-meta">${printLifePeriod(parent)}</span>${filiation ? `<span class="print-meta print-filiation">${esc(filiation)}</span>` : ""}</div>`;
+  }));
+
+  const unionBlocks = ownFamilies.map(family => {
+    const partner = personOf((family.partnerIds || []).find(id => id !== item.id) || "");
+    const relationType = normalizeRelationType(family.relationType);
+    const endType = normalizeEndType(family.endType);
+    const unionDate = formatGenealogyDate(family.unionDateInfo, family.marriageDate || family.unionDate);
+    const unionPlace = printPlaceDetail(family.unionPlace, family.unionPlaceInfo);
+    const endLabel = ["none", "unknown"].includes(endType) ? "" : END_TYPE_LABELS[endType];
+    const endDate = formatGenealogyDate(family.endDateInfo, family.separationDate || family.divorceDate);
+    const endPlace = printPlaceDetail(family.endPlace, family.endPlaceInfo);
+    const childRows = (family.childIds || []).map(childId => {
+      const child = personOf(childId);
+      if (!child) return "";
+      const filiationType = parentChildLinkType(family, item.id, childId);
+      const filiation = printFiliationLabel(filiationType);
+      const filiationMarkup = filiation ? `<span class="print-meta print-filiation">${esc(filiation)}</span>` : "";
+      return `<li><span class="print-child-marker" aria-hidden="true">—</span><span class="print-child-body"><strong>${printFullName(child)}</strong><span class="print-meta">${printLifePeriod(child)}</span>${filiationMarkup}</span></li>`;
+    });
+    const partnerLine = partner ? esc(directoryPersonName(partner)) : "Union sans partenaire identifié";
+    return `<article class="print-union">
+<div class="print-union-head"><strong>${partnerLine}</strong>${relationType === "unknown" ? "" : `<span class="print-union-type">${esc(RELATION_TYPE_LABELS[relationType])}</span>`}</div>
+${unionDate === "—" && !unionPlace ? "" : `<p class="print-union-meta">${unionDate === "—" ? "—" : esc(unionDate)}${unionPlace ? ` · ${unionPlace}` : ""}</p>`}
+${!endLabel ? "" : `<p class="print-union-meta">${esc(endLabel)}${endDate === "—" ? "" : ` · ${esc(endDate)}`}${endPlace ? ` · ${endPlace}` : ""}</p>`}
+${childRows.length ? `<p class="print-union-subtitle">Enfants issus de cette union · ${childRows.filter(Boolean).length}</p><ul class="print-children">${childRows.join("")}</ul>` : ""}
+</article>`;
+  });
+
+  const sections = [];
+  sections.push(`<header class="print-head"><span class="print-brand">La Nostra Storia</span><span class="print-kicker">Fiche individuelle</span></header>`);
+  const lifeSpan = printLifeSpan(item);
+  sections.push(`<section class="print-sec print-identity">${photo}<div><h2 class="print-name">${printFullName(item)}</h2>${usage}${lifeSpan ? `<p class="print-life">${lifeSpan}</p>` : ""}</div></section>`);
+  if (birthKnown || deathKnown) {
+    sections.push(`<section class="print-sec"><h3 class="print-sec-title">Naissance et décès</h3><div class="print-events">${birthEvent}${deathEvent}</div></section>`);
+  }
+  if (parentRows.filter(Boolean).length) sections.push(`<section class="print-sec"><h3 class="print-sec-title">Parents</h3><div class="print-parents">${parentRows.join("")}</div></section>`);
+  if (unionBlocks.filter(Boolean).length) sections.push(`<section class="print-sec print-unions"><h3 class="print-sec-title">Unions et descendance</h3>${unionBlocks.join("")}</section>`);
+  if (item.notes?.trim()) sections.push(`<section class="print-sec"><h3 class="print-sec-title">Informations complémentaires</h3><p class="print-notes">${esc(item.notes)}</p></section>`);
+  const footer = printModificationDate(item);
+  if (footer) sections.push(`<footer class="print-foot">${esc(footer)}</footer>`);
+  return `<article class="print-sheet">${sections.join("")}</article>`;
+}
+
+function openPersonPrint(scope = personPrintScopeOverride) {
+  const effectiveScope = scope || null;
+  const item = (effectiveScope?.people || []).find(candidate => candidate.id === activeId) || person(activeId);
+  if (!item) {
+    toast("Ouvrez d’abord la fiche d’une personne pour imprimer.", "error");
+    return;
+  }
+  try {
+    $("personPrintSheet").innerHTML = buildPersonPrintSheet(item, effectiveScope);
+  } catch (error) {
+    console.error(error);
+    toast("La fiche n’a pas pu être préparée pour l’impression.", "error");
+    return;
+  }
+  $("personPrintDialog").showModal();
+}
+
+if (typeof window !== "undefined") {
+  window.__personPrint = {
+    build: buildPersonPrintSheet,
+    placeDetail: printPlaceDetail,
+    /* Sonde de test à la convention __treeProbe : applique uniquement le vrai
+       chemin utilisateur (openPerson puis clic réel du bouton) ; scope
+       applicatif jamais fourni en production => zéro impact. */
+    openForTest: (item, scope = null) => {
+      activeId = item?.id || null;
+      personPrintScopeOverride = scope;
+      openPerson(item, "tree");
+      return item;
+    },
+    clearTestScope: () => { personPrintScopeOverride = null; activeId = null; }
+  };
+}
+
+$("printPersonBtn").onclick = () => openPersonPrint();
+$("personPrintGoBtn").onclick = () => {
+  const sheet = $("personPrintSheet");
+  if (!sheet || !sheet.innerHTML) {
+    toast("Ouvrez d’abord l’aperçu de la fiche avant d’imprimer.", "error");
+    return;
+  }
+  /* iOS Safari : window.print() n'est pas bloquant et rend la page de façon
+     asynchrone. L'état d'impression et le portail ne doivent donc jamais être
+     nettoyés immédiatement — uniquement après « afterprint », avec un
+     fallback temporisé si l'événement n'existe pas sur le navigateur. */
+  let restored = false;
+  let fallbackTimer = 0;
+  const restorePrintingState = () => {
+    if (restored) return;
+    restored = true;
+    window.removeEventListener("afterprint", restorePrintingState);
+    window.clearTimeout(fallbackTimer);
+    document.body.classList.remove("is-printing-person");
+    const portal = $("printPortal");
+    if (portal) portal.innerHTML = "";
+  };
+  try {
+    $("printPortal").innerHTML = sheet.innerHTML;
+    document.body.classList.add("is-printing-person");
+    window.addEventListener("afterprint", restorePrintingState);
+    /* Attendre deux cycles de rendu : les styles @media print doivent être
+       appliqués dans une frame effective avant l'appel natif (iOS). */
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      try {
+        window.print();
+        /* Fallback prudent : sans afterprint après 60 s, restaurer l'interface
+           sans risquer la production du PDF sur iOS. */
+        fallbackTimer = window.setTimeout(() => restorePrintingState(), 60000);
+      } catch (printError) {
+        console.error(printError);
+        toast("L’impression n’a pas pu démarrer dans ce navigateur.", "error");
+      }
+    }));
+  } catch (error) {
+    console.error(error);
+    restorePrintingState();
+    toast("L’impression n’a pas pu démarrer dans ce navigateur.", "error");
+  }
+};
 
 function documentPeopleMarkup(selectedIds = []) {
   const selected = new Set(selectedIds);
