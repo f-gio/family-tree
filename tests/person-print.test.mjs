@@ -13,7 +13,7 @@ const [html, css, app] = await Promise.all([
 ]);
 
 test("A. point d'accès : bouton discret dans la modale Personne", () => {
-  assert.match(html, /<button class="btn tertiary" type="button" id="printPersonBtn" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-print"><\/use><\/svg><span>Imprimer \/ PDF<\/span><\/button>/);
+  assert.match(html, /<button class="btn tertiary" type="button" id="printPersonBtn" role="menuitem" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-print"><\/use><\/svg><span>Imprimer \/ PDF<\/span><\/button>/);
   assert.match(app, /\$\("printPersonBtn"\)\.hidden = !item;/);
 });
 
@@ -303,7 +303,7 @@ test("I. clics réels : modale → aperçu → impression (spy), X, Annuler, suc
       };
       window.__personPrint.openForTest(item, { people: [item], families: [], documents: [] });
       // le chemin réel : la fiche Personne rend le bouton accessible
-      document.getElementById("printPersonBtn").hidden = false;
+      document.getElementById("personMenuBtn").click(); document.getElementById("printPersonBtn").hidden = false;
       // espion : window.print est remplacé APRÈS l'ouverture (le vrai clic Playwright déclenchera le spy)
       Object.defineProperty(window, "print", { value: () => { window.__printSpy++; }, configurable: true });
     }, 0);
@@ -337,7 +337,7 @@ test("I. clics réels : modale → aperçu → impression (spy), X, Annuler, suc
     assert.ok(!(await page.evaluate(() => document.getElementById("personPrintDialog").open)), "fermeture ✕");
 
     // réouverture : clic → aperçu → Annuler
-    await page.evaluate(() => { document.getElementById("printPersonBtn").hidden = false; });
+    await page.evaluate(() => { document.getElementById("personMenuBtn").click(); document.getElementById("printPersonBtn").hidden = false; });
     await page.click("#printPersonBtn");
     await page.waitForTimeout(80);
     const secondOpen = await page.evaluate(() => document.getElementById("personPrintDialog").open);
@@ -348,7 +348,7 @@ test("I. clics réels : modale → aperçu → impression (spy), X, Annuler, suc
     await page.evaluate(suffix => {
       const item = { id: "PREEL2" + suffix, firstName: "Deuxième", lastName: "Personne", birthDateInfo: { type: "unknown" }, deathDateInfo: { type: "unknown" } };
       window.__personPrint.openForTest(item, { people: [item], families: [], documents: [] });
-      document.getElementById("printPersonBtn").hidden = false;
+      document.getElementById("personMenuBtn").click(); document.getElementById("printPersonBtn").hidden = false;
     }, 0);
     await page.click("#printPersonBtn");
     await page.waitForTimeout(80);

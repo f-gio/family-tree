@@ -189,6 +189,22 @@ function formatPersonModInfo(item) {
   return author ? `${formatted} · ${esc(author)}` : formatted;
 }
 
+/* Métadonnée de modification pour le header de la modale Personne :
+   source identique à formatPersonModInfo (updatedAt Firestore + auteur
+   réel), sans aucun fallback sur la date actuelle. */
+function personModMetaParts(item = {}) {
+  if (!item?.updatedAt?.toDate) return null;
+  const date = item.updatedAt.toDate();
+  const long = "Dernière modification : " + date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
+    + " à " + date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  const short = "Modifiée le " + date.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+  const author = item.updatedByName;
+  return {
+    long: author ? `${long} · ${esc(author)}` : long,
+    short: author ? `${short} · ${esc(author)}` : short
+  };
+}
+
 function dateInfoOf(item, prefix) {
   return normalizeGenealogyDate(item?.[`${prefix}DateInfo`], item?.[`${prefix}Date`]);
 }
@@ -733,10 +749,26 @@ function setPersonSection(section = "identity", focusTab = false) {
   if (hasPerson && normalized === "documents") renderPersonDocuments($("personId").value);
 }
 
+/* Icônes du parcours de vie : une seule famille graphique (sprite existant),
+   mêmes épaisseur/couleurs que le Design System, décoratives (aria-hidden).
+   naissance → sparkles · union → heart · séparation/divorce → unlink
+   · décès → cross · autre → calendar (repère neutre). */
+function timelineTypeIcon(event) {
+  if (event.type === "birth") return "sparkles";
+  if (event.type === "death") return "cross";
+  if (event.type === "union") {
+    const text = `${event.title} ${event.detail}`.toLowerCase();
+    if (text.includes("séparation") || text.includes("divorce")) return "unlink";
+    return "heart";
+  }
+  return "calendar";
+}
+
 function timelineItemHtml(event) {
   const date = event.date !== "—" ? `<span class="timeline-date">${esc(event.date)}</span>` : "";
   const detail = event.detail ? `<span class="timeline-detail">${esc(event.detail)}</span>` : "";
-  return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-content"><strong class="timeline-title">${esc(event.title)}</strong>${date}${detail}</div></li>`;
+  const iconMarkup = `<svg class="ui-icon timeline-icon" aria-hidden="true"><use href="#icon-${timelineTypeIcon(event)}"></use></svg>`;
+  return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-content"><span class="timeline-line">${iconMarkup}<strong class="timeline-title">${esc(event.title)}</strong>${date}</span>${detail}</div></li>`;
 }
 
 function renderLifeTimeline() {
@@ -746,7 +778,7 @@ function renderLifeTimeline() {
   const events = item ? lifeTimelineEvents(item, { people, families }) : [];
   container.hidden = !events.length;
   container.innerHTML = events.length
-    ? `<h3 class="timeline-heading">Parcours de vie</h3><ol class="life-timeline-list">${events.map(timelineItemHtml).join("")}</ol>`
+    ? `<h3 class="timeline-heading"><svg class="ui-icon timeline-icon" aria-hidden="true"><use href="#icon-history"></use></svg>Parcours de vie</h3><ol class="life-timeline-list">${events.map(timelineItemHtml).join("")}</ol>`
     : "";
 }
 
@@ -852,7 +884,13 @@ function openPerson(item = null, source = "tree") {
   personDialogSource = source;
   activeId = item?.id || null;
   renderer.setActive(activeId);
-  $("dialogTitle").textContent = item ? "Modifier la personne" : "Ajouter une personne";
+  setPersonMenu(false);
+  const titleName = item ? [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ") : "";
+  $("dialogTitle").textContent = item ? (titleName || "Modifier la personne") : "Nouvelle personne";
+  const modMeta = item ? personModMetaParts(item) : null;
+  $("personDialogMeta").innerHTML = modMeta
+    ? `<span class="meta-long">${esc(modMeta.long)}</span><span class="meta-short">${esc(modMeta.short)}</span>`
+    : "Les champs marqués d’un astérisque sont obligatoires.";
   $("savePersonBtn").textContent = item ? "Enregistrer" : "Enregistrer et ajouter ses liens";
   $("deleteBtn").hidden = !item;
   $("printPersonBtn").hidden = !item;
@@ -870,13 +908,6 @@ function openPerson(item = null, source = "tree") {
   updatePersonPhotoPreview();
   updateMarriedNameVisibility();
   if (item) renderPersonDocuments(item.id);
-  $("personMetaInfo").textContent = "";
-  $("personMetaInfo").hidden = true;
-  const modInfo = formatPersonModInfo(item);
-  if (modInfo) {
-    $("personMetaInfo").textContent = "Dernière modification : " + modInfo;
-    $("personMetaInfo").hidden = false;
-  }
   $("relationBuilder").hidden = true;
   $("toggleRelationBuilderBtn").setAttribute("aria-expanded", "false");
   setRelationBuilderKind("parent");
@@ -1645,6 +1676,61 @@ if (typeof window !== "undefined") {
     clearTestScope: () => { personPrintScopeOverride = null; activeId = null; }
   };
 }
+
+/* Menu contextuel « ⋯ » de la fiche Personne : réutilise les actions existantes
+   (Voir sa branche / Imprimer / PDF / Retirer de l’arbre), se ferme après
+   sélection, avec Échap ou un clic en dehors, et reste dans le viewport. */
+function setPersonMenu(open) {
+  const menu = $("personMenu");
+  if (!menu) return;
+  menu.hidden = !open;
+  $("personMenuBtn").setAttribute("aria-expanded", String(open));
+  if (open) {
+    const viewportWidth = document.documentElement.clientWidth;
+    menu.style.maxWidth = `${Math.max(9, Math.min(15, viewportWidth / 16))}rem`;
+    menu.querySelector("button:not([hidden])")?.focus({ preventScroll: true });
+  }
+}
+
+$("personMenuBtn").addEventListener("click", event => {
+  event.stopPropagation();
+  setPersonMenu($("personMenu").hidden);
+});
+$("personMenu").addEventListener("click", event => {
+  if (event.target.closest("button")) setPersonMenu(false);
+});
+$("personMenu").addEventListener("keydown", event => {
+  const items = [...$("personMenu").querySelectorAll("button:not([hidden])")];
+  const index = items.indexOf(document.activeElement);
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    setPersonMenu(false);
+    $("personMenuBtn").focus();
+    return;
+  }
+  if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+    event.preventDefault();
+    if (!items.length) return;
+    if (event.key === "Home") items[0]?.focus();
+    else if (event.key === "End") items[items.length - 1]?.focus();
+    else if (event.key === "ArrowDown") items[(index + 1) % items.length]?.focus();
+    else items[(index - 1 + items.length) % items.length]?.focus();
+  }
+});
+document.addEventListener("click", event => {
+  if ($("personMenu").hidden) return;
+  if (event.target.closest("#personMenu") || event.target.closest("#personMenuBtn")) return;
+  setPersonMenu(false);
+});
+$("personDialog").addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  if ($("personMenu").hidden) return;
+  event.preventDefault();
+  event.stopPropagation();
+  setPersonMenu(false);
+  $("personMenuBtn").focus();
+});
 
 $("printPersonBtn").onclick = () => openPersonPrint();
 $("personPrintGoBtn").onclick = () => {

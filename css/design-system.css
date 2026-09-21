@@ -829,6 +829,49 @@ dialog[open] {
 .modal-head > div:first-child { min-width: 0; }
 .modal-head p { max-width: 42rem; }
 
+/* Fiche Personne : titre + métadonnée de modification, actions (⋯ puis X)
+   alignées sur une seule ligne, menu contextuel sous le bouton ⋯. */
+.person-head { z-index: 3; padding-bottom: var(--space-2); }
+.person-head-actions {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+}
+.person-dialog-meta { margin: 3px 0 0; color: var(--color-text-muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+/* Mobile-first : la variante courte est la valeur par défaut (toujours rendue
+   sous le nom), la variante longue n'arrive qu'au-delà du breakpoint. */
+.person-dialog-meta .meta-long { display: none; }
+.person-action-menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: var(--space-1);
+  width: max-content;
+  min-width: 11rem;
+  max-width: min(15rem, calc(100vw - 1.5rem));
+  max-height: min(60dvh, 18rem);
+  overflow: auto;
+  padding: var(--space-1);
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-dialog);
+}
+.person-action-menu .btn { min-height: var(--control-touch); width: 100%; justify-content: flex-start; border: 0; background: transparent; color: var(--color-text); text-align: left; }
+.person-action-menu .btn:hover { background: var(--color-brand-soft); }
+.person-action-menu .btn.tertiary { color: var(--color-text); }
+.person-action-menu .btn.tertiary:hover { color: var(--color-brand); }
+.person-action-menu .btn.danger:hover { background: var(--color-danger-soft); color: var(--color-danger-hover); }
+.person-menu-sep { margin: var(--space-1) 0; border: 0; border-top: var(--border-subtle); }
+@media (min-width: 761px) {
+  .person-dialog-meta .meta-long { display: inline; }
+  .person-dialog-meta .meta-short { display: none; }
+}
+
 .person-section-nav {
   position: relative;
   top: auto;
@@ -1103,10 +1146,14 @@ label .field { margin-top: var(--space-2); }
 }
 .life-timeline[hidden] { display: none; }
 .timeline-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0 0 var(--space-3);
   font: 700 15px Georgia, serif;
   color: var(--color-text);
 }
+.timeline-heading .timeline-icon { color: var(--color-brand); }
 .life-timeline-list {
   position: relative;
   margin: 0;
@@ -1148,7 +1195,9 @@ label .field { margin-top: var(--space-2); }
 }
 .timeline-title { font: 700 14px Georgia, serif; color: var(--color-text); }
 .timeline-date { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--color-text); }
-.timeline-detail { font-size: var(--text-xs); color: var(--color-text-muted); line-height: 1.35; }
+.timeline-detail { display: block; margin-left: calc(1.125rem + var(--space-2)); font-size: var(--text-xs); color: var(--color-text-muted); line-height: 1.35; }
+.timeline-line { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.timeline-icon { width: 1.125rem; height: 1.125rem; flex: 0 0 auto; color: var(--color-accent); }
 
 /* Autocomplétion géographique commune — la saisie libre reste le contrôle principal. */
 .location-autocomplete { position: relative; min-width: 0; }
@@ -2230,6 +2279,8 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; min-he
 
   .modal-head { border-radius: 0; }
   .modal-head p { display: none; }
+  /* la métadonnée de modification de la fiche Personne reste visible sous le nom */
+  #personDialogMeta { display: block; }
   .modal-head h3 { font-size: 1.375rem; }
   .modal-scroll,
   .person-section-panel { padding-inline: var(--space-4); }

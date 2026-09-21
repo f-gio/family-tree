@@ -85,6 +85,11 @@
     <symbol id="icon-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
     <symbol id="icon-center" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 2v3M22 12h-3M12 22v-3M2 12h3"/></symbol>
     <symbol id="icon-reorder" viewBox="0 0 24 24"><path d="M4 9h14M15 6l3 3-3 3M20 15H6M9 12l3-3 3 3"/></symbol>
+    <symbol id="icon-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2M4 5l2-2M20 19l-2-2"/></symbol>
+    <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="M12 3c.6 3.4 1.9 4.7 5.2 5.2-3.3.6-4.6 1.9-5.2 5.3-.6-3.4-1.9-4.8-5.2-5.3 3.3-.5 4.6-1.9 5.2-5.2z"/><path d="M18.5 15.5c.3 1.6.9 2.2 2.5 2.5-1.6.3-2.2.9-2.5 2.5-.3-1.6-.9-2.2-2.5-2.5 1.6-.3 2.2-.9 2.5-2.5z"/></symbol>
+    <symbol id="icon-heart" viewBox="0 0 24 24"><path d="M12 20s-7.2-4.7-9.2-10C1.6 6.4 4 4 6.6 4c2.2 0 4.2 1.5 5.4 3.4C13.2 5.5 15.2 4 17.4 4c2.6 0 4.9 2.4 3.8 6-2 5.3-9.2 10-9.2 10z"/></symbol>
+    <symbol id="icon-cross" viewBox="0 0 24 24"><path d="M12 3v18M7 8h10M7 21h10"/></symbol>
+    <symbol id="icon-calendar" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M4 11h16M8 3v5M16 3v5"/></symbol>
   </svg>
   <section class="auth-screen" id="authScreen">
 <form class="auth-card" id="loginForm">
@@ -284,12 +289,21 @@
 </div>
 </main>
   <dialog class="person-dialog modal-xl" id="personDialog" aria-labelledby="dialogTitle">
-<div class="modal-head">
+<div class="modal-head person-head">
 <div>
-<h3 id="dialogTitle">Ajouter une personne</h3>
-<p>Les champs marqués d’un astérisque sont obligatoires.</p>
+<h3 id="dialogTitle">Nouvelle personne</h3>
+<p id="personDialogMeta" class="person-dialog-meta">Les champs marqués d’un astérisque sont obligatoires.</p>
 </div>
+<div class="person-head-actions">
+<button class="btn icon-btn" type="button" id="personMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="personMenu" aria-label="Plus d’actions sur la fiche" title="Plus d’actions">⋯</button>
 <button class="btn icon-btn" type="button" data-close="personDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
+<div class="person-action-menu" id="personMenu" role="menu" aria-label="Actions de la fiche" hidden>
+<button class="btn" type="button" id="viewBranchBtn" role="menuitem" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-tree"></use></svg><span>Voir sa branche</span></button>
+<button class="btn tertiary" type="button" id="printPersonBtn" role="menuitem" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-print"></use></svg><span>Imprimer / PDF</span></button>
+<hr class="person-menu-sep" aria-hidden="true">
+<button class="btn danger" type="button" id="deleteBtn" role="menuitem" hidden>Supprimer</button>
+</div>
+</div>
 </div>
 <nav class="person-section-nav" role="tablist" aria-label="Sections de la fiche Personne">
 <button class="person-section-tab active" id="personIdentityTab" type="button" role="tab" aria-selected="true" aria-controls="personIdentityPanel" data-person-section="identity">Identité</button>
@@ -329,7 +343,6 @@
 </label>
 </div>
 </div>
-<p class="person-meta-info" id="personMetaInfo" hidden></p>
 <div class="identity-life-sections">
 <fieldset class="life-fields identity-life-section"><legend>Naissance</legend><div class="life-fields-grid event-information-group">
 <div class="genealogy-date" data-date-control="birth"><div class="date-type-switch" role="group" aria-label="Format de la date de naissance"><button class="date-type-button active" type="button" data-date-prefix="birth" data-date-type="exact">Date précise</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="year">Année</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="about">Vers</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="between">Entre</button><button class="date-type-button" type="button" data-date-prefix="birth" data-date-type="unknown">Inconnue</button></div><div class="date-value-panel single" data-date-panel="birth-exact"><label>Date de naissance<input class="field" id="birthDate" type="date"></label></div><div class="date-value-panel single" data-date-panel="birth-year" hidden><label>Année<input class="field" id="birthYear" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div><div class="date-value-panel" data-date-panel="birth-between" hidden><label>De<input class="field" id="birthYearFrom" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label><label>À<input class="field" id="birthYearTo" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div></div>
@@ -346,10 +359,6 @@
 </textarea>
 </label>
 <section class="life-timeline" id="personLifeTimeline" aria-label="Parcours de vie" hidden></section>
-<div class="person-context-actions">
-<button class="btn danger" type="button" id="deleteBtn" hidden>Supprimer</button>
-<button class="btn" type="button" id="viewBranchBtn" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-tree"></use></svg><span>Voir sa branche</span></button>
-</div>
 </section>
 <section class="person-section-panel" id="personRelationsPanel" role="tabpanel" aria-labelledby="personRelationsTab" data-person-panel="relations" hidden>
 <div id="personRelationsUnavailable" class="person-section-placeholder" hidden><strong>Enregistrez d’abord l’identité</strong>Les liens familiaux pourront ensuite être ajoutés sans fermer cette fiche.</div>
@@ -398,7 +407,6 @@
 </section>
 <div class="modal-actions person-actions">
 <div class="right">
-<button class="btn tertiary" type="button" id="printPersonBtn" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-print"></use></svg><span>Imprimer / PDF</span></button>
 <button class="btn" type="button" id="restoreTreeBtn" hidden>Ajouter à l’arbre</button>
 <button class="btn" type="button" data-close="personDialog">Annuler</button>
 <button class="btn primary" id="savePersonBtn" type="submit">Enregistrer et ajouter ses liens</button>

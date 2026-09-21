@@ -29,22 +29,19 @@ test("formatPersonModInfo affiche l'auteur seulement si updatedByName existe", (
   assert.ok(app.includes("author ?"), "affichage conditionnel du nom");
 });
 
-// --- Structure du HTML ---
+// --- Structure du HTML (la métadonnée vit désormais dans le header de la modale) ---
 
-test("la fiche personne contient l'élément de métadonnée", () => {
-  assert.ok(html.includes('id="personMetaInfo"'), "élément personMetaInfo absent");
-  assert.ok(html.includes('class="person-meta-info"'), "classe person-meta-info absente");
-});
-
-test("l'élément personMetaInfo est caché par défaut", () => {
-  assert.match(html, /id="personMetaInfo"[^>]+hidden/);
+test("la métadonnée de modification est affichée une seule fois dans le header", () => {
+  assert.ok(!html.includes('id="personMetaInfo"'), "l'occurrence dans l'onglet identité a été retirée");
+  assert.ok(html.includes('id="personDialogMeta"'), "header de la modale porte la métadonnée");
 });
 
 // --- Code dans app.js ---
 
-test("openPerson affiche la métadonnée de modification", () => {
-  assert.ok(app.includes('formatPersonModInfo(item)'), "appel de formatPersonModInfo dans openPerson");
-  assert.ok(app.includes('personMetaInfo'), "personMetaInfo utilisé dans openPerson");
+test("openPerson alimente la métadonnée du header (sans duplicata dans le contenu)", () => {
+  assert.ok(app.includes('personModMetaParts(item)'), "personModMetaParts dans openPerson");
+  assert.ok(app.includes('personDialogMeta'), "métadonnée pointe le header");
+  assert.ok(!app.includes('$("personMetaInfo")'), "personMetaInfo n'est plus piloté par openPerson");
 });
 
 test("la création de personne inclut updatedBy et updatedByName", () => {
