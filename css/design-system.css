@@ -801,7 +801,41 @@ dialog {
 
 dialog.modal-sm { width: min(var(--modal-sm), calc(100% - 1.75rem)); }
 dialog.modal-md { width: min(var(--modal-md), calc(100% - 1.75rem)); }
+/* Modale Tâche : agrandie à la taille lg (720px) pour le confort de saisie
+   desktop — cohérente avec la modale détail Démarches. Scope strict. */
+#taskDialog { width: min(var(--modal-lg), calc(100% - 1.75rem)); }
+@media (max-width: 760px) {
+  /* Modale Tâche : plein écran mobile — même pattern que modal-dossier
+     (inset: 0, pas de marge, pas de border-radius, header/footer fixes). */
+  #taskDialog {
+    inset: 0;
+    width: auto;
+    max-width: none;
+    height: auto;
+    max-height: none;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  /* Pan horizontal iOS pendant le scroll vertical : même correctif natif
+     que #procedureActionDialog — le scroller ne doit pas porter l'axe X. */
+  #taskDialog .modal-scroll {
+    overflow-x: clip;
+  }
+}
 dialog.modal-lg { width: min(var(--modal-lg), calc(100% - 1.75rem)); }
+
+/* Tâches : hover sobre (pattern .btn : bordure + ombre + fond surface raised),
+   scoped, pas de transform → aucun layout shift, aucun artefact tactile.
+   En mode liste, le CSS inline pose box-shadow:none : on réintroduit une
+   ombre discrète au hover pour signaler l'interactivité. */
+@media (hover: hover) {
+  #tasksList .content-card:hover {
+    background: var(--color-surface-raised);
+    border-color: var(--color-border);
+    box-shadow: var(--shadow-low);
+  }
+}
 dialog.modal-xl { width: min(var(--modal-xl), calc(100% - 3rem)); }
 
 dialog[open] {
