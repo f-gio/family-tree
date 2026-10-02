@@ -24,7 +24,8 @@ for (const rule of [
 
 assert.match(html, /class="person-dialog modal-xl"/);
 assert.match(html, /class="modal-body person-modal-form" id="personForm"/);
-assert.equal((html.match(/class="modal-body modal-form"/g) || []).length, 3);
+// 5 modales-formulaires : tâche + dossier de démarche + action de démarche (exécution Démarches 1/2).
+assert.equal((html.match(/class="modal-body modal-form"/g) || []).length, 5);
 assert.equal((html.match(/class="person-section-panel"/g) || []).length, 3);
 
 for (const heading of [

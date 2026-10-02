@@ -12,6 +12,7 @@ import { computeLineageScope } from "./family-lineage.js";
 import { documentDisplayLabel } from "./document-utils.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
 import { filterAndSortDirectory, countActiveDirectoryFilters } from "./directory-advanced.js";
+import { filterAndSortProcedures, sortProcedureActions, procedureTypeLabel, procedureStatusLabel, procedureActionTypeLabel, isProcedureClosed, DOSSIER_MIN_QUERY_LENGTH } from "./procedures.js";
 import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText, genealogyDateYears } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
@@ -37,10 +38,12 @@ const refs = {
   families: collection(db, "families"),
   documents: collection(db, "documents"),
   tasks: collection(db, "tasks"),
-  users: collection(db, "users")
+  users: collection(db, "users"),
+  procedures: collection(db, "procedures")
 };
 
 let people = [], families = [], documents = [], tasks = [];
+let procedures = [];
 let activeId = null, currentLayout = null, automaticPositions = new Map();
 let personDialogSource = "tree";
 let cameraPositioned = false, focusAfterRender = null;
@@ -48,6 +51,10 @@ let branchView = null;
 let lineageSurname = "";
 let currentScope = null;
 let loadedPeople = false, loadedFamilies = false, loadedDocuments = false, loadedTasks = false;
+let loadedProcedures = false;
+let activeDossierId = "";
+let procedureActionUnsub = null;
+let procedureActionsCache = [];
 let unsubs = [];
 let profileUnsub = null, adminUsersUnsub = null, activeDataUid = "";
 let currentUserProfile = null, primaryAdminUid = "", adminUsersCache = [], currentProfilePhoto = "";
@@ -660,7 +667,7 @@ function exitBranchView() {
 }
 
 function syncState() {
-  if (loadedPeople && loadedFamilies && loadedDocuments && loadedTasks) {
+  if (loadedPeople && loadedFamilies && loadedDocuments && loadedTasks && loadedProcedures) {
     $("syncDot").classList.add("ok");
     $("syncText").textContent = "Synchronisé avec Firebase";
     $("syncText").closest(".status")?.setAttribute("data-state", "saved");
@@ -689,6 +696,10 @@ function updateReadyViews() {
   if (loadedPeople && loadedTasks) {
     setLoadingSurface("tasksList", false);
     renderTasks();
+  }
+  if (loadedProcedures) {
+    setLoadingSurface("proceduresList", false);
+    renderProcedures();
   }
 }
 
@@ -2194,6 +2205,417 @@ async function removeTask() {
   toast("Tâche supprimée");
 }
 
+/* ============================================================
+   Démarches : dossiers de suivi + chronologie des actions.
+   Collection Firestore : procedures ; actions dans la
+   sous-collection procedures/{dossierId}/actions.
+   ============================================================ */
+
+const dossierFields = ["title", "type", "status", "objective", "organization", "service", "contactName", "email", "phone", "place", "nextAction", "nextActionDate", "notes", "result"];
+
+function dossierEditDate(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+}
+
+function shortUpdatedAt(item) {
+  if (!item?.updatedAt?.toDate) return "Mise à jour : —";
+  return "Mise à jour : " + item.updatedAt.toDate().toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/* Multisélection de personnes du dossier : recherche sur le tableau
+   `people` déjà en mémoire (aucune requête Firestore par caractère),
+   insensible à la casse et aux accents, partielle, compatible legacy
+   (marriedName/branch pris en charge), 8 résultats maximum.
+   L'algorigramme recherché ne démarre qu'à partir de 2 caractères :
+   0 ou 1 caractère → aucune suggestion (les lettres uniques filtreraient
+   trop de monde avec la recherche multi-propriétés). */
+const DOSSIER_PEOPLE_MAX_RESULTS = 8;
+let dossierChips = new Set(), dossierHighlight = -1, dossierResults = [];
+
+function peopleSortedList() {
+  return [...treePeople()].sort(comparePeopleBySurname);
+}
+
+function personYears(item) {
+  const birth = genealogyDateYears(item.birthDateInfo, item.birthDate);
+  const death = genealogyDateYears(item.deathDateInfo, item.deathDate);
+  return [birth[0], death[0]].filter(part => part || part === 0);
+}
+
+function personSuggestionLabel(item) {
+  const name = nameOf(item.id);
+  const years = personYears(item);
+  const dates = years.length ? years.join(" — ") : null;
+  return [`${name}${dates ? ` · ${dates}` : ""}`, item.branch ? `Branche ${item.branch}` : ""].filter(Boolean);
+}
+
+function dossierPeopleMatches(query = "") {
+  const text = searchable(query);
+  /* 0 ou 1 caractère : aucune suggestion, liste fermée. */
+  if (text.length < DOSSIER_MIN_QUERY_LENGTH) return [];
+  const pool = peopleSortedList().filter(item => !dossierChips.has(item.id));
+  return pool.filter(item => searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.branch || ""}`).includes(text));
+}
+
+function renderDossierPeopleChips() {
+  $("dossierPeopleChips").innerHTML = [...dossierChips].map(id => `<span class="person-multiselect-chip"><span class="person-multiselect-chip-label">${esc(nameOf(id))}</span><button class="person-multiselect-chip-remove" type="button" data-remove-dossier-person="${esc(id)}" aria-label="Retirer ${esc(nameOf(id))} de la sélection">×</button></span>`).join("");
+}
+
+function renderDossierPeopleResults(results = dossierResults, focusIndex = dossierHighlight) {
+  const container = $("dossierPeopleResults");
+  if (!results.length) {
+    container.hidden = true;
+    $("dossierPeopleInput").setAttribute("aria-expanded", "false");
+    return;
+  }
+  container.innerHTML = results.map((item, index) => {
+    const [label, context] = personSuggestionLabel(item);
+    return `<button class="person-multiselect-result${index === focusIndex ? " is-active" : ""}" type="button" role="option" aria-selected="${index === focusIndex ? "true" : "false"}" data-add-dossier-person="${esc(item.id)}" tabindex="-1"><span class="person-multiselect-result-name">${esc(label)}</span>${context ? `<span class="person-multiselect-result-context">${esc(context)}</span>` : ""}</button>`;
+  }).join("");
+  container.hidden = false;
+  $("dossierPeopleInput").setAttribute("aria-expanded", "true");
+}
+
+function closeDossierPeopleResults() {
+  dossierResults = [];
+  dossierHighlight = -1;
+  renderDossierPeopleResults([], -1);
+}
+
+function openDossierPeopleResults() {
+  if (searchable($("dossierPeopleInput").value).length < DOSSIER_MIN_QUERY_LENGTH) {
+    closeDossierPeopleResults();
+    return;
+  }
+  dossierResults = dossierPeopleMatches($("dossierPeopleInput").value);
+  dossierHighlight = dossierResults.length ? 0 : -1;
+  renderDossierPeopleResults();
+}
+
+function addDossierPerson(id) {
+  if (!id || dossierChips.has(id)) return;
+  dossierChips.add(id);
+  renderDossierPeopleChips();
+  $("dossierPeopleInput").value = "";
+  closeDossierPeopleResults();
+  $("dossierPeopleInput").focus();
+}
+
+function removeDossierPerson(id) {
+  dossierChips.delete(id);
+  renderDossierPeopleChips();
+}
+
+function dossierSelectedPeople() {
+  return [...dossierChips];
+}
+
+function activateDossierPeopleKey(delta) {
+  if (!dossierResults.length) return;
+  dossierHighlight = (dossierHighlight + delta + dossierResults.length) % dossierResults.length;
+  renderDossierPeopleResults();
+  $("dossierPeopleResults").querySelectorAll("[data-add-dossier-person]")[dossierHighlight]?.focus();
+}
+
+function procedureCard(item) {
+  const closed = isProcedureClosed(item.status);
+  const persons = (item.personIds || []).map(id => nameOf(id)).filter(name => name !== "Personne supprimée");
+  const contextParts = [];
+  if (persons.length) contextParts.push(`Personnes : ${persons.join(", ")}`);
+  if (item.nextAction) contextParts.push(`Prochaine action : ${item.nextAction}${item.nextActionDate ? ` (${formatShortDate(item.nextActionDate)})` : ""}`);
+  return `<article class="procedure-item" tabindex="0" role="button" data-open-dossier="${item.id}" aria-label="Ouvrir la démarche ${esc(item.title)}"><span class="procedure-updated">${shortUpdatedAt(item)}</span><div><h3 class="procedure-title">${esc(item.title)}</h3><span class="procedure-tags"><span class="procedure-tag">${esc(procedureTypeLabel(item.type))}</span></span></div><span class="procedure-organization">${esc([item.organization, item.service || "", item.contactName || ""].filter(Boolean).join(" · "))}</span><span class="procedure-context">${esc(contextParts.join(" — "))}</span><span class="procedure-tags"><span class="procedure-tag procedure-status${closed ? " is-closed" : ""}">${esc(procedureStatusLabel(item.status))}</span></span><button class="btn small" type="button" data-open-dossier="${item.id}">Consulter</button></article>`;
+}
+
+// Date AAAA-MM-JJ affichée en format français court.
+function formatShortDate(value) {
+  return value ? new Date(`${value}T12:00:00`).toLocaleDateString("fr-FR") : "";
+}
+
+function renderProcedures() {
+  const query = searchable($("dossierSearch").value);
+  const filtered = filterAndSortProcedures(procedures, {
+    type: $("dossierTypeFilter").value,
+    status: $("dossierStatusFilter").value
+  }, query, nameOf);
+  $("proceduresList").innerHTML = filtered.length
+    ? `<div class="procedure-head-row" aria-hidden="true"><span>Mise à jour</span><span>Dossier</span><span>Organisme</span><span>Contexte ou liens</span><span>Statut</span><span>Ouvrir</span></div>${filtered.map(procedureCard).join("")}`
+    : (procedures.length
+      ? emptyState({ iconName: "procedures", title: "Aucune démarche trouvée", description: "Modifiez la recherche ou les filtres pour afficher d’autres dossiers." })
+      : emptyState({ iconName: "procedures", title: "Aucune démarche", description: "Créez un dossier pour suivre une recherche, une correspondance ou un rendez-vous.", action: `<button class="btn primary" type="button" data-empty-add-dossier>${icon("plus")}<span>Nouvelle démarche</span></button>` }));
+}
+
+function openDossierForm(item = null) {
+  $("dossierForm").reset();
+  $("dossierId").value = item?.id || "";
+  $("dossierDialogTitle").textContent = item ? "Modifier la démarche" : "Nouvelle démarche";
+  $("dossierTitle").value = item?.title || "";
+  $("dossierType").value = item?.type || "research";
+  $("dossierStatus").value = item?.status || "prepare";
+  $("dossierObjective").value = item?.objective || "";
+  $("dossierOrganization").value = item?.organization || "";
+  $("dossierService").value = item?.service || "";
+  $("dossierContactName").value = item?.contactName || "";
+  $("dossierEmail").value = item?.email || "";
+  $("dossierPhone").value = item?.phone || "";
+  $("dossierPlace").value = item?.place || "";
+  dossierChips = new Set(item?.personIds || []);
+  renderDossierPeopleChips();
+  closeDossierPeopleResults();
+  $("dossierPeopleInput").value = "";
+  $("dossierNextAction").value = item?.nextAction || "";
+  $("dossierNextActionDate").value = dossierEditDate(item?.nextActionDate);
+  $("dossierNotes").value = item?.notes || "";
+  $("dossierResult").value = item?.result || "";
+  $("deleteDossierBtn").hidden = !item;
+  $("dossierDialog").showModal();
+}
+
+async function saveDossier(event) {
+  event.preventDefault();
+  const submitButton = event.submitter;
+  const id = $("dossierId").value;
+  const data = Object.fromEntries(dossierFields.map(key => [key, $("dossier" + key[0].toUpperCase() + key.slice(1)).value.trim()]));
+  data.personIds = dossierSelectedPeople();
+  data.updatedAt = serverTimestamp();
+  data.updatedBy = auth.currentUser?.uid || "";
+  data.updatedByName = currentUserProfile?.displayName || "";
+  await withButtonPending(submitButton, () => runSafely(async () => {
+    if (id) await updateDoc(doc(db, "procedures", id), data);
+    else await addDoc(refs.procedures, { ...data, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "", createdByName: currentUserProfile?.displayName || "" });
+    close("dossierDialog");
+    toast(id ? "Démarche mise à jour" : "Démarche ajoutée");
+  }, id ? "Mise à jour de la démarche impossible" : "Création de la démarche impossible"));
+}
+
+async function removeDossier() {
+  const id = $("dossierId").value;
+  if (!id || !confirm("Supprimer définitivement cette démarche ? Sa chronologie d’actions sera également supprimée. Cette action ne peut pas être annulée.")) return;
+  await runSafely(async () => {
+    await deleteDoc(doc(db, "procedures", id));
+    close("dossierDialog");
+    toast("Démarche supprimée");
+  }, "Suppression de la démarche impossible");
+}
+
+function openUnknownDossier(id) {
+  toast("Démarche introuvable", "error");
+}
+
+function openProcedureDetail(id) {
+  const item = procedures.find(value => value.id === id);
+  if (!item) return openUnknownDossier(id);
+  activeDossierId = id;
+  renderProcedureDetail(item);
+  procedureActionUnsub?.();
+  procedureActionUnsub = onSnapshot(collection(db, "procedures", id, "actions"), snapshot => {
+    procedureActionsCache = sortProcedureActions(snapshot.docs.map(docItem => {
+      const data = docItem.data();
+      return { id: docItem.id, ...data, createdAtSort: data.createdAt?.toMillis?.() || 0, updatedAtSort: data.updatedAt?.toMillis?.() || 0 };
+    }));
+    renderProcedureTimeline();
+  }, dataError);
+  $("procedureDetailDialog").showModal();
+}
+
+const EMAIL_ACTION_TYPES = new Set(["email-sent", "email-received"]);
+
+function isEmailAction(type = "") {
+  return EMAIL_ACTION_TYPES.has(type);
+}
+
+/* Texte sûr pour le contenu d'un email : esc() + white-space: pre-line
+   conservent les retours à la ligne sans jamais injecter de HTML brut. */
+function safeMultiline(value = "") {
+  return esc(value);
+}
+
+function toggleEmailFullBlock(id) {
+  const block = document.querySelector(`[data-email-full-block="${id}"]`);
+  if (!block) return;
+  block.hidden = !block.hidden;
+  const toggle = document.querySelector(`[data-toggle-email-action="${id}"]`);
+  toggle.querySelector("span").textContent = block.hidden ? "Afficher le message complet" : "Masquer le message";
+  toggle.setAttribute("aria-expanded", String(!block.hidden));
+}
+
+/* Carte d'événement de la chronologie. Hiérarchie :
+   date·heure (métadonnée) → type → objet (email) ou titre → correspondant
+   (À pour un email envoyé, De pour un email reçu) → notes/résumé → auteur
+   (discret) → contenu complet dépliable → Modifier/Supprimer en bas.
+   La direction n'est PAS affichée (redondant avec le type) mais reste
+   stockée ; aucune ligne vide n'est générée pour un champ absent. */
+function actionStamp(date, time) {
+  const dateLabel = date ? formatShortDate(date) : "Sans date";
+  return time ? `${dateLabel} · ${esc(time)}` : dateLabel;
+}
+
+function actionCorrespondent(action) {
+  const address = action.type === "email-sent"
+    ? (action.emailTo ? `À : ${action.emailTo}` : "")
+    : (action.type === "email-received" ? (action.emailFrom ? `De : ${action.emailFrom}` : "") : "");
+  return address ? `<span class="procedure-action-correspondent">${esc(address)}</span>` : "";
+}
+
+function procedureActionItem(action) {
+  const outils = `<div class="procedure-action-tools"><button class="btn small" type="button" data-edit-procedure-action="${action.id}" aria-label="Modifier l’action"><svg class="ui-icon" aria-hidden="true"><use href="#icon-edit"></use></svg><span>Modifier</span></button><button class="btn small danger" type="button" data-remove-procedure-action="${action.id}" aria-label="Supprimer l’action"><svg class="ui-icon" aria-hidden="true"><use href="#icon-trash"></use></svg><span>Supprimer</span></button></div>`;
+  const principal = isEmailAction(action.type) && action.emailSubject
+    ? `<h5 class="procedure-action-title">${esc(action.emailSubject)}</h5>`
+    : (action.title ? `<h5 class="procedure-action-title">${esc(action.title)}</h5>` : "");
+  const emailToggle = isEmailAction(action.type) && action.emailFull
+    ? `<button class="btn small procedure-action-email-toggle" type="button" data-toggle-email-action="${action.id}" aria-expanded="false"><svg class="ui-icon" aria-hidden="true"><use href="#icon-reorder"></use></svg><span>Afficher le message complet</span></button><div class="procedure-action-email-full-block" data-email-full-block="${action.id}" hidden><p class="procedure-action-email-full">${safeMultiline(action.emailFull)}</p></div>`
+    : "";
+  return `<article class="procedure-action-item${isEmailAction(action.type) ? " is-email" : ""}"><span class="procedure-action-stamp">${actionStamp(action.date, isEmailAction(action.type) ? action.time : "")}</span><span class="procedure-action-type">${esc(procedureActionTypeLabel(action.type))}</span>${principal}${actionCorrespondent(action)}${action.text ? `<p class="procedure-action-text">${safeMultiline(action.text)}</p>` : ""}${action.author ? `<span class="procedure-action-author">Ajouté par ${esc(action.author)}</span>` : ""}${emailToggle}${outils}</article>`;
+}
+
+function renderProcedureTimeline() {
+  $("procedureTimeline").innerHTML = procedureActionsCache.length
+    ? procedureActionsCache.map(procedureActionItem).join("")
+    : emptyState({ iconName: "procedures", title: "Aucune action enregistrée", description: "Les emails, appels, rendez-vous et notes de ce dossier apparaîtront ici." });
+}
+
+function procedureDetailBlock(title, content, { grid = false } = {}) {
+  if (!content) return "";
+  return `<section class="procedure-detail-block${grid ? " procedure-detail-grid" : ""}"><h4>${esc(title)}</h4>${content}</section>`;
+}
+
+function renderProcedureDetail(item) {
+  $("procedureDetailTitle").textContent = item.title || "Démarche";
+  // Premier niveau du header : type + statut en badges ; deuxième niveau
+  // strictement secondaire : date de dernière modification (et auteur).
+  $("procedureDetailBadges").innerHTML = `<span class="procedure-tag">${esc(procedureTypeLabel(item.type))}</span><span class="procedure-tag procedure-status${isProcedureClosed(item.status) ? " is-closed" : ""}">${esc(procedureStatusLabel(item.status))}</span>`;
+  $("procedureDetailMeta").innerHTML = formatPersonModInfo(item) ? `Dernière modification : ${formatPersonModInfo(item)}` : "";
+  const contactGrid = Object.entries({
+    Organisme: item.organization,
+    Service: item["service"],
+    Contact: item.contactName,
+    "E-mail": item.email,
+    Téléphone: item.phone,
+    "Adresse ou lieu": item.place
+  }).filter(([, value]) => value).map(([label, value]) => `<div><strong>${esc(label)}</strong><p>${esc(value)}</p></div>`).join("");
+  const persons = (item.personIds || []).map(id => nameOf(id)).filter(name => name !== "Personne supprimée");
+  const nextAction = item.nextAction ? `${item.nextAction}${item.nextActionDate ? ` — ${formatShortDate(item.nextActionDate)}` : ""}` : "";
+  $("procedureDetailContent").innerHTML = [
+    nextAction ? procedureDetailBlock("Prochaine action", `<p class="procedure-next">${esc(nextAction)}</p>`) : "",
+    item.objective ? procedureDetailBlock("Objectif", `<p>${esc(item.objective)}</p>`) : "",
+    contactGrid ? procedureDetailBlock("Informations du dossier", `<div class="procedure-detail-grid">${contactGrid}</div>`) : "",
+    persons.length ? procedureDetailBlock("Personnes éventuellement liées", `<div class="procedure-detail-persons">${persons.map(name => `<span class="procedure-tag">${esc(name)}</span>`).join("")}</div>`) : "",
+    item.notes ? procedureDetailBlock("Notes", `<p>${esc(item.notes)}</p>`) : "",
+    item.result ? procedureDetailBlock("Résultat ou conclusion", `<p>${esc(item.result)}</p>`) : ""
+  ].join("");
+}
+
+function syncProcedureActionEmailFields() {
+  const type = $("procedureActionType").value;
+  const emailMode = isEmailAction(type);
+  $("procedureActionEmailGroup").hidden = !emailMode;
+  $("procedureActionTimeGroup").hidden = !emailMode;
+  // Emails : le sens est implicite (envoyé/reçu) et le titre générique
+  // doublonne avec l'objet — les champs sont masqués, pas supprimés.
+  $("procedureActionDirection").closest("label")?.toggleAttribute("hidden", emailMode);
+  $("procedureActionTitleField").closest("label")?.toggleAttribute("hidden", emailMode);
+  const textLabel = $("procedureActionText")?.closest("label");
+  if (textLabel && textLabel.firstChild?.nodeType === Node.TEXT_NODE) {
+    textLabel.firstChild.nodeValue = emailMode ? "Notes / résumé" : "Résumé ou texte";
+  }
+  if (emailMode) {
+    $("procedureActionDirection").value = type === "email-sent" ? "sent" : "received";
+  }
+}
+
+/* Préremplissage email : simple aide, jamais prioritaire sur une valeur
+   déjà saisie (on ne remplit que si le champ est vide).
+   Email envoyé : destinataire propose l'organisme/contact du dossier.
+   Email reçu : expéditeur propose l'organisme/contact du dossier. */
+function dossierEmailDefaults(direction) {
+  const item = procedures.find(value => value.id === activeDossierId) || {};
+  const ownAddress = [currentUserProfile?.displayName, auth.currentUser?.email].filter(Boolean).join(" · ");
+  if (direction === "received") {
+    return {
+      from: [item.organization, item.contactName].filter(Boolean).join(" · "),
+      to: ownAddress
+    };
+  }
+  return {
+    from: ownAddress,
+    to: [item.contactName, item.email].filter(Boolean).join(" · ")
+  };
+}
+
+function openProcedureAction(action = null) {
+  if (!activeDossierId) return;
+  $("procedureActionForm").reset();
+  $("procedureActionId").value = action?.id || "";
+  $("procedureActionTitle").textContent = action ? "Modifier l’action" : "Ajouter une action";
+  $("procedureActionType").value = action?.type || "email-sent";
+  $("procedureActionDate").value = dossierEditDate(action?.date);
+  $("procedureActionTime").value = action?.time || "";
+  $("procedureActionDirection").value = action?.direction || "none";
+  $("procedureActionTitleField").value = action?.title || "";
+  $("procedureActionEmailFrom").value = action?.emailFrom || "";
+  $("procedureActionEmailTo").value = action?.emailTo || "";
+  $("procedureActionEmailSubject").value = action?.emailSubject || "";
+  $("procedureActionEmailFull").value = action?.emailFull || "";
+  $("procedureActionText").value = action?.text || "";
+  $("procedureActionAuthor").value = action?.author || currentUserProfile?.displayName || "";
+  syncProcedureActionEmailFields();
+  if (!action && isEmailAction($("procedureActionType").value)) {
+    const defaults = dossierEmailDefaults($("procedureActionType").value);
+    if (!$("procedureActionEmailFrom").value.trim()) $("procedureActionEmailFrom").value = defaults.from || "";
+    if (!$("procedureActionEmailTo").value.trim()) $("procedureActionEmailTo").value = defaults.to || "";
+  }
+  $("deleteProcedureActionBtn").hidden = !action;
+  $("procedureActionDialog").showModal();
+}
+
+function closeProcedureActionUnsub() {
+  procedureActionUnsub?.();
+  procedureActionUnsub = null;
+  activeDossierId = "";
+}
+
+async function saveProcedureAction(event) {
+  event.preventDefault();
+  if (!activeDossierId) return;
+  const submitButton = event.submitter;
+  const id = $("procedureActionId").value;
+  const data = {
+    type: $("procedureActionType").value,
+    date: $("procedureActionDate").value,
+    direction: $("procedureActionDirection").value,
+    title: $("procedureActionTitleField").value.trim(),
+    text: $("procedureActionText").value.trim(),
+    author: $("procedureActionAuthor").value.trim(),
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || "",
+    updatedByName: currentUserProfile?.displayName || ""
+  };
+  if (isEmailAction(data.type)) {
+    // direction implicite : « sent »/« received » — jamais laissé « none » pour un email
+    data.direction = data.type === "email-sent" ? "sent" : "received";
+    data.time = $("procedureActionTime").value.trim();
+    data.emailFrom = $("procedureActionEmailFrom").value.trim();
+    data.emailTo = $("procedureActionEmailTo").value.trim();
+    data.emailSubject = $("procedureActionEmailSubject").value.trim();
+    data.emailFull = $("procedureActionEmailFull").value.trim();
+  }
+  await withButtonPending(submitButton, () => runSafely(async () => {
+    if (id) await updateDoc(doc(db, "procedures", activeDossierId, "actions", id), data);
+    else await addDoc(collection(db, "procedures", activeDossierId, "actions"), { ...data, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "", createdByName: currentUserProfile?.displayName || "" });
+    close("procedureActionDialog");
+    toast(id ? "Action mise à jour" : "Action ajoutée");
+  }, id ? "Mise à jour de l’action impossible" : "Création de l’action impossible"));
+}
+
+async function removeProcedureAction(id) {
+  if (!activeDossierId || !id) return;
+  if (!confirm("Supprimer définitivement cette action ? Cette action ne peut pas être annulée.")) return;
+  await runSafely(async () => {
+    await deleteDoc(doc(db, "procedures", activeDossierId, "actions", id));
+    toast("Action supprimée");
+  }, "Suppression de l’action impossible");
+}
+
+
 const accessRef = doc(db, "settings", "access");
 const publicAuthRef = doc(db, "publicConfig", "auth");
 const accessLabels = { pending: "Demande en attente", suspended: "Compte suspendu", rejected: "Demande refusée" };
@@ -2442,6 +2864,7 @@ function setView(view) {
   $("directoryView").hidden = view !== "directory";
   $("documentsView").hidden = view !== "documents";
   $("tasksView").hidden = view !== "tasks";
+  $("dossiersView").hidden = view !== "dossiers";
   $("addBtn").hidden = view !== "tree";
   $("headerTreeActions").hidden = view !== "tree";
   document.querySelectorAll("[data-view]").forEach(button => {
@@ -2454,12 +2877,13 @@ function setView(view) {
   if (view === "directory") renderDirectory();
   if (view === "documents") renderDocuments();
   if (view === "tasks") renderTasks();
+  if (view === "dossiers") renderProcedures();
   if (view === "tree" && !branchView) setTimeout(() => camera.recenter(), 0);
 }
 
 function dataError(error) {
   console.error(error);
-  ["treeViewport", "directoryList", "documentsList", "tasksList"].forEach(id => setLoadingSurface(id, false));
+  ["treeViewport", "directoryList", "documentsList", "tasksList", "proceduresList"].forEach(id => setLoadingSurface(id, false));
   $("syncDot").classList.remove("ok");
   $("syncText").textContent = "Accès refusé — publiez les nouvelles règles Firebase";
   $("syncText").closest(".status")?.setAttribute("data-state", "error");
@@ -2469,7 +2893,8 @@ function startData() {
   unsubs.forEach(unsub => unsub());
   unsubs = [];
   loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = false;
-  ["treeViewport", "directoryList", "documentsList", "tasksList"].forEach(id => setLoadingSurface(id, true));
+  loadedProcedures = false;
+  ["treeViewport", "directoryList", "documentsList", "tasksList", "proceduresList"].forEach(id => setLoadingSurface(id, true));
   $("directoryResultCount").textContent = "Chargement de l’annuaire…";
   $("syncText").textContent = "Synchronisation en cours…";
   $("syncText").closest(".status")?.setAttribute("data-state", "loading");
@@ -2494,6 +2919,12 @@ function startData() {
   unsubs.push(onSnapshot(refs.tasks, snapshot => {
     tasks = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
     loadedTasks = true;
+    syncState();
+    updateReadyViews();
+  }, dataError));
+  unsubs.push(onSnapshot(refs.procedures, snapshot => {
+    procedures = snapshot.docs.map(item => ({ id: item.id, ...item.data(), updatedAtSort: item.data().updatedAt?.toMillis?.() || 0 }));
+    loadedProcedures = true;
     syncState();
     updateReadyViews();
   }, dataError));
@@ -3068,6 +3499,82 @@ $("taskForm").addEventListener("submit", saveTask);
 $("deleteTaskBtn").onclick = () => runSafely(removeTask, "Suppression de la tâche impossible");
 ["taskSearch", "taskStatusFilter", "taskPriorityFilter", "myTasksFilter"].forEach(id => {
   $(id).addEventListener(id === "taskSearch" ? "input" : "change", renderTasks);
+});
+$("addDossierBtn").onclick = () => openDossierForm();
+$("dossierForm").addEventListener("submit", saveDossier);
+$("deleteDossierBtn").onclick = () => runSafely(removeDossier, "Suppression de la démarche impossible");
+$("editDossierBtn").onclick = () => {
+  const item = procedures.find(value => value.id === activeDossierId);
+  if (item) openDossierForm(item);
+};
+$("procedureDetailDialog").addEventListener("close", closeProcedureActionUnsub);
+$("proceduresList").addEventListener("click", event => {
+  const emptyAdd = event.target.closest("[data-empty-add-dossier]");
+  if (emptyAdd) return openDossierForm();
+  const trigger = event.target.closest("[data-open-dossier]");
+  if (trigger) openProcedureDetail(trigger.dataset.openDossier);
+});
+$("addActionBtn").onclick = () => openProcedureAction();
+$("procedureActionForm").addEventListener("submit", saveProcedureAction);
+$("deleteProcedureActionBtn").onclick = () => runSafely(() => removeProcedureAction($("procedureActionId").value), "Suppression de l’action impossible");
+$("procedureActionType").addEventListener("change", syncProcedureActionEmailFields);
+$("procedureTimeline").addEventListener("click", event => {
+  const edit = event.target.closest("[data-edit-procedure-action]");
+  if (edit) return openProcedureAction(procedureActionsCache.find(action => action.id === edit.dataset.editProcedureAction));
+  const del = event.target.closest("[data-remove-procedure-action]");
+  if (del) return removeProcedureAction(del.dataset.removeProcedureAction);
+  const toggle = event.target.closest("[data-toggle-email-action]");
+  if (toggle) return toggleEmailFullBlock(toggle.dataset.toggleEmailAction);
+});
+$("dossierPeopleInput").addEventListener("input", openDossierPeopleResults);
+$("dossierPeopleInput").addEventListener("focus", openDossierPeopleResults);
+$("dossierPeopleInput").addEventListener("keydown", event => {
+  if (event.key === "Escape" && !$("dossierPeopleResults").hidden) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeDossierPeopleResults();
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    activateDossierPeopleKey(1);
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    activateDossierPeopleKey(-1);
+    return;
+  }
+  if (event.key === "Enter") {
+    if (!dossierResults.length) return;
+    event.preventDefault();
+    addDossierPerson(dossierResults[dossierHighlight]?.id);
+  }
+});
+$("dossierPeopleList").addEventListener("click", event => {
+  const add = event.target.closest("[data-add-dossier-person]");
+  if (add) return addDossierPerson(add.dataset.addDossierPerson);
+  const remove = event.target.closest("[data-remove-dossier-person]");
+  if (remove) return removeDossierPerson(remove.dataset.removeDossierPerson);
+});
+document.addEventListener("click", event => {
+  if (!$("dossierPeopleResults") || $("dossierPeopleResults").hidden) return;
+  if (!event.target.closest("#dossierPeopleList")) closeDossierPeopleResults();
+});
+/* Safari/Chrome : un Escape pendant que les résultats sont ouverts ne doit
+   pas fermer toute la modale de démarche. */
+$("dossierDialog").addEventListener("cancel", event => {
+  const input = $("dossierPeopleInput");
+  if (document.activeElement === input && !$("dossierPeopleResults").hidden) event.preventDefault();
+});
+$("clearDossierSearchBtn").onclick = () => {
+  $("dossierSearch").value = "";
+  $("dossierSearch").dispatchEvent(new Event("input"));
+  $("dossierSearch").focus();
+};
+syncSearchClearBtn("dossierSearch", "clearDossierSearchBtn");
+["dossierSearch", "dossierTypeFilter", "dossierStatusFilter"].forEach(id => {
+  $(id).addEventListener(id === "dossierSearch" ? "input" : "change", renderProcedures);
 });
 const directoryFilterFields = [
   "directorySearch", "directoryFirstNameFilter", "directoryMarriedNameFilter",

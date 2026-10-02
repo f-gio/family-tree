@@ -92,6 +92,49 @@ service cloud.firestore {
         && request.resource.data.status in ['pending', 'approved', 'suspended', 'rejected'];
     }
 
+    // Dossiers de démarche : recherches, correspondances, rendez-vous,
+    // formalités et consultation d'archives, avec chronologie d'actions.
+    function validProcedure() {
+      return request.resource.data.title is string
+        && request.resource.data.title.size() >= 1
+        && request.resource.data.title.size() <= 160
+        && request.resource.data.type in ['research', 'correspondence', 'appointment', 'administrative', 'archive', 'call', 'online', 'other']
+        && request.resource.data.status in ['prepare', 'progress', 'waiting', 'reply', 'appointment', 'done', 'abandoned']
+        && (!('objective' in request.resource.data) || request.resource.data.objective is string)
+        && (!('organization' in request.resource.data) || request.resource.data.organization is string)
+        // « service » est un token réservé du langage des règles : seul un accès
+        // crochets data['service'] permet de lire ce champ sans casser le parseur.
+        && (!('service' in request.resource.data) || request.resource.data['service'] is string)
+        && (!('contactName' in request.resource.data) || request.resource.data.contactName is string)
+        && (!('email' in request.resource.data) || request.resource.data.email is string)
+        && (!('phone' in request.resource.data) || request.resource.data.phone is string)
+        && (!('place' in request.resource.data) || request.resource.data.place is string)
+        && (!('nextAction' in request.resource.data) || request.resource.data.nextAction is string)
+        && (!('nextActionDate' in request.resource.data) || request.resource.data.nextActionDate == ''
+          || (request.resource.data.nextActionDate is string && request.resource.data.nextActionDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
+        && (!('notes' in request.resource.data) || request.resource.data.notes is string)
+        && (!('result' in request.resource.data) || request.resource.data.result is string)
+        && (!('personIds' in request.resource.data) || (request.resource.data.personIds is list
+          && request.resource.data.personIds.size() <= 50
+          && request.resource.data.personIds.toSet().size() == request.resource.data.personIds.size()));
+    }
+
+    function validProcedureAction() {
+      return request.resource.data.type in ['email-sent', 'email-received', 'appointment-requested', 'appointment-confirmed', 'call', 'archive-visit', 'registry-consult', 'online-search', 'note', 'document-sent', 'document-received', 'other']
+        && (!('date' in request.resource.data) || request.resource.data.date == ''
+          || (request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
+        && (!('direction' in request.resource.data) || request.resource.data.direction in ['none', 'sent', 'received'])
+        && (!('title' in request.resource.data) || request.resource.data.title is string)
+        && (!('text' in request.resource.data) || request.resource.data.text is string)
+        && (!('author' in request.resource.data) || request.resource.data.author is string)
+        && (!('time' in request.resource.data) || request.resource.data.time == ''
+          || (request.resource.data.time is string && request.resource.data.time.matches('^[0-9]{2}:[0-9]{2}(:[0-9]{2})?$')))
+        && (!('emailFrom' in request.resource.data) || request.resource.data.emailFrom is string)
+        && (!('emailTo' in request.resource.data) || request.resource.data.emailTo is string)
+        && (!('emailSubject' in request.resource.data) || request.resource.data.emailSubject is string)
+        && (!('emailFull' in request.resource.data) || request.resource.data.emailFull is string);
+    }
+
     function adminMayManage(userId) {
       return !hasAccessDocument()
         || userId != get(/databases/$(database)/documents/settings/access).data.primaryAdminUid;
@@ -164,6 +207,25 @@ service cloud.firestore {
     // Tâches de recherche et démarches à effectuer.
     match /tasks/{taskId} {
       allow read, create, update, delete: if isApproved();
+    }
+
+    // Dossiers de démarche (La Nostra Storia — Démarches) : accessibles aux
+    // comptes approuvés, comme people/families/documents/tasks.
+    match /procedures/{dossierId} {
+      allow read: if isApproved();
+      allow create, update: if isApproved() && validProcedure() && validUpdatedBy();
+      allow delete: if isApproved();
+      // Chronologie d'un dossier : création rattachée à un dossier existant
+      // (pas d'action orpheline), en écriture comme en lecture.
+      match /actions/{actionId} {
+        allow read: if isApproved();
+        allow create: if isApproved() && validProcedureAction() && validUpdatedBy()
+          && exists(/databases/$(database)/documents/procedures/$(dossierId));
+        // Sur une suppression, request.resource.data est null : la validation
+        // de contenu ne s'applique qu'à la mise à jour (modèle : people).
+        allow update: if isApproved() && validProcedureAction() && validUpdatedBy();
+        allow delete: if isApproved();
+      }
     }
 
     // Aucun autre document Firestore n'est exposé.
