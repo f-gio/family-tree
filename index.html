@@ -269,7 +269,12 @@
 <button class="btn primary" id="addTaskBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une action</span></button>
 </section>
 <div class="list-toolbar">
-<label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="taskSearch" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="sentences" placeholder="Rechercher une tâche…"><button type="button" class="search-bar-clear" id="clearTaskSearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
+<label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="taskSearch" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="sentences" placeholder="Rechercher une action…"><button type="button" class="search-bar-clear" id="clearTaskSearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
+<button class="tool-toggle" type="button" id="myTasksFilter" aria-pressed="false"><svg class="ui-icon" aria-hidden="true"><use href="#icon-check"></use></svg><span>Mes actions</span></button>
+<label class="sr-only" for="taskAssigneeFilter">Filtrer par responsable</label>
+<select class="field" id="taskAssigneeFilter" disabled>
+<option value="">Tous les responsables</option>
+</select>
 <label class="sr-only" for="taskStatusFilter">Filtrer par statut</label>
 <select class="field" id="taskStatusFilter">
 <option value="">Tous les statuts</option>
@@ -277,14 +282,14 @@
 <option value="progress">En cours</option>
 <option value="done">Terminée</option>
 </select>
-<label class="sr-only" for="taskPriorityFilter">Filtrer par priorité</label><select class="field" id="taskPriorityFilter">
-<option value="">Toutes les priorités</option>
-<option value="high">Haute</option>
-<option value="medium">Moyenne</option>
-<option value="low">Basse</option>
+<label class="sr-only" for="taskDueFilter">Filtrer par échéance</label>
+<select class="field" id="taskDueFilter">
+<option value="">Toutes les échéances</option>
+<option value="late">En retard</option>
+<option value="today">Aujourd’hui</option>
+<option value="upcoming">À venir</option>
+<option value="none">Sans date</option>
 </select>
-<label>
-<input type="checkbox" id="myTasksFilter"> Mes actions</label>
 
 </div>
 <div class="content-grid" id="tasksList">

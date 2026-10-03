@@ -822,6 +822,35 @@ dialog.modal-md { width: min(var(--modal-md), calc(100% - 1.75rem)); }
   #taskDialog .modal-scroll {
     overflow-x: clip;
   }
+  #taskDialog .modal-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-2);
+    align-items: stretch;
+  }
+  #taskDialog .modal-actions > #deleteTaskBtn {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+    min-height: var(--control-touch);
+    margin: 0;
+    justify-content: flex-start;
+  }
+  #taskDialog .modal-actions > .right {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    gap: var(--space-2);
+  }
+  #taskDialog .modal-actions .right .btn {
+    width: 100%;
+    min-width: 0;
+    min-height: var(--control-touch);
+    white-space: normal;
+  }
 }
 dialog.modal-lg { width: min(var(--modal-lg), calc(100% - 1.75rem)); }
 
@@ -835,6 +864,256 @@ dialog.modal-lg { width: min(var(--modal-lg), calc(100% - 1.75rem)); }
     border-color: var(--color-border);
     box-shadow: var(--shadow-low);
   }
+}
+
+/* Vue liste Actions : lignes compactes (formalisme Tiny Houses repris),
+   tokens Design System uniquement. */
+.task-row {
+  display: grid;
+  grid-template-columns: minmax(0, 45fr) minmax(0, 18fr) minmax(0, 12fr) minmax(0, 8fr) minmax(0, 8fr) minmax(5.25rem, 6fr) minmax(var(--control-touch), 3fr);
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-3);
+  border: 0;
+  border-radius: 0;
+  position: relative;
+  background: var(--color-surface);
+  box-shadow: none;
+}
+/* Une seule surface encadrée pour toute la liste ; les lignes se touchent
+   et ne portent aucun contour ni arrondi individuels. */
+#tasksList:has(.task-row) {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding-inline: var(--space-4);
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+#tasksList .task-row {
+  border: 0;
+  border-radius: 0;
+}
+#tasksList .task-row + .task-row::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--color-border);
+  content: "";
+  pointer-events: none;
+  z-index: 2;
+}
+.task-main { min-width: 0; display: grid; gap: 2px; }
+.task-main h3 { margin: 0; font-size: var(--text-md); font-weight: var(--weight-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-note { font-size: var(--text-xs); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-assignee { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.task-avatar { width: 1.75rem; height: 1.75rem; border-radius: 999px; flex: 0 0 auto; object-fit: cover; }
+span.task-avatar { display: grid; place-items: center; color: var(--color-brand); background: var(--color-brand-soft); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
+.task-assignee-name { font-size: var(--text-xs); color: var(--color-text-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-due { display: grid; gap: 2px; font-size: var(--text-xs); color: var(--color-text-label); white-space: nowrap; }
+.task-late-flag { color: var(--color-danger); font-weight: var(--weight-semibold); }
+.task-priority { flex: 0 0 auto; }
+.task-status { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--color-text-label); padding: 2px 8px; border: 1px solid transparent; border-radius: 999px; background: var(--color-surface-muted); white-space: nowrap; }
+.task-status-todo { background: var(--color-surface-muted); color: var(--color-text-label); }
+.task-status-progress { background: color-mix(in srgb, var(--color-accent) 20%, var(--color-surface)); border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-surface)); color: var(--color-text); }
+.task-status-done { background: var(--color-brand-soft); border-color: color-mix(in srgb, var(--color-brand) 20%, var(--color-surface)); color: var(--color-brand); }
+.task-row.is-done { background: color-mix(in srgb, var(--color-brand-soft) 65%, var(--color-surface)); }
+.task-row.is-done .task-main h3 { color: color-mix(in srgb, var(--color-text) 78%, var(--color-text-muted)); text-decoration: line-through; }
+.task-row.is-late {
+  background: color-mix(in srgb, var(--color-danger-soft) 55%, var(--color-surface));
+  box-shadow: inset 3px 0 var(--color-danger);
+}
+.task-actions { display: flex; align-items: center; gap: var(--space-1); justify-self: end; }
+.task-actions .btn.small { padding-inline: var(--space-2); }
+.task-actions .task-delete { width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); }
+
+/* Toggle "Mes actions" : bouton-filtre compact, cohérent avec le Design System. */
+.tool-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-touch);
+  padding: 0 var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-label);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.tool-toggle .ui-icon { width: 1rem; height: 1rem; flex: 0 0 auto; color: var(--color-text-muted); }
+.tool-toggle.is-active {
+  border-color: var(--color-brand);
+  background: var(--color-brand-soft);
+  color: var(--color-brand);
+}
+.tool-toggle.is-active .ui-icon { color: var(--color-brand); }
+.tool-toggle:focus-visible {
+  outline: 3px solid rgb(40 75 63 / 28%);
+  outline-offset: 2px;
+  box-shadow: var(--shadow-focus);
+}
+@media (hover: hover) {
+  .tool-toggle:hover:not(.is-active) { border-color: var(--color-border-strong); background: var(--color-surface-raised); }
+}
+/* Hover ligne action : surface très légère, aucune transformation ; une
+   ligne en retard garde son identité rouge légère. */
+@media (hover: hover) {
+  #tasksList .task-row:hover {
+    background: var(--color-surface-raised);
+  }
+  #tasksList .task-row.is-late:hover {
+    background: color-mix(in srgb, var(--color-danger-soft) 70%, var(--color-surface-raised));
+    box-shadow: inset 3px 0 var(--color-danger), var(--shadow-low);
+  }
+  #tasksList .task-row.is-done:hover {
+    background: color-mix(in srgb, var(--color-brand-soft) 46%, var(--color-surface-raised));
+  }
+}
+
+@media (min-width: 761px) {
+  /* Les deux derniers rails gardent leur largeur ; le groupe d’actions les
+     occupe ensemble et se cale à droite sans déplacer les autres colonnes. */
+  #tasksList .task-row .task-actions {
+    grid-column: 6 / 8;
+    display: flex;
+    justify-self: end;
+    gap: var(--space-1);
+  }
+  #tasksList .task-row .task-due {
+    width: max-content;
+    justify-self: center;
+    text-align: center;
+  }
+  #tasksList .task-row .task-priority,
+  #tasksList .task-row .task-status { justify-self: center; }
+
+  /* Les cinq filtres partagent une hauteur extérieure unique sur desktop. */
+  #tasksView .list-toolbar {
+    align-items: center;
+    padding-block: 0;
+  }
+  #tasksView .list-toolbar > .search-bar,
+  #tasksView .list-toolbar > #myTasksFilter,
+  #tasksView .list-toolbar > #taskAssigneeFilter,
+  #tasksView .list-toolbar > #taskStatusFilter,
+  #tasksView .list-toolbar > #taskDueFilter {
+    height: var(--control-touch);
+    box-sizing: border-box;
+    margin: 0;
+  }
+  #tasksView .list-toolbar > .search-bar { flex: 1 1 auto; }
+  #tasksView .list-toolbar > .search-bar > .field {
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+    margin: 0;
+  }
+  #tasksView .list-toolbar > #myTasksFilter { min-height: 0; }
+  #tasksView .list-toolbar > select.field { min-height: 0; }
+}
+
+@media (max-width: 760px) {
+  /* Les labels sr-only des filtres Actions sont positionnés en absolu.
+     Le width:100% générique de .list-toolbar label leur donnait la largeur
+     du viewport et créait un pan horizontal (sans débordement des lignes). */
+  #tasksView .list-toolbar label.sr-only { width: 1px; min-width: 0; }
+  #tasksView .list-toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+  #tasksView .list-toolbar > .search-bar {
+    grid-column: 1 / -1;
+    height: var(--control-touch);
+    margin: 0;
+    box-sizing: border-box;
+  }
+  #tasksView .list-toolbar > .search-bar > .field {
+    height: 100%;
+    min-height: 0;
+    margin: 0;
+    box-sizing: border-box;
+  }
+  #tasksView .list-toolbar > #myTasksFilter,
+  #tasksView .list-toolbar > #taskAssigneeFilter,
+  #tasksView .list-toolbar > #taskStatusFilter,
+  #tasksView .list-toolbar > #taskDueFilter {
+    width: 100%;
+    min-width: 0;
+    height: var(--control-touch);
+    min-height: var(--control-touch);
+    margin: 0;
+    box-sizing: border-box;
+  }
+  #tasksView .list-toolbar > #myTasksFilter { grid-column: 1; grid-row: 2; justify-content: center; }
+  #tasksView .list-toolbar > #taskAssigneeFilter { grid-column: 2; grid-row: 2; }
+  #tasksView .list-toolbar > #taskStatusFilter { grid-column: 1; grid-row: 3; }
+  #tasksView .list-toolbar > #taskDueFilter { grid-column: 2; grid-row: 3; }
+  #tasksList:has(.task-row) { padding-inline: var(--space-3); }
+  .task-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-2);
+    padding: var(--space-2);
+  }
+  .task-main {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    min-height: var(--control-touch);
+    padding-right: calc(var(--control-touch) + var(--space-2));
+    align-content: center;
+  }
+  .task-assignee { grid-column: 1; grid-row: 2; }
+  .task-due {
+    grid-column: 2;
+    grid-row: 2;
+    width: max-content;
+    max-width: 100%;
+    justify-self: end;
+    text-align: right;
+  }
+  .task-priority { grid-column: 1; grid-row: 3; justify-self: start; }
+  .task-status { grid-column: 2; grid-row: 3; justify-self: start; }
+  .task-actions {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+    justify-self: end;
+    position: relative;
+    z-index: 2;
+    height: var(--control-touch);
+    gap: var(--space-1);
+  }
+  .task-actions [data-edit-task] { visibility: hidden; }
+  .task-actions::after {
+    content: "";
+    display: block;
+    flex: 0 0 var(--control-touch);
+    width: var(--control-touch);
+    height: var(--control-touch);
+  }
+  .task-actions .task-delete {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: var(--control-touch);
+    min-width: var(--control-touch);
+    height: var(--control-touch);
+    min-height: var(--control-touch);
+  }
+  .task-actions .btn { min-height: var(--control-touch); }
+  .task-row[tabindex="0"] { cursor: pointer; }
+  .task-row[tabindex="0"]:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
+}
+@media (max-width: 360px) {
+  .task-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .task-actions { grid-column: 1 / -1; }
 }
 dialog.modal-xl { width: min(var(--modal-xl), calc(100% - 3rem)); }
 

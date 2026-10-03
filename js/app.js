@@ -2148,22 +2148,111 @@ async function removeDocument() {
 const statusLabels = { todo: "À faire", progress: "En cours", done: "Terminée" };
 const priorityLabels = { high: "Haute", medium: "Moyenne", low: "Basse" };
 
+let taskUsersCache = null;
+
+async function refreshTaskUsersCache() {
+  const users = await loadTaskUsers();
+  taskUsersCache = users;
+  populateTaskAssigneeFilter();
+  if ($("tasksView") && !$("tasksView").hidden) renderTasks();
+}
+
+function populateTaskAssigneeFilter() {
+  const select = $("taskAssigneeFilter");
+  if (!select || select.options.length > 1) return;
+  select.innerHTML = ['<option value="">Tous les responsables</option>'].concat((taskUsersCache || []).map(u => '<option value="' + esc((u.email || "").toLowerCase()) + '">' + esc(u.displayName || u.email || "Sans nom") + '</option>')).join("");
+  select.disabled = !(taskUsersCache || []).length;
+}
+
+function taskUsersByIdOrEmail() { return taskUsersCache || []; }
+
+function taskDisplayNameOf(assignee) {
+  const value = String(assignee || "").toLowerCase();
+  if (!value) return "Non attribuée";
+  const user = taskUsersByIdOrEmail().find(u => (u.email || "").toLowerCase() === value);
+  return user?.displayName || user?.email || assignee;
+}
+
+function taskAvatarOf(assignee) {
+  const value = String(assignee || "").toLowerCase();
+  const user = taskUsersByIdOrEmail().find(u => (u.email || "").toLowerCase() === value);
+  return safeProfilePhoto(user?.photo) ? user.photo : "";
+}
+
+function todayLabel() {
+  const now = new Date();
+  return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+}
+
+function taskIsLate(item) {
+  return !!(item.dueDate && item.dueDate < todayLabel() && item.status !== "done");
+}
+
+function taskDueMatches(item, filter) {
+  const due = item.dueDate || "";
+  const today = todayLabel();
+  const done = item.status === "done";
+  return filter === "late" ? (due && due < today && !done)
+    : filter === "today" ? (due === today && !done)
+    : filter === "upcoming" ? (due > today && !done)
+    : filter === "none" ? !due
+    : true;
+}
+
+const taskMobileViewport = window.matchMedia("(max-width: 760px)");
+let taskRowPointerActivation = false;
+let taskDialogPointerReturnFocusRow = null;
+
+function syncTaskRowKeyboardAccess() {
+  document.querySelectorAll("#tasksList .task-row[data-task-row]").forEach(row => {
+    if (taskMobileViewport.matches) {
+      const title = row.querySelector(".task-main h3")?.textContent || "cette action";
+      row.setAttribute("tabindex", "0");
+      row.setAttribute("role", "group");
+      row.setAttribute("aria-label", `Ouvrir l’action ${title}. Appuyez sur Entrée ou Espace.`);
+      row.setAttribute("aria-keyshortcuts", "Enter Space");
+    } else {
+      row.removeAttribute("tabindex");
+      row.removeAttribute("role");
+      row.removeAttribute("aria-label");
+      row.removeAttribute("aria-keyshortcuts");
+    }
+  });
+}
+
+taskMobileViewport.addEventListener("change", syncTaskRowKeyboardAccess);
+
 function renderTasks() {
   const query = searchable($("taskSearch").value);
   const status = $("taskStatusFilter").value;
-  const priority = $("taskPriorityFilter").value;
-  const mine = $("myTasksFilter").checked;
+  const assigneeFilter = $("taskAssigneeFilter").value;
+  const dueFilter = $("taskDueFilter").value;
+  const mine = $("myTasksFilter").getAttribute("aria-pressed") === "true";
   const email = auth.currentUser?.email?.toLowerCase() || "";
   const filtered = tasks.filter(item =>
     (!status || item.status === status) &&
-    (!priority || item.priority === priority) &&
+    (!assigneeFilter || (item.assignee || "").toLowerCase() === assigneeFilter.toLowerCase()) &&
     (!mine || (item.assignee || "").toLowerCase() === email) &&
+    taskDueMatches(item, dueFilter) &&
     (!query || searchable(`${item.title} ${item.description || ""} ${item.comments || ""} ${item.assignee || ""}`).includes(query))
   ).sort((a, b) => (a.status === "done") - (b.status === "done") || (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
-  $("tasksList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card status-${item.status || "todo"}"><div><h3>${esc(item.title)}</h3><span class="badge priority-${item.priority || "medium"}">${priorityLabels[item.priority] || "Moyenne"}</span></div><p class="card-meta"><strong>${statusLabels[item.status] || "À faire"}</strong>${item.dueDate ? ` · ${esc(new Date(item.dueDate + "T12:00:00").toLocaleDateString("fr-FR"))}` : ""}</p><div><p>Responsable : ${esc(item.assignee || "Non attribuée")}</p>${item.personId ? `<p>Personne : ${esc(nameOf(item.personId))}</p>` : ""}${item.description ? `<p class="card-description">${esc(item.description)}</p>` : ""}${item.comments ? `<p class="card-description"><strong>Commentaires :</strong> ${esc(item.comments)}</p>` : ""}</div><div class="card-actions"><button class="btn small" type="button" data-edit-task="${item.id}">${icon("edit")}<span>Modifier</span></button>${item.status !== "done" ? `<button class="btn small primary" type="button" data-complete-task="${item.id}">${icon("check")}<span>Terminer</span></button>` : ""}</div></article>`).join("") : (tasks.length
-    ? emptyState({ iconName: "tasks", title: "Aucune action trouvée", description: "Modifiez la recherche ou les filtres pour afficher d’autres tâches." })
+  $("tasksList").innerHTML = filtered.length ? filtered.map(item => {
+    const late = taskIsLate(item);
+    const done = item.status === "done";
+    const statusClass = ["todo", "progress", "done"].includes(item.status) ? item.status : "todo";
+    const avatar = taskAvatarOf(item.assignee);
+    const initials = esc((taskDisplayNameOf(item.assignee) || "?").split(/[\s@.]+/).slice(0, 2).map(part => part[0]?.toUpperCase() || "").join("") || "?");
+    return `<article class="task-row${late ? " is-late" : ""}${done ? " is-done" : ""}" data-task-row="${item.id}"><div class="task-main"><h3>${esc(item.title)}</h3>${(item.description || item.comments) ? `<span class="task-note">${esc(item.description || item.comments)}</span>` : ""}</div><div class="task-assignee">${avatar ? `<img class="task-avatar" src="${avatar}" alt="" loading="lazy">` : `<span class="task-avatar" aria-hidden="true">${initials}</span>`}<span class="task-assignee-name">${esc(taskDisplayNameOf(item.assignee))}</span></div><div class="task-due">${item.dueDate ? esc(new Date(item.dueDate + "T12:00:00").toLocaleDateString("fr-FR")) : "Sans date"}${late ? '<span class="task-late-flag">En retard</span>' : ""}</div><span class="task-priority badge priority-${item.priority || "medium"}">${priorityLabels[item.priority] || "Moyenne"}</span><span class="task-status task-status-${statusClass}">${statusLabels[item.status] || "À faire"}</span><div class="task-actions"><button class="btn small" type="button" data-edit-task="${item.id}">Ouvrir</button><button class="btn icon-btn small danger task-delete" type="button" data-delete-task="${item.id}" aria-label="Supprimer l’action" title="Supprimer">×</button></div></article>`;
+  }).join("") : (tasks.length
+    ? emptyState({ iconName: "tasks", title: "Aucune action trouvée", description: "Modifiez la recherche ou les filtres pour afficher d’autres actions." })
     : emptyState({ iconName: "tasks", title: "Aucune action", description: "Ajoutez une action lorsque vous avez une recherche ou une démarche à suivre.", action: `<button class="btn primary" type="button" data-empty-add-task>${icon("plus")}<span>Ajouter une action</span></button>` }));
+  syncTaskRowKeyboardAccess();
   setContentMode("tasks", "list", false);
+}
+
+function openTaskById(id) {
+  const item = tasks.find(value => value.id === id);
+  if (item) openTask(item);
 }
 
 async function loadTaskUsers() {
@@ -2207,6 +2296,15 @@ async function openTask(item = null) {
   $("deleteTaskBtn").hidden = !item;
   $("taskDialog").showModal();
 }
+
+$("taskDialog").addEventListener("close", () => {
+  const row = taskDialogPointerReturnFocusRow;
+  taskDialogPointerReturnFocusRow = null;
+  if (!row) return;
+  requestAnimationFrame(() => {
+    if (row.isConnected && document.activeElement === row) row.blur();
+  });
+});
 
 async function saveTask(event) {
   event.preventDefault();
@@ -2915,6 +3013,8 @@ function dataError(error) {
 }
 
 function startData() {
+  refreshTaskUsersCache();
+
   unsubs.forEach(unsub => unsub());
   unsubs = [];
   loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = false;
@@ -3236,10 +3336,52 @@ $("directoryAlphabet").addEventListener("click", event => {
 });
 
 $("tasksList").onclick = async event => {
+  const deleteTrigger = event.target.closest("[data-delete-task]");
+  if (deleteTrigger) {
+    event.preventDefault();
+    event.stopPropagation();
+    taskRowPointerActivation = false;
+    taskDialogPointerReturnFocusRow = null;
+    const id = deleteTrigger.dataset.deleteTask;
+    if (id && confirm("Supprimer définitivement cette action ? Cette action ne peut pas être annulée.")) {
+      await runSafely(async () => {
+        await deleteDoc(doc(db, "tasks", id));
+        toast("Action supprimée");
+      }, "Suppression de l’action impossible");
+    }
+    return;
+  }
   const editButton = event.target.closest("[data-edit-task]");
   const completeButton = event.target.closest("[data-complete-task]");
-  if (editButton) openTask(tasks.find(value => value.id === editButton.dataset.editTask));
+  if (editButton) {
+    openTaskById(editButton.dataset.editTask);
+    return;
+  }
   if (completeButton) await withButtonPending(completeButton, () => runSafely(() => updateDoc(doc(db, "tasks", completeButton.dataset.completeTask), { status: "done", updatedAt: serverTimestamp() }), "Mise à jour de la tâche impossible"), "Mise à jour…");
+  const row = event.target.closest(".task-row[data-task-row]");
+  if (taskMobileViewport.matches && row && !event.target.closest("button, a, input, select, textarea, summary, [contenteditable='true']")) {
+    const pointerActivated = taskRowPointerActivation || event.detail > 0;
+    taskRowPointerActivation = false;
+    taskDialogPointerReturnFocusRow = pointerActivated ? row : null;
+    if (pointerActivated) {
+      event.preventDefault();
+      if (row.contains(document.activeElement)) document.activeElement.blur();
+    }
+    openTaskById(row.dataset.taskRow);
+  }
+};
+
+$("tasksList").addEventListener("pointerdown", event => {
+  taskRowPointerActivation = taskMobileViewport.matches && !!event.target.closest(".task-row[data-task-row]");
+}, true);
+
+$("tasksList").onkeydown = event => {
+  const row = event.target.closest(".task-row[data-task-row][tabindex='0']");
+  if (!taskMobileViewport.matches || !row || event.target !== row || !["Enter", " "].includes(event.key)) return;
+  taskRowPointerActivation = false;
+  taskDialogPointerReturnFocusRow = null;
+  event.preventDefault();
+  openTaskById(row.dataset.taskRow);
 };
 
 $("logoutBtn").onclick = () => signOut(auth);
@@ -3522,8 +3664,16 @@ $("documentViewerDialog").addEventListener("close", () => {
 $("addTaskBtn").onclick = () => openTask();
 $("taskForm").addEventListener("submit", saveTask);
 $("deleteTaskBtn").onclick = () => runSafely(removeTask, "Suppression de l’action impossible");
-["taskSearch", "taskStatusFilter", "taskPriorityFilter", "myTasksFilter"].forEach(id => {
-  $(id).addEventListener(id === "taskSearch" ? "input" : "change", renderTasks);
+["taskSearch", "taskStatusFilter", "taskAssigneeFilter", "taskDueFilter"].forEach(id => {
+  $(id).addEventListener(id === "taskSearch" ? "input" : "change", () => {
+    renderTasks();
+  });
+});
+$("myTasksFilter").addEventListener("click", () => {
+  const active = $("myTasksFilter").getAttribute("aria-pressed") === "true";
+  $("myTasksFilter").setAttribute("aria-pressed", String(!active));
+  $("myTasksFilter").classList.toggle("is-active", !active);
+  renderTasks();
 });
 $("addDossierBtn").onclick = () => openDossierForm();
 $("dossierForm").addEventListener("submit", saveDossier);
