@@ -18,6 +18,20 @@ assert.match(app, /!treePeople\(\)\.length \|\| !currentLayout/, "le garde doit 
 
 // 4. L'export réutilise l'état courant de la vue (positions comprises), sans nouveau calcul ni lecture Firestore.
 assert.match(app, /const scope = currentTreeScope\(\);/);
-assert.match(app, /treeExportSvg\(\{ people: scope\.people, layout: currentLayout, markers, photoUrls \}\)/);
+assert.match(app, /const layout = currentLayout;/);
+assert.match(app, /treeExportSvg\(\{ people: scope\.people, layout, markers, photoUrls, cards \}\)/);
+assert.match(app, /captureTreeExportCards\(\$\("treeScene"\), layout, photoUrls\)/);
+
+// 5. Le raster PNG utilise un facteur dédié aux dimensions intrinsèques du SVG;
+//    le préchargement CORS des photos distantes déclenche bien la requête.
+assert.match(app, /treeExportRasterDimensions\(image\.naturalWidth \|\| image\.width, image\.naturalHeight \|\| image\.height\)/);
+assert.match(app, /image\.src = url;/);
+assert.match(app, /PHOTO_EXPORT_MAX_EDGE = format === "svg" \? 512 : 128/);
+assert.match(app, /photoUrls\.set\(person\.id, photoCanvas\.toDataURL\("image\/png"\)\)/);
+assert.match(app, /canvas\.toBlob\(resolve, "image\/png"\)/);
+// 6. Le format est choisi dans la modale « Exporter l’arbre », sans entrée SVG séparée.
+assert.match(app, /\$\("menuExportTreeBtn"\)\.onclick = \(\) => \{\s*setTreeMenu\(false\);\s*\$\("treeExportDialog"\)\.showModal\(\);/);
+assert.match(app, /const format = button\.dataset\.exportFormat;/);
+assert.match(app, /close\("treeExportDialog"\);\s*exportTreeImage\(format\);/);
 
 console.log("Export arbre — garde de disponibilité : OK");

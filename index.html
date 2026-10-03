@@ -185,7 +185,8 @@
 <button id="menuFitBtn" type="button" role="menuitem" aria-label="Ajuster l’arbre à l’écran" title="Ajuster"><svg class="ui-icon" aria-hidden="true"><use href="#icon-fit"></use></svg><span>Ajuster</span></button>
 <button id="centerTreeBtn" type="button" role="menuitem" aria-label="Recentrer l’arbre" title="Recentrer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-center"></use></svg><span>Recentrer</span></button>
 <button id="autoLayoutBtn" type="button" role="menuitem" aria-label="Réorganiser l’arbre" title="Réorganiser"><svg class="ui-icon" aria-hidden="true"><use href="#icon-reorder"></use></svg><span>Réorganiser</span></button>
-<button id="menuExportTreeBtn" type="button" role="menuitem" aria-label="Exporter l’arbre en image PNG" title="Exporter"><svg class="ui-icon" aria-hidden="true"><use href="#icon-download"></use></svg><span>Exporter</span></button>
+<button id="menuExportTreeBtn" type="button" role="menuitem" aria-label="Exporter l’arbre" title="Exporter"><svg class="ui-icon" aria-hidden="true"><use href="#icon-download"></use></svg><span>Exporter</span></button>
+
 </div>
 </div>
 </div>
@@ -510,6 +511,14 @@
 <label class="wide">Description<textarea class="field" id="taskDescription" rows="3" maxlength="1500" autocapitalize="sentences"></textarea></label>
 <label class="wide">Commentaires<textarea class="field" id="taskComments" rows="3" maxlength="2000" placeholder="Résultats, relances, informations utiles…" autocapitalize="sentences"></textarea></label>
 </div></div><div class="modal-actions"><button class="btn danger" type="button" id="deleteTaskBtn" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-trash"></use></svg><span>Supprimer</span></button><div class="right"><button class="btn" type="button" data-close="taskDialog">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></div></form>
+</dialog>
+  <dialog class="modal-sm" id="treeExportDialog" aria-labelledby="treeExportDialogTitle">
+<div class="modal-head"><div><h3 id="treeExportDialogTitle">Exporter l’arbre</h3><p>Choisissez le format d’export.</p></div><button class="btn icon-btn" type="button" data-close="treeExportDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
+<div class="modal-body tree-export-options">
+<button class="tree-export-option" type="button" data-export-format="png"><svg class="ui-icon" aria-hidden="true"><use href="#icon-download"></use></svg><span class="tree-export-option-meta"><span class="tree-export-option-name">PNG — Image</span><span class="tree-export-option-description">Format classique, facile à partager</span></span><span class="tree-export-option-tag">Recommandé</span></button>
+<button class="tree-export-option" type="button" data-export-format="svg"><svg class="ui-icon" aria-hidden="true"><use href="#icon-eye"></use></svg><span class="tree-export-option-meta"><span class="tree-export-option-name">SVG — Haute qualité</span><span class="tree-export-option-description">Format vectoriel, idéal pour zoomer sans perte de qualité</span></span></button>
+</div>
+<div class="modal-actions"><div class="right"><button class="btn" type="button" data-close="treeExportDialog">Annuler</button></div></div>
 </dialog>
   <dialog class="modal-dossier" id="dossierDialog" aria-labelledby="dossierDialogTitle">
 <div class="modal-head"><div><h3 id="dossierDialogTitle">Nouvelle démarche</h3><p>Titre, organisme, personnes éventuellement liées et suivi.</p></div><button class="btn icon-btn" type="button" data-close="dossierDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>

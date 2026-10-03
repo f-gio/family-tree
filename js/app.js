@@ -4,7 +4,8 @@ import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, do
 import { calculateTreeLayout } from "./tree-layout.js";
 import { calculateTreeLayout as calculateHybridTreeLayout, validateLayout as validateHybridLayout } from "./tree-layout-engine.js";
 import { createTreeRenderer } from "./tree-renderer.js";
-import { treeExportSvg } from "./tree-export.js";
+import { treeExportRasterDimensions, treeExportSvg } from "./tree-export.js";
+import { captureTreeExportCards } from "./tree-export-cards.js";
 import { lifeTimelineEvents } from "./life-timeline.js";
 import { createTreeCamera } from "./tree-camera.js";
 import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree-branch-view.js";
@@ -575,7 +576,7 @@ window.addEventListener("resize", scheduleTreeViewportFit, { passive: true });
 // Export PNG de l'arbre entier cadré, fidèle à la vue courante (positions et
 // couleurs réutilisées) ; les photos externes sont pré-chargées en CORS pour
 // ne pas souiller le canvas et retombent sur les initiales en cas d'échec.
-async function exportTreeImage() {
+async function exportTreeImage(format = "png") {
   const buttons = [$("menuExportTreeBtn")].filter(Boolean);
   const setBusy = pending => buttons.forEach(button => { button.disabled = pending; button.setAttribute("aria-busy", String(pending)); });
   if (!treePeople().length || !currentLayout) {
@@ -583,64 +584,82 @@ async function exportTreeImage() {
     return;
   }
   setBusy(true);
+  let svgUrl;
+  let canvas;
   try {
     const scope = currentTreeScope();
     const markers = treeContextMarkers(scope);
+    const layout = currentLayout;
     const photoUrls = new Map();
-    await Promise.all(scope.people.map(person => {
+    // SVG conserve davantage de détails photo ; aucun bitmap ne peut zoomer à l’infini.
+    const PHOTO_EXPORT_MAX_EDGE = format === "svg" ? 512 : 128;
+    // Chargement séquentiel pour ne pas décoder toutes les photos simultanément.
+    for (const person of scope.people) {
       const url = person.photoUrl;
-      if (!url) return Promise.resolve();
-      if (/^data:/i.test(url)) {
-        photoUrls.set(person.id, url);
-        return Promise.resolve();
-      }
-      return new Promise(resolve => {
+      if (!url) continue;
+      await new Promise(resolve => {
         const image = new Image();
-        image.crossOrigin = "anonymous";
-        image.onload = () => { photoUrls.set(person.id, url); resolve(); };
-        image.onerror = () => resolve();
-      });
-    }));
-    const svgText = treeExportSvg({ people: scope.people, layout: currentLayout, markers, photoUrls });
-    const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
-    const svgUrl = URL.createObjectURL(svgBlob);
-    const image = new Image();
-    image.onload = () => {
-      try {
-        const MAX_EDGE = 8192;
-        const scale = Math.min(2, MAX_EDGE / Math.max(image.width, image.height));
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
-        canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob(pngBlob => {
-          URL.revokeObjectURL(svgUrl);
-          if (!pngBlob) {
-            toast("Export de l’image impossible", "error");
-            return;
+        const timer = setTimeout(() => { image.onload = image.onerror = null; image.src = ""; resolve(); }, 10000);
+        const finish = () => { clearTimeout(timer); resolve(); };
+        if (!/^data:/i.test(url)) image.crossOrigin = "anonymous";
+        image.onload = () => {
+          let photoCanvas;
+          try {
+            const width = image.naturalWidth || image.width;
+            const height = image.naturalHeight || image.height;
+            if (!width || !height) return finish();
+            const crop = Math.min(width, height);
+            photoCanvas = document.createElement("canvas");
+            photoCanvas.width = photoCanvas.height = Math.min(crop, PHOTO_EXPORT_MAX_EDGE);
+            const context = photoCanvas.getContext("2d");
+            if (!context) return finish();
+            context.drawImage(image, (width-crop)/2, (height-crop)/2, crop, crop, 0, 0, photoCanvas.width, photoCanvas.height);
+            photoUrls.set(person.id, photoCanvas.toDataURL("image/png"));
+          } catch (error) {
+            console.warn("Photo ignorée dans l’export de l’arbre :", error);
+          } finally {
+            if (photoCanvas) photoCanvas.width = photoCanvas.height = 1;
           }
-          const link = document.createElement("a");
-          link.href = URL.createObjectURL(pngBlob);
-          link.download = `arbre-familial-${new Date().toISOString().slice(0, 10)}.png`;
-          link.click();
-          setTimeout(() => URL.revokeObjectURL(link.href), 2000);
-          toast(`Image de l’arbre exportée · ${formatBytes(pngBlob.size)}`);
-        }, "image/png");
-      } catch (error) {
-        console.error(error);
-        URL.revokeObjectURL(svgUrl);
-        toast("Export de l’image impossible", "error");
-      }
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(svgUrl);
-      toast("Export de l’image impossible", "error");
-    };
-    image.src = svgUrl;
+          finish();
+        };
+        image.onerror = finish;
+        image.src = url;
+      });
+    }
+    const cards = await captureTreeExportCards($("treeScene"), layout, photoUrls);
+    const svgText = treeExportSvg({ people: scope.people, layout, markers, photoUrls, cards });
+    const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+    let file = svgBlob;
+    if (format !== "svg") {
+      svgUrl = URL.createObjectURL(svgBlob);
+      const image = new Image();
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(new Error("Export de l’image impossible"));
+        image.src = svgUrl;
+      });
+      const raster = treeExportRasterDimensions(image.naturalWidth || image.width, image.naturalHeight || image.height);
+      canvas = document.createElement("canvas");
+      canvas.width = raster.width;
+      canvas.height = raster.height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Canvas d’export indisponible");
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      file = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      if (!file) throw new Error("Export de l’image impossible");
+    }
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(file);
+    link.download = `arbre-familial-${new Date().toISOString().slice(0, 10)}.${format === "svg" ? "svg" : "png"}`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 2000);
+    toast(`Image de l’arbre exportée · ${formatBytes(file.size)}`);
   } catch (error) {
     console.error(error);
     toast(error.message || "Export de l’image impossible", "error");
   } finally {
+    if (svgUrl) URL.revokeObjectURL(svgUrl);
+    if (canvas) canvas.width = canvas.height = 1;
     setBusy(false);
   }
 }
@@ -3601,9 +3620,17 @@ $("autoLayoutBtn").onclick = () => {
 };
 $("menuExportTreeBtn").onclick = () => {
   setTreeMenu(false);
-  exportTreeImage();
-  $("treeMoreBtn").focus();
+  $("treeExportDialog").showModal();
+  $("treeExportDialog").querySelector("[data-export-format]")?.focus();
 };
+document.querySelectorAll("[data-export-format]").forEach(button => {
+  button.onclick = () => {
+    const format = button.dataset.exportFormat;
+    close("treeExportDialog");
+    exportTreeImage(format);
+  };
+});
+$("treeExportDialog").addEventListener("close", () => { if (!$("appMain").hidden) $("treeMoreBtn").focus(); });
 document.addEventListener("click", event => {
   const menu = $("treeMenu");
   if (menu.hidden) return;

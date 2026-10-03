@@ -2,6 +2,7 @@ import { unionConnection, unionDateLabel, familyColorIndex } from "./tree-render
 import { childLineType, normalizeEndType } from "./family-relations.js";
 import { formatGenealogyDate } from "./genealogy-date.js";
 import { formatCompactPlace } from "./place-format.js";
+import { TREE_GEOMETRY } from "./tree-layout.js";
 
 /* Couleurs de la couche présentation reportées en littéral pour que le SVG restitue l'arbre tel qu'affiché (aucune dépendance au DOM/CSS à l'import). */
 const COLORS = {
@@ -18,8 +19,30 @@ const COLORS = {
   middleName: "#7b6655"
 };
 
-const CARD_WIDTH = 282;
-const CARD_HEIGHT = 158;
+const CARD_WIDTH = TREE_GEOMETRY.cardWidth;
+const CARD_HEIGHT = TREE_GEOMETRY.cardHeight;
+export const TREE_EXPORT_RASTER_SCALE = 3;
+export const TREE_EXPORT_MAX_EDGE = 8192;
+// Limite le bitmap RGBA à environ 128 Mo, même pour un arbre très étendu.
+export const TREE_EXPORT_MAX_PIXELS = 32_000_000;
+
+export function treeExportRasterDimensions(width, height) {
+  const sourceWidth = Math.ceil(Number(width));
+  const sourceHeight = Math.ceil(Number(height));
+  if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth < 1 || sourceHeight < 1) {
+    return { width: 1, height: 1, scale: 1 };
+  }
+
+  const scale = Math.min(
+    TREE_EXPORT_RASTER_SCALE,
+    TREE_EXPORT_MAX_EDGE / sourceWidth,
+    TREE_EXPORT_MAX_EDGE / sourceHeight,
+    Math.sqrt(TREE_EXPORT_MAX_PIXELS / (sourceWidth * sourceHeight))
+  );
+  const rasterWidth = Math.max(1, Math.min(TREE_EXPORT_MAX_EDGE, Math.floor(sourceWidth * scale)));
+  const rasterHeight = Math.max(1, Math.min(TREE_EXPORT_MAX_EDGE, Math.floor(sourceHeight * scale)));
+  return { width: rasterWidth, height: rasterHeight, scale: Math.min(rasterWidth / sourceWidth, rasterHeight / sourceHeight) };
+}
 
 function escapeXml(value = "") {
   return String(value)
@@ -123,7 +146,7 @@ function connectionsSvg(layout) {
  * (positions manuelles incluses, même couleur de famille, mêmes étiquettes).
  * Pure : aucune lecture DOM/Firestore, réutilisable par les tests.
  */
-export function treeExportSvg({ people = [], layout = null, markers = new Map(), photoUrls = new Map() } = {}) {
+export function treeExportSvg({ people = [], layout = null, markers = new Map(), photoUrls = new Map(), cards = null } = {}) {
   if (!layout) return "";
   const width = Math.ceil(layout.bounds.width);
   const height = Math.ceil(layout.bounds.height);
@@ -134,7 +157,8 @@ export function treeExportSvg({ people = [], layout = null, markers = new Map(),
   for (const person of people) {
     const position = layout.positions.get(person.id);
     if (!position) continue;
-    parts.push(personCardSvg(person, position, photoUrls.get(person.id) || "", markers.get(person.id)));
+    if (cards && !cards.has(person.id)) throw new Error("Carte absente du rendu à exporter : actualisez la vue de l’arbre.");
+    parts.push(cards ? cards.get(person.id) : personCardSvg(person, position, photoUrls.get(person.id) || "", markers.get(person.id)));
   }
   parts.push(`</svg>`);
   return parts.join("");

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { treeExportSvg } from "../js/tree-export.js";
+import { treeExportRasterDimensions, TREE_EXPORT_MAX_EDGE, TREE_EXPORT_MAX_PIXELS, TREE_EXPORT_RASTER_SCALE, treeExportSvg } from "../js/tree-export.js";
 import { unionDateLabel } from "../js/tree-renderer.js";
 
 function layout(people = [], families = []) {
@@ -13,6 +13,20 @@ function layout(people = [], families = []) {
 }
 
 const BASE = { birthDate: "", deathDate: "", place: "" };
+
+// Rasterisation PNG haute résolution, plafonnée par côté et surface mémoire.
+{
+  const normal = treeExportRasterDimensions(720, 460);
+  assert.deepEqual(normal, { width: 2160, height: 1380, scale: 3 });
+
+  const large = treeExportRasterDimensions(12000, 9000);
+  assert.ok(large.width <= TREE_EXPORT_MAX_EDGE && large.height <= TREE_EXPORT_MAX_EDGE);
+  assert.ok(large.width * large.height <= TREE_EXPORT_MAX_PIXELS);
+  assert.ok(large.scale < TREE_EXPORT_RASTER_SCALE, "un grand arbre réduit le facteur d’export pour rester dans les limites sûres");
+
+  assert.deepEqual(treeExportRasterDimensions(720, 460), normal, "les dimensions ne dépendent pas du viewport ou du devicePixelRatio");
+  assert.deepEqual(treeExportRasterDimensions(0, 0), { width: 1, height: 1, scale: 1 });
+}
 
 // SVG autonome : un rect par carte, fond de canvas, noms insérés.
 {
