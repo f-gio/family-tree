@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
-import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, doc, getDoc, setDoc, onSnapshot, serverTimestamp, writeBatch, runTransaction, Bytes } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, doc, getDoc, getDocs, query, where, setDoc, onSnapshot, serverTimestamp, writeBatch, runTransaction, Bytes } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 import { calculateTreeLayout } from "./tree-layout.js";
 import { calculateTreeLayout as calculateHybridTreeLayout, validateLayout as validateHybridLayout } from "./tree-layout-engine.js";
 import { createTreeRenderer } from "./tree-renderer.js";
@@ -67,7 +67,7 @@ let familyDetailsReturnContext = null;
 const MAX_PERSON_PHOTO_BYTES = 5 * 1024;
 const viewModes = readViewModes();
 const personFields = ["firstName", "middleName", "lastName", "marriedName", "gender", "branch", "place", "deathPlace", "photoUrl", "notes"];
-const taskFields = ["title", "status", "priority", "assignee", "dueDate", "personId", "description", "comments"];
+const taskFields = ["title", "status", "priority", "assignee", "dueDate", "description", "comments"];
 const locationControls = {};
 const locationFieldDefinitions = {
   place: { textKey: "place", infoKey: "birthPlaceInfo" },
@@ -2161,22 +2161,47 @@ function renderTasks() {
     (!query || searchable(`${item.title} ${item.description || ""} ${item.comments || ""} ${item.assignee || ""}`).includes(query))
   ).sort((a, b) => (a.status === "done") - (b.status === "done") || (a.dueDate || "9999").localeCompare(b.dueDate || "9999"));
   $("tasksList").innerHTML = filtered.length ? filtered.map(item => `<article class="content-card status-${item.status || "todo"}"><div><h3>${esc(item.title)}</h3><span class="badge priority-${item.priority || "medium"}">${priorityLabels[item.priority] || "Moyenne"}</span></div><p class="card-meta"><strong>${statusLabels[item.status] || "À faire"}</strong>${item.dueDate ? ` · ${esc(new Date(item.dueDate + "T12:00:00").toLocaleDateString("fr-FR"))}` : ""}</p><div><p>Responsable : ${esc(item.assignee || "Non attribuée")}</p>${item.personId ? `<p>Personne : ${esc(nameOf(item.personId))}</p>` : ""}${item.description ? `<p class="card-description">${esc(item.description)}</p>` : ""}${item.comments ? `<p class="card-description"><strong>Commentaires :</strong> ${esc(item.comments)}</p>` : ""}</div><div class="card-actions"><button class="btn small" type="button" data-edit-task="${item.id}">${icon("edit")}<span>Modifier</span></button>${item.status !== "done" ? `<button class="btn small primary" type="button" data-complete-task="${item.id}">${icon("check")}<span>Terminer</span></button>` : ""}</div></article>`).join("") : (tasks.length
-    ? emptyState({ iconName: "tasks", title: "Aucune tâche trouvée", description: "Modifiez la recherche ou les filtres pour afficher d’autres tâches." })
-    : emptyState({ iconName: "tasks", title: "Aucune tâche", description: "Ajoutez une tâche lorsque vous avez une recherche ou une démarche à suivre.", action: `<button class="btn primary" type="button" data-empty-add-task>${icon("plus")}<span>Ajouter une tâche</span></button>` }));
+    ? emptyState({ iconName: "tasks", title: "Aucune action trouvée", description: "Modifiez la recherche ou les filtres pour afficher d’autres tâches." })
+    : emptyState({ iconName: "tasks", title: "Aucune action", description: "Ajoutez une action lorsque vous avez une recherche ou une démarche à suivre.", action: `<button class="btn primary" type="button" data-empty-add-task>${icon("plus")}<span>Ajouter une action</span></button>` }));
   setContentMode("tasks", "list", false);
 }
 
-function openTask(item = null) {
+async function loadTaskUsers() {
+  try {
+    const snapshot = await getDocs(query(refs.users, where("status", "==", "approved")));
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.status === "approved");
+  } catch (error) {
+    console.warn("Chargement des utilisateurs impossible (règles Firestore) :", error);
+    return [];
+  }
+}
+
+async function openTask(item = null) {
   $("taskForm").reset();
   $("taskId").value = item?.id || "";
-  $("taskDialogTitle").textContent = item ? "Modifier la tâche" : "Ajouter une tâche";
+  $("taskDialogTitle").textContent = item ? "Modifier l’action" : "Ajouter une tâche";
   $("taskTitle").value = item?.title || "";
   $("taskStatus").value = item?.status || "todo";
   $("taskPriority").value = item?.priority || "medium";
-  $("taskAssignee").value = item?.assignee || auth.currentUser?.email || "";
   $("taskDueDate").value = item?.dueDate || "";
-  $("taskPersonId").innerHTML = availableOptions();
-  $("taskPersonId").value = item?.personId || "";
+  const users = await loadTaskUsers();
+  const select = $("taskAssignee");
+  if (users.length) {
+    select.innerHTML = users.map(u => '<option value="' + esc(u.email || "") + '">' + esc(u.displayName || u.email || "Sans nom") + '</option>').join("");
+    select.disabled = false;
+  } else {
+    const email = auth.currentUser?.email || "";
+    select.innerHTML = '<option value="' + esc(email) + '">' + esc(email) + '</option>';
+    select.disabled = true;
+  }
+  const currentEmail = auth.currentUser?.email || "";
+  const storedAssignee = item?.assignee || currentEmail;
+  if ([...select.options].some(opt => opt.value === storedAssignee)) {
+    select.value = storedAssignee;
+  } else {
+    select.innerHTML = '<option value="' + esc(storedAssignee) + '">' + esc(storedAssignee) + '</option>';
+    select.value = storedAssignee;
+  }
   $("taskDescription").value = item?.description || "";
   $("taskComments").value = item?.comments || "";
   $("deleteTaskBtn").hidden = !item;
@@ -2193,16 +2218,16 @@ async function saveTask(event) {
     if (id) await updateDoc(doc(db, "tasks", id), data);
     else await addDoc(refs.tasks, { ...data, createdAt: serverTimestamp() });
     close("taskDialog");
-    toast(id ? "Tâche mise à jour" : "Tâche ajoutée");
-  }, "Enregistrement de la tâche impossible"));
+    toast(id ? "Action mise à jour" : "Action ajoutée");
+  }, "Enregistrement de l’action impossible"));
 }
 
 async function removeTask() {
   const id = $("taskId").value;
-  if (!id || !confirm("Supprimer définitivement cette tâche ? Cette action ne peut pas être annulée.")) return;
+  if (!id || !confirm("Supprimer définitivement cette action ? Cette action ne peut pas être annulée.")) return;
   await deleteDoc(doc(db, "tasks", id));
   close("taskDialog");
-  toast("Tâche supprimée");
+  toast("Action supprimée");
 }
 
 /* ============================================================
@@ -3496,7 +3521,7 @@ $("documentViewerDialog").addEventListener("close", () => {
 });
 $("addTaskBtn").onclick = () => openTask();
 $("taskForm").addEventListener("submit", saveTask);
-$("deleteTaskBtn").onclick = () => runSafely(removeTask, "Suppression de la tâche impossible");
+$("deleteTaskBtn").onclick = () => runSafely(removeTask, "Suppression de l’action impossible");
 ["taskSearch", "taskStatusFilter", "taskPriorityFilter", "myTasksFilter"].forEach(id => {
   $(id).addEventListener(id === "taskSearch" ? "input" : "change", renderTasks);
 });

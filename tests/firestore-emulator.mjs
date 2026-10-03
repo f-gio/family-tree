@@ -598,3 +598,84 @@ test("actions : validProcedureAction — emails additifs et whitelist des types"
   }
 });
 
+// ─── USERS — LISTE POUR LE SÉLECTEUR RESPONSABLE ──────────────────────────
+// Règle testée : allow list: if isAdmin() || (isApproved() && resource.data.status == 'approved');
+
+test("users : membre approuvé peut lister les utilisateurs via la requête du dropdown", async () => {
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  const q = query(collection(db, "users"), where("status", "==", "approved"));
+  const snap = await getDocs(q);
+  assert.ok(snap.size >= 1, "au moins l'admin et le membre approuvé");
+  const emails = snap.docs.map(d => d.data().email);
+  assert.ok(emails.includes(ADMIN_EMAIL), "admin présent");
+  assert.ok(emails.includes(MEMBER_EMAIL), "membre présent");
+});
+
+test("users : membre approuvé ne récupère pas pending/suspended/rejected via la requête approved", async () => {
+  // Créer un compte pending pour vérifier qu'il n'apparaît pas dans la requête approved
+  await signOutAll();
+  const pending = await createUserWithEmailAndPassword(auth, "pending-list-emulator@test-fictif.fr", "pending-list-123");
+  await setDoc(doc(db, "users", pending.user.uid), { email: "pending-list-emulator@test-fictif.fr", displayName: "Pending List", photo: "", role: "member", status: "pending" });
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  const q = query(collection(db, "users"), where("status", "==", "approved"));
+  const snap = await getDocs(q);
+  const emails = snap.docs.map(d => d.data().email);
+  assert.ok(!emails.includes("pending-list-emulator@test-fictif.fr"), "pending absent de la requête approved");
+  assert.ok(!emails.some(e => ["suspended-emulator@test-fictif.fr", "suspect-emulator@test-fictif.fr"].includes(e)), "suspended/rejected absent");
+});
+
+test("users : admin conserve le comportement existant (peut lister tous les utilisateurs)", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const snap = await getDocs(collection(db, "users"));
+  assert.ok(snap.size >= 2, "admin voit tous les utilisateurs");
+});
+
+test("users : non authentifié ne peut pas lister les utilisateurs", async () => {
+  await signOutAll();
+  await expectDenied(getDocs(collection(db, "users")));
+  await expectDenied(getDocs(query(collection(db, "users"), where("status", "==", "approved"))));
+});
+
+test("users : compte pending ne peut pas lister les utilisateurs", async () => {
+  await signOutAll();
+  const np = await createUserWithEmailAndPassword(auth, "pending-nolist@test-fictif.fr", "pending-nolist-123");
+  await setDoc(doc(db, "users", np.user.uid), { email: "pending-nolist@test-fictif.fr", displayName: "Pending NoList", photo: "", role: "member", status: "pending" });
+  await signIn(np.user.uid, "pending-nolist@test-fictif.fr", "pending-nolist-123");
+  await expectDenied(getDocs(collection(db, "users")));
+  await expectDenied(getDocs(query(collection(db, "users"), where("status", "==", "approved"))));
+});
+
+test("users : compte suspended ne peut pas lister les utilisateurs", async () => {
+  // Le compte crée son propre profil en pending, puis l'admin le suspend
+  await signOutAll();
+  const susp = await createUserWithEmailAndPassword(auth, "suspended-nolist@test-fictif.fr", "suspended-nolist-123");
+  await setDoc(doc(db, "users", susp.user.uid), { email: "suspended-nolist@test-fictif.fr", displayName: "Suspended NoList", photo: "", role: "member", status: "pending" });
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await updateDoc(doc(db, "users", susp.user.uid), { status: "suspended" });
+  await signIn(susp.user.uid, "suspended-nolist@test-fictif.fr", "suspended-nolist-123");
+  await expectDenied(getDocs(collection(db, "users")));
+  await expectDenied(getDocs(query(collection(db, "users"), where("status", "==", "approved"))));
+});
+
+test("users : compte rejected ne peut pas lister les utilisateurs", async () => {
+  await signOutAll();
+  const rej = await createUserWithEmailAndPassword(auth, "rejected-nolist@test-fictif.fr", "rejected-nolist-123");
+  await setDoc(doc(db, "users", rej.user.uid), { email: "rejected-nolist@test-fictif.fr", displayName: "Rejected NoList", photo: "", role: "member", status: "pending" });
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await updateDoc(doc(db, "users", rej.user.uid), { status: "rejected" });
+  await signIn(rej.user.uid, "rejected-nolist@test-fictif.fr", "rejected-nolist-123");
+  await expectDenied(getDocs(collection(db, "users")));
+});
+
+test("users : membre approuvé peut toujours lire son propre profil (comportement existant)", async () => {
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  const snap = await getDoc(doc(db, "users", memberUid));
+  assert.equal(snap.exists(), true);
+  assert.equal(snap.data().status, "approved");
+});
+
+test("users : membre approuvé ne peut pas lire le profil d'un autre membre (comportement existant)", async () => {
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(getDoc(doc(db, "users", adminUid)));
+});
+

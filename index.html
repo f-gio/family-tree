@@ -129,7 +129,7 @@
 <button class="nav-btn active" type="button" data-view="tree" aria-pressed="true" aria-current="page"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-tree"></use></svg></span><span>Arbre</span></button>
 <button class="nav-btn" type="button" data-view="directory" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-people"></use></svg></span><span>Annuaire</span></button>
 <button class="nav-btn" type="button" data-view="documents" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-document"></use></svg></span><span>Documents</span></button>
-<button class="nav-btn" type="button" data-view="tasks" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-tasks"></use></svg></span><span>Tâches</span></button>
+<button class="nav-btn" type="button" data-view="tasks" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-check"></use></svg></span><span>Actions</span></button>
 <button class="nav-btn" type="button" data-view="dossiers" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-procedures"></use></svg></span><span>Démarches</span></button>
 </nav>
 <div class="account-menu" id="accountMenu"><button class="btn account-menu-btn" id="accountMenuBtn" type="button" aria-expanded="false" aria-controls="accountDropdown" aria-haspopup="menu"><span class="account-avatar" id="accountAvatar">?</span><span class="account-label" id="accountLabel">Compte</span><svg class="ui-icon ui-icon-sm account-caret" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></button><div class="account-dropdown" id="accountDropdown" role="menu" hidden><div class="account-summary"><strong id="accountSummaryName">Compte</strong><small id="accountSummaryEmail"></small></div><button class="account-action" id="profileBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Mon profil</span></button><button class="account-action" id="dataBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-database"></use></svg><span>Données</span></button><button class="account-action" id="adminBtn" type="button" role="menuitem" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span>Administration</span></button><button class="account-action danger" id="logoutBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-logout"></use></svg><span>Se déconnecter</span></button></div></div>
@@ -263,10 +263,10 @@
 <section class="section-head">
 <div>
 <p class="eyebrow">Recherches à poursuivre</p>
-<h2>Tâches</h2>
+<h2>Actions</h2>
 <p>Centralisez les démarches, échéances et commentaires liés à vos recherches.</p>
 </div>
-<button class="btn primary" id="addTaskBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une tâche</span></button>
+<button class="btn primary" id="addTaskBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une action</span></button>
 </section>
 <div class="list-toolbar">
 <label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="taskSearch" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="sentences" placeholder="Rechercher une tâche…"><button type="button" class="search-bar-clear" id="clearTaskSearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
@@ -284,7 +284,7 @@
 <option value="low">Basse</option>
 </select>
 <label>
-<input type="checkbox" id="myTasksFilter"> Mes tâches</label>
+<input type="checkbox" id="myTasksFilter"> Mes actions</label>
 
 </div>
 <div class="content-grid" id="tasksList">
@@ -492,15 +492,15 @@
 <div class="modal-body"><div class="directory-document-list" id="directoryDocumentsList"></div></div>
 </dialog>
   <dialog class="modal-md" id="taskDialog" aria-labelledby="taskDialogTitle">
-<div class="modal-head"><div><h3 id="taskDialogTitle">Ajouter une tâche</h3><p>Suivez vos démarches et recherches généalogiques.</p></div><button class="btn icon-btn" type="button" data-close="taskDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
+<div class="modal-head"><div><h3 id="taskDialogTitle">Ajouter une action</h3><p>Suivez vos démarches et recherches généalogiques.</p></div><button class="btn icon-btn" type="button" data-close="taskDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
 <form class="modal-body modal-form" id="taskForm"><div class="modal-scroll"><input type="hidden" id="taskId"><div class="grid">
 <header class="form-section-heading wide"><h4>Organisation</h4><p>Définissez ce qui doit être fait et son niveau de priorité.</p></header>
 <label class="wide">Titre *<input class="field" id="taskTitle" required maxlength="160" autocomplete="off" autocapitalize="sentences"></label>
 <label>Statut<select class="field" id="taskStatus"><option value="todo">À faire</option><option value="progress">En cours</option><option value="done">Terminée</option></select></label>
 <label>Priorité<select class="field" id="taskPriority"><option value="medium">Moyenne</option><option value="high">Haute</option><option value="low">Basse</option></select></label>
-<label>Responsable<input class="field" id="taskAssignee" maxlength="120" autocomplete="off" autocapitalize="words"></label>
+<label>Responsable<select class="field" id="taskAssignee"></select></label>
 <label>Échéance<input class="field" id="taskDueDate" type="date"></label>
-<label class="wide">Personne concernée<select class="field" id="taskPersonId"></select></label>
+
 <header class="form-section-heading wide"><h4>Détails du suivi</h4><p>Ces informations peuvent être complétées au fil de la recherche.</p></header>
 <label class="wide">Description<textarea class="field" id="taskDescription" rows="3" maxlength="1500" autocapitalize="sentences"></textarea></label>
 <label class="wide">Commentaires<textarea class="field" id="taskComments" rows="3" maxlength="2000" placeholder="Résultats, relances, informations utiles…" autocapitalize="sentences"></textarea></label>
