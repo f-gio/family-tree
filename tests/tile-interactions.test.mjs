@@ -12,6 +12,7 @@ test("Annuaire : la tuile ouvre la fiche, le menu conserve le compteur de docume
   const render = app.slice(app.indexOf("function renderDirectory()"), app.indexOf("function renderDirectoryChips", app.indexOf("function renderDirectory()")));
   assert.match(render, /data-directory-person="\$\{item\.id\}" data-primary-tile tabindex="0" role="group"/);
   assert.match(render, /data-directory-documents="\$\{item\.id\}"/);
+  assert.match(render, /directory-entry-documents">\$\{documentAction\}<\/div><div class="directory-entry-menu">\$\{menu\}/);
   assert.match(render, /tileContextMenuMarkup\("directory", item\.id[\s\S]*?label: "Supprimer"/);
   assert.doesNotMatch(render, /directory-open-action|>→</);
   assert.match(app, /preparePrimaryTileActivation\(event, entry, \$\("personDialog"\)\);\s*openPerson/);

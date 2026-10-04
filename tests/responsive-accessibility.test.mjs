@@ -17,7 +17,8 @@ const [html, css, app, rules, referenceRules] = await Promise.all([
 for (const width of [1180, 980, 760, 560, 390]) {
   assert.ok(css.includes(`max-width: ${width}px`), `Point d'adaptation manquant : ${width}px`);
 }
-assert.match(css, /\.directory-filter-panel\s*\{[\s\S]*?position:\s*fixed/);
+assert.match(css, /\.directory-filter-dialog\s*\{[\s\S]*?height:\s*min\(var\(--modal-lg\), 85dvh, var\(--modal-max-height\)\)/);
+assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.directory-filter-dialog\s*\{[\s\S]*?height:\s*92dvh/);
 assert.match(css, /@media \(max-width: 560px\)[\s\S]*?width:\s*100vw;[\s\S]*?height:\s*100dvh/);
 assert.match(css, /\.content-grid\.list-mode \.content-card\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)/);
 assert.match(css, /body\s*\{\s*overflow-x:\s*hidden/);

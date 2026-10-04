@@ -69,6 +69,11 @@ let documentFileMarkedForRemoval = false;
 let familyDetailsReturnContext = null;
 const MAX_PERSON_PHOTO_BYTES = 5 * 1024;
 const viewModes = readViewModes();
+const directoryViewViewport = window.matchMedia("(max-width: 760px)");
+const directoryViewPreferenceKeys = Object.freeze({
+  mobile: "familyTreeDirectoryViewMobile",
+  desktop: "familyTreeDirectoryViewDesktop"
+});
 const personFields = ["firstName", "middleName", "lastName", "marriedName", "gender", "branch", "place", "deathPlace", "photoUrl", "notes"];
 const taskFields = ["title", "status", "priority", "assignee", "dueDate", "description", "comments"];
 const locationControls = {};
@@ -165,6 +170,27 @@ function readViewModes() {
   catch { return {}; }
 }
 
+function directoryViewContext() {
+  return directoryViewViewport.matches ? "mobile" : "desktop";
+}
+
+function readDirectoryViewPreference(context = directoryViewContext()) {
+  try {
+    const mode = localStorage.getItem(directoryViewPreferenceKeys[context]);
+    return mode === "cards" || mode === "list" ? mode : null;
+  } catch {
+    return null;
+  }
+}
+
+function defaultDirectoryView(context = directoryViewContext()) {
+  return readDirectoryViewPreference(context) || (context === "mobile" ? "cards" : "list");
+}
+
+function applyDirectoryViewPreference() {
+  setContentMode("directory", defaultDirectoryView(), false);
+}
+
 function saveOffsets() {
   localStorage.setItem("familyTreeManualOffsets", JSON.stringify(manualOffsets));
 }
@@ -172,12 +198,17 @@ function saveOffsets() {
 const DIRECTORY_SORT_OPTIONS = ["name-asc", "name-desc", "birth-asc", "birth-desc"];
 
 function readDirectorySort() {
-  const value = localStorage.getItem("familyTreeDirectorySort");
-  return DIRECTORY_SORT_OPTIONS.includes(value) ? value : "name-asc";
+  try {
+    const value = localStorage.getItem("familyTreeDirectorySort");
+    return DIRECTORY_SORT_OPTIONS.includes(value) ? value : "name-asc";
+  } catch {
+    return "name-asc";
+  }
 }
 
 function saveDirectorySort(value) {
-  localStorage.setItem("familyTreeDirectorySort", value);
+  try { localStorage.setItem("familyTreeDirectorySort", value); }
+  catch { /* Le tri courant reste appliqué sans stockage local. */ }
 }
 
 function esc(value = "") {
@@ -275,7 +306,16 @@ function setContentMode(section, mode, persist = true) {
     button.setAttribute("aria-pressed", String(active));
   });
   viewModes[section] = normalized;
-  if (persist) localStorage.setItem("familyTreeViewModes", JSON.stringify(viewModes));
+  if (!persist) return;
+  if (section === "directory") {
+    try { localStorage.setItem(directoryViewPreferenceKeys[directoryViewContext()], normalized); }
+    catch { /* Le choix de vue reste utilisable sans accès au stockage local. */ }
+    return;
+  }
+  const storedModes = { ...viewModes };
+  delete storedModes.directory;
+  try { localStorage.setItem("familyTreeViewModes", JSON.stringify(storedModes)); }
+  catch { /* Le stockage des préférences est facultatif. */ }
 }
 
 let toastTimer = 0;
@@ -1535,11 +1575,11 @@ function renderDirectory() {
       : `<span class="directory-action directory-doc-action" aria-label="Aucun document associé">${icon("document")}<span class="directory-doc-count-value">0</span><span class="directory-doc-count-label"> document</span></span>`;
     const middleName = item.middleName ? `<span class="person-middle-name">${esc(item.middleName)}</span>` : "";
     const menu = tileContextMenuMarkup("directory", item.id, directoryDisplayName(item), [{ key: "delete", label: "Supprimer", icon: "trash", danger: true }]);
-    return `<article class="directory-entry" data-letter="${surnameLetter(item)}" data-directory-person="${item.id}" data-primary-tile tabindex="0" role="group" aria-label="Ouvrir la fiche de ${esc(directoryDisplayName(item))}" aria-keyshortcuts="Enter Space"><span class="directory-avatar">${avatar}</span><div class="directory-main"><h3><span class="directory-surname">${esc(item.lastName || "—")}</span> <span class="directory-first-name">${esc(item.firstName || "")}</span>${middleName}</h3><p class="directory-life"><span><span class="directory-life-symbol" aria-hidden="true">✦</span> ${esc(formatDirectoryDate(item.birthDateInfo, item.birthDate))}</span><span class="directory-life-divider" aria-hidden="true">—</span><span><span class="directory-life-symbol" aria-hidden="true">†</span> ${esc(formatDirectoryDate(item.deathDateInfo, item.deathDate))}</span></p>${presence}</div><div class="directory-entry-actions">${documentAction}${menu}</div></article>`;
+    return `<article class="directory-entry" data-letter="${surnameLetter(item)}" data-directory-person="${item.id}" data-primary-tile tabindex="0" role="group" aria-label="Ouvrir la fiche de ${esc(directoryDisplayName(item))}" aria-keyshortcuts="Enter Space"><span class="directory-avatar">${avatar}</span><div class="directory-main"><h3><span class="directory-surname">${esc(item.lastName || "—")}</span> <span class="directory-first-name">${esc(item.firstName || "")}</span>${middleName}</h3><p class="directory-life"><span class="directory-birth-date"><span class="directory-life-symbol" aria-hidden="true">✦</span> ${esc(formatDirectoryDate(item.birthDateInfo, item.birthDate))}</span><span class="directory-life-divider" aria-hidden="true">—</span><span class="directory-death-date"><span class="directory-life-symbol" aria-hidden="true">†</span> ${esc(formatDirectoryDate(item.deathDateInfo, item.deathDate))}</span></p>${presence}</div><div class="directory-entry-actions"><div class="directory-entry-documents">${documentAction}</div><div class="directory-entry-menu">${menu}</div></div></article>`;
   }).join("") : (people.length
     ? emptyState({ iconName: "people", title: "Aucune personne trouvée", description: "Modifiez la recherche ou retirez un filtre pour afficher d’autres résultats." })
     : emptyState({ iconName: "people", title: "Votre annuaire est vide", description: "Ajoutez une première personne pour commencer votre histoire familiale.", action: `<button class="btn primary" type="button" data-empty-add-person>${icon("plus")}<span>Ajouter une personne</span></button>` }));
-  setContentMode("directory", viewModes.directory || "list", false);
+  applyDirectoryViewPreference();
   updateTreeQualityButton();
 }
 
@@ -3531,7 +3571,6 @@ document.addEventListener("keydown", event => {
     $("accountMenuBtn").setAttribute("aria-expanded", "false");
     $("accountMenuBtn").focus();
   }
-  if ($("directoryFilterMenu").open) $("directoryFilterMenu").open = false;
   if (!$("treeMenu").hidden) {
     setTreeMenu(false);
     $("treeMoreBtn").focus();
@@ -3991,6 +4030,25 @@ directoryFilterFields.forEach(id => {
     renderDirectory();
   });
 });
+function closeDirectoryFilterDialog() {
+  const dialog = $("directoryFilterDialog");
+  if (dialog.open) dialog.close();
+}
+$("directoryFiltersBtn").onclick = () => {
+  const dialog = $("directoryFilterDialog");
+  if (dialog.open) {
+    closeDirectoryFilterDialog();
+    return;
+  }
+  $("directoryFiltersBtn").focus({ preventScroll: true });
+  dialog.showModal();
+  $("directoryFiltersBtn").setAttribute("aria-expanded", "true");
+};
+$("closeDirectoryFiltersBtn").onclick = closeDirectoryFilterDialog;
+$("directoryFilterDialog").addEventListener("close", () => {
+  $("directoryFiltersBtn").setAttribute("aria-expanded", "false");
+  $("directoryFiltersBtn").focus({ preventScroll: true });
+});
 $("directoryGenderFilter").addEventListener("change", renderDirectory);
 $("directoryDeathInfoFilter").addEventListener("change", renderDirectory);
 $("directoryBranchFilter").addEventListener("change", renderDirectory);
@@ -4008,7 +4066,7 @@ $("clearDirectoryFiltersBtn").onclick = () => {
   renderDirectory();
 };
 $("applyDirectoryFiltersBtn").onclick = () => {
-  $("directoryFilterMenu").open = false;
+  closeDirectoryFilterDialog();
 };
 document.querySelector(".brand")?.addEventListener("click", event => {
   event.preventDefault();
@@ -4017,7 +4075,12 @@ document.querySelector(".brand")?.addEventListener("click", event => {
 document.querySelectorAll("[data-switch] [data-mode]").forEach(button => {
   button.onclick = () => setContentMode(button.closest("[data-switch]").dataset.switch, button.dataset.mode);
 });
-setContentMode("directory", viewModes.directory || "list", false);
+applyDirectoryViewPreference();
+if (typeof directoryViewViewport.addEventListener === "function") {
+  directoryViewViewport.addEventListener("change", applyDirectoryViewPreference);
+} else {
+  directoryViewViewport.addListener(applyDirectoryViewPreference);
+}
 for (const section of ["documents", "tasks"]) setContentMode(section, viewModes[section] || "cards", false);
 document.querySelectorAll("[data-view]").forEach(button => button.onclick = () => setView(button.dataset.view));
 

@@ -152,8 +152,8 @@ async function resetState(page, baseURL) {
     set("directoryView", true);
     set("documentsView", true);
     set("tasksView", true);
-    const menu = document.getElementById("directoryFilterMenu");
-    if (menu) menu.open = false;
+    const filterDialog = document.getElementById("directoryFilterDialog");
+    if (filterDialog?.open) filterDialog.close();
     const list = document.getElementById("directoryList");
     if (list) {
       list.className = "content-grid directory-grid";
@@ -639,16 +639,14 @@ async function runViewport(view, page, baseURL) {
     reportIssue(line, "important", "Sélecteur annuaire", "aucun bouton [data-switch=directory] trouvé");
   }
 
-  const filterSummary = await boundingBox(page, "#directoryFilterMenu summary");
-  assessTouch({ viewport: line, label: "résumé du menu « Filtres »", box: filterSummary, cls, essential: false });
-  await page.click("#directoryFilterMenu summary");
-  const filterOpen = await page.evaluate(() => document.getElementById("directoryFilterMenu").open);
-  check(`${line} · menu « Filtres » ouvert`, filterOpen);
-  /* Mobile : une fois le panneau ouvert, le summary passe sous le panneau (z-index),
-     la fermeture passe donc par « Afficher les résultats » (comportement réel). */
+  const filterTrigger = await boundingBox(page, "#directoryFiltersBtn");
+  assessTouch({ viewport: line, label: "bouton « Filtres »", box: filterTrigger, cls, essential: false });
+  await page.click("#directoryFiltersBtn");
+  const filterOpen = await page.evaluate(() => document.getElementById("directoryFilterDialog").open);
+  check(`${line} · modale « Filtres » ouverte`, filterOpen);
   await page.click("#applyDirectoryFiltersBtn");
-  const filterClosed = await page.evaluate(() => !document.getElementById("directoryFilterMenu").open);
-  check(`${line} · menu « Filtres » refermé`, filterClosed);
+  const filterClosed = await page.evaluate(() => !document.getElementById("directoryFilterDialog").open);
+  check(`${line} · modale « Filtres » refermée`, filterClosed);
 
   await page.fill("#directorySearch", "Personne");
   await page.waitForTimeout(250);

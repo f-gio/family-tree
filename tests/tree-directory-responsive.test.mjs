@@ -56,10 +56,10 @@ test("les contrôles mobiles de l’Arbre reprennent la largeur et le rythme de 
               text: directoryDescription.textContent.trim()
             },
             search: rect("#directoryView .search-bar"),
-            filter: rect("#directoryView .directory-filter-menu summary"),
+            filter: rect("#directoryView .directory-filters-trigger"),
             descriptionCtaGap: rect("#addDirectoryPersonBtn").y - rect("#directoryView .page-title + p").bottom,
             ctaSearchGap: rect("#directoryView .search-bar").y - rect("#addDirectoryPersonBtn").bottom,
-            searchFilterGap: rect("#directoryView .directory-filter-menu summary").y - rect("#directoryView .search-bar").bottom,
+            searchFilterGap: rect("#directoryView .directory-filters-trigger").y - rect("#directoryView .search-bar").bottom,
             filterGap: getComputedStyle(document.querySelector("#directoryView .directory-toolbar")).rowGap
           };
           activate("appMain");

@@ -372,7 +372,7 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   .tree-controls button,
   .directory-action,
   .directory-entry,
-  .directory-filter-menu summary
+  .directory-filters-trigger
 ):focus-visible {
   outline: 3px solid rgb(40 75 63 / 28%);
   outline-offset: 2px;
@@ -506,7 +506,7 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   .tree-controls button,
   .alphabet-nav button,
   .directory-action,
-  .directory-filter-menu summary {
+  .directory-filters-trigger {
     min-height: var(--control-touch);
   }
 
@@ -2078,7 +2078,7 @@ textarea,
 dialog[open] { animation: ft-dialog-in 150ms ease-out; }
 dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .account-dropdown:not([hidden]),
-.directory-filter-menu[open] .directory-filter-panel,
+.directory-filter-dialog[open],
 .relation-actions-menu[open] .relation-actions-popover,
 [data-person-panel]:not([hidden]),
 [data-date-panel]:not([hidden]) { animation: ft-reveal 140ms ease-out; }
@@ -2234,7 +2234,95 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .documents-toolbar > label .field,
 .tree-filter-toolbar > label .field { margin-top: 0; }
 
-/* Filtres avancés Annuaire : sections compactes, paires d'années et chips. */
+/* Filtres Annuaire : toolbar, modale structurée et unique zone centrale défilante. */
+.directory-filters-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-md);
+  padding: 0 var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--weight-semibold) var(--text-sm)/1.2 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.directory-filters-trigger:hover,
+.directory-filters-trigger[aria-expanded="true"] {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-raised);
+}
+.directory-filter-dialog {
+  position: fixed;
+  inset: 0;
+  width: min(calc(var(--modal-md) + var(--space-6)), calc(100vw - var(--space-8)));
+  max-width: none;
+  height: min(var(--modal-lg), 85dvh, var(--modal-max-height));
+  max-height: min(85dvh, var(--modal-max-height));
+  min-height: 0;
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: var(--border-default);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-dialog);
+}
+.directory-filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex: 0 0 auto;
+  padding: var(--space-3) var(--space-5);
+  border-bottom: var(--border-subtle);
+  background: var(--color-surface);
+}
+.directory-filter-header h3 { margin: 0; font-size: var(--text-xl); }
+.directory-filter-header .icon-btn {
+  flex: 0 0 auto;
+  width: var(--control-touch);
+  min-width: var(--control-touch);
+  height: var(--control-touch);
+  min-height: var(--control-touch);
+}
+.directory-filter-content {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: var(--space-3) var(--space-4);
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: var(--space-4) var(--space-5);
+}
+.directory-filter-content::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.directory-filter-content label { min-width: 0; margin: 0; }
+.directory-filter-content label.wide { grid-column: 1 / -1; }
+.directory-filter-content .field { width: 100%; min-width: 0; margin-top: var(--space-2); }
+.directory-filter-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  margin: 0;
+  padding: var(--space-3) var(--space-5);
+  border-top: var(--border-subtle);
+  background: var(--color-surface);
+}
+.directory-filter-footer .btn { min-height: var(--control-touch); }
+
 .directory-filter-section {
   grid-column: 1 / -1;
   display: block;
@@ -2254,20 +2342,14 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 }
 .filter-year-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
 }
 .filter-year-row label { margin: 0; }
-.filter-actions {
-  grid-column: 1 / -1;
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-.filter-actions .btn { flex: 1; }
 .filter-count {
   display: inline-flex;
-  place-items: center;
+  align-items: center;
+  justify-content: center;
   min-width: 1.25rem;
   height: 1.25rem;
   margin-left: var(--space-1);
@@ -2314,9 +2396,6 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   font-weight: var(--weight-bold);
   line-height: 1;
 }
-.directory-filter-panel label.wide { grid-column: 1 / -1; }
-.directory-filter-panel label { margin: 0; }
-
 @media (max-width: 760px) {
   /* iOS zoome le viewport au focus si font-size < 16px : forcer 16px sur les
      champs de la toolbar Arbre (recherche + branches), sinon la barre paraît
@@ -2324,7 +2403,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
      utilise .toolbar .field. */
   .tree-filter-toolbar .field { font-size: 16px; }
   /* Idem pour les champs de filtres avancés de l'Annuaire. */
-  .directory-filter-panel .field { font-size: 16px; }
+  .directory-filter-dialog .field { font-size: 16px; }
 }
 
 @media (min-width: 761px) {
@@ -2373,7 +2452,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .nav-btn,
   .account-action,
   .directory-action,
-  .directory-filter-menu summary,
+  .directory-filters-trigger,
   .directory-view-switch button,
   .location-suggestion {
     min-height: var(--control-touch);
@@ -2437,31 +2516,33 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .directory-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
   .directory-toolbar .search-bar { grid-column: 1 / -1; }
 
-  .directory-filter-panel {
-    position: fixed;
-    left: 0.5rem;
-    right: 0.5rem;
-    top: auto;
-    bottom: max(0.5rem, env(safe-area-inset-bottom));
-    z-index: 90;
-    width: auto;
-    max-height: min(72dvh, 34rem);
-    grid-template-columns: 1fr;
-    overflow: auto;
-    overscroll-behavior: contain;
-    padding: var(--space-4);
-    border-radius: var(--radius-xl);
+  .directory-filter-dialog {
+    inset: auto 0 0;
+    width: 100vw;
+    max-width: none;
+    height: 92dvh;
+    max-height: 92dvh;
+    margin: 0;
+    border: 0;
+    border-top: var(--border-default);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   }
-
-  .directory-filter-menu[open]::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 89;
-    background: rgb(27 38 33 / 42%);
+  .directory-filter-dialog::backdrop { background: rgb(27 38 33 / 42%); }
+  .directory-filter-header {
+    padding: max(var(--space-4), env(safe-area-inset-top)) max(var(--space-4), env(safe-area-inset-right)) var(--space-3) max(var(--space-4), env(safe-area-inset-left));
   }
-
-  .directory-filter-menu summary { position: relative; z-index: 91; }
+  .directory-filter-content {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+    padding: var(--space-3) max(var(--space-4), env(safe-area-inset-right)) var(--space-4) max(var(--space-4), env(safe-area-inset-left));
+  }
+  .directory-filter-content .field { min-height: 3.25rem; }
+  .directory-filter-footer {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: var(--space-3) max(var(--space-4), env(safe-area-inset-right)) max(var(--space-3), env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left));
+  }
+  .directory-filter-footer .btn { width: 100%; min-width: 0; white-space: nowrap; }
 
   .directory-view-switch { grid-column: 1 / -1; }
 
@@ -2743,7 +2824,7 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   dialog[open],
   dialog::backdrop,
   .account-dropdown:not([hidden]),
-  .directory-filter-menu[open] .directory-filter-panel,
+  .directory-filter-dialog[open],
   .relation-actions-menu[open] .relation-actions-popover,
   [data-person-panel]:not([hidden]),
   [data-date-panel]:not([hidden]),
@@ -2781,7 +2862,10 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  line-height: var(--leading-body);
 }
+.directory-results-meta > span,
+.directory-results-meta > .btn { line-height: inherit; }
 
 .tree-quality-dialog[open] { width: min(var(--modal-lg), calc(100% - 1.75rem)); }
 .tree-quality-body { display: grid; gap: var(--space-3); align-items: start; align-content: start; grid-auto-rows: auto; }
@@ -2881,11 +2965,50 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
 .tree-quality-item-actions { display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: var(--space-1); white-space: nowrap; }
 .tree-quality-item-actions .btn { white-space: nowrap; flex: 0 0 auto; }
 
+/* Les cartes de l’Annuaire séparent une zone identité extensible du pied Documents stable. */
+.directory-grid.cards-mode .directory-entry {
+  grid-template-columns: 3rem minmax(0, 1fr) var(--control-touch);
+  grid-template-rows: minmax(min-content, 1fr) minmax(calc(var(--control-touch) + var(--space-2) + 1px), auto);
+  column-gap: var(--space-3);
+  align-items: start;
+}
+.directory-grid.cards-mode .directory-avatar { grid-column: 1; grid-row: 1; }
+.directory-grid.cards-mode .directory-main { grid-column: 2; grid-row: 1; min-width: 0; }
+.directory-grid.cards-mode .directory-life {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: var(--space-1);
+}
+.directory-grid.cards-mode .directory-birth-date,
+.directory-grid.cards-mode .directory-death-date { display: block; min-width: 0; }
+.directory-grid.cards-mode .directory-life-divider { display: none; }
+.directory-grid.cards-mode .directory-entry-actions { display: contents; }
+.directory-grid.cards-mode .directory-entry-documents {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  min-height: calc(var(--control-touch) + var(--space-2) + 1px);
+  padding-top: var(--space-2);
+  border-top: var(--border-subtle);
+}
+.directory-grid.cards-mode .directory-entry-menu {
+  grid-column: 3;
+  grid-row: 1;
+  display: flex;
+  justify-self: end;
+  align-self: start;
+}
+.directory-entry-documents,
+.directory-entry-menu { display: contents; }
+
 @media (max-width: 760px) {
   .tree-quality-category-summary,
   .tree-quality-category > summary { min-height: var(--control-touch); }
   .tree-quality-category-content { max-height: clamp(12rem, 45dvh, 20rem); }
-  .directory-results-meta { align-items: stretch; flex-wrap: wrap; }
+  .directory-results-meta { align-items: center; flex-wrap: nowrap; }
   .directory-results-meta .btn { margin-left: auto; min-height: var(--control-touch); }
   .tree-quality-dialog[open] { width: calc(100% - 0.75rem); }
   .tree-quality-category.is-empty .tree-quality-category-summary,
@@ -2913,7 +3036,7 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
   }
 
   .directory-toolbar .search-bar { grid-column: 1 / -1; }
-  .directory-toolbar .directory-filter-menu { grid-column: 1; }
+  .directory-toolbar .directory-filters-trigger { grid-column: 1; }
   .directory-toolbar .directory-sort { grid-column: 2; }
   .directory-toolbar .directory-view-switch {
     display: contents;
@@ -2921,13 +3044,29 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
   }
   .directory-toolbar .directory-view-switch button[data-mode="list"] { grid-column: 3; }
   .directory-toolbar .directory-view-switch button[data-mode="cards"] { grid-column: 4; }
-  .directory-toolbar .directory-filter-menu summary,
-  .directory-toolbar .directory-sort .field { min-height: var(--control-touch); }
+  .directory-toolbar .directory-filters-trigger,
+  .directory-toolbar .directory-sort .field,
+  .directory-toolbar .directory-view-switch button {
+    box-sizing: border-box;
+    height: var(--control-touch);
+    min-height: var(--control-touch);
+    border: var(--border-default);
+    border-radius: var(--radius-md);
+  }
+  .directory-toolbar .directory-filters-trigger { width: 100%; padding-inline: var(--space-2); }
+  .directory-toolbar .directory-sort { min-width: 0; }
+  .directory-toolbar .directory-sort .field { width: 100%; padding-inline: var(--space-2); }
+  .directory-toolbar .directory-view-switch button {
+    display: grid;
+    place-items: center;
+    width: var(--control-touch);
+    min-width: var(--control-touch);
+    padding: 0;
+  }
 
   /* La toolbar et son conteneur restent dans le flux pendant le scroll.
      Seul le panneau ouvert du menu peut rester positionné pour l'interaction. */
-  .directory-toolbar,
-  .directory-toolbar .directory-filter-menu { position: static; }
+  .directory-toolbar { position: static; }
   .tree-filter-toolbar,
   .documents-toolbar { position: static; }
 
@@ -2947,11 +3086,6 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
 
   /* Le header sticky reste prioritaire : le panneau de filtres est un calque
      de contenu, pas une nouvelle barre de navigation. */
-  .directory-filter-menu[open]::before { z-index: 11; }
-  .directory-filter-menu summary { z-index: auto; }
-  .directory-filter-menu[open] summary { z-index: 13; }
-  .directory-filter-menu[open] .directory-filter-panel { z-index: 14; }
-
   .directory-results-meta { min-height: 1.25rem; margin: 0 0 var(--space-1); }
   .directory-view-switch button { margin-left: 0; }
 
