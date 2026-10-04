@@ -134,20 +134,15 @@
 </nav>
 <div class="account-menu" id="accountMenu"><button class="btn account-menu-btn" id="accountMenuBtn" type="button" aria-expanded="false" aria-controls="accountDropdown" aria-haspopup="menu"><span class="account-avatar" id="accountAvatar">?</span><span class="account-label" id="accountLabel">Compte</span><svg class="ui-icon ui-icon-sm account-caret" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></button><div class="account-dropdown" id="accountDropdown" role="menu" hidden><div class="account-summary"><strong id="accountSummaryName">Compte</strong><small id="accountSummaryEmail"></small></div><button class="account-action" id="profileBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Mon profil</span></button><button class="account-action" id="dataBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-database"></use></svg><span>Données</span></button><button class="account-action" id="adminBtn" type="button" role="menuitem" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span>Administration</span></button><button class="account-action danger" id="logoutBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-logout"></use></svg><span>Se déconnecter</span></button></div></div>
 </header>
-  <main id="appMain" hidden>
-<section class="intro">
+  <main class="page-content-lane" id="appMain" hidden>
+<section class="intro page-heading">
 <div>
-<p class="eyebrow">Mémoire familiale</p>
-<h2>Les branches de notre famille</h2>
+<p class="eyebrow page-kicker">Mémoire familiale</p>
+<h2 class="page-title">Arbre familial</h2>
 <p class="lead">Cliquez sur une carte pour modifier la personne. Faites-la glisser pour ajuster sa position.</p>
-<div class="status" data-state="loading" role="status" aria-live="polite">
-<span class="dot" id="syncDot">
-</span>
-<span id="syncText">Connexion à Firebase…</span>
-</div>
 </div>
 <div class="hero-actions" id="headerTreeActions">
-<button class="btn primary" id="addBtn" type="button" aria-label="Ajouter une personne"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span class="label">Ajouter une personne</span>
+<button class="btn primary page-primary-action" id="addBtn" type="button" aria-label="Ajouter une personne"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span class="label">Ajouter une personne</span>
 </button>
 </div>
 </section>
@@ -191,9 +186,13 @@
 </div>
 </div>
 </section>
+<div class="status tree-sync-status" data-state="loading" role="status" aria-live="polite">
+<span class="dot" id="syncDot"></span>
+<span id="syncText">Connexion à Firebase…</span>
+</div>
 </main>
-<main class="workspace-view" id="directoryView" hidden>
-<section class="section-head"><div><p class="eyebrow">Famille</p><h2>Annuaire</h2><p>Retrouvez toutes les personnes enregistrées, y compris celles masquées de l’arbre.</p></div><button class="btn primary" id="addDirectoryPersonBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une personne</span></button></section>
+<main class="workspace-view page-content-lane" id="directoryView" hidden>
+<section class="section-head page-heading"><div><p class="eyebrow page-kicker">Famille</p><h2 class="page-title">Annuaire</h2><p>Retrouvez toutes les personnes enregistrées, y compris celles masquées de l’arbre.</p></div><button class="btn primary page-primary-action" id="addDirectoryPersonBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une personne</span></button></section>
 <section class="directory-toolbar" aria-label="Recherche, filtres et affichage de l’annuaire">
 <label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="directorySearch" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher un nom ou un prénom…"><button type="button" class="search-bar-clear" id="clearDirectorySearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
 <details class="directory-filter-menu" id="directoryFilterMenu"><summary><svg class="ui-icon" aria-hidden="true"><use href="#icon-filter"></use></svg><span>Filtres</span><span class="filter-count" id="directoryFilterCount" hidden>0</span></summary><div class="directory-filter-panel">
@@ -232,14 +231,14 @@
 <div class="modal-head"><div><h3 id="treeQualityTitle">Contrôle de l’arbre</h3><p id="treeQualitySummary">Vérifications non destructives</p></div><button class="btn icon-btn" type="button" data-close="treeQualityDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
 <div class="modal-body tree-quality-body" id="treeQualityContent"></div>
 </dialog>
-  <main class="workspace-view" id="documentsView" hidden>
-<section class="section-head">
+  <main class="workspace-view page-content-lane" id="documentsView" hidden>
+<section class="section-head page-heading">
 <div>
-<p class="eyebrow">Archives familiales</p>
-<h2>Documents</h2>
+<p class="eyebrow page-kicker">Archives familiales</p>
+<h2 class="page-title">Documents</h2>
 <p>Consultez les actes et attribuez chaque document à une ou plusieurs personnes.</p>
 </div>
-<button class="btn primary" id="addDocumentBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter un document</span></button>
+<button class="btn primary page-primary-action" id="addDocumentBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter un document</span></button>
 </section>
 <div class="documents-toolbar">
 <label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="documentSearch" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="sentences" placeholder="Rechercher un document…"><button type="button" class="search-bar-clear" id="clearDocumentSearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
@@ -260,14 +259,14 @@
 <div class="content-grid" id="documentsList">
 </div>
 </main>
-  <main class="workspace-view" id="tasksView" hidden>
-<section class="section-head">
+  <main class="workspace-view page-content-lane" id="tasksView" hidden>
+<section class="section-head page-heading">
 <div>
-<p class="eyebrow">Recherches à poursuivre</p>
-<h2>Actions</h2>
+<p class="eyebrow page-kicker">Recherches à poursuivre</p>
+<h2 class="page-title">Actions</h2>
 <p>Centralisez les démarches, échéances et commentaires liés à vos recherches.</p>
 </div>
-<button class="btn primary" id="addTaskBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une action</span></button>
+<button class="btn primary page-primary-action" id="addTaskBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une action</span></button>
 </section>
 <div class="list-toolbar">
 <label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="taskSearch" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="sentences" placeholder="Rechercher une action…"><button type="button" class="search-bar-clear" id="clearTaskSearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
@@ -296,14 +295,14 @@
 <div class="content-grid" id="tasksList">
 </div>
 </main>
-  <main class="workspace-view" id="dossiersView" hidden>
-<section class="section-head">
+  <main class="workspace-view page-content-lane" id="dossiersView" hidden>
+<section class="section-head page-heading">
 <div>
-<p class="eyebrow">Recherches, correspondances et formalités</p>
-<h2>Démarches</h2>
+<p class="eyebrow page-kicker">Recherches, correspondances et formalités</p>
+<h2 class="page-title">Démarches</h2>
 <p>Centralisez vos recherches généalogiques, correspondances, rendez-vous et formalités, avec la chronologie de chaque dossier.</p>
 </div>
-<button class="btn primary" id="addDossierBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Nouvelle démarche</span></button>
+<button class="btn primary page-primary-action" id="addDossierBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Nouvelle démarche</span></button>
 </section>
 <div class="list-toolbar">
 <label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="dossierSearch" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="sentences" placeholder="Rechercher une démarche…"><button type="button" class="search-bar-clear" id="clearDossierSearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
@@ -341,7 +340,7 @@
 <p id="personDialogMeta" class="person-dialog-meta">Les champs marqués d’un astérisque sont obligatoires.</p>
 </div>
 <div class="person-head-actions">
-<button class="btn icon-btn" type="button" id="personMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="personMenu" aria-label="Plus d’actions sur la fiche" title="Plus d’actions">⋯</button>
+<button class="btn icon-btn" type="button" id="personMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="personMenu" aria-label="Plus d’actions sur la fiche" title="Plus d’actions" hidden>⋯</button>
 <button class="btn icon-btn" type="button" data-close="personDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button>
 <div class="person-action-menu" id="personMenu" role="menu" aria-label="Actions de la fiche" hidden>
 <button class="btn" type="button" id="viewBranchBtn" role="menuitem" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-tree"></use></svg><span>Voir sa branche</span></button>

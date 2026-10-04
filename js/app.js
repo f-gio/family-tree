@@ -873,7 +873,7 @@ function exitBranchView() {
 function syncState() {
   if (loadedPeople && loadedFamilies && loadedDocuments && loadedTasks && loadedProcedures) {
     $("syncDot").classList.add("ok");
-    $("syncText").textContent = "Synchronisé avec Firebase";
+    $("syncText").textContent = "Synchronisé";
     $("syncText").closest(".status")?.setAttribute("data-state", "saved");
   }
   if (loadedPeople && loadedFamilies) {
@@ -1100,6 +1100,7 @@ function openPerson(item = null, source = "tree") {
   activeId = item?.id || null;
   renderer.setActive(activeId);
   setPersonMenu(false);
+  $("personMenuBtn").hidden = !item;
   const titleName = item ? [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ") : "";
   $("dialogTitle").textContent = item ? (titleName || "Modifier la personne") : "Nouvelle personne";
   const modMeta = item ? personModMetaParts(item) : null;
@@ -3331,6 +3332,7 @@ $("personForm").addEventListener("submit", async event => {
       activeId = created.id;
       focusAfterRender = created.id;
       $("personId").value = created.id;
+      $("personMenuBtn").hidden = false;
       $("dialogTitle").textContent = "Modifier la personne";
       $("savePersonBtn").textContent = "Enregistrer";
       $("savePersonBtn").dataset.idleLabel = "Enregistrer";

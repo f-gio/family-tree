@@ -29,7 +29,9 @@ test("B. métadonnée : source réelle updatedAt + auteur, aucun faux fallback, 
 });
 
 test("C. colonne d'actions : croix + bouton ⋯ accessible, menu contextuel complet", () => {
-  assert.match(html, /<button class="btn icon-btn" type="button" id="personMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="personMenu" aria-label="Plus d’actions sur la fiche" title="Plus d’actions">⋯<\/button>/);
+  assert.match(html, /<button class="btn icon-btn" type="button" id="personMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="personMenu" aria-label="Plus d’actions sur la fiche" title="Plus d’actions" hidden>⋯<\/button>/);
+  assert.match(app, /\$\("personMenuBtn"\)\.hidden = !item;/);
+  assert.match(app, /\$\("personMenuBtn"\)\.hidden = false;/);
   assert.match(html, /<div class="person-action-menu" id="personMenu" role="menu" aria-label="Actions de la fiche" hidden>/);
   assert.match(html, /id="viewBranchBtn" role="menuitem"/);
   assert.match(html, /id="printPersonBtn" role="menuitem"/);
@@ -114,12 +116,17 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
       title: document.getElementById("dialogTitle").textContent,
       meta: document.getElementById("personDialogMeta").textContent,
       dialogOpen: document.getElementById("personDialog").open,
+      menuButtonHidden: document.getElementById("personMenuBtn").hidden,
       menuHidden: document.getElementById("personMenu").hidden
     }));
     assert.equal(head.dialogOpen, true);
     assert.equal(head.title, "Andrea Giovannoni");
     assert.ok(head.meta.includes("Dernière modification :") && head.meta.includes("François"), head.meta);
     assert.ok(!head.meta.toLowerCase().includes("undefined") && !head.meta.toLowerCase().includes("null"));
+    assert.equal(head.menuButtonHidden, false, "le menu reste disponible en modification");
+    await page.setViewportSize({ width: 1024, height: 768 });
+    assert.equal(await page.locator("#personMenuBtn").isVisible(), true, "le menu de modification reste visible sur desktop");
+    await page.setViewportSize({ width: 390, height: 844 });
     // une seule occurrence de la métadonnée dans toute la modale
     const occurrenceCount = await page.evaluate(() => document.getElementById("personDialog").textContent.split("Dernière modification").length - 1);
     assert.equal(occurrenceCount, 1, "une seule occurrence de la métadonnée sur desktop");
@@ -211,6 +218,22 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     await page.waitForTimeout(100);
     assert.equal(await page.evaluate(() => document.getElementById("dialogTitle").textContent), "Nouvelle personne");
     assert.ok(await page.evaluate(() => document.getElementById("printPersonBtn").hidden), "impression indisponible tant que la fiche n'est pas enregistrée");
+    const createHeaderActions = await page.evaluate(() => ({
+      menuHidden: document.getElementById("personMenuBtn").hidden,
+      menuWidth: document.getElementById("personMenuBtn").getBoundingClientRect().width,
+      closeWidth: document.querySelector('[data-close="personDialog"]').getBoundingClientRect().width,
+      groupWidth: document.querySelector(".person-head-actions").getBoundingClientRect().width
+    }));
+    assert.equal(createHeaderActions.menuHidden, true, "pas de menu sans fiche existante");
+    assert.equal(createHeaderActions.menuWidth, 0, "aucun espace réservé au menu masqué");
+    assert.ok(Math.abs(createHeaderActions.groupWidth - createHeaderActions.closeWidth) < 1, "la croix reste seule dans le groupe d'actions");
+    await page.setViewportSize({ width: 1024, height: 768 });
+    assert.equal(await page.locator("#personMenuBtn").isVisible(), false, "le menu de création reste absent sur desktop");
+    const desktopCreateHeader = await page.evaluate(() => ({
+      closeWidth: document.querySelector('[data-close="personDialog"]').getBoundingClientRect().width,
+      groupWidth: document.querySelector(".person-head-actions").getBoundingClientRect().width
+    }));
+    assert.ok(Math.abs(desktopCreateHeader.groupWidth - desktopCreateHeader.closeWidth) < 1, "aucun espace fantôme sur desktop");
     await page.click('[data-close="personDialog"]');
     assert.ok(true);
     void css;
