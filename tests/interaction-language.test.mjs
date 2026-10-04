@@ -27,7 +27,7 @@ assert.match(css, /\.status\[data-state="loading"\]/);
 assert.match(app, /Dissocier ce partenaire/);
 assert.match(app, /Dissocier ce lien parent-enfant/);
 assert.match(app, /Supprimer définitivement ce document/);
-assert.match(app, /Supprimer définitivement cette tâche/);
+assert.match(app, /Supprimer définitivement cette action/);
 assert.match(app, /Sa fiche et ses liens resteront disponibles/);
 assert.match(css, /\.modal-actions > \.btn\.danger/);
 

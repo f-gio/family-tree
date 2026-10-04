@@ -39,37 +39,49 @@ test("Actions : Mes actions est un bouton filtre aria-pressed", () => {
   assert.ok(css.includes(".tool-toggle.is-active"));
 });
 
-test("Actions : les lignes réutilisent l'édition et ne s'ouvrent qu'en mobile", () => {
-  assert.match(app, /<article class="task-row\$\{late \? " is-late" : ""\}\$\{done \? " is-done" : ""\}" data-task-row="\$\{item\.id\}"/);
+test("Actions : la tuile entière ouvre la fiche à la souris et au clavier", () => {
+  assert.match(app, /<article class="task-row\$\{late \? " is-late" : ""\}\$\{done \? " is-done" : ""\}\" data-task-row="\$\{item\.id\}" data-primary-tile/);
+  assert.match(app, /row\.setAttribute\("tabindex", "0"\);[\s\S]*?row\.setAttribute\("role", "group"\);/);
   assert.match(app, /function openTaskById\(id\)[\s\S]*?if \(item\) openTask\(item\);/);
-  assert.match(app, /taskMobileViewport\.matches && row && !event\.target\.closest\("button, a, input, select, textarea, summary/);
-  assert.match(app, /if \(editButton\) \{\s*openTaskById\(editButton\.dataset\.editTask\);/);
-  assert.match(app, /if \(!taskMobileViewport\.matches \|\| !row \|\| event\.target !== row \|\| !\["Enter", " "\]\.includes\(event\.key\)\) return;/);
+  assert.match(app, /preparePrimaryTileActivation\(event, row, \$\("taskDialog"\)\);\s*openTaskById\(row\.dataset\.taskRow\);/);
+  assert.match(app, /if \(!row \|\| event\.target !== row \|\| !\["Enter", " "\]\.includes\(event\.key\)\) return;[\s\S]*?event\.preventDefault\(\);\s*openTaskById\(row\.dataset\.taskRow\);/);
 });
 
-test("Actions : × arrête explicitement la propagation avant le code d'ouverture", () => {
-  const start = app.indexOf('$("tasksList").onclick = async event => {');
-  const edit = app.indexOf("const editButton", start);
-  const rowOpen = app.indexOf('const row = event.target.closest(".task-row[data-task-row]")', start);
-  assert.ok(start !== -1 && edit > start && rowOpen > edit);
-  const deletion = app.slice(start, edit);
-  assert.match(deletion, /event\.stopPropagation\(\);[\s\S]*?if \(id && confirm\([\s\S]*?\n\s*return;/);
-  assert.match(app, /<button class="btn icon-btn small danger task-delete" type="button" data-delete-task="\$\{item\.id\}" aria-label="Supprimer l’action"/);
+test("Actions : le menu secondaire réutilise la suppression existante sans ouvrir la tuile", () => {
+  const menuAction = app.slice(app.indexOf('const menuAction = event.target.closest?.("[data-tile-menu-action]")'), app.indexOf('return false;', app.indexOf('const menuAction = event.target.closest?.("[data-tile-menu-action]")')));
+  assert.match(menuAction, /event\.stopPropagation\(\);[\s\S]*?performTileContextAction\(menuAction\);/);
+  assert.match(app, /tileContextMenuMarkup\("task", item\.id, item\.title[^\n]*\[\{ key: "delete", label: "Supprimer"/);
+  assert.match(app, /async function removeTaskFromList\(id\) \{ return removeTaskById\(id, false\); \}/);
+  assert.match(app, /function removeTaskById\(id, closeDialog = false\)[\s\S]*?Supprimer définitivement cette action/);
 });
 
-test("Actions : Ouvrir reste dans le markup desktop et son masquage est mobile uniquement", () => {
-  assert.match(app, /<button class="btn small" type="button" data-edit-task="\$\{item\.id\}">Ouvrir<\/button>/);
-  const mobile = mediaBlockContaining(css, ".task-actions [data-edit-task]");
-  assert.match(mobile, /\.task-actions \[data-edit-task\] \{ visibility: hidden; \}/);
-  assert.equal((css.match(/\.task-actions \[data-edit-task\]/g) || []).length, 1);
+test("Actions : menu contextuel utilisable au clavier et calé dans la fenêtre", () => {
+  assert.match(app, /class="tile-context-toggle" type="button" data-tile-menu-toggle aria-haspopup="menu" aria-expanded="false"/);
+  assert.match(app, /if \(event\.key === "Escape"\)[\s\S]*?closeTileContextMenu\(true\);/);
+  assert.match(app, /\["ArrowDown", "ArrowUp", "Home", "End"\]/);
+  assert.match(app, /const left = Math\.max\(8, Math\.min\(viewportWidth - bounds\.width - 8, anchor\.right - bounds\.width\)\);/);
+  assert.match(css, /\.tile-context-menu \{\s*position: fixed;/);
+  assert.match(css, /\.tile-context-toggle \{[\s\S]*?display: grid;[\s\S]*?place-items: center;[\s\S]*?min-width: var\(--control-touch\);[\s\S]*?min-height: var\(--control-touch\);/);
+  assert.match(app, /<span class="tile-context-glyph" aria-hidden="true"><span class="tile-context-dot"><\/span><span class="tile-context-dot"><\/span><span class="tile-context-dot"><\/span><\/span>/);
+  assert.match(css, /\.tile-context-glyph \{[\s\S]*?display: flex;[\s\S]*?align-items: center;[\s\S]*?justify-content: center;[\s\S]*?line-height: 0;/);
+  assert.match(css, /\.tile-context-dot \{[\s\S]*?width: 3px;[\s\S]*?height: 3px;[\s\S]*?border-radius: 50%;/);
 });
 
-test("Actions mobile : fermeture après tap efface le focus restauré, le clavier le conserve", () => {
-  assert.match(app, /const pointerActivated = taskRowPointerActivation \|\| event\.detail > 0;/);
-  assert.match(app, /if \(pointerActivated\) \{\s*event\.preventDefault\(\);[\s\S]*?document\.activeElement\.blur\(\);/);
-  assert.match(app, /\$\("taskDialog"\)\.addEventListener\("close", \(\) => \{[\s\S]*?if \(row\.isConnected && document\.activeElement === row\) row\.blur\(\);/);
-  assert.match(app, /taskDialogPointerReturnFocusRow = null;\s*event\.preventDefault\(\);\s*openTaskById\(row\.dataset\.taskRow\);/);
-  assert.match(css, /\.task-row\[tabindex="0"\]:focus-visible \{ outline: 2px solid var\(--color-focus\);/);
+test("Actions : le menu secondaire est distinct du clic principal et la tuile a un focus visible", () => {
+  assert.match(app, /document\.addEventListener\("click", async event => \{[\s\S]*?const menuAction = event\.target\.closest\?\.\("\[data-tile-menu-action\]"\);[\s\S]*?event\.stopPropagation\(\);/);
+  assert.match(app, /\.tile-context-actions"\)\) \{\s*preparePrimaryTileActivation/);
+  assert.match(css, /\.task-row\[tabindex="0"\]:focus-visible \{ outline: 3px solid/);
+  assert.match(css, /\.task-actions \{[\s\S]*?justify-self: end;/);
+  assert.doesNotMatch(css, /\.task-actions::after/);
+});
+
+test("Actions : chaque ligne est une tuile séparée sans séparateur interne", () => {
+  assert.match(css, /#tasksList:has\(\.task-row\) \{[\s\S]*?gap: var\(--space-2\);[\s\S]*?border: 0;[\s\S]*?background: transparent;/);
+  assert.match(css, /\.task-row \{[\s\S]*?border: var\(--border-subtle\);[\s\S]*?border-radius: var\(--radius-md\);[\s\S]*?box-shadow: none;/);
+  assert.doesNotMatch(css, /#tasksList \.task-row \+ \.task-row::before/);
+  assert.match(css, /\.task-row\.is-late \{\s*background: color-mix\(in srgb, var\(--color-danger-soft\) 55%, var\(--color-surface\)\);\s*box-shadow: inset 3px 0 var\(--color-danger\);/);
+  assert.match(css, /\.task-row\.is-done \{ background: color-mix\(in srgb, var\(--color-brand-soft\) 65%, var\(--color-surface\)\); \}/);
+  assert.match(css, /#tasksList \.task-row \.task-actions \{\s*grid-column: 6 \/ 8;/);
 });
 
 test("Footer mobile de la modale Action : boutons présents, rangée finale en deux colonnes", () => {

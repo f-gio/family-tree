@@ -20,10 +20,11 @@ import {
 } from "../js/procedures.js";
 
 const root = new URL("..", import.meta.url);
-const [html, css, app] = await Promise.all([
+const [html, css, app, multiselect] = await Promise.all([
   readFile(new URL("index.html", root), "utf8"),
   readFile(new URL("css/design-system.css", root), "utf8"),
-  readFile(new URL("js/app.js", root), "utf8")
+  readFile(new URL("js/app.js", root), "utf8"),
+  readFile(new URL("js/person-multiselect.js", root), "utf8")
 ]);
 
 // --- Types, statuts et actions (source unique centralisée) ---
@@ -180,26 +181,27 @@ test("la sélection des personnes est une recherche multisélection accessible",
   assert.match(html, /id="dossierPeopleResults" role="listbox" aria-label="Personnes correspondant à la recherche" hidden/);
   assert.ok(!html.includes('type="checkbox" value="'), "plus de cases à cocher de personnes dans la modale");
   assert.ok(!css.includes(".dossier-people"), "l'ancienne interface à cases à cocher a été retirée du CSS");
-  assert.match(app, /function dossierSelectedPeople\(\)/);
-  assert.match(app, /data\.personIds = dossierSelectedPeople\(\);/);
+  assert.match(app, /const dossierPeoplePicker = createAppPersonPicker\("dossier"\);/);
+  assert.match(app, /data\.personIds = dossierPeoplePicker\.getSelected\(\);/);
 });
 
 test("la recherche de personnes porte sur prénom, second prénom, nom, nom d'usage et branche", () => {
   assert.match(app, /searchable\(`\$\{item\.firstName\} \$\{item\.middleName \|\| ""\} \$\{item\.lastName\} \$\{item\.marriedName \|\| ""\} \$\{item\.branch \|\| ""\}`\)/);
-  assert.match(app, /const DOSSIER_PEOPLE_MAX_RESULTS = 8;/);
+  assert.match(app, /const PERSON_PICKER_MAX_RESULTS = 8;/);
+  assert.match(app, /source\(\)[\s\S]*?selectedIds\.has\(item\.id\)/);
 });
 
 test("la recherche ne démarre qu'à partir de 2 caractères (0/1 = rien)", () => {
   assert.match(app, /import \{[^}]*DOSSIER_MIN_QUERY_LENGTH[^}]*\} from "\.\/procedures\.js"/);
   assert.match(app, /if \(text\.length < DOSSIER_MIN_QUERY_LENGTH\) return \[\];/);
-  assert.match(app, /searchable\(\$\("dossierPeopleInput"\)\.value\)\.length < DOSSIER_MIN_QUERY_LENGTH[\s\S]*?closeDossierPeopleResults\(\);/);
+  assert.match(app, /minQueryLength: DOSSIER_MIN_QUERY_LENGTH/);
+  assert.match(multiselect, /String\(input\.value\)\.trim\(\)\.length < minQueryLength/);
   assert.equal(DOSSIER_MIN_QUERY_LENGTH, 2);
 });
 
 test("la fermeture passe bien par aria-expanded=false", () => {
-  // closeDossierPeopleResults rend un conteneur vide = masqué + aria-expanded false.
-  assert.match(app, /function closeDossierPeopleResults\(\) \{[\s\S]*?renderDossierPeopleResults\(\[\], -1\);/s);
-  assert.match(app, /function renderDossierPeopleResults\(results = dossierResults, focusIndex = dossierHighlight\) \{[\s\S]*?if \(!results\.length\) \{\s*\n\s*container\.hidden = true;\s*\n\s*\$\("dossierPeopleInput"\)\.setAttribute\("aria-expanded", "false"\);/);
+  assert.match(multiselect, /function closeResults\(\) \{[\s\S]*?renderResults\(\);/);
+  assert.match(multiselect, /results\.hidden = true;\s*input\.setAttribute\("aria-expanded", "false"\);/);
 });
 
 test("les résultats proposent un contexte dates et branche", () => {
@@ -209,25 +211,26 @@ test("les résultats proposent un contexte dates et branche", () => {
 });
 
 test("les personnes déjà sélectionnées ne sont plus proposées et pas de doublon", () => {
-  assert.match(app, /filter\(item => !dossierChips\.has\(item\.id\)\)/);
-  assert.match(app, /if \(!id \|\| dossierChips\.has\(id\)\) return;/);
+  assert.match(app, /filter\(item => !selectedIds\.has\(item\.id\)\)/);
+  assert.match(multiselect, /if \(!id \|\| selectedIds\.has\(id\)\) return;/);
 });
 
 test("les personnes non résolues restent visibles dans les chips sans crash", () => {
-  assert.match(app, /dossierChips = new Set\(item\?\.personIds \|\| \[\]\);/);
+  assert.match(app, /dossierPeoplePicker\.setSelected\(item\?\.personIds \|\| \[\]\);/);
+  assert.match(multiselect, /selectedIds = new Set\(ids\);/);
   assert.ok(!app.includes("people.some(personEntry => personEntry.id === value)"));
 });
 
 test("clavier multiselect : flèches, Entrée et Échap", () => {
-  assert.match(app, /if \(event\.key === "ArrowDown"\) \{\s*\n\s*event\.preventDefault\(\);\s*\n\s*activateDossierPeopleKey\(1\);/);
-  assert.match(app, /if \(event\.key === "ArrowUp"\) \{\s*\n\s*event\.preventDefault\(\);\s*\n\s*activateDossierPeopleKey\(-1\);/);
-  assert.match(app, /addDossierPerson\(dossierResults\[dossierHighlight\]\?\.id\)/);
-  assert.match(app, /event\.key === "Escape" && !\$\("dossierPeopleResults"\)\.hidden/);
+  assert.match(multiselect, /event\.key === "ArrowDown" \|\| event\.key === "ArrowUp"/);
+  assert.match(multiselect, /activate\(event\.key === "ArrowDown" \? 1 : -1\)/);
+  assert.match(multiselect, /if \(event\.key === "Enter" && matches\.length\)[\s\S]*?add\(matches\[highlightedIndex\]\?\.id\)/);
+  assert.match(multiselect, /event\.key === "Escape" && !results\.hidden/);
 });
 
 test("la restauration à l'édition recharge la sélection existante", () => {
-  assert.match(app, /dossierChips = new Set\(item\?\.personIds \|\| \[\]\);/);
-  assert.match(app, /renderDossierPeopleChips\(\);\s*\n\s*closeDossierPeopleResults\(\);/);
+  assert.match(app, /dossierPeoplePicker\.setSelected\(item\?\.personIds \|\| \[\]\);/);
+  assert.match(multiselect, /renderChips\(\);\s*input\.value = "";\s*closeResults\(\);/);
 });
 
 // --- Actions email (formulaire conditionnel) ---

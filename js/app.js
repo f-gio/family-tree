@@ -19,6 +19,7 @@ import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalize
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
 import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
 import { formatCompactPlace } from "./place-format.js";
+import { createPersonMultiSelect } from "./person-multiselect.js";
 import { analyzeTreeQuality } from "./tree-quality.js";
 import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, validateFamilyDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, buildBackupManifest, parseBackupManifestText } from "./backup-utils.js";
 
@@ -64,6 +65,7 @@ let treeLayoutEngine = "hybrid";
 let activeViewerUrl = "";
 let activePersonSection = "identity";
 let documentReturnContext = null;
+let documentFileMarkedForRemoval = false;
 let familyDetailsReturnContext = null;
 const MAX_PERSON_PHOTO_BYTES = 5 * 1024;
 const viewModes = readViewModes();
@@ -301,6 +303,189 @@ async function runSafely(action, fallback = "Action impossible") {
 function setActionLabel(button, label, iconName = "") {
   if (!button) return;
   button.innerHTML = `${iconName ? icon(iconName) : ""}<span>${esc(label)}</span>`;
+}
+
+function tileContextMenuMarkup(kind, id, label, actions) {
+  const items = actions.map(action => `<button class="tile-context-menu-item${action.danger ? " is-danger" : ""}" type="button" role="menuitem" data-tile-menu-action="${action.key}" data-tile-menu-kind="${kind}" data-tile-menu-id="${esc(id)}">${icon(action.icon)}<span>${esc(action.label)}</span></button>`).join("");
+  return `<div class="tile-context-actions"><button class="tile-context-toggle" type="button" data-tile-menu-toggle aria-haspopup="menu" aria-expanded="false" aria-label="Actions secondaires pour ${esc(label)}" title="Actions"><span class="tile-context-glyph" aria-hidden="true"><span class="tile-context-dot"></span><span class="tile-context-dot"></span><span class="tile-context-dot"></span></span></button><div class="tile-context-menu" role="menu" hidden>${items}</div></div>`;
+}
+
+let openTileContextGroup = null;
+const primaryTileFocusReturn = new WeakMap();
+let pendingPrimaryTilePointer = null;
+let pendingTileContextPointerGroup = null;
+let pendingTileContextPointerTimer = 0;
+
+function clearPendingTileContextPointer() {
+  if (pendingTileContextPointerTimer) clearTimeout(pendingTileContextPointerTimer);
+  pendingTileContextPointerTimer = 0;
+  pendingTileContextPointerGroup = null;
+}
+
+function closeTileContextMenu(restoreFocus = false) {
+  if (!openTileContextGroup) return;
+  clearPendingTileContextPointer();
+  const group = openTileContextGroup;
+  const toggle = group.querySelector("[data-tile-menu-toggle]");
+  const menu = group.querySelector(".tile-context-menu");
+  if (menu) menu.hidden = true;
+  toggle?.setAttribute("aria-expanded", "false");
+  group.closest(".directory-entry, .content-card")?.classList.remove("tile-context-open");
+  openTileContextGroup = null;
+  if (restoreFocus) toggle?.focus({ preventScroll: true });
+}
+
+function showTileContextMenu(toggle) {
+  const group = toggle.closest(".tile-context-actions");
+  const menu = group?.querySelector(".tile-context-menu");
+  if (!group || !menu) return;
+  if (openTileContextGroup === group) {
+    closeTileContextMenu(true);
+    return;
+  }
+  closeTileContextMenu();
+  group.closest(".directory-entry, .content-card")?.classList.add("tile-context-open");
+  menu.hidden = false;
+  const anchor = toggle.getBoundingClientRect();
+  const bounds = menu.getBoundingClientRect();
+  const viewportWidth = document.documentElement.clientWidth;
+  const viewportHeight = window.innerHeight;
+  const left = Math.max(8, Math.min(viewportWidth - bounds.width - 8, anchor.right - bounds.width));
+  const below = anchor.bottom + 4;
+  const maxTop = Math.max(8, viewportHeight - bounds.height - 8);
+  const above = anchor.top - bounds.height - 4;
+  const top = below + bounds.height <= viewportHeight - 8 ? below : Math.max(8, Math.min(maxTop, above));
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  toggle.setAttribute("aria-expanded", "true");
+  openTileContextGroup = group;
+  menu.querySelector('[role="menuitem"]:not([disabled])')?.focus({ preventScroll: true });
+}
+
+async function performTileContextAction(button) {
+  const { tileMenuKind: kind, tileMenuAction: action, tileMenuId: id } = button.dataset;
+  if (kind === "directory" && action === "delete") {
+    return runSafely(() => removeDirectoryPersonPermanently(id), "Suppression de la personne impossible");
+  }
+  if (kind === "document" && action === "edit") {
+    const item = documents.find(value => value.id === id);
+    if (!item) return false;
+    openDocument(item);
+    return true;
+  }
+  if (kind === "document" && action === "delete") {
+    return runSafely(() => removeDocument(id), "Suppression du document impossible");
+  }
+  if (kind === "procedure" && action === "edit") {
+    const item = procedures.find(value => value.id === id);
+    if (!item) return false;
+    openDossierForm(item);
+    return true;
+  }
+  if (kind === "task" && action === "delete") {
+    return runSafely(() => removeTaskFromList(id), "Suppression de l’action impossible");
+  }
+  return false;
+}
+
+document.addEventListener("click", async event => {
+  const toggle = event.target.closest?.("[data-tile-menu-toggle]");
+  if (toggle) {
+    event.preventDefault();
+    event.stopPropagation();
+    showTileContextMenu(toggle);
+    return;
+  }
+  const menuAction = event.target.closest?.("[data-tile-menu-action]");
+  if (menuAction) {
+    event.preventDefault();
+    event.stopPropagation();
+    clearPendingTileContextPointer();
+    const group = menuAction.closest(".tile-context-actions");
+    const toggleButton = group?.querySelector("[data-tile-menu-toggle]");
+    const restoresToTrigger = ["document", "procedure"].includes(menuAction.dataset.tileMenuKind) && menuAction.dataset.tileMenuAction === "edit";
+    closeTileContextMenu(restoresToTrigger);
+    const completed = await performTileContextAction(menuAction);
+    if (menuAction.dataset.tileMenuAction === "delete") {
+      if (completed === true) {
+        const searchId = { directory: "directorySearch", document: "documentSearch", task: "taskSearch" }[menuAction.dataset.tileMenuKind];
+        $(searchId)?.focus({ preventScroll: true });
+      } else toggleButton?.focus({ preventScroll: true });
+    }
+    return;
+  }
+  if (openTileContextGroup && !openTileContextGroup.contains(event.target)) closeTileContextMenu();
+}, true);
+
+document.addEventListener("keydown", event => {
+  if (!openTileContextGroup) return;
+  const menu = openTileContextGroup.querySelector(".tile-context-menu");
+  const toggle = openTileContextGroup.querySelector("[data-tile-menu-toggle]");
+  const items = [...menu.querySelectorAll('[role="menuitem"]:not([disabled])')];
+  const index = items.indexOf(document.activeElement);
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeTileContextMenu(true);
+  } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && items.length) {
+    event.preventDefault();
+    if (event.key === "Home") items[0].focus();
+    else if (event.key === "End") items[items.length - 1].focus();
+    else if (event.key === "ArrowDown") items[(index + 1 + items.length) % items.length].focus();
+    else items[(index - 1 + items.length) % items.length].focus();
+  } else if (toggle && !openTileContextGroup.contains(event.target)) {
+    closeTileContextMenu();
+  }
+}, true);
+
+document.addEventListener("focusin", event => {
+  if (!openTileContextGroup || openTileContextGroup.contains(event.target)) return;
+  /* WebKit tactile peut déplacer le focus vers la tuile sous-jacente entre
+     touchend et le click synthétique du bouton. Garder la cible menu dans le
+     DOM jusqu’au click correspondant, puis fermer dans le handler d’action. */
+  if (pendingTileContextPointerGroup === openTileContextGroup) return;
+  closeTileContextMenu();
+}, true);
+window.addEventListener("resize", () => closeTileContextMenu());
+window.addEventListener("scroll", () => closeTileContextMenu(), true);
+
+document.addEventListener("pointerdown", event => {
+  const tile = event.target.closest?.("[data-primary-tile]");
+  pendingPrimaryTilePointer = tile && !event.target.closest("button, a, input, select, textarea, summary, .tile-context-actions") ? tile : null;
+  clearPendingTileContextPointer();
+  if (openTileContextGroup?.contains(event.target)) {
+    const group = openTileContextGroup;
+    pendingTileContextPointerGroup = group;
+    pendingTileContextPointerTimer = setTimeout(() => {
+      if (pendingTileContextPointerGroup !== group) return;
+      clearPendingTileContextPointer();
+      if (openTileContextGroup === group && !group.contains(document.activeElement)) closeTileContextMenu();
+    }, 1000);
+  }
+}, true);
+document.addEventListener("pointercancel", () => {
+  pendingPrimaryTilePointer = null;
+  clearPendingTileContextPointer();
+}, true);
+
+function preparePrimaryTileActivation(event, tile, dialog) {
+  const pointer = pendingPrimaryTilePointer === tile || event.detail > 0;
+  pendingPrimaryTilePointer = null;
+  if (!pointer) {
+    primaryTileFocusReturn.delete(dialog);
+    return;
+  }
+  event.preventDefault();
+  if (tile.contains(document.activeElement)) document.activeElement.blur();
+  primaryTileFocusReturn.set(dialog, tile);
+}
+
+for (const dialogId of ["personDialog", "documentViewerDialog", "taskDialog", "procedureDetailDialog"]) {
+  $(dialogId).addEventListener("close", () => {
+    const tile = primaryTileFocusReturn.get($(dialogId));
+    primaryTileFocusReturn.delete($(dialogId));
+    if (tile) requestAnimationFrame(() => { if (tile.isConnected && document.activeElement === tile) tile.blur(); });
+  });
 }
 
 function person(id) { return people.find(item => item.id === id); }
@@ -1345,10 +1530,11 @@ function renderDirectory() {
     const presence = item.inTree === false ? '<span class="badge muted directory-presence">Masquée de l’arbre</span>' : "";
     const documentCount = documents.filter(documentItem => (documentItem.personIds || []).includes(item.id)).length;
     const documentAction = documentCount
-      ? `<button class="directory-action directory-doc-action" type="button" data-directory-documents="${item.id}" aria-label="Afficher ${documentCount} document${documentCount > 1 ? "s" : ""} associé${documentCount > 1 ? "s" : ""} à ${esc(directoryDisplayName(item))}">${icon("document")}<span>${documentCount} document${documentCount > 1 ? "s" : ""}</span></button>`
-      : `<span class="directory-action directory-doc-action" aria-label="Aucun document associé">${icon("document")}<span>0 document</span></span>`;
+      ? `<button class="directory-action directory-doc-action" type="button" data-directory-documents="${item.id}" aria-label="Afficher ${documentCount} document${documentCount > 1 ? "s" : ""} associé${documentCount > 1 ? "s" : ""} à ${esc(directoryDisplayName(item))}">${icon("document")}<span class="directory-doc-count-value">${documentCount}</span><span class="directory-doc-count-label"> document${documentCount > 1 ? "s" : ""}</span></button>`
+      : `<span class="directory-action directory-doc-action" aria-label="Aucun document associé">${icon("document")}<span class="directory-doc-count-value">0</span><span class="directory-doc-count-label"> document</span></span>`;
     const middleName = item.middleName ? `<span class="person-middle-name">${esc(item.middleName)}</span>` : "";
-    return `<article class="directory-entry" data-letter="${surnameLetter(item)}" data-directory-person="${item.id}" tabindex="0" aria-label="Ouvrir la fiche de ${esc(directoryDisplayName(item))}"><span class="directory-avatar">${avatar}</span><div class="directory-main"><h3><span class="directory-surname">${esc(item.lastName || "—")}</span> <span class="directory-first-name">${esc(item.firstName || "")}</span>${middleName}</h3><p class="directory-life"><span><span class="directory-life-symbol" aria-hidden="true">✦</span> ${esc(formatDirectoryDate(item.birthDateInfo, item.birthDate))}</span><span class="directory-life-divider" aria-hidden="true">—</span><span><span class="directory-life-symbol" aria-hidden="true">†</span> ${esc(formatDirectoryDate(item.deathDateInfo, item.deathDate))}</span></p>${presence}</div><div class="directory-entry-actions">${documentAction}<button class="directory-action directory-open-action" type="button" data-directory-open-person="${item.id}" aria-label="Voir la fiche de ${esc(directoryDisplayName(item))}" title="Voir la fiche">${icon("arrow-right")}</button></div></article>`;
+    const menu = tileContextMenuMarkup("directory", item.id, directoryDisplayName(item), [{ key: "delete", label: "Supprimer", icon: "trash", danger: true }]);
+    return `<article class="directory-entry" data-letter="${surnameLetter(item)}" data-directory-person="${item.id}" data-primary-tile tabindex="0" role="group" aria-label="Ouvrir la fiche de ${esc(directoryDisplayName(item))}" aria-keyshortcuts="Enter Space"><span class="directory-avatar">${avatar}</span><div class="directory-main"><h3><span class="directory-surname">${esc(item.lastName || "—")}</span> <span class="directory-first-name">${esc(item.firstName || "")}</span>${middleName}</h3><p class="directory-life"><span><span class="directory-life-symbol" aria-hidden="true">✦</span> ${esc(formatDirectoryDate(item.birthDateInfo, item.birthDate))}</span><span class="directory-life-divider" aria-hidden="true">—</span><span><span class="directory-life-symbol" aria-hidden="true">†</span> ${esc(formatDirectoryDate(item.deathDateInfo, item.deathDate))}</span></p>${presence}</div><div class="directory-entry-actions">${documentAction}${menu}</div></article>`;
   }).join("") : (people.length
     ? emptyState({ iconName: "people", title: "Aucune personne trouvée", description: "Modifiez la recherche ou retirez un filtre pour afficher d’autres résultats." })
     : emptyState({ iconName: "people", title: "Votre annuaire est vide", description: "Ajoutez une première personne pour commencer votre histoire familiale.", action: `<button class="btn primary" type="button" data-empty-add-person>${icon("plus")}<span>Ajouter une personne</span></button>` }));
@@ -1808,16 +1994,40 @@ $("personPrintGoBtn").onclick = () => {
   }
 };
 
-function documentPeopleMarkup(selectedIds = []) {
-  const selected = new Set(selectedIds);
-  return people.slice().sort(comparePeopleBySurname).map(item =>
-    `<label><input type="checkbox" value="${item.id}" ${selected.has(item.id) ? "checked" : ""}> ${esc(relationOptionName(item))}</label>`
-  ).join("") || emptyState({ iconName: "people", title: "Aucune personne disponible", description: "Ajoutez une personne avant de lui associer ce document." });
+const DOCUMENT_FILE_METADATA_FIELDS = ["fileName", "fileSize", "storedSize", "mimeType", "compressed", "storageMode", "chunkVersion", "chunkCount", "fileData", "fileUrl", "storagePath"];
+
+function hasStoredDocumentFile(item) {
+  return !!(item && DOCUMENT_FILE_METADATA_FIELDS.some(field => item[field] !== undefined && item[field] !== null && item[field] !== ""));
+}
+
+function canSafelyRemoveStoredDocumentFile(item) {
+  if (!hasStoredDocumentFile(item) || item.storagePath) return false;
+  const referencesChunks = item.storageMode === "firestore-chunks" || !!item.chunkVersion || item.chunkCount !== undefined;
+  return !referencesChunks || (!!item.chunkVersion && Number.isInteger(item.chunkCount) && item.chunkCount >= 0);
+}
+
+function renderDocumentFileState(item = documents.find(documentItem => documentItem.id === $("documentId").value)) {
+  const hasCurrentFile = hasStoredDocumentFile(item);
+  const selectedFile = $("documentFile").files?.[0] || null;
+  const markedForRemoval = hasCurrentFile && documentFileMarkedForRemoval && !selectedFile;
+  $("documentCurrentFileArea").hidden = !hasCurrentFile;
+  $("currentDocumentFile").textContent = hasCurrentFile
+    ? `${item.fileName || "Fichier associé"}${item.storedSize ? ` · ${formatBytes(item.storedSize)} stockés${item.compressed ? " après optimisation" : ""}` : ""}`
+    : "";
+  $("removeCurrentDocumentFileBtn").hidden = !hasCurrentFile || !canSafelyRemoveStoredDocumentFile(item) || documentFileMarkedForRemoval || !!selectedFile;
+  $("restoreCurrentDocumentFileBtn").hidden = !markedForRemoval;
+  $("documentFileRemovalNote").hidden = !markedForRemoval;
+  $("documentSelectedFileArea").hidden = !selectedFile;
+  $("documentSelectedFileText").textContent = selectedFile
+    ? `Fichier sélectionné : ${selectedFile.name}${hasCurrentFile ? " · remplacera le fichier actuel à l’enregistrement" : " · prêt à être enregistré"}.`
+    : "";
+  $("documentFileRemovalUnavailable").hidden = !hasCurrentFile || canSafelyRemoveStoredDocumentFile(item);
 }
 
 function openDocument(item = null, preselectedPersonId = "", returnContext = null) {
   documentReturnContext = returnContext;
   $("documentForm").reset();
+  documentFileMarkedForRemoval = false;
   $("documentId").value = item?.id || "";
   $("documentDialogTitle").textContent = item ? "Modifier le document" : "Ajouter un document";
   $("documentTitle").value = item?.title || "";
@@ -1826,10 +2036,8 @@ function openDocument(item = null, preselectedPersonId = "", returnContext = nul
   setLocationField("documentPlace", item?.place || "", item?.placeInfo);
   $("documentUrl").value = item?.externalUrl || "";
   $("documentNotes").value = item?.notes || "";
-  $("documentPeople").innerHTML = documentPeopleMarkup(item?.personIds || (preselectedPersonId ? [preselectedPersonId] : []));
-  $("currentDocumentFile").textContent = item?.fileName
-    ? `Fichier actuel : ${item.fileName}${item.storedSize ? ` · ${formatBytes(item.storedSize)} stockés${item.compressed ? " après optimisation" : ""}` : ""}`
-    : "Images optimisées automatiquement en haute qualité ; PDF conservés sans perte. Taille maximale : 20 Mo.";
+  documentPeoplePicker.setSelected(item?.personIds || (preselectedPersonId ? [preselectedPersonId] : []));
+  renderDocumentFileState(item);
   $("documentProgress").textContent = "";
   $("deleteDocumentBtn").hidden = !item;
   $("documentDialog").showModal();
@@ -1841,7 +2049,14 @@ function renderDocuments() {
   const filtered = documents.filter(item => (!type || item.type === type) && (!query || searchable(`${documentDisplayLabel(item)} ${item.fileName || ""} ${item.type || ""} ${item.place || ""} ${item.notes || ""} ${(item.personIds || []).map(nameOf).join(" ")}`).includes(query)));
   $("documentsList").innerHTML = filtered.length ? filtered.map(item => {
     const compactPlace = formatCompactPlace(item.place, item.placeInfo);
-    return `<article class="content-card"><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(documentDisplayLabel(item))}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${compactPlace ? ` · ${esc(compactPlace)}` : ""}</p><div><p>${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">Fichier optimisé : ${formatBytes(item.storedSize)}</p>` : ""}</div><div class="card-actions">${item.chunkCount || item.fileData || item.fileUrl || item.externalUrl ? `<button class="btn small primary" type="button" data-open-document="${item.id}">${icon("eye")}<span>Consulter</span></button>` : ""}<button class="btn small" type="button" data-edit-document="${item.id}">${icon("edit")}<span>Modifier</span></button></div></article>`;
+    const label = documentDisplayLabel(item);
+    const canOpen = !!(item.chunkCount || item.fileData || item.fileUrl || item.externalUrl);
+    const tileSemantics = canOpen ? `data-primary-tile data-document-openable="true" tabindex="0" role="group" aria-label="Consulter ${esc(label)}" aria-keyshortcuts="Enter Space"` : `data-document-openable="false"`;
+    const menu = tileContextMenuMarkup("document", item.id, label, [
+      { key: "edit", label: "Modifier", icon: "edit" },
+      { key: "delete", label: "Supprimer", icon: "trash", danger: true }
+    ]);
+    return `<article class="content-card document-card" data-document-card="${item.id}" ${tileSemantics}><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(label)}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${compactPlace ? ` · ${esc(compactPlace)}` : ""}</p><div class="document-card-details"><p class="document-card-people">${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">Fichier optimisé : ${formatBytes(item.storedSize)}</p>` : ""}</div><div class="card-actions">${menu}</div></article>`;
   }).join("") : (documents.length
     ? emptyState({ iconName: "document", title: "Aucun document trouvé", description: "Modifiez la recherche ou le type de document sélectionné." })
     : emptyState({ iconName: "document", title: "Aucun document", description: "Centralisez ici les actes, photos et autres archives familiales.", action: `<button class="btn primary" type="button" data-empty-add-document>${icon("plus")}<span>Ajouter un document</span></button>` }));
@@ -2097,6 +2312,7 @@ async function saveDocument(event) {
   const existing = documents.find(item => item.id === id);
   const file = $("documentFile").files[0];
   const externalUrl = $("documentUrl").value.trim();
+  const removeExistingFile = !!(existing && documentFileMarkedForRemoval && !file && canSafelyRemoveStoredDocumentFile(existing));
   if (!existing && !file && !externalUrl) return toast("Choisissez un fichier ou indiquez un lien", "error");
   if (file?.size > MAX_FILE_BYTES) return toast("Le fichier dépasse 20 Mo", "error");
   if (file && file.type !== "application/pdf" && !file.type.startsWith("image/")) return toast("Choisissez un PDF ou une image", "error");
@@ -2112,7 +2328,7 @@ async function saveDocument(event) {
       date: $("documentDate").value,
       notes: $("documentNotes").value.trim(),
       externalUrl,
-      personIds: [...$("documentPeople").querySelectorAll("input:checked")].map(input => input.value),
+      personIds: documentPeoplePicker.getSelected(),
       updatedAt: serverTimestamp()
     };
     applyLocationField(data, "documentPlace", existing, !!id);
@@ -2135,10 +2351,12 @@ async function saveDocument(event) {
         data.fileUrl = deleteField();
         data.storagePath = deleteField();
       }
+    } else if (removeExistingFile) {
+      for (const field of DOCUMENT_FILE_METADATA_FIELDS) data[field] = deleteField();
     }
     if (id) await updateDoc(target, data);
     else await setDoc(target, { ...data, createdAt: serverTimestamp() });
-    if (file && existing?.chunkVersion) await deleteFileChunks(existing);
+    if ((file || removeExistingFile) && existing?.chunkVersion) await deleteFileChunks(existing);
     close("documentDialog");
     toast(`${id ? "Document mis à jour" : "Document ajouté"}${optimizationSummary ? ` · ${optimizationSummary}` : ""}`);
   } catch (error) {
@@ -2154,14 +2372,14 @@ async function saveDocument(event) {
   }
 }
 
-async function removeDocument() {
-  const id = $("documentId").value;
+async function removeDocument(id = $("documentId").value) {
   const item = documents.find(documentItem => documentItem.id === id);
-  if (!item || !confirm("Supprimer définitivement ce document ? Le fichier et ses associations aux personnes seront supprimés.")) return;
+  if (!item || !confirm("Supprimer définitivement ce document ? Le fichier et ses associations aux personnes seront supprimés.")) return false;
   await deleteFileChunks(item);
   await deleteDoc(doc(db, "documents", id));
-  close("documentDialog");
+  if ($("documentDialog").open && $("documentId").value === id) close("documentDialog");
   toast("Document supprimé");
+  return true;
 }
 
 const statusLabels = { todo: "À faire", progress: "En cours", done: "Terminée" };
@@ -2218,28 +2436,15 @@ function taskDueMatches(item, filter) {
     : true;
 }
 
-const taskMobileViewport = window.matchMedia("(max-width: 760px)");
-let taskRowPointerActivation = false;
-let taskDialogPointerReturnFocusRow = null;
-
 function syncTaskRowKeyboardAccess() {
   document.querySelectorAll("#tasksList .task-row[data-task-row]").forEach(row => {
-    if (taskMobileViewport.matches) {
-      const title = row.querySelector(".task-main h3")?.textContent || "cette action";
-      row.setAttribute("tabindex", "0");
-      row.setAttribute("role", "group");
-      row.setAttribute("aria-label", `Ouvrir l’action ${title}. Appuyez sur Entrée ou Espace.`);
-      row.setAttribute("aria-keyshortcuts", "Enter Space");
-    } else {
-      row.removeAttribute("tabindex");
-      row.removeAttribute("role");
-      row.removeAttribute("aria-label");
-      row.removeAttribute("aria-keyshortcuts");
-    }
+    const title = row.querySelector(".task-main h3")?.textContent || "cette action";
+    row.setAttribute("tabindex", "0");
+    row.setAttribute("role", "group");
+    row.setAttribute("aria-label", `Ouvrir l’action ${title}. Appuyez sur Entrée ou Espace.`);
+    row.setAttribute("aria-keyshortcuts", "Enter Space");
   });
 }
-
-taskMobileViewport.addEventListener("change", syncTaskRowKeyboardAccess);
 
 function renderTasks() {
   const query = searchable($("taskSearch").value);
@@ -2261,7 +2466,8 @@ function renderTasks() {
     const statusClass = ["todo", "progress", "done"].includes(item.status) ? item.status : "todo";
     const avatar = taskAvatarOf(item.assignee);
     const initials = esc((taskDisplayNameOf(item.assignee) || "?").split(/[\s@.]+/).slice(0, 2).map(part => part[0]?.toUpperCase() || "").join("") || "?");
-    return `<article class="task-row${late ? " is-late" : ""}${done ? " is-done" : ""}" data-task-row="${item.id}"><div class="task-main"><h3>${esc(item.title)}</h3>${(item.description || item.comments) ? `<span class="task-note">${esc(item.description || item.comments)}</span>` : ""}</div><div class="task-assignee">${avatar ? `<img class="task-avatar" src="${avatar}" alt="" loading="lazy">` : `<span class="task-avatar" aria-hidden="true">${initials}</span>`}<span class="task-assignee-name">${esc(taskDisplayNameOf(item.assignee))}</span></div><div class="task-due">${item.dueDate ? esc(new Date(item.dueDate + "T12:00:00").toLocaleDateString("fr-FR")) : "Sans date"}${late ? '<span class="task-late-flag">En retard</span>' : ""}</div><span class="task-priority badge priority-${item.priority || "medium"}">${priorityLabels[item.priority] || "Moyenne"}</span><span class="task-status task-status-${statusClass}">${statusLabels[item.status] || "À faire"}</span><div class="task-actions"><button class="btn small" type="button" data-edit-task="${item.id}">Ouvrir</button><button class="btn icon-btn small danger task-delete" type="button" data-delete-task="${item.id}" aria-label="Supprimer l’action" title="Supprimer">×</button></div></article>`;
+    const menu = tileContextMenuMarkup("task", item.id, item.title || "cette action", [{ key: "delete", label: "Supprimer", icon: "trash", danger: true }]);
+    return `<article class="task-row${late ? " is-late" : ""}${done ? " is-done" : ""}" data-task-row="${item.id}" data-primary-tile><div class="task-main"><h3>${esc(item.title)}</h3>${(item.description || item.comments) ? `<span class="task-note">${esc(item.description || item.comments)}</span>` : ""}</div><div class="task-assignee">${avatar ? `<img class="task-avatar" src="${avatar}" alt="" loading="lazy">` : `<span class="task-avatar" aria-hidden="true">${initials}</span>`}<span class="task-assignee-name">${esc(taskDisplayNameOf(item.assignee))}</span></div><div class="task-due">${item.dueDate ? esc(new Date(item.dueDate + "T12:00:00").toLocaleDateString("fr-FR")) : "Sans date"}${late ? '<span class="task-late-flag">En retard</span>' : ""}</div><span class="task-priority badge priority-${item.priority || "medium"}">${priorityLabels[item.priority] || "Moyenne"}</span><span class="task-status task-status-${statusClass}">${statusLabels[item.status] || "À faire"}</span><div class="task-actions">${menu}</div></article>`;
   }).join("") : (tasks.length
     ? emptyState({ iconName: "tasks", title: "Aucune action trouvée", description: "Modifiez la recherche ou les filtres pour afficher d’autres actions." })
     : emptyState({ iconName: "tasks", title: "Aucune action", description: "Ajoutez une action lorsque vous avez une recherche ou une démarche à suivre.", action: `<button class="btn primary" type="button" data-empty-add-task>${icon("plus")}<span>Ajouter une action</span></button>` }));
@@ -2316,15 +2522,6 @@ async function openTask(item = null) {
   $("taskDialog").showModal();
 }
 
-$("taskDialog").addEventListener("close", () => {
-  const row = taskDialogPointerReturnFocusRow;
-  taskDialogPointerReturnFocusRow = null;
-  if (!row) return;
-  requestAnimationFrame(() => {
-    if (row.isConnected && document.activeElement === row) row.blur();
-  });
-});
-
 async function saveTask(event) {
   event.preventDefault();
   const submitButton = event.submitter;
@@ -2339,13 +2536,16 @@ async function saveTask(event) {
   }, "Enregistrement de l’action impossible"));
 }
 
-async function removeTask() {
-  const id = $("taskId").value;
-  if (!id || !confirm("Supprimer définitivement cette action ? Cette action ne peut pas être annulée.")) return;
+async function removeTaskById(id, closeDialog = false) {
+  if (!id || !confirm("Supprimer définitivement cette action ? Cette action ne peut pas être annulée.")) return false;
   await deleteDoc(doc(db, "tasks", id));
-  close("taskDialog");
+  if (closeDialog && $("taskDialog").open && $("taskId").value === id) close("taskDialog");
   toast("Action supprimée");
+  return true;
 }
+
+async function removeTask() { return removeTaskById($("taskId").value, true); }
+async function removeTaskFromList(id) { return removeTaskById(id, false); }
 
 /* ============================================================
    Démarches : dossiers de suivi + chronologie des actions.
@@ -2364,15 +2564,9 @@ function shortUpdatedAt(item) {
   return "Mise à jour : " + item.updatedAt.toDate().toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
 }
 
-/* Multisélection de personnes du dossier : recherche sur le tableau
-   `people` déjà en mémoire (aucune requête Firestore par caractère),
-   insensible à la casse et aux accents, partielle, compatible legacy
-   (marriedName/branch pris en charge), 8 résultats maximum.
-   L'algorigramme recherché ne démarre qu'à partir de 2 caractères :
-   0 ou 1 caractère → aucune suggestion (les lettres uniques filtreraient
-   trop de monde avec la recherche multi-propriétés). */
-const DOSSIER_PEOPLE_MAX_RESULTS = 8;
-let dossierChips = new Set(), dossierHighlight = -1, dossierResults = [];
+/* Sélecteur partagé Documents/Démarches : recherche uniquement en mémoire,
+   insensible aux accents, avec 8 suggestions au maximum. */
+const PERSON_PICKER_MAX_RESULTS = 8;
 
 function peopleSortedList() {
   return [...treePeople()].sort(comparePeopleBySurname);
@@ -2391,73 +2585,40 @@ function personSuggestionLabel(item) {
   return [`${name}${dates ? ` · ${dates}` : ""}`, item.branch ? `Branche ${item.branch}` : ""].filter(Boolean);
 }
 
-function dossierPeopleMatches(query = "") {
+function personPickerMatches(query = "", selectedIds, source) {
   const text = searchable(query);
-  /* 0 ou 1 caractère : aucune suggestion, liste fermée. */
   if (text.length < DOSSIER_MIN_QUERY_LENGTH) return [];
-  const pool = peopleSortedList().filter(item => !dossierChips.has(item.id));
-  return pool.filter(item => searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.branch || ""}`).includes(text));
+  return source()
+    .filter(item => !selectedIds.has(item.id))
+    .filter(item => searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.branch || ""}`).includes(text))
+    .slice(0, PERSON_PICKER_MAX_RESULTS);
 }
 
-function renderDossierPeopleChips() {
-  $("dossierPeopleChips").innerHTML = [...dossierChips].map(id => `<span class="person-multiselect-chip"><span class="person-multiselect-chip-label">${esc(nameOf(id))}</span><button class="person-multiselect-chip-remove" type="button" data-remove-dossier-person="${esc(id)}" aria-label="Retirer ${esc(nameOf(id))} de la sélection">×</button></span>`).join("");
+function createAppPersonPicker(kind) {
+  const prefix = kind === "document" ? "document" : "dossier";
+  const source = kind === "document"
+    ? () => people.slice().sort(comparePeopleBySurname)
+    : peopleSortedList;
+  return createPersonMultiSelect({
+    kind,
+    root: $(`${prefix}PeopleList`),
+    input: $(`${prefix}PeopleInput`),
+    chips: $(`${prefix}PeopleChips`),
+    results: $(`${prefix}PeopleResults`),
+    dialog: $(`${prefix}Dialog`),
+    minQueryLength: DOSSIER_MIN_QUERY_LENGTH,
+    findMatches: (query, selectedIds) => personPickerMatches(query, selectedIds, source),
+    suggestionFor: item => {
+      const [label, context] = personSuggestionLabel(item);
+      return { label, context };
+    },
+    nameFor: nameOf,
+    escapeHtml: esc
+  });
 }
 
-function renderDossierPeopleResults(results = dossierResults, focusIndex = dossierHighlight) {
-  const container = $("dossierPeopleResults");
-  if (!results.length) {
-    container.hidden = true;
-    $("dossierPeopleInput").setAttribute("aria-expanded", "false");
-    return;
-  }
-  container.innerHTML = results.map((item, index) => {
-    const [label, context] = personSuggestionLabel(item);
-    return `<button class="person-multiselect-result${index === focusIndex ? " is-active" : ""}" type="button" role="option" aria-selected="${index === focusIndex ? "true" : "false"}" data-add-dossier-person="${esc(item.id)}" tabindex="-1"><span class="person-multiselect-result-name">${esc(label)}</span>${context ? `<span class="person-multiselect-result-context">${esc(context)}</span>` : ""}</button>`;
-  }).join("");
-  container.hidden = false;
-  $("dossierPeopleInput").setAttribute("aria-expanded", "true");
-}
-
-function closeDossierPeopleResults() {
-  dossierResults = [];
-  dossierHighlight = -1;
-  renderDossierPeopleResults([], -1);
-}
-
-function openDossierPeopleResults() {
-  if (searchable($("dossierPeopleInput").value).length < DOSSIER_MIN_QUERY_LENGTH) {
-    closeDossierPeopleResults();
-    return;
-  }
-  dossierResults = dossierPeopleMatches($("dossierPeopleInput").value);
-  dossierHighlight = dossierResults.length ? 0 : -1;
-  renderDossierPeopleResults();
-}
-
-function addDossierPerson(id) {
-  if (!id || dossierChips.has(id)) return;
-  dossierChips.add(id);
-  renderDossierPeopleChips();
-  $("dossierPeopleInput").value = "";
-  closeDossierPeopleResults();
-  $("dossierPeopleInput").focus();
-}
-
-function removeDossierPerson(id) {
-  dossierChips.delete(id);
-  renderDossierPeopleChips();
-}
-
-function dossierSelectedPeople() {
-  return [...dossierChips];
-}
-
-function activateDossierPeopleKey(delta) {
-  if (!dossierResults.length) return;
-  dossierHighlight = (dossierHighlight + delta + dossierResults.length) % dossierResults.length;
-  renderDossierPeopleResults();
-  $("dossierPeopleResults").querySelectorAll("[data-add-dossier-person]")[dossierHighlight]?.focus();
-}
+const documentPeoplePicker = createAppPersonPicker("document");
+const dossierPeoplePicker = createAppPersonPicker("dossier");
 
 function procedureCard(item) {
   const closed = isProcedureClosed(item.status);
@@ -2465,7 +2626,8 @@ function procedureCard(item) {
   const contextParts = [];
   if (persons.length) contextParts.push(`Personnes : ${persons.join(", ")}`);
   if (item.nextAction) contextParts.push(`Prochaine action : ${item.nextAction}${item.nextActionDate ? ` (${formatShortDate(item.nextActionDate)})` : ""}`);
-  return `<article class="procedure-item" tabindex="0" role="button" data-open-dossier="${item.id}" aria-label="Ouvrir la démarche ${esc(item.title)}"><span class="procedure-updated">${shortUpdatedAt(item)}</span><div><h3 class="procedure-title">${esc(item.title)}</h3><span class="procedure-tags"><span class="procedure-tag">${esc(procedureTypeLabel(item.type))}</span></span></div><span class="procedure-organization">${esc([item.organization, item.service || "", item.contactName || ""].filter(Boolean).join(" · "))}</span><span class="procedure-context">${esc(contextParts.join(" — "))}</span><span class="procedure-tags"><span class="procedure-tag procedure-status${closed ? " is-closed" : ""}">${esc(procedureStatusLabel(item.status))}</span></span><button class="btn small" type="button" data-open-dossier="${item.id}">Consulter</button></article>`;
+  const menu = tileContextMenuMarkup("procedure", item.id, item.title, [{ key: "edit", label: "Modifier", icon: "edit" }]);
+  return `<article class="procedure-item" tabindex="0" role="group" data-primary-tile data-procedure-card="${item.id}" aria-label="Consulter la démarche ${esc(item.title)}" aria-keyshortcuts="Enter Space"><span class="procedure-updated">${shortUpdatedAt(item)}</span><div><h3 class="procedure-title">${esc(item.title)}</h3><span class="procedure-tags"><span class="procedure-tag">${esc(procedureTypeLabel(item.type))}</span></span></div><span class="procedure-organization">${esc([item.organization, item.service || "", item.contactName || ""].filter(Boolean).join(" · "))}</span><span class="procedure-context">${esc(contextParts.join(" — "))}</span><div class="procedure-tags procedure-item-status"><span class="procedure-tag procedure-status${closed ? " is-closed" : ""}">${esc(procedureStatusLabel(item.status))}</span>${menu}</div></article>`;
 }
 
 // Date AAAA-MM-JJ affichée en format français court.
@@ -2480,7 +2642,7 @@ function renderProcedures() {
     status: $("dossierStatusFilter").value
   }, query, nameOf);
   $("proceduresList").innerHTML = filtered.length
-    ? `<div class="procedure-head-row" aria-hidden="true"><span>Mise à jour</span><span>Dossier</span><span>Organisme</span><span>Contexte ou liens</span><span>Statut</span><span>Ouvrir</span></div>${filtered.map(procedureCard).join("")}`
+    ? `<div class="procedure-head-row" aria-hidden="true"><span>Mise à jour</span><span>Dossier</span><span>Organisme</span><span>Contexte ou liens</span><span>Statut</span></div>${filtered.map(procedureCard).join("")}`
     : (procedures.length
       ? emptyState({ iconName: "procedures", title: "Aucune démarche trouvée", description: "Modifiez la recherche ou les filtres pour afficher d’autres dossiers." })
       : emptyState({ iconName: "procedures", title: "Aucune démarche", description: "Créez un dossier pour suivre une recherche, une correspondance ou un rendez-vous.", action: `<button class="btn primary" type="button" data-empty-add-dossier>${icon("plus")}<span>Nouvelle démarche</span></button>` }));
@@ -2500,10 +2662,7 @@ function openDossierForm(item = null) {
   $("dossierEmail").value = item?.email || "";
   $("dossierPhone").value = item?.phone || "";
   $("dossierPlace").value = item?.place || "";
-  dossierChips = new Set(item?.personIds || []);
-  renderDossierPeopleChips();
-  closeDossierPeopleResults();
-  $("dossierPeopleInput").value = "";
+  dossierPeoplePicker.setSelected(item?.personIds || []);
   $("dossierNextAction").value = item?.nextAction || "";
   $("dossierNextActionDate").value = dossierEditDate(item?.nextActionDate);
   $("dossierNotes").value = item?.notes || "";
@@ -2517,7 +2676,7 @@ async function saveDossier(event) {
   const submitButton = event.submitter;
   const id = $("dossierId").value;
   const data = Object.fromEntries(dossierFields.map(key => [key, $("dossier" + key[0].toUpperCase() + key.slice(1)).value.trim()]));
-  data.personIds = dossierSelectedPeople();
+  data.personIds = dossierPeoplePicker.getSelected();
   data.updatedAt = serverTimestamp();
   data.updatedBy = auth.currentUser?.uid || "";
   data.updatedByName = currentUserProfile?.displayName || "";
@@ -3190,19 +3349,8 @@ $("personForm").addEventListener("submit", async event => {
 });
 $("personForm").addEventListener("invalid", () => setPersonSection("identity"), true);
 
-$("deleteBtn").onclick = async () => {
-  const id = $("personId").value;
-  if (!id) return;
-  if (personDialogSource === "tree") {
-    if (!confirm("Retirer cette personne de l’arbre ? Sa fiche et ses liens resteront disponibles dans l’annuaire.")) return;
-    await updateDoc(doc(db, "people", id), { inTree: false, updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.uid || "", updatedByName: currentUserProfile?.displayName || "" });
-    delete manualOffsets[id];
-    saveOffsets();
-    close("personDialog");
-    toast("Personne retirée de l’arbre, fiche conservée dans l’annuaire");
-    return;
-  }
-  if (!confirm("Supprimer définitivement cette personne ? Elle sera aussi retirée de l’arbre et de tous ses liens familiaux.")) return;
+async function removeDirectoryPersonPermanently(id) {
+  if (!id || !confirm("Supprimer définitivement cette personne ? Elle sera aussi retirée de l’arbre et de tous ses liens familiaux.")) return false;
   const batch = writeBatch(db);
   batch.delete(doc(db, "people", id));
   for (const family of families) {
@@ -3221,8 +3369,25 @@ $("deleteBtn").onclick = async () => {
   await batch.commit();
   delete manualOffsets[id];
   saveOffsets();
-  close("personDialog");
+  if ($("personDialog").open && $("personId").value === id) close("personDialog");
+  else if (activeId === id) { activeId = null; renderer.setActive(null); }
   toast("Personne supprimée");
+  return true;
+}
+
+$("deleteBtn").onclick = async () => {
+  const id = $("personId").value;
+  if (!id) return;
+  if (personDialogSource === "tree") {
+    if (!confirm("Retirer cette personne de l’arbre ? Sa fiche et ses liens resteront disponibles dans l’annuaire.")) return;
+    await updateDoc(doc(db, "people", id), { inTree: false, updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.uid || "", updatedByName: currentUserProfile?.displayName || "" });
+    delete manualOffsets[id];
+    saveOffsets();
+    close("personDialog");
+    toast("Personne retirée de l’arbre, fiche conservée dans l’annuaire");
+    return;
+  }
+  await removeDirectoryPersonPermanently(id);
 };
 
 $("restoreTreeBtn").onclick = async () => {
@@ -3300,28 +3465,39 @@ document.addEventListener("keydown", event => {
 });
 
 $("documentsList").onclick = event => {
-  const openButton = event.target.closest("[data-open-document]");
-  const editButton = event.target.closest("[data-edit-document]");
-  if (openButton) {
-    const item = documents.find(value => value.id === openButton.dataset.openDocument);
-    openStoredDocument(item);
-  }
-  if (editButton) openDocument(documents.find(value => value.id === editButton.dataset.editDocument));
+  const tile = event.target.closest(".document-card[data-document-card][data-document-openable='true']");
+  if (!tile || event.target.closest("button, a, input, select, textarea, summary, .tile-context-actions")) return;
+  const item = documents.find(value => value.id === tile.dataset.documentCard);
+  if (!item) return;
+  preparePrimaryTileActivation(event, tile, $("documentViewerDialog"));
+  openStoredDocument(item);
 };
+$("documentsList").addEventListener("keydown", event => {
+  const tile = event.target.closest(".document-card[data-document-card][data-document-openable='true']");
+  if (!tile || event.target !== tile || !["Enter", " "].includes(event.key)) return;
+  pendingPrimaryTilePointer = null;
+  primaryTileFocusReturn.delete($("documentViewerDialog"));
+  event.preventDefault();
+  openStoredDocument(documents.find(value => value.id === tile.dataset.documentCard));
+});
 
 $("directoryList").addEventListener("click", event => {
+  if (event.target.closest(".tile-context-actions")) return;
   const documentsButton = event.target.closest("[data-directory-documents]");
   if (documentsButton) return openDirectoryDocuments(documentsButton.dataset.directoryDocuments);
-  const openButton = event.target.closest("[data-directory-open-person]");
-  if (openButton) return openPerson(person(openButton.dataset.directoryOpenPerson), "directory");
   const entry = event.target.closest("[data-directory-person]");
-  if (entry) openPerson(person(entry.dataset.directoryPerson), "directory");
+  if (entry && !event.target.closest("button, a, input, select, textarea, summary, .tile-context-actions")) {
+    preparePrimaryTileActivation(event, entry, $("personDialog"));
+    openPerson(person(entry.dataset.directoryPerson), "directory");
+  }
 });
 $("directoryList").addEventListener("keydown", event => {
   if (event.key !== "Enter" && event.key !== " ") return;
   if (event.target.closest("button")) return;
   const entry = event.target.closest("[data-directory-person]");
-  if (!entry) return;
+  if (!entry || event.target !== entry) return;
+  pendingPrimaryTilePointer = null;
+  primaryTileFocusReturn.delete($("personDialog"));
   event.preventDefault();
   openPerson(person(entry.dataset.directoryPerson), "directory");
 });
@@ -3355,50 +3531,18 @@ $("directoryAlphabet").addEventListener("click", event => {
 });
 
 $("tasksList").onclick = async event => {
-  const deleteTrigger = event.target.closest("[data-delete-task]");
-  if (deleteTrigger) {
-    event.preventDefault();
-    event.stopPropagation();
-    taskRowPointerActivation = false;
-    taskDialogPointerReturnFocusRow = null;
-    const id = deleteTrigger.dataset.deleteTask;
-    if (id && confirm("Supprimer définitivement cette action ? Cette action ne peut pas être annulée.")) {
-      await runSafely(async () => {
-        await deleteDoc(doc(db, "tasks", id));
-        toast("Action supprimée");
-      }, "Suppression de l’action impossible");
-    }
-    return;
-  }
-  const editButton = event.target.closest("[data-edit-task]");
-  const completeButton = event.target.closest("[data-complete-task]");
-  if (editButton) {
-    openTaskById(editButton.dataset.editTask);
-    return;
-  }
-  if (completeButton) await withButtonPending(completeButton, () => runSafely(() => updateDoc(doc(db, "tasks", completeButton.dataset.completeTask), { status: "done", updatedAt: serverTimestamp() }), "Mise à jour de la tâche impossible"), "Mise à jour…");
   const row = event.target.closest(".task-row[data-task-row]");
-  if (taskMobileViewport.matches && row && !event.target.closest("button, a, input, select, textarea, summary, [contenteditable='true']")) {
-    const pointerActivated = taskRowPointerActivation || event.detail > 0;
-    taskRowPointerActivation = false;
-    taskDialogPointerReturnFocusRow = pointerActivated ? row : null;
-    if (pointerActivated) {
-      event.preventDefault();
-      if (row.contains(document.activeElement)) document.activeElement.blur();
-    }
+  if (row && !event.target.closest("button, a, input, select, textarea, summary, [contenteditable='true'], .tile-context-actions")) {
+    preparePrimaryTileActivation(event, row, $("taskDialog"));
     openTaskById(row.dataset.taskRow);
   }
 };
 
-$("tasksList").addEventListener("pointerdown", event => {
-  taskRowPointerActivation = taskMobileViewport.matches && !!event.target.closest(".task-row[data-task-row]");
-}, true);
-
 $("tasksList").onkeydown = event => {
   const row = event.target.closest(".task-row[data-task-row][tabindex='0']");
-  if (!taskMobileViewport.matches || !row || event.target !== row || !["Enter", " "].includes(event.key)) return;
-  taskRowPointerActivation = false;
-  taskDialogPointerReturnFocusRow = null;
+  if (!row || event.target !== row || !["Enter", " "].includes(event.key)) return;
+  pendingPrimaryTilePointer = null;
+  primaryTileFocusReturn.delete($("taskDialog"));
   event.preventDefault();
   openTaskById(row.dataset.taskRow);
 };
@@ -3645,6 +3789,17 @@ $("linkDocumentBtn").onclick = () => {
 };
 $("addDocumentBtn").onclick = () => openDocument();
 $("documentForm").addEventListener("submit", saveDocument);
+$("documentFile").addEventListener("change", () => renderDocumentFileState());
+$("removeCurrentDocumentFileBtn").onclick = () => {
+  const item = documents.find(documentItem => documentItem.id === $("documentId").value);
+  if (!canSafelyRemoveStoredDocumentFile(item)) return;
+  documentFileMarkedForRemoval = true;
+  renderDocumentFileState(item);
+};
+$("restoreCurrentDocumentFileBtn").onclick = () => {
+  documentFileMarkedForRemoval = false;
+  renderDocumentFileState();
+};
 $("deleteDocumentBtn").onclick = () => runSafely(removeDocument, "Suppression du document impossible");
 $("documentDialog").addEventListener("close", () => {
   const context = documentReturnContext;
@@ -3713,8 +3868,18 @@ $("procedureDetailDialog").addEventListener("close", closeProcedureActionUnsub);
 $("proceduresList").addEventListener("click", event => {
   const emptyAdd = event.target.closest("[data-empty-add-dossier]");
   if (emptyAdd) return openDossierForm();
-  const trigger = event.target.closest("[data-open-dossier]");
-  if (trigger) openProcedureDetail(trigger.dataset.openDossier);
+  const tile = event.target.closest(".procedure-item[data-procedure-card]");
+  if (!tile || event.target.closest("button, a, input, select, textarea, summary, .tile-context-actions")) return;
+  preparePrimaryTileActivation(event, tile, $("procedureDetailDialog"));
+  openProcedureDetail(tile.dataset.procedureCard);
+});
+$("proceduresList").addEventListener("keydown", event => {
+  const tile = event.target.closest(".procedure-item[data-procedure-card][tabindex='0']");
+  if (!tile || event.target !== tile || !["Enter", " "].includes(event.key)) return;
+  pendingPrimaryTilePointer = null;
+  primaryTileFocusReturn.delete($("procedureDetailDialog"));
+  event.preventDefault();
+  openProcedureDetail(tile.dataset.procedureCard);
 });
 $("addActionBtn").onclick = () => openProcedureAction();
 $("procedureActionForm").addEventListener("submit", saveProcedureAction);
@@ -3727,47 +3892,6 @@ $("procedureTimeline").addEventListener("click", event => {
   if (del) return removeProcedureAction(del.dataset.removeProcedureAction);
   const toggle = event.target.closest("[data-toggle-email-action]");
   if (toggle) return toggleEmailFullBlock(toggle.dataset.toggleEmailAction);
-});
-$("dossierPeopleInput").addEventListener("input", openDossierPeopleResults);
-$("dossierPeopleInput").addEventListener("focus", openDossierPeopleResults);
-$("dossierPeopleInput").addEventListener("keydown", event => {
-  if (event.key === "Escape" && !$("dossierPeopleResults").hidden) {
-    event.preventDefault();
-    event.stopPropagation();
-    closeDossierPeopleResults();
-    return;
-  }
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
-    activateDossierPeopleKey(1);
-    return;
-  }
-  if (event.key === "ArrowUp") {
-    event.preventDefault();
-    activateDossierPeopleKey(-1);
-    return;
-  }
-  if (event.key === "Enter") {
-    if (!dossierResults.length) return;
-    event.preventDefault();
-    addDossierPerson(dossierResults[dossierHighlight]?.id);
-  }
-});
-$("dossierPeopleList").addEventListener("click", event => {
-  const add = event.target.closest("[data-add-dossier-person]");
-  if (add) return addDossierPerson(add.dataset.addDossierPerson);
-  const remove = event.target.closest("[data-remove-dossier-person]");
-  if (remove) return removeDossierPerson(remove.dataset.removeDossierPerson);
-});
-document.addEventListener("click", event => {
-  if (!$("dossierPeopleResults") || $("dossierPeopleResults").hidden) return;
-  if (!event.target.closest("#dossierPeopleList")) closeDossierPeopleResults();
-});
-/* Safari/Chrome : un Escape pendant que les résultats sont ouverts ne doit
-   pas fermer toute la modale de démarche. */
-$("dossierDialog").addEventListener("cancel", event => {
-  const input = $("dossierPeopleInput");
-  if (document.activeElement === input && !$("dossierPeopleResults").hidden) event.preventDefault();
 });
 $("clearDossierSearchBtn").onclick = () => {
   $("dossierSearch").value = "";

@@ -482,10 +482,18 @@
 <label>Date du document<input class="field" id="documentDate" type="date"></label>
 <label class="wide">Lieu<input class="field" id="documentPlace" maxlength="140" autocomplete="off" autocapitalize="words"></label>
 <header class="form-section-heading wide"><h4>Source du document</h4><p>Ajoutez un fichier ou, à défaut, une adresse permettant de le consulter.</p></header>
-<label class="wide">Fichier PDF ou image<input class="field" id="documentFile" type="file" accept=".pdf,application/pdf,image/*"><span class="file-note" id="currentDocumentFile">Les images sont automatiquement optimisées en haute qualité. Les PDF restent inchangés pour préserver leur lisibilité.</span></label>
+<div class="wide document-file-field"><span class="document-file-title">Fichier PDF ou image</span><label class="document-file-drop" for="documentFile"><input class="field sr-only" id="documentFile" type="file" accept=".pdf,application/pdf,image/*" aria-label="Fichier PDF ou image"><span class="photo-picker document-file-picker">Choisir un fichier</span><span class="document-file-formats">PDF ou image</span></label></div>
+<div class="wide document-current-file" id="documentCurrentFileArea" hidden><span class="document-current-file-title">Fichier actuel</span><div class="document-current-file-row"><span class="file-note" id="currentDocumentFile"></span><button class="document-file-remove" type="button" id="removeCurrentDocumentFileBtn" aria-label="Retirer le fichier actuel" title="Retirer le fichier actuel">×</button><button class="btn small" type="button" id="restoreCurrentDocumentFileBtn" hidden>Rétablir</button></div><p class="document-file-removal-note" id="documentFileRemovalNote" role="status" hidden>Le fichier actuel sera retiré lors de l’enregistrement.</p><p class="document-file-removal-note" id="documentFileRemovalUnavailable" role="status" hidden>Le retrait de ce fichier n’est pas disponible de façon sûre.</p></div>
+<div class="wide document-selected-file" id="documentSelectedFileArea" hidden><span id="documentSelectedFileText"></span></div>
 <label class="wide">Ou lien vers le document<input class="field" id="documentUrl" type="url" placeholder="https://…" inputmode="url" autocomplete="url" autocapitalize="none" spellcheck="false"><span class="file-note">Vous pouvez utiliser un lien Google Drive, Dropbox ou vers une archive en ligne.</span></label>
-<header class="form-section-heading wide"><h4>Association et notes</h4><p>Un document peut concerner plusieurs personnes.</p></header>
-<div class="wide"><label>Personnes concernées</label><div class="checkbox-list" id="documentPeople"></div></div>
+<header class="form-section-heading wide"><h4>Personnes éventuellement liées</h4><p>Facultatif : un document peut concerner aucune, une ou plusieurs personnes de l’arbre.</p></header>
+<div class="person-multiselect wide" id="documentPeopleList" data-multiselect-people>
+<label class="sr-only" for="documentPeopleInput">Personnes éventuellement liées</label>
+<div class="person-multiselect-chips" id="documentPeopleChips"></div>
+<input class="field" id="documentPeopleInput" type="text" role="combobox" aria-expanded="false" aria-controls="documentPeopleResults" aria-autocomplete="list" aria-describedby="documentPeopleHint" placeholder="Rechercher une personne…" autocomplete="off" autocapitalize="none" enterkeyhint="search">
+<div class="person-multiselect-results" id="documentPeopleResults" role="listbox" aria-label="Personnes correspondant à la recherche" hidden></div>
+<p class="sr-only" id="documentPeopleHint">Personnes éventuellement liées — champ facultatif.</p>
+</div>
 <label class="wide">Notes<textarea class="field" id="documentNotes" rows="3" maxlength="1200" autocapitalize="sentences"></textarea></label>
 </div><div class="upload-progress" id="documentProgress" role="status" aria-live="polite"></div></div><div class="modal-actions"><button class="btn danger" type="button" id="deleteDocumentBtn" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-trash"></use></svg><span>Supprimer</span></button><div class="right"><button class="btn" type="button" data-close="documentDialog">Annuler</button><button class="btn primary" type="submit" id="saveDocumentBtn">Enregistrer</button></div></div></form>
 </dialog>
