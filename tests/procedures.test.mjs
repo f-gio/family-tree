@@ -147,8 +147,8 @@ test("le mode mobile comporte cinq colonnes de navigation", () => {
 
 test("la vue Démarches possède une structure complète", () => {
   assert.ok(html.includes('id="dossiersView"'));
-  assert.ok(html.includes("<h2>Démarches</h2>"));
-  assert.match(html, /<h2>Démarches<\/h2>\s*<p>Centralisez vos recherches/);
+  assert.ok(html.includes('<h2 class="page-title">Démarches</h2>'));
+  assert.match(html, /<h2 class="page-title">Démarches<\/h2>\s*<p>Centralisez vos recherches/);
   assert.match(html, /id="addDossierBtn"[^>]*>￼?/);
   assert.ok(html.includes('<span>Nouvelle démarche</span></button>'));
   assert.match(html, /id="dossierSearch"[^>]*type="text"/, "recherche sans type=native-search");
@@ -172,6 +172,9 @@ test("le formulaire dossier couvre les sections demandées", () => {
   assert.match(html, /id="dossierTitle" required/);
   assert.match(html, /id="dossierForm"/);
   assert.match(html, /id="deleteDossierBtn" hidden/);
+  const openDossierForm = app.slice(app.indexOf("function openDossierForm("), app.indexOf("\n}", app.indexOf("function openDossierForm(")) + 2);
+  assert.match(openDossierForm, /\$\("deleteDossierBtn"\)\.hidden = true;/);
+  assert.doesNotMatch(html.slice(html.indexOf('<dialog class="modal-dossier"'), html.indexOf("</dialog>", html.indexOf('<dialog class="modal-dossier"'))), /id="dossierMenuBtn"/);
 });
 
 test("la sélection des personnes est une recherche multisélection accessible", () => {
@@ -325,9 +328,19 @@ test("la vue détaillée présente titre, suivi, chronologie et bouton d'action"
   assert.ok(html.includes('id="procedureTimeline"'));
   assert.ok(html.includes('<span>Ajouter une action</span>'));
   assert.ok(html.includes('id="procedureActionForm"'));
-  assert.ok(html.includes('id="deleteProcedureActionBtn" hidden'));
+  assert.ok(html.includes('id="deleteProcedureActionBtn" role="menuitem" hidden'));
   assert.ok(html.includes('id="procedureActionDirection"'));
   assert.ok(html.includes('id="procedureActionAuthor"'));
+  assert.match(html, /id="procedureActionMenuBtn"[^>]*hidden/);
+  assert.match(html, /id="procedureActionMenu" role="menu"[^>]*hidden[\s\S]*?id="deleteProcedureActionBtn" role="menuitem" hidden/);
+  const footer = html.slice(html.indexOf('class="modal-actions modal-form-actions"', html.indexOf('id="procedureActionForm"')), html.indexOf("</form>", html.indexOf('id="procedureActionForm"')));
+  assert.doesNotMatch(footer, /deleteProcedureActionBtn/);
+});
+
+test("la suppression d’une action de chronologie ne cible que son document feuille", () => {
+  const remove = app.slice(app.indexOf("async function removeProcedureAction("), app.indexOf("\n}", app.indexOf("async function removeProcedureAction(")) + 2);
+  assert.match(remove, /deleteDoc\(doc\(db, "procedures", activeDossierId, "actions", id\)\)/);
+  assert.doesNotMatch(remove, /deleteCollection|recursiveDelete|deleteDoc\(doc\(db, "procedures", activeDossierId\)/);
 });
 
 test("aucun sujet de démarche n'est intrusif dans la modale Personne publiée", () => {

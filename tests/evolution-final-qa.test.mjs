@@ -13,7 +13,7 @@ test("la modale Personne conserve sa variante large, ses onglets et son footer",
   for (const section of ["identity", "relations", "documents"]) {
     assert.match(html, new RegExp(`data-person-section="${section}"`));
   }
-  assert.match(html, /class="modal-actions person-actions"/);
+  assert.match(html, /class="modal-actions modal-form-actions person-actions"/);
   assert.match(css, /dialog\.modal-xl\s*\{\s*width:\s*min\(var\(--modal-xl\), calc\(100% - 3rem\)\)/);
   assert.match(css, /\.person-modal-form[\s\S]*?overflow:\s*hidden/);
   assert.match(css, /\.person-section-panel[\s\S]*?overflow:\s*auto/);

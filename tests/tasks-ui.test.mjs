@@ -11,20 +11,6 @@ const [html, css, app] = await Promise.all([
   readFile(new URL("js/app.js", root), "utf8")
 ]);
 
-function mediaBlockContaining(source, marker, query = "@media (max-width: 760px)") {
-  const markerIndex = source.indexOf(marker);
-  assert.notEqual(markerIndex, -1, `Règle absente : ${marker}`);
-  const start = source.lastIndexOf(query, markerIndex);
-  assert.notEqual(start, -1, `Bloc responsive absent pour : ${marker}`);
-  const open = source.indexOf("{", start);
-  let depth = 0;
-  for (let index = open; index < source.length; index++) {
-    if (source[index] === "{") depth++;
-    if (source[index] === "}" && --depth === 0) return source.slice(start, index + 1);
-  }
-  assert.fail(`Bloc CSS non fermé pour : ${marker}`);
-}
-
 test("Actions : filtres Statut, Responsable et Échéance sont uniques", () => {
   for (const id of ["taskStatusFilter", "taskAssigneeFilter", "taskDueFilter"]) {
     assert.equal((html.match(new RegExp(`id="${id}"`, "g")) || []).length, 1, `${id} doit apparaître une fois`);
@@ -84,14 +70,14 @@ test("Actions : chaque ligne est une tuile séparée sans séparateur interne", 
   assert.match(css, /#tasksList \.task-row \.task-actions \{\s*grid-column: 6 \/ 8;/);
 });
 
-test("Footer mobile de la modale Action : boutons présents, rangée finale en deux colonnes", () => {
+test("Footer modale Action : deux décisions dans le footer, suppression dans le menu du header", () => {
   const modal = html.slice(html.indexOf('<dialog class="modal-md" id="taskDialog"'), html.indexOf("</dialog>", html.indexOf('<dialog class="modal-md" id="taskDialog"')));
-  assert.match(modal, /id="deleteTaskBtn"[^>]*hidden/);
-  assert.match(modal, />Annuler<\/button>/);
-  assert.match(modal, />Enregistrer<\/button>/);
-  const mobile = mediaBlockContaining(css, "#taskDialog .modal-actions");
-  assert.match(mobile, /#taskDialog \.modal-actions \{\s*display: grid;/);
-  assert.match(mobile, /#taskDialog \.modal-actions > #deleteTaskBtn \{\s*grid-column: 1 \/ -1;[\s\S]*?min-height: var\(--control-touch\);/);
-  assert.match(mobile, /#taskDialog \.modal-actions > \.right \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
-  assert.match(mobile, /#taskDialog \.modal-actions \.right \.btn \{[\s\S]*?min-height: var\(--control-touch\);/);
+  assert.match(modal, /id="taskMenuBtn"[^>]*aria-haspopup="menu"[^>]*hidden/);
+  assert.match(modal, /id="taskActionMenu" role="menu"[^>]*hidden/);
+  assert.match(modal, /id="deleteTaskBtn" role="menuitem" hidden/);
+  const footer = modal.slice(modal.indexOf('class="modal-actions modal-form-actions"'));
+  assert.doesNotMatch(footer, /deleteTaskBtn/);
+  assert.match(footer, />Annuler<\/button>[\s\S]*?>Enregistrer<\/button>/);
+  assert.match(css, /\.modal-form-actions \.right \.btn \{\s*width: 100%;\s*min-height: var\(--control-touch\);/);
+  assert.match(css, /\.modal-form-actions \.right \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
 });

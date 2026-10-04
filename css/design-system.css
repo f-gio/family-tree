@@ -908,35 +908,6 @@ dialog.modal-md { width: min(var(--modal-md), calc(100% - 1.75rem)); }
   #taskDialog .modal-scroll {
     overflow-x: clip;
   }
-  #taskDialog .modal-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: var(--space-2);
-    align-items: stretch;
-  }
-  #taskDialog .modal-actions > #deleteTaskBtn {
-    grid-column: 1 / -1;
-    width: 100%;
-    min-width: 0;
-    min-height: var(--control-touch);
-    margin: 0;
-    justify-content: flex-start;
-  }
-  #taskDialog .modal-actions > .right {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
-    min-width: 0;
-    margin: 0;
-    gap: var(--space-2);
-  }
-  #taskDialog .modal-actions .right .btn {
-    width: 100%;
-    min-width: 0;
-    min-height: var(--control-touch);
-    white-space: normal;
-  }
 }
 dialog.modal-lg { width: min(var(--modal-lg), calc(100% - 1.75rem)); }
 
@@ -1271,8 +1242,10 @@ dialog[open] {
 /* Fiche Personne : titre + métadonnée de modification, actions (⋯ puis X)
    alignées sur une seule ligne, menu contextuel sous le bouton ⋯. */
 .person-head { z-index: 3; padding-bottom: var(--space-2); }
-.person-head-actions {
+.person-head-actions,
+.modal-head-actions {
   position: relative;
+  z-index: 3;
   display: flex;
   align-items: flex-start;
   gap: var(--space-1);
@@ -1282,7 +1255,8 @@ dialog[open] {
 /* Mobile-first : la variante courte est la valeur par défaut (toujours rendue
    sous le nom), la variante longue n'arrive qu'au-delà du breakpoint. */
 .person-dialog-meta .meta-long { display: none; }
-.person-action-menu {
+.person-action-menu,
+.modal-action-menu {
   position: absolute;
   top: calc(100% + var(--space-1));
   right: 0;
@@ -1300,11 +1274,14 @@ dialog[open] {
   background: var(--color-surface);
   box-shadow: var(--shadow-dialog);
 }
-.person-action-menu .btn { min-height: var(--control-touch); width: 100%; justify-content: flex-start; border: 0; background: transparent; color: var(--color-text); text-align: left; }
-.person-action-menu .btn:hover { background: var(--color-brand-soft); }
+.person-action-menu .btn,
+.modal-action-menu .btn { min-height: var(--control-touch); width: 100%; justify-content: flex-start; border: 0; background: transparent; color: var(--color-text); text-align: left; }
+.person-action-menu .btn:hover,
+.modal-action-menu .btn:hover { background: var(--color-brand-soft); }
 .person-action-menu .btn.tertiary { color: var(--color-text); }
 .person-action-menu .btn.tertiary:hover { color: var(--color-brand); }
-.person-action-menu .btn.danger:hover { background: var(--color-danger-soft); color: var(--color-danger-hover); }
+.person-action-menu .btn.danger:hover,
+.modal-action-menu .btn.danger:hover { background: var(--color-danger-soft); color: var(--color-danger-hover); }
 .person-menu-sep { margin: var(--space-1) 0; border: 0; border-top: var(--border-subtle); }
 @media (min-width: 761px) {
   .person-dialog-meta .meta-long { display: inline; }
@@ -1979,6 +1956,7 @@ label .field { margin-top: var(--space-2); }
   .modal-head { padding: var(--space-4); }
   .modal-head h3 { font-size: var(--text-xl); }
   .modal-head p { font-size: var(--text-sm); }
+  .modal-body.modal-form { padding: 0; }
   .person-section-nav { top: auto; padding: var(--space-2); }
   .person-section-panel,
   .modal-scroll { padding: var(--space-4); }
@@ -1991,6 +1969,16 @@ label .field { margin-top: var(--space-2); }
   }
 
   .modal-actions > .btn:not([hidden]) { width: 100%; }
+  .modal-form-actions .right .btn {
+    width: 100%;
+    min-height: var(--control-touch);
+    min-width: 0;
+  }
+  .modal-form-actions .right {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-left: 0;
+  }
   .form-section-heading { margin-top: var(--space-3); padding-top: var(--space-5); }
   .settings-layout { grid-template-rows: auto minmax(0, 1fr); }
 }
@@ -2620,11 +2608,6 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .modal-actions .right { gap: var(--space-2); }
   .modal-actions .btn { min-height: var(--control-touch); }
 
-  .person-actions #savePersonBtn {
-    grid-column: 1 / -1;
-    grid-row: 1;
-  }
-
   .viewer-head-actions { flex: 0 0 auto; }
   .viewer-head-actions .btn.small { min-height: var(--control-touch); }
 
@@ -2742,6 +2725,8 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   .person-actions #savePersonBtn { grid-column: auto; grid-row: auto; }
   .modal-actions > .btn,
   .modal-actions .right .btn { width: 100%; }
+  .modal-form-actions .right { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .modal-form-actions .right .btn { min-width: 0; }
 
   .directory-entry,
   .cards-mode .directory-entry { grid-template-columns: 3rem minmax(0, 1fr); }
@@ -3107,41 +3092,11 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
     position: sticky;
     bottom: 0;
     z-index: 3;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: var(--space-2);
-    min-height: 0;
-    padding: var(--space-3) var(--space-4) max(var(--space-3), env(safe-area-inset-bottom));
-    width: 100%;
-    border-top: var(--border-subtle);
-    border-radius: 0;
-    background: var(--color-surface);
-    box-shadow: 0 -1px 6px rgb(38 51 46 / 7%);
   }
   .person-dialog .person-modal-form {
     padding: 0;
     scrollbar-gutter: auto;
   }
-  .person-modal-form .person-actions .right {
-    display: flex;
-    flex: 1 1 auto;
-    min-width: 0;
-    width: auto;
-    gap: var(--space-2);
-    margin-left: 0;
-  }
-  .person-modal-form .person-actions .right .btn {
-    width: auto;
-    min-height: var(--control-touch);
-  }
-  .person-modal-form .person-actions .right [data-close] { flex: 0 0 auto; }
-  .person-modal-form .person-actions #savePersonBtn {
-    flex: 1 1 auto;
-    grid-column: auto;
-    grid-row: auto;
-  }
-
   .person-section-nav {
     display: grid;
     grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.15fr) minmax(0, 1.4fr);
@@ -3228,15 +3183,6 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
      horizontale possible dans la zone centrale, verticalement inchangée. */
   .modal-dossier .modal-scroll { overflow-x: clip; }
 }
-/* 320–390 px : Annuler | Enregistrer restent sur une seule ligne pour ce
-   dossier (exception locale au comportement empilé global ≤ 390 px). */
-@media (max-width: 390px) {
-  .modal-dossier .modal-actions .right {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 /* Multisélection de personnes : chips retirables + recherche frugo.
    Le champ reste un vrai input (accessible), la liste un rôle listbox. */
 .person-multiselect { position: relative; display: block; }
@@ -3612,43 +3558,6 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
   #documentDialog .document-current-file-row { align-items: flex-start; }
   #documentDialog .document-file-remove { align-self: center; }
 
-  #documentDialog .modal-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-rows: auto auto;
-    gap: var(--space-2);
-    align-items: stretch;
-    width: 100%;
-    min-width: 0;
-    min-height: 0;
-    padding: var(--space-3) var(--space-4) max(var(--space-3), env(safe-area-inset-bottom));
-  }
-  #documentDialog .modal-actions > #deleteDocumentBtn {
-    grid-column: 1 / -1;
-    grid-row: 1;
-    width: 100%;
-    min-width: 0;
-    min-height: var(--control-touch);
-    margin: 0;
-    justify-content: flex-start;
-  }
-  #documentDialog .modal-actions > .right {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
-    min-width: 0;
-    margin: 0;
-    gap: var(--space-2);
-  }
-  #documentDialog .modal-actions .right .btn {
-    width: 100%;
-    min-width: 0;
-    max-width: 100%;
-    min-height: var(--control-touch);
-    white-space: nowrap;
-  }
 }
 
 /* En-têtes des vues principales : une seule hiérarchie pour Arbre et onglets. */

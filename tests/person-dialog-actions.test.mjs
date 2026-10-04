@@ -37,8 +37,8 @@ test("C. colonne d'actions : croix + bouton ⋯ accessible, menu contextuel comp
   assert.match(html, /id="printPersonBtn" role="menuitem"/);
   assert.match(html, /id="deleteBtn" role="menuitem" hidden/);
   assert.match(html, /<hr class="person-menu-sep" aria-hidden="true">/);
-  assert.match(css, /\.person-head-actions \{[^}]*position: relative;/);
-  assert.match(css, /\.person-action-menu \{[^}]*position: absolute;[^}]*max-height: min\(60dvh, 18rem\);/);
+  assert.match(css, /\.person-head-actions,\s*\.modal-head-actions \{[^}]*position: relative;/);
+  assert.match(css, /\.person-action-menu,\s*\.modal-action-menu \{[^}]*position: absolute;[^}]*max-height: min\(60dvh, 18rem\);/);
 });
 
 test("D. logique du menu : états, Échap, clic extérieur, clavier", () => {
@@ -53,12 +53,19 @@ test("D. logique du menu : états, Échap, clic extérieur, clavier", () => {
 });
 
 test("E. footer allégé : Annuler / Enregistrer uniquement (hors actions conditionnelles)", () => {
-  const footer = html.match(/<div class="modal-actions person-actions">[\s\S]*?<\/div>\s*\r?\n<\/div>/)?.[0] || "";
+  const footer = html.match(/<div class="modal-actions modal-form-actions person-actions">[\s\S]*?<\/div>\s*\r?\n<\/div>/)?.[0] || "";
   assert.ok(footer.includes('id="restoreTreeBtn"') && footer.includes("Annuler") && footer.includes('id="savePersonBtn"'));
   assert.ok(!footer.includes("Imprimer") && !footer.includes("Voir sa branche") && !footer.includes('id="deleteBtn"'));
   // les blocs d'actions contextuels de l'onglet identité sont retirés
   assert.doesNotMatch(html, /person-context-actions/);
   assert.doesNotMatch(css, /\.person-row \{ display: flex; align-items: baseline/);
+});
+
+test("le CTA de création continue vers les liens, l’édition conserve Enregistrer", () => {
+  assert.match(html, /id="savePersonBtn" type="submit">Continuer<\/button>/);
+  assert.match(app, /\$\("savePersonBtn"\)\.textContent = item \? "Enregistrer" : "Continuer";/);
+  assert.match(app, /await addDoc\(refs\.people,[\s\S]{0,900}setPersonSection\("relations", true\);/);
+  assert.match(app, /\$\("savePersonBtn"\)\.textContent = "Enregistrer";/);
 });
 
 test("F. parcours de vie : icônes sémantiques du sprite existant", () => {
@@ -115,12 +122,14 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     const head = await page.evaluate(() => ({
       title: document.getElementById("dialogTitle").textContent,
       meta: document.getElementById("personDialogMeta").textContent,
+      saveLabel: document.getElementById("savePersonBtn").textContent,
       dialogOpen: document.getElementById("personDialog").open,
       menuButtonHidden: document.getElementById("personMenuBtn").hidden,
       menuHidden: document.getElementById("personMenu").hidden
     }));
     assert.equal(head.dialogOpen, true);
     assert.equal(head.title, "Andrea Giovannoni");
+    assert.equal(head.saveLabel, "Enregistrer", "l’édition conserve son libellé de sauvegarde");
     assert.ok(head.meta.includes("Dernière modification :") && head.meta.includes("François"), head.meta);
     assert.ok(!head.meta.toLowerCase().includes("undefined") && !head.meta.toLowerCase().includes("null"));
     assert.equal(head.menuButtonHidden, false, "le menu reste disponible en modification");
@@ -208,15 +217,18 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     await page.waitForTimeout(120);
     const legacyHead = await page.evaluate(() => ({
       title: document.getElementById("dialogTitle").textContent,
-      meta: document.getElementById("personDialogMeta").textContent
+      meta: document.getElementById("personDialogMeta").textContent,
+      saveLabel: document.getElementById("savePersonBtn").textContent
     }));
     assert.equal(legacyHead.title, "Modifier la personne");
+    assert.equal(legacyHead.saveLabel, "Enregistrer");
     assert.ok(legacyHead.meta.includes("astérisque"), "libellé neutre sans updatedAt");
 
     // nouvelle personne : titre neutre
     await page.evaluate(() => window.__personPrint.openForTest(null, { people: [], families: [], documents: [] }));
     await page.waitForTimeout(100);
     assert.equal(await page.evaluate(() => document.getElementById("dialogTitle").textContent), "Nouvelle personne");
+    assert.equal(await page.locator("#savePersonBtn").textContent(), "Continuer");
     assert.ok(await page.evaluate(() => document.getElementById("printPersonBtn").hidden), "impression indisponible tant que la fiche n'est pas enregistrée");
     const createHeaderActions = await page.evaluate(() => ({
       menuHidden: document.getElementById("personMenuBtn").hidden,

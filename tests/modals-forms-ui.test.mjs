@@ -31,10 +31,11 @@ assert.equal((html.match(/class="person-section-panel"/g) || []).length, 3);
 for (const heading of [
   "Identification",
   "Source du document",
-  "Association et notes",
+  "Personnes éventuellement liées",
   "Organisation",
   "Détails du suivi",
 ]) assert.ok(html.includes(`<h4>${heading}</h4>`), `Section absente : ${heading}`);
+assert.match(html, /id="documentNotes"/);
 
 for (const redundantHeading of ["Événements de vie", "Informations complémentaires"]) {
   assert.ok(!html.includes(`<h4>${redundantHeading}</h4>`), `Titre redondant présent : ${redundantHeading}`);

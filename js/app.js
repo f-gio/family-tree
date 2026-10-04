@@ -1107,7 +1107,7 @@ function openPerson(item = null, source = "tree") {
   $("personDialogMeta").innerHTML = modMeta
     ? `<span class="meta-long">${esc(modMeta.long)}</span><span class="meta-short">${esc(modMeta.short)}</span>`
     : "Les champs marqués d’un astérisque sont obligatoires.";
-  $("savePersonBtn").textContent = item ? "Enregistrer" : "Enregistrer et ajouter ses liens";
+  $("savePersonBtn").textContent = item ? "Enregistrer" : "Continuer";
   $("deleteBtn").hidden = !item;
   $("printPersonBtn").hidden = !item;
   $("viewBranchBtn").hidden = !item;
@@ -1949,6 +1949,70 @@ $("personDialog").addEventListener("keydown", event => {
   $("personMenuBtn").focus();
 });
 
+function bindModalActionMenu(dialogId, buttonId, menuId) {
+  const dialog = $(dialogId);
+  const button = $(buttonId);
+  const menu = $(menuId);
+  const items = () => [...menu.querySelectorAll('[role="menuitem"]:not([hidden])')];
+  const setOpen = (open, restoreFocus = false) => {
+    const visibleItems = items();
+    const nextOpen = Boolean(open && !button.hidden && visibleItems.length);
+    menu.hidden = !nextOpen;
+    button.setAttribute("aria-expanded", String(nextOpen));
+    if (nextOpen) visibleItems[0]?.focus({ preventScroll: true });
+    else if (restoreFocus && !button.hidden) button.focus();
+  };
+
+  button.addEventListener("click", event => {
+    event.stopPropagation();
+    setOpen(menu.hidden);
+  });
+  button.addEventListener("keydown", event => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const visibleItems = items();
+    if (!visibleItems.length || button.hidden) return;
+    setOpen(true);
+    if (event.key === "ArrowUp") visibleItems[visibleItems.length - 1]?.focus({ preventScroll: true });
+  });
+  menu.addEventListener("click", event => {
+    if (event.target.closest('[role="menuitem"]')) setOpen(false);
+  });
+  menu.addEventListener("keydown", event => {
+    const visibleItems = items();
+    const index = visibleItems.indexOf(document.activeElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false, true);
+    } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      if (!visibleItems.length) return;
+      if (event.key === "Home") visibleItems[0].focus();
+      else if (event.key === "End") visibleItems[visibleItems.length - 1].focus();
+      else if (event.key === "ArrowDown") visibleItems[(index + 1) % visibleItems.length].focus();
+      else visibleItems[(index - 1 + visibleItems.length) % visibleItems.length].focus();
+    }
+  });
+  document.addEventListener("click", event => {
+    if (menu.hidden || menu.contains(event.target) || button.contains(event.target)) return;
+    setOpen(false);
+  });
+  dialog.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || menu.hidden) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setOpen(false, true);
+  });
+  dialog.addEventListener("close", () => setOpen(false));
+
+  return { close: () => setOpen(false) };
+}
+
+const taskActionMenu = bindModalActionMenu("taskDialog", "taskMenuBtn", "taskActionMenu");
+const documentActionMenu = bindModalActionMenu("documentDialog", "documentMenuBtn", "documentActionMenu");
+const procedureActionMenu = bindModalActionMenu("procedureActionDialog", "procedureActionMenuBtn", "procedureActionMenu");
+
 $("printPersonBtn").onclick = () => openPersonPrint();
 $("personPrintGoBtn").onclick = () => {
   const sheet = $("personPrintSheet");
@@ -2027,6 +2091,7 @@ function renderDocumentFileState(item = documents.find(documentItem => documentI
 
 function openDocument(item = null, preselectedPersonId = "", returnContext = null) {
   documentReturnContext = returnContext;
+  documentActionMenu.close();
   $("documentForm").reset();
   documentFileMarkedForRemoval = false;
   $("documentId").value = item?.id || "";
@@ -2040,6 +2105,7 @@ function openDocument(item = null, preselectedPersonId = "", returnContext = nul
   documentPeoplePicker.setSelected(item?.personIds || (preselectedPersonId ? [preselectedPersonId] : []));
   renderDocumentFileState(item);
   $("documentProgress").textContent = "";
+  $("documentMenuBtn").hidden = !item;
   $("deleteDocumentBtn").hidden = !item;
   $("documentDialog").showModal();
 }
@@ -2492,6 +2558,8 @@ async function loadTaskUsers() {
 }
 
 async function openTask(item = null) {
+  taskActionMenu.close();
+  $("taskMenuBtn").hidden = !item;
   $("taskForm").reset();
   $("taskId").value = item?.id || "";
   $("taskDialogTitle").textContent = item ? "Modifier l’action" : "Ajouter une tâche";
@@ -2668,7 +2736,9 @@ function openDossierForm(item = null) {
   $("dossierNextActionDate").value = dossierEditDate(item?.nextActionDate);
   $("dossierNotes").value = item?.notes || "";
   $("dossierResult").value = item?.result || "";
-  $("deleteDossierBtn").hidden = !item;
+  // Le point d’accès destructif reste masqué en attendant une suppression sûre
+  // de la sous-collection d’actions des démarches.
+  $("deleteDossierBtn").hidden = true;
   $("dossierDialog").showModal();
 }
 
@@ -2845,6 +2915,8 @@ function dossierEmailDefaults(direction) {
 
 function openProcedureAction(action = null) {
   if (!activeDossierId) return;
+  procedureActionMenu.close();
+  $("procedureActionMenuBtn").hidden = !action;
   $("procedureActionForm").reset();
   $("procedureActionId").value = action?.id || "";
   $("procedureActionTitle").textContent = action ? "Modifier l’action" : "Ajouter une action";
