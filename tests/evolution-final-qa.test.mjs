@@ -9,7 +9,7 @@ const app = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
 const autocomplete = await readFile(new URL("../js/location-autocomplete.js", import.meta.url), "utf8");
 
 test("la modale Personne conserve sa variante large, ses onglets et son footer", () => {
-  assert.match(html, /<dialog class="person-dialog modal-xl"/);
+  assert.match(html, /<dialog class="person-dialog modal-xl[^\"]*"/);
   for (const section of ["identity", "relations", "documents"]) {
     assert.match(html, new RegExp(`data-person-section="${section}"`));
   }

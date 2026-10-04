@@ -9,7 +9,7 @@ const css = readFileSync(join(root, "css", "design-system.css"), "utf8");
 const app = readFileSync(join(root, "js", "app.js"), "utf8");
 
 assert.match(css, /--modal-xl:\s*57\.5rem/);
-assert.match(html, /<dialog class="person-dialog modal-xl"/);
+assert.match(html, /<dialog class="person-dialog modal-xl[^\"]*"/);
 assert.match(css, /dialog\.modal-xl\s*\{\s*width:\s*min\(var\(--modal-xl\), calc\(100% - 3rem\)\)/);
 
 assert.match(html, /class="compact-photo-uploader identity-photo"/);

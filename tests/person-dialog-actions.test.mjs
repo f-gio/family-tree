@@ -12,7 +12,7 @@ const [html, css, app] = await Promise.all([
 ]);
 
 test("A. header : titre nom complet + métadonnée de modification, aucune donnée technique", () => {
-  assert.match(html, /<dialog class="person-dialog modal-xl" id="personDialog" aria-labelledby="dialogTitle">/);
+  assert.match(html, /<dialog class="person-dialog modal-xl[^\"]*" id="personDialog" aria-labelledby="dialogTitle">/);
   assert.match(html, /<div class="modal-head person-head">/);
   assert.match(html, /<p id="personDialogMeta" class="person-dialog-meta">Les champs marqués d’un astérisque sont obligatoires\.<\/p>/);
   assert.match(app, /\$\("dialogTitle"\)\.textContent = item \? \(titleName \|\| "Modifier la personne"\) : "Nouvelle personne";/);

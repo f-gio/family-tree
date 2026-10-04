@@ -22,7 +22,7 @@ for (const rule of [
   ".field-error",
 ]) assert.ok(css.includes(rule), `Règle absente : ${rule}`);
 
-assert.match(html, /class="person-dialog modal-xl"/);
+assert.match(html, /class="person-dialog modal-xl[^\"]*"/);
 assert.match(html, /class="modal-body person-modal-form" id="personForm"/);
 // 5 modales-formulaires : tâche + dossier de démarche + action de démarche (exécution Démarches 1/2).
 assert.equal((html.match(/class="modal-body modal-form"/g) || []).length, 5);

@@ -164,7 +164,9 @@
 <button class="btn small" type="button" id="branchExitBtn">Voir tout l'arbre</button>
 </section>
 <section class="tree-shell" id="treeViewport">
+<div class="tree-canvas-clip">
 <div class="tree" id="treeScene">
+</div>
 </div>
 <div class="canvas-help">Glisser le fond pour naviguer · Glisser une carte pour la déplacer <span class="line-legend"><i class="legend-union"></i> couple <i class="legend-descent"></i> enfants</span></div>
 <div class="tree-controls" aria-label="Contrôles de l’arbre">
@@ -337,7 +339,7 @@
 <div class="procedures-list" id="proceduresList" aria-live="polite">
 </div>
 </main>
-  <dialog class="person-dialog modal-xl" id="personDialog" aria-labelledby="dialogTitle">
+  <dialog class="person-dialog modal-xl modal-mobile-sheet modal-mobile-sheet--long" id="personDialog" aria-labelledby="dialogTitle">
 <div class="modal-head person-head">
 <div>
 <h3 id="dialogTitle">Nouvelle personne</h3>
@@ -504,7 +506,7 @@
 <div class="modal-head"><div><h3 id="viewerTitle">Consulter le document</h3><p id="viewerSubtitle">Aperçu dans Family Tree</p></div><div class="viewer-head-actions"><a class="btn small" id="viewerExternalBtn" target="_blank" rel="noopener" hidden>Nouvel onglet</a><button class="btn icon-btn" type="button" data-close="documentViewerDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div></div>
 <div class="modal-body"><div class="viewer-body"><img id="viewerImage" alt="Aperçu du document" hidden><iframe id="viewerFrame" title="Aperçu du document" hidden></iframe><p class="viewer-message" id="viewerMessage">Chargement du document…</p></div></div>
 </dialog>
-  <dialog class="modal-md" id="directoryDocumentsDialog" aria-labelledby="directoryDocumentsTitle">
+  <dialog class="modal-md modal-mobile-sheet modal-mobile-sheet--medium" id="directoryDocumentsDialog" aria-labelledby="directoryDocumentsTitle">
 <div class="modal-head"><div><h3 id="directoryDocumentsTitle">Documents associés</h3><p id="directoryDocumentsSubtitle"></p></div><button class="btn icon-btn" type="button" data-close="directoryDocumentsDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
 <div class="modal-body"><div class="directory-document-list" id="directoryDocumentsList"></div></div>
 </dialog>
@@ -523,7 +525,7 @@
 <label class="wide">Commentaires<textarea class="field" id="taskComments" rows="3" maxlength="2000" placeholder="Résultats, relances, informations utiles…" autocapitalize="sentences"></textarea></label>
 </div></div><div class="modal-actions modal-form-actions"><div class="right"><button class="btn" type="button" data-close="taskDialog">Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></div></form>
 </dialog>
-  <dialog class="modal-sm" id="treeExportDialog" aria-labelledby="treeExportDialogTitle">
+  <dialog class="modal-sm modal-mobile-sheet modal-mobile-sheet--compact" id="treeExportDialog" aria-labelledby="treeExportDialogTitle">
 <div class="modal-head"><div><h3 id="treeExportDialogTitle">Exporter l’arbre</h3><p>Choisissez le format d’export.</p></div><button class="btn icon-btn" type="button" data-close="treeExportDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
 <div class="modal-body tree-export-options">
 <button class="tree-export-option" type="button" data-export-format="png"><svg class="ui-icon" aria-hidden="true"><use href="#icon-download"></use></svg><span class="tree-export-option-meta"><span class="tree-export-option-name">PNG — Image</span><span class="tree-export-option-description">Format classique, facile à partager</span></span><span class="tree-export-option-tag">Recommandé</span></button>
@@ -591,7 +593,7 @@
 <div class="modal-actions modal-form-actions"><div class="right"><button class="btn" type="button" data-close="procedureActionDialog">Annuler</button><button class="btn primary" type="submit" id="saveProcedureActionBtn">Enregistrer</button></div></div>
 </form>
 </dialog>
-  <dialog id="dataDialog" class="data-dialog modal-md" aria-labelledby="dataDialogTitle">
+  <dialog id="dataDialog" class="data-dialog modal-md modal-mobile-sheet modal-mobile-sheet--medium" aria-labelledby="dataDialogTitle">
 <div class="modal-head"><div><h3 id="dataDialogTitle">Données</h3><p>Sauvegardez ou restaurez le contenu de votre Family Tree.</p></div><button class="btn icon-btn" type="button" data-close="dataDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
 <div class="modal-body"><div class="data-overview"><div class="data-stat"><strong id="dataPeopleCount">0</strong><span>personnes</span></div><div class="data-stat"><strong id="dataDocumentCount">0</strong><span>documents</span></div><div class="data-stat"><strong id="dataTaskCount">0</strong><span>tâches</span></div></div>
 <section class="data-action"><div><h4>Créer une sauvegarde complète</h4><p>Télécharge une archive ZIP contenant l’arbre, les liens, les documents et les tâches.</p></div><button class="btn primary" id="exportBtn" type="button" aria-label="Créer une sauvegarde complète"><svg class="ui-icon" aria-hidden="true"><use href="#icon-download"></use></svg><span class="label">Sauvegarder</span></button></section>
