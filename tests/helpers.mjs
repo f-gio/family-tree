@@ -70,11 +70,14 @@ export const LOGIN_BLOCKED_MESSAGE = "Connexion impossible. Vérifiez Firebase A
 
 export function blockedServiceFor(urlString) {
   let host = urlString;
+  let parsedUrl = null;
   try {
-    host = new URL(urlString).hostname;
+    parsedUrl = new URL(urlString);
+    host = parsedUrl.hostname;
   } catch {
     /* URL invalide : on garde la chaîne brute */
   }
+  if ((host === "localhost" || host === "127.0.0.1") && parsedUrl?.port === "8080") return "Firestore Emulator local";
   if (host === "firestore.googleapis.com") return "firestore (données)";
   if (host === "identitytoolkit.googleapis.com") return "Firebase Authentication";
   if (host === "securetoken.googleapis.com") return "jeton Firebase";

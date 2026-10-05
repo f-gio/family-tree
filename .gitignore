@@ -67,3 +67,6 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Artefact local à liste blanche pour Firebase Hosting Recette
+/dist-recette/

@@ -557,6 +557,32 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 .icon-btn .ui-icon { width: 1.25rem; height: 1.25rem; }
 .tree-controls button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); }
 
+/* Marqueur discret activé exclusivement pour le projet Firebase de recette. */
+.environment-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.25rem;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-surface);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.06em;
+  line-height: 1;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+#environmentBadgeAuth {
+  position: absolute;
+  top: max(var(--space-3), env(safe-area-inset-top));
+  right: max(var(--space-3), env(safe-area-inset-right));
+  z-index: 2;
+}
+#environmentBadgeApp { margin-left: var(--space-2); }
+
 /* Arbre : l'action principale reste dans l'introduction, les filtres forment
    une ligne distincte dont le groupe commence à gauche. */
 .tree-filter-toolbar {

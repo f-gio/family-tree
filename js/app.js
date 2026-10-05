@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
-import { getFirestore, collection, addDoc, updateDoc, deleteDoc, deleteField, doc, getDoc, getDocs, query, where, setDoc, onSnapshot, serverTimestamp, writeBatch, runTransaction, Bytes } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
+import { getFirestore, connectFirestoreEmulator, collection, addDoc, updateDoc, deleteDoc, deleteField, doc, getDoc, getDocs, query, where, setDoc, onSnapshot, serverTimestamp, writeBatch, runTransaction, Bytes } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 import { calculateTreeLayout } from "./tree-layout.js";
 import { calculateTreeLayout as calculateHybridTreeLayout, validateLayout as validateHybridLayout } from "./tree-layout-engine.js";
 import { createTreeRenderer } from "./tree-renderer.js";
@@ -22,19 +22,43 @@ import { formatCompactPlace } from "./place-format.js";
 import { createPersonMultiSelect } from "./person-multiselect.js";
 import { analyzeTreeQuality } from "./tree-quality.js";
 import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, validateFamilyDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, buildBackupManifest, parseBackupManifestText } from "./backup-utils.js";
+import { firebaseConfigurationMatchesEnvironment, resolveFirebaseEnvironment } from "./firebase-environment.js";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",
-  authDomain: "family-tree-c2fe2.firebaseapp.com",
-  projectId: "family-tree-c2fe2",
-  messagingSenderId: "1096091899254",
-  appId: "1:1096091899254:web:4afff8d04448409d969657"
-};
+const firebaseEnvironment = resolveFirebaseEnvironment(window.location);
+if (!firebaseEnvironment.allowed || !firebaseConfigurationMatchesEnvironment(firebaseEnvironment.environment, firebaseEnvironment.firebaseConfig)) {
+  const authScreen = document.getElementById("authScreen");
+  if (authScreen) {
+    authScreen.hidden = false;
+    authScreen.replaceChildren();
+    const message = document.createElement("section");
+    message.className = "auth-card firebase-environment-error";
+    message.setAttribute("role", "alert");
+    const title = document.createElement("h2");
+    title.textContent = "Environnement Firebase non autorisé";
+    const detail = document.createElement("p");
+    detail.textContent = "Cette adresse n’est pas configurée pour accéder à Firebase. Aucune connexion n’a été ouverte.";
+    message.append(title, detail);
+    authScreen.append(message);
+  }
+  throw new Error(`Initialisation Firebase refusée : ${firebaseEnvironment.reason || "configuration invalide"}`);
+}
+
+document.documentElement.dataset.firebaseEnvironment = firebaseEnvironment.environment;
+const environmentBadgeAuth = document.getElementById("environmentBadgeAuth");
+const environmentBadgeApp = document.getElementById("environmentBadgeApp");
+if (firebaseEnvironment.environment === "recette") {
+  if (environmentBadgeAuth) environmentBadgeAuth.hidden = false;
+  if (environmentBadgeApp) environmentBadgeApp.hidden = false;
+}
 
 const $ = id => document.getElementById(id);
-const app = initializeApp(firebaseConfig);
+const app = initializeApp(firebaseEnvironment.firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+if (firebaseEnvironment.environment === "local") {
+  connectAuthEmulator(auth, `http://${firebaseEnvironment.emulators.auth.host}:${firebaseEnvironment.emulators.auth.port}`, { disableWarnings: true });
+  connectFirestoreEmulator(db, firebaseEnvironment.emulators.firestore.host, firebaseEnvironment.emulators.firestore.port);
+}
 const refs = {
   people: collection(db, "people"),
   families: collection(db, "families"),
