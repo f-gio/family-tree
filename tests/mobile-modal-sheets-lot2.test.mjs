@@ -120,12 +120,12 @@ async function checkFormSheet(browser, server, id, width, height, mode, t, compa
     await showDialog(page, id, mode);
     if (compact) await compactFormFixture(page, id);
     const before = await measureFormDialog(page, id);
-    const plafond = height * 0.86;
+    const plafond = id === "taskDialog" ? height * 0.92 : height * 0.86;
     t.diagnostic(`${id} ${mode} short ${width}×${height}: dialog=${before.dialog.height}, max=${before.maxHeight}, scroll=${before.scroll.scrollHeight}/${before.scroll.clientHeight}`);
     assert.equal(await page.locator(`#${id}`).evaluate(dialog => dialog.open), true);
     assert.ok(Math.abs(before.dialog.bottom - height) < 1, `${id} est ancrée au bas du viewport`);
-    assert.ok(before.dialog.height <= plafond + 1, `${id} respecte son plafond 86dvh`);
-    assert.ok(parseFloat(before.maxHeight) <= plafond + 1, `${id} expose un max-height adaptatif de 86dvh`);
+    assert.ok(before.dialog.height <= plafond + 1, `${id} respecte son plafond ${id === "taskDialog" ? "92dvh" : "86dvh"}`);
+    assert.ok(parseFloat(before.maxHeight) <= plafond + 1, `${id} expose un max-height adaptatif de ${id === "taskDialog" ? "92dvh" : "86dvh"}`);
     assert.ok(before.dialog.y > 0, `${id} laisse la page visible derrière`);
     assert.ok(before.header.bottom <= before.scroller.y + 1, `${id} conserve son header fixe`);
     assert.ok(Math.abs(before.scroller.bottom - before.footer.y) < 1, `${id} réserve le footer après la zone scrollable`);
@@ -135,7 +135,7 @@ async function checkFormSheet(browser, server, id, width, height, mode, t, compa
     assert.equal(before.scroll.scrollbarWidth, "none", `${id} masque la scrollbar Firefox`);
     assert.equal(before.scroll.webkitScrollbar, "none", `${id} masque la scrollbar WebKit`);
     assert.equal(before.pageOverflow, 0, `${id} ne crée aucun overflow horizontal`);
-    if (compact) assert.ok(before.dialog.height < plafond - 1, `${id} reste naturelle quand le contenu est court`);
+    if (compact && id !== "taskDialog") assert.ok(before.dialog.height < plafond - 1, `${id} reste naturelle quand le contenu est court`);
 
     if (mode === "edit" && id === "taskDialog") {
       assert.equal(await page.locator("#taskMenuBtn").isVisible(), true, "le menu ⋯ reste présent en édition");
@@ -348,7 +348,7 @@ test("Lot 2 : Action, Relation et Paramètres en sheets mobiles", async t => {
           await showDialog(page, "taskDialog", "edit");
           await addLongFormContent(page, "#taskDialog .modal-scroll");
           const before = await measureFormDialog(page, "taskDialog");
-          const plafond = height * 0.86;
+          const plafond = height * 0.92;
           assert.ok(Math.abs(before.dialog.height - plafond) < 1);
           assert.ok(before.scroll.scrollHeight > before.scroll.clientHeight);
           assert.equal(await page.locator("#taskMenuBtn").isVisible(), true, "menu d’édition ⋯ conservé");

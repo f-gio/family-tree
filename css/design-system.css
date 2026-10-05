@@ -2978,6 +2978,10 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   }
   dialog#taskDialog.modal-mobile-sheet--form,
   dialog#familyDetailsDialog.modal-mobile-sheet--form { max-height: 86dvh; }
+  dialog#taskDialog.modal-mobile-sheet--form {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
   #taskDialog > .modal-body.modal-form,
   #familyDetailsDialog > .modal-body.modal-form {
     flex: 1 1 auto;
