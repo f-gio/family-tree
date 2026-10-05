@@ -139,14 +139,15 @@ async function testMobileViewport(browser, server, width, height, t) {
       assert.equal(await page.locator("#treeExportDialog").evaluate(dialog => dialog.open), false, "Escape ferme le dialog");
     });
 
-    await t.test(`${width}×${height} : données medium`, async () => {
+    await t.test(`${width}×${height} : données stable`, async () => {
       await openDialog(page, "dataDialog");
       const measured = await measureDialog(page, "dataDialog");
       t.diagnostic(JSON.stringify(measured));
+      const target = height * 0.92;
       assert.ok(Math.abs(measured.dialog.bottom - height) < 1, "panneau au bord inférieur");
       assert.ok(measured.dialog.y > 0, "une bande de page reste visible");
-      assert.ok(measured.dialog.height <= height * 0.78 + 1, "hauteur naturelle plafonnée à 78dvh");
-      assert.ok(parseFloat(measured.maxHeight) <= height * 0.78 + 1, "plafond medium réellement à 78dvh");
+      assert.ok(Math.abs(measured.dialog.height - target) < 1, "hauteur stable de 92dvh");
+      assert.ok(Math.abs(parseFloat(measured.maxHeight) - target) < 1, "plafond stable de 92dvh");
       assert.deepEqual(measured.radii, ["22px", "22px", "0px", "0px"]);
       assert.equal(measured.body.overflowY, "auto");
       assert.equal(measured.body.scrollbarWidth, "none");
@@ -155,14 +156,23 @@ async function testMobileViewport(browser, server, width, height, t) {
       assert.equal(await page.locator("#dataDialog #exportBtn").count(), 1, "action sauvegarde présente");
       assert.equal(await page.locator("#dataDialog #importBtn").count(), 1, "action restauration présente");
       assert.equal(measured.pageOverflow, 0);
-      if (measured.body.scrollHeight <= measured.body.clientHeight) {
-        assert.ok(measured.dialog.height < parseFloat(measured.maxHeight), "contenu court garde une hauteur naturelle sous le plafond");
-        await page.locator("#dataDialog .data-note").evaluate(note => { note.textContent = `${note.textContent} ${"Détail de sauvegarde. ".repeat(180)}`; });
+      await page.locator("#dataDialog .data-note").evaluate(note => { note.textContent = `${note.textContent} ${"Détail de sauvegarde. ".repeat(240)}`; });
+      const long = await measureDialog(page, "dataDialog");
+      assert.ok(Math.abs(long.dialog.height - measured.dialog.height) < 1, "le contenu long ne change pas la hauteur stable");
+      assert.ok(long.body.scrollHeight > long.body.clientHeight, "le contenu long défile dans le body central");
+      await page.evaluate(() => { const body = document.querySelector("#dataDialog .modal-body"); body.scrollTop = body.scrollHeight; });
+      assert.ok(await page.locator("#dataDialog .modal-body").evaluate(body => body.scrollTop > 0), "le scroll central atteint le bas");
+      for (const buttonId of ["exportBtn", "importBtn"]) {
+        const button = page.locator(`#dataDialog #${buttonId}`);
+        await button.scrollIntoViewIfNeeded();
+        const box = await button.boundingBox();
+        assert.ok(box && box.height >= 44 && await button.isVisible(), `${buttonId} reste accessible après scroll`);
       }
-      await page.evaluate(() => { document.querySelector("#dataDialog .modal-body").scrollTop = 60; });
-      assert.ok(await page.locator("#dataDialog .modal-body").evaluate(body => body.scrollHeight > body.clientHeight && body.scrollTop > 0), "un contenu long défile sans scrollbar visible");
-      await page.locator('#dataDialog [data-close="dataDialog"]').click();
-      assert.equal(await page.locator("#dataDialog").evaluate(dialog => dialog.open), false, "fermeture existante conservée");
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator("#dataDialog").evaluate(dialog => dialog.open), false, "Escape ferme les données");
+      await openDialog(page, "dataDialog");
+      await page.locator('#dataDialog .modal-head [data-close="dataDialog"]').click();
+      assert.equal(await page.locator("#dataDialog").evaluate(dialog => dialog.open), false, "fermeture × existante conservée");
     });
 
     for (const count of [1, 28]) {
@@ -209,7 +219,7 @@ async function testDesktopUnchanged(browser, server, width, height, t) {
         await openDialog(page, id);
         const withVariant = await measureDialog(page, id);
         await page.locator(`#${id}`).evaluate(dialog => {
-          dialog.classList.remove("modal-mobile-sheet", "modal-mobile-sheet--compact", "modal-mobile-sheet--medium");
+          dialog.classList.remove("modal-mobile-sheet", "modal-mobile-sheet--compact", "modal-mobile-sheet--medium", "modal-mobile-sheet--stable");
         });
         await page.waitForTimeout(200);
         const withoutVariant = await measureDialog(page, id);
@@ -221,12 +231,43 @@ async function testDesktopUnchanged(browser, server, width, height, t) {
         await page.locator(`#${id}`).evaluate(dialog => dialog.close());
         await page.locator(`#${id}`).evaluate(dialog => dialog.classList.add("modal-mobile-sheet"));
         if (id === "treeExportDialog") await page.locator(`#${id}`).evaluate(dialog => dialog.classList.add("modal-mobile-sheet--compact"));
+        else if (id === "dataDialog") await page.locator(`#${id}`).evaluate(dialog => dialog.classList.add("modal-mobile-sheet--stable"));
         else await page.locator(`#${id}`).evaluate(dialog => dialog.classList.add("modal-mobile-sheet--medium"));
       });
     }
   } finally {
     await context.close();
   }
+}
+
+async function testManagementSheetAlignment(browser, server, width, height, t) {
+  const { context, page } = await makePage(browser, server, width, height);
+  try {
+    const dialogs = ["dataDialog", "profileDialog", "adminDialog", "treeQualityDialog"];
+    let sharedTop = null;
+    const target = height * 0.92;
+    for (const id of dialogs) {
+      if (id === "dataDialog") {
+        await page.locator("#dataDialog .data-note").evaluate(note => { note.textContent += ` ${"Contenu de sauvegarde long. ".repeat(240)}`; });
+        await page.locator("#dataDialog").evaluate(dialog => dialog.showModal());
+      } else {
+        await page.locator(`#${id}`).evaluate(dialog => dialog.showModal());
+      }
+      await settleDialogAnimation(page, id);
+      const measured = await measureDialog(page, id);
+      assert.ok(Math.abs(measured.dialog.height - target) < 1, `${id} hauteur stable 92dvh (${measured.dialog.height}/${target})`);
+      assert.ok(Math.abs(measured.dialog.bottom - height) < 1, `${id} ancrée en bas`);
+      if (sharedTop == null) sharedTop = measured.dialog.y;
+      else assert.ok(Math.abs(measured.dialog.y - sharedTop) <= 2, `${id} top aligné à ±2px (${measured.dialog.y}/${sharedTop})`);
+      assert.ok(measured.header && Math.abs(measured.header.y - measured.dialog.y) <= 2, `${id} garde son header au sommet de la feuille`);
+      if (id === "dataDialog") {
+        assert.equal(measured.body.overflowY, "auto");
+        assert.ok(measured.body.scrollHeight > measured.body.clientHeight, "Données défile dans son corps unique");
+      }
+      t.diagnostic(`${width}×${height} ${id}: hauteur=${measured.dialog.height.toFixed(1)}px, top=${measured.dialog.y.toFixed(1)}px`);
+      await page.locator(`#${id}`).evaluate(dialog => dialog.close());
+    }
+  } finally { await context.close(); }
 }
 
 test("Lot 1 : bottom sheets ciblés, défilement sûr mobile et desktop inchangé", async t => {
@@ -238,6 +279,9 @@ test("Lot 1 : bottom sheets ciblés, défilement sûr mobile et desktop inchang�
     if (chromiumBrowser) {
       for (const [width, height] of [[320, 568], [390, 844], [760, 900]]) {
         await testMobileViewport(chromiumBrowser, server, width, height, t);
+      }
+      for (const [width, height] of [[320, 844], [390, 844], [760, 900]]) {
+        await t.test(`${width}×${height} : quatre modales de gestion alignées à 92dvh`, async child => testManagementSheetAlignment(chromiumBrowser, server, width, height, child));
       }
       for (const [width, height] of desktopViewports) await testDesktopUnchanged(chromiumBrowser, server, width, height, t);
     }

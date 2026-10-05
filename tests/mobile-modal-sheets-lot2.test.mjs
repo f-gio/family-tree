@@ -219,12 +219,12 @@ async function checkProfile(browser, server, width, height, t) {
       await switchSettingsPanel(page, key);
       await addSettingsFiller(page, panelId);
       const before = await measureProfile(page);
-      const expected = height * 0.9;
+      const expected = height * 0.92;
       t.diagnostic(`${width}×${height} profil-${key}: dialog=${before.dialog.height}, max=${before.maxHeight}, rect=${JSON.stringify(before.dialog)}`);
       assert.equal(before.open, true, "Paramètres reste ouvert pendant la vérification");
-      assert.ok(Math.abs(before.dialog.height - expected) < 1, `${key} conserve une hauteur de 90dvh`);
+      assert.ok(Math.abs(before.dialog.height - expected) < 1, `${key} conserve une hauteur de 92dvh`);
       assert.ok(Math.abs(before.dialog.bottom - height) < 1, "Paramètres reste ancrée au bas");
-      assert.ok(Math.abs(before.dialog.y - height * 0.1) < 1, "la bande derrière reste constante à 10% du viewport");
+      assert.ok(Math.abs(before.dialog.y - height * 0.08) < 1, "la bande derrière reste constante à 8% du viewport");
       assert.deepEqual(before.tabs.map(tab => tab.label), ["Profil", "Sécurité"], "les deux onglets sont présents");
       assert.ok(before.tabs.every(tab => tab.box.width >= 44 && tab.box.height >= 44 && tab.minHeight === "44px"), "les onglets ont des cibles tactiles ≥44px");
       assert.ok(Math.abs(before.tabs[0].box.width - before.tabs[1].box.width) < 1, "les onglets partagent deux colonnes égales");

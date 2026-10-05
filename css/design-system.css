@@ -3009,14 +3009,21 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   dialog#profileDialog.modal-mobile-sheet--stable {
     inset: auto 0 0;
     width: 100vw;
-    height: 90dvh;
+    height: 92dvh;
     min-height: 0;
     max-width: none;
-    max-height: 90dvh;
+    max-height: 92dvh;
     margin: 0;
     border: 0;
     border-top: var(--border-default);
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+  #dataDialog.modal-mobile-sheet--stable {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
+  #dataDialog.modal-mobile-sheet--stable > .modal-body {
+    padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
   }
   #profileDialog > .settings-layout {
     display: grid;
