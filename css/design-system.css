@@ -2740,6 +2740,31 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .viewer-head-actions { flex: 0 0 auto; }
   .viewer-head-actions .btn.small { min-height: var(--control-touch); }
 
+  /* Lot viewer mobile — header compact et prévisible : titre borné à 2 lignes,
+     nom de fichier visible (exception à la règle modal-head p masquée ≤560px),
+     safe-area basse. Scope strictement #documentViewerDialog / .viewer-dialog. */
+  .viewer-dialog .modal-head > div:first-child { min-width: 0; flex: 1 1 auto; }
+  .viewer-dialog .modal-head h3 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .viewer-dialog .modal-head p {
+    display: block;
+    margin: 2px 0 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  .viewer-dialog .modal-body {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
   .account-dropdown {
     position: fixed;
     left: 0.5rem;
@@ -2835,6 +2860,23 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   .data-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .data-overview .data-stat:last-child { grid-column: 1 / -1; }
   .directory-document-item .btn { width: 100%; }
+}
+
+/* Viewer : « Nouvel onglet » réduit à l'icône seule sur très petits écrans.
+   aria-label/title conservent l'accessible name ; cible ≥44px. */
+@media (max-width: 480px) {
+  .viewer-dialog #viewerExternalBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--control-touch);
+    min-width: var(--control-touch);
+    height: var(--control-touch);
+    min-height: var(--control-touch);
+    padding: 0;
+  }
+  .viewer-dialog #viewerExternalBtn .viewer-external-label { display: none; }
+  .viewer-dialog #viewerExternalBtn .ui-icon { width: 1.25rem; height: 1.25rem; }
 }
 
 @media (max-width: 390px) {
