@@ -4030,6 +4030,54 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
   }
 }
 
+/* Lot 3C — Administration stable ; Contrôle de l’arbre naturel court avec
+   un seul scroll central pour les diagnostics longs. */
+@media (max-width: 760px) {
+  #adminDialog.modal-mobile-sheet--stable {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
+  #adminDialog > .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #adminDialog > .modal-head > [data-close="adminDialog"] {
+    flex: 0 0 var(--control-touch);
+  }
+  #adminDialog > .modal-body::-webkit-scrollbar,
+  #treeQualityDialog > .tree-quality-body::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  #treeQualityDialog.modal-mobile-sheet--long-form {
+    width: 100vw;
+  }
+  #treeQualityDialog > .tree-quality-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    align-content: start;
+  }
+  #treeQualityDialog .tree-quality-scroll { overflow: visible; }
+  #treeQualityDialog .tree-quality-category-content {
+    max-height: none;
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
+}
+
 /* En-têtes des vues principales : une seule hiérarchie pour Arbre et onglets. */
 #appMain .page-title,
 .workspace-view .page-title {
