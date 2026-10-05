@@ -2982,6 +2982,13 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
     height: 92dvh;
     max-height: 92dvh;
   }
+  /* Lot mobile — Action de démarche + Imprimer en PDF : sheets stables 92dvh.
+     Ciblage ID uniquement ; pattern FORM global et #familyDetailsDialog inchangés. */
+  dialog#procedureActionDialog.modal-mobile-sheet--form,
+  dialog#personPrintDialog.modal-mobile-sheet--form {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
   #taskDialog > .modal-body.modal-form,
   #familyDetailsDialog > .modal-body.modal-form {
     flex: 1 1 auto;

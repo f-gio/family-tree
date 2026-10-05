@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
 import { blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 const mobileViewports = [[320, 844], [390, 844], [760, 900]];
@@ -18,7 +18,7 @@ async function createPage(browser, server, width, height) {
     if (url.endsWith("/js/app.js")) {
       return route.fetch().then(async response => route.fulfill({
         response,
-        body: `${await response.text()}\nwindow.__openLot3bAction = () => { activeDossierId = "lot3b-ui-test"; openProcedureAction(); };`
+        body: `${await response.text()}\nwindow.__openLot3bAction = (item = null) => { activeDossierId = "lot3b-ui-test"; openProcedureAction(item); };\nwindow.__openLot3bTask = (item = null) => { openTask(item); };`
       })).catch(() => {});
     }
     if (isAllowedRequest(url, server.baseURL)) return route.continue().catch(() => {});
@@ -116,6 +116,36 @@ async function openAction(page, long = false) {
   await page.waitForTimeout(40);
 }
 
+async function openActionViaApp(page, mode, long = false) {
+  await page.evaluate(({ mode: kind, long: isLong }) => {
+    for (const id of ["procedureActionDialog", "taskDialog"]) {
+      const dialog = document.getElementById(id);
+      if (dialog.open) dialog.close();
+    }
+    const action = kind === "edit" ? {
+      id: "lot3b-edit-action",
+      type: isLong ? "email-sent" : "note",
+      date: "2025-06-01",
+      direction: "none",
+      title: "Action de chronologie",
+      text: isLong ? "Message de test. ".repeat(180) : "Premier contact avec les archives.",
+      author: "François"
+    } : null;
+    window.__openLot3bAction(action);
+    if (isLong) {
+      const filler = document.createElement("div");
+      filler.dataset.lot3bFiller = "true";
+      filler.setAttribute("aria-hidden", "true");
+      filler.style.height = "900px";
+      document.querySelector("#procedureActionForm .modal-scroll").append(filler);
+    }
+    const dialog = document.getElementById("procedureActionDialog");
+    dialog.getBoundingClientRect();
+    dialog.getAnimations({ subtree: true }).forEach(animation => animation.finish());
+  }, { mode, long });
+  await page.waitForTimeout(60);
+}
+
 async function measureAction(page) {
   return page.evaluate(() => {
     const dialog = document.getElementById("procedureActionDialog");
@@ -199,7 +229,7 @@ test("Lot 3B : détail Démarches reste stable, scrollable au centre et fermable
   } finally { await browser.close(); await server.close(); }
 });
 
-test("Lot 3B : action Démarches naturelle en court, plafonnée et scrollable en long", async t => {
+test("Lot 3B : action Démarches en sheet stable 92dvh (création, modification, court, long)", async t => {
   let browser;
   try { browser = await chromium.launch({ headless: true }); }
   catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
@@ -209,39 +239,99 @@ test("Lot 3B : action Démarches naturelle en court, plafonnée et scrollable en
       await t.test(`${width}×${height}`, async child => {
         const { context, page } = await createPage(browser, server, width, height);
         try {
-          await openAction(page, false);
-          const short = await measureAction(page);
-          await openAction(page, true);
-          const long = await measureAction(page);
-          const cap = height * 0.86;
-          child.diagnostic(`${width}×${height}: action courte=${short.dialog.height.toFixed(1)}px / longue=${long.dialog.height.toFixed(1)}px / plafond=${cap.toFixed(1)}px`);
-          assert.ok(short.dialog.height < cap - 1, `le formulaire court garde sa hauteur naturelle (${short.dialog.height}px / plafond ${cap}px)`);
-          assert.ok(long.dialog.height <= cap + 1 && Math.abs(long.dialog.height - cap) < 1, "le formulaire long atteint le plafond de 86dvh");
-          assert.ok(short.dialog.y > 0 && Math.abs(short.dialog.bottom - height) < 1, "la feuille courte laisse la page visible derrière");
-          assert.ok(long.dialog.y > 0 && Math.abs(long.dialog.bottom - height) < 1, "sheet ancrée en bas avec page visible derrière");
-          assert.ok(Math.abs(long.head.bottom - long.form.y) < 1, "header fixe au-dessus du formulaire");
-          assert.ok(long.headPaddingTop >= 16, "safe-area supérieure du header respectée");
-          assert.ok(Math.abs(long.scroller.bottom - long.footer.y) < 1 && long.footer.bottom <= height + 1, "footer fixe et accessible");
-          assert.ok(long.scroll.height > long.scroll.client, "la zone centrale défile quand le contenu est long");
-          assert.equal(long.scroll.overflowY, "auto");
-          assert.equal(long.scroll.scrollbarWidth, "none");
-          assert.equal(long.scroll.webkitScrollbar, "none");
-          assert.ok(long.footerPaddingBottom >= 12, "safe-area réservée sous le footer");
-          assert.ok(long.buttons.length === 2 && long.buttons.every(button => button.height >= 44 && button.minHeight === "44px"), "Annuler/Enregistrer restent tactiles");
-          assert.ok(parseFloat(long.radius) > 0, "coins supérieurs arrondis");
-          assert.match(long.backdrop, /0\.42/);
-          assert.equal(long.viewport.scrollWidth, width, "aucun overflow horizontal");
-          await page.locator("#procedureActionForm .modal-scroll").evaluate(scroller => { scroller.scrollTop = 220; });
+          const target = height * 0.92;
+          await openActionViaApp(page, "create", false);
+          const createShort = await measureAction(page);
+          await openActionViaApp(page, "create", true);
+          const createLong = await measureAction(page);
+          await openActionViaApp(page, "edit", false);
+          const editShort = await measureAction(page);
+          await openActionViaApp(page, "edit", true);
+          const editLong = await measureAction(page);
+          child.diagnostic(`${width}×${height}: création court=${createShort.dialog.height.toFixed(1)} / long=${createLong.dialog.height.toFixed(1)} ; modification court=${editShort.dialog.height.toFixed(1)} / long=${editLong.dialog.height.toFixed(1)} ; cible=${target.toFixed(1)}px`);
+          for (const [label, m] of [["création court", createShort], ["création long", createLong], ["modification court", editShort], ["modification long", editLong]]) {
+            assert.ok(Math.abs(m.dialog.height - target) < 1, `${label} = 92dvh (${m.dialog.height.toFixed(1)} / ${target.toFixed(1)})`);
+            assert.ok(Math.abs(parseFloat(m.maxHeight) - target) < 1, `${label} max-height 92dvh (${m.maxHeight})`);
+            assert.ok(m.dialog.y > 0 && Math.abs(m.dialog.bottom - height) < 1, `${label} ancrée en bas, page visible derrière`);
+            assert.ok(Math.abs(m.head.bottom - m.form.y) < 1, `${label} header fixe`);
+            assert.ok(m.headPaddingTop >= 16, `${label} safe-area header`);
+            assert.ok(Math.abs(m.scroller.bottom - m.footer.y) < 1 && m.footer.bottom <= height + 1, `${label} footer fixe et accessible`);
+            assert.ok(m.footerPaddingBottom >= 12, `${label} safe-area footer`);
+            assert.ok(m.buttons.length === 2 && m.buttons.every(button => button.height >= 44 && button.minHeight === "44px"), `${label} CTA ≥44px`);
+            assert.equal(m.scroll.overflowY, "auto", `${label} scroll vertical`);
+            assert.equal(m.scroll.scrollbarWidth, "none", `${label} scrollbar masquée`);
+            assert.equal(m.viewport.scrollWidth, width, `${label} aucun overflow horizontal`);
+          }
+          assert.ok(Math.abs(createShort.dialog.height - createLong.dialog.height) < 1, "création : hauteur stable court/long");
+          assert.ok(Math.abs(editShort.dialog.height - editLong.dialog.height) < 1, "modification : hauteur stable court/long");
+          assert.ok(Math.abs(createShort.dialog.y - editShort.dialog.y) < 1, "même top création/modification");
+          assert.ok(Math.abs(createShort.dialog.bottom - editShort.dialog.bottom) < 1, "même bottom création/modification");
+          // scroll central + dernier champ accessible (dialogue encore en modification longue)
+          assert.ok(editLong.scroll.height > editLong.scroll.client, "contenu long défilable");
+          await page.locator("#procedureActionForm .modal-scroll").evaluate(scroller => { scroller.scrollTop = scroller.scrollHeight; });
+          await page.waitForTimeout(40);
           const afterScroll = await measureAction(page);
-          assert.ok(afterScroll.scroll.top > 0, "le contenu central défile");
-          assert.deepEqual(afterScroll.head, long.head, "header stable pendant le scroll");
-          assert.deepEqual(afterScroll.footer, long.footer, "footer stable pendant le scroll");
+          const authorVisible = await page.evaluate(() => {
+            const author = document.getElementById("procedureActionAuthor").closest("label").getBoundingClientRect();
+            const footer = document.querySelector("#procedureActionForm .modal-actions").getBoundingClientRect();
+            return author.bottom <= footer.top + 1 && author.height > 0;
+          });
+          assert.ok(afterScroll.scroll.top > 0, "scroll central accepté");
+          assert.ok(authorVisible, "dernier champ (Auteur) accessible au-dessus du footer");
+          assert.deepEqual(afterScroll.head, editLong.head, "header stable pendant le scroll");
+          assert.deepEqual(afterScroll.footer, editLong.footer, "footer stable pendant le scroll");
+          // comparaison avec la feuille Action standard #taskDialog
+          await page.evaluate(() => { window.__openLot3bTask(null); });
+          await page.waitForTimeout(60);
+          const taskGeometry = await page.evaluate(() => {
+            const dialog = document.getElementById("taskDialog");
+            const rect = dialog.getBoundingClientRect();
+            return { height: rect.height, y: rect.y, bottom: rect.bottom, maxHeight: getComputedStyle(dialog).maxHeight };
+          });
+          child.diagnostic(`${width}×${height}: taskDialog ref height=${taskGeometry.height.toFixed(1)} y=${taskGeometry.y.toFixed(1)} vs procedureAction createShort height=${createShort.dialog.height.toFixed(1)} y=${createShort.dialog.y.toFixed(1)}`);
+          assert.ok(Math.abs(taskGeometry.height - createShort.dialog.height) < 1, "H identique à #taskDialog à ±1px");
+          assert.ok(Math.abs(taskGeometry.y - createShort.dialog.y) < 1, "top identique à #taskDialog à ±1px");
           await page.keyboard.press("Escape");
-          assert.equal(await page.locator("#procedureActionDialog").evaluate(dialog => dialog.open), false, "fermeture Escape préservée");
-          await openAction(page, false);
+          await page.evaluate(() => { document.getElementById("taskDialog")?.close(); });
+          await openActionViaApp(page, "edit", false);
+          await page.keyboard.press("Escape");
+          assert.equal(await page.locator("#procedureActionDialog").evaluate(dialog => dialog.open), false, "fermeture Escape");
+          await openActionViaApp(page, "create", false);
           await page.locator('#procedureActionForm [data-close="procedureActionDialog"]').click();
           assert.equal(await page.locator("#procedureActionDialog").evaluate(dialog => dialog.open), false, "Annuler ferme la modale");
-          child.diagnostic(`${width}×${height}: court=${short.dialog.height.toFixed(1)}px, long=${long.dialog.height.toFixed(1)}px, plafond=${cap.toFixed(1)}px, top=${long.dialog.y.toFixed(1)}px, header=${long.head.height.toFixed(1)}px, zone=${long.scroller.height.toFixed(1)}px, footer=${long.footer.height.toFixed(1)}px`);
+          child.diagnostic(`${width}×${height}: court=${createShort.dialog.height.toFixed(1)}px, long=${createLong.dialog.height.toFixed(1)}px, top=${createShort.dialog.y.toFixed(1)}px, header=${createShort.head.height.toFixed(1)}px, zone=${createLong.scroller.height.toFixed(1)}px, footer=${createShort.footer.height.toFixed(1)}px`);
+        } finally { await context.close(); }
+      });
+    }
+  } finally { await browser.close(); await server.close(); }
+});
+
+test("Lot 3B : action Démarches 92dvh sous WebKit (création + modification)", async t => {
+  let browser;
+  try { browser = await webkit.launch({ headless: true }); }
+  catch (error) { t.skip(`WebKit indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    for (const [width, height] of mobileViewports) {
+      await t.test(`WebKit ${width}×${height}`, async child => {
+        const { context, page } = await createPage(browser, server, width, height);
+        try {
+          const target = height * 0.92;
+          const results = {};
+          for (const [label, mode, long] of [["create-short", "create", false], ["create-long", "create", true], ["edit-short", "edit", false], ["edit-long", "edit", true]]) {
+            await openActionViaApp(page, mode, long);
+            const m = await measureAction(page);
+            results[label] = m;
+            assert.ok(Math.abs(m.dialog.height - target) < 1, `${label} = 92dvh (${m.dialog.height.toFixed(1)} / ${target.toFixed(1)})`);
+            assert.ok(Math.abs(parseFloat(m.maxHeight) - target) < 1, `${label} max-height 92dvh`);
+            assert.ok(m.dialog.y > 0 && Math.abs(m.dialog.bottom - height) < 1, `${label} ancrée en bas`);
+            assert.ok(Math.abs(m.scroller.bottom - m.footer.y) < 1 && m.footer.bottom <= height + 1, `${label} footer accessible`);
+            assert.ok(m.buttons.length === 2 && m.buttons.every(button => button.height >= 44), `${label} CTA ≥44px`);
+            assert.equal(m.viewport.scrollWidth, width, `${label} aucun overflow horizontal`);
+          }
+          assert.ok(Math.abs(results["create-short"].dialog.height - results["edit-short"].dialog.height) < 1, "création/modification même H");
+          assert.ok(Math.abs(results["create-short"].dialog.y - results["edit-short"].dialog.y) < 1, "création/modification même top");
+          child.diagnostic(`WebKit ${width}×${height}: createShort=${results["create-short"].dialog.height.toFixed(1)} editShort=${results["edit-short"].dialog.height.toFixed(1)} createLong=${results["create-long"].dialog.height.toFixed(1)} editLong=${results["edit-long"].dialog.height.toFixed(1)} target=${target.toFixed(1)}`);
         } finally { await context.close(); }
       });
     }
