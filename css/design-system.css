@@ -4059,6 +4059,10 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
   #treeQualityDialog.modal-mobile-sheet--long-form {
     width: 100vw;
   }
+  #treeQualityDialog.modal-mobile-sheet--stable {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
   #treeQualityDialog > .tree-quality-body {
     flex: 1 1 auto;
     min-height: 0;
@@ -4075,6 +4079,33 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
     max-height: none;
     overflow: visible;
     overscroll-behavior: auto;
+  }
+  #profileDialog > .settings-layout > .settings-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    width: 100%;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    overscroll-behavior-inline: auto;
+    scroll-snap-type: none;
+    scrollbar-width: none;
+  }
+  #profileDialog > .settings-layout > .settings-nav::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  #profileDialog > .settings-layout > .settings-nav > .settings-tab {
+    box-sizing: border-box;
+    flex: none;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    padding-inline: var(--space-2);
+    white-space: normal;
+    overflow-wrap: anywhere;
+    scroll-snap-align: none;
   }
 }
 

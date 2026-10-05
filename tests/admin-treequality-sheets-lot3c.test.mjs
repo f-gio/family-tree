@@ -170,7 +170,7 @@ test("Lot 3C : Administration garde une feuille stable, une recherche fonctionne
   } finally { await browser.close(); await server.close(); }
 });
 
-test("Lot 3C : Tree Quality reste naturelle à vide et utilise un seul scroll si le contenu est long", async t => {
+test("Lot 3C : Tree Quality garde sa hauteur stable de 92dvh et un seul scroll central", async t => {
   let browser;
   try { browser = await chromium.launch({ headless: true }); }
   catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
@@ -187,12 +187,11 @@ test("Lot 3C : Tree Quality reste naturelle à vide et utilise un seul scroll si
           await page.locator("#treeQualityDialog").evaluate(dialog => dialog.close());
           await page.evaluate(fixture => window.__openLot3cQuality(true, fixture), longFixture);
           const long = await measureQuality(page);
-          const cap = height * 0.88;
-          child.diagnostic(`${width}×${height}: court=${short.dialog.height.toFixed(1)}px, long=${long.dialog.height.toFixed(1)}px, plafond=${cap.toFixed(1)}px, bande=${long.dialog.y.toFixed(1)}px`);
-          assert.ok(short.dialog.height < cap - 1, "contenu vide/court conserve sa hauteur naturelle");
-          assert.ok(short.dialog.y > 0 && Math.abs(short.dialog.bottom - height) < 1, "sheet courte ancrée en bas avec fond visible");
-          assert.ok(long.dialog.height <= cap + 1 && Math.abs(long.dialog.height - cap) < 1, "contenu long plafonné à 88dvh");
-          assert.ok(long.dialog.y > 0 && Math.abs(long.dialog.bottom - height) < 1, "sheet longue ancrée en bas avec fond visible");
+          const target = height * 0.92;
+          child.diagnostic(`${width}×${height}: court=${short.dialog.height.toFixed(1)}px, long=${long.dialog.height.toFixed(1)}px, cible=${target.toFixed(1)}px, bande=${long.dialog.y.toFixed(1)}px`);
+          assert.ok(Math.abs(short.dialog.height - target) < 1 && Math.abs(long.dialog.height - target) < 1, "contenu court et long conservent 92dvh");
+          assert.ok(short.dialog.y > 0 && Math.abs(short.dialog.bottom - height) < 1, "sheet stable ancrée en bas avec fond visible");
+          assert.ok(long.dialog.y > 0 && Math.abs(long.dialog.bottom - height) < 1, "contenu long conserve la même feuille ancrée");
           assert.ok(Math.abs(long.header.bottom - long.body.y) < 1, "header fixe au-dessus du scroll central");
           assert.ok(long.headerPaddingTop >= 16 && long.closeButton.width >= 44 && long.closeButton.height >= 44, "safe-area du header et fermeture tactile");
           assert.ok(long.scroll.height > long.scroll.client, "le body de la modale défile avec les diagnostics longs");
@@ -248,7 +247,7 @@ test("Lot 3C : les classes sheet n’altèrent pas les géométries desktop", as
       const rect = dialog.getBoundingClientRect();
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, radius: getComputedStyle(dialog).borderTopLeftRadius };
     });
-    await page.locator("#treeQualityDialog").evaluate(dialog => { dialog.close(); dialog.classList.remove("modal-mobile-sheet", "modal-mobile-sheet--long-form"); dialog.showModal(); });
+      await page.locator("#treeQualityDialog").evaluate(dialog => { dialog.close(); dialog.classList.remove("modal-mobile-sheet", "modal-mobile-sheet--stable"); dialog.showModal(); });
     const qualityWithout = await page.locator("#treeQualityDialog").evaluate(dialog => {
       const rect = dialog.getBoundingClientRect();
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, radius: getComputedStyle(dialog).borderTopLeftRadius };
