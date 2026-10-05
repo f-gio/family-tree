@@ -12,7 +12,7 @@ const [html, app, pickerModule] = await Promise.all([
 ]);
 
 test("Documents : sélecteur partagé, associations existantes et stockage personIds préservés", () => {
-  const dialogStart = html.indexOf('<dialog class="modal-lg" id="documentDialog"');
+  const dialogStart = html.indexOf('<dialog class="modal-lg modal-mobile-sheet modal-mobile-sheet--long-form" id="documentDialog"');
   const dialog = html.slice(dialogStart, html.indexOf("</dialog>", dialogStart));
   assert.match(dialog, /<h4>Personnes éventuellement liées<\/h4><p>Facultatif : un document peut concerner aucune, une ou plusieurs personnes de l’arbre\.<\/p>/);
   assert.match(dialog, /id="documentPeopleList" data-multiselect-people/);
