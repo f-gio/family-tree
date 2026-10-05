@@ -126,11 +126,11 @@ async function verifyMobileDialog(browser, server, id, width, height, mode, comp
     await openDialog(page, id, mode);
     if (compact) await prepareCompactFixture(page, id);
     const short = await measure(page, id);
-    const max = height * 0.88;
+    const max = height * 0.92;
     assert.equal(short.open, true);
     assert.ok(Math.abs(short.dialog.bottom - height) < 1, `${id} ancrée au bas du viewport`);
-    assert.ok(short.dialog.height <= max + 1, `${id} plafonnée à 88dvh`);
-    assert.ok(parseFloat(short.maxHeight) <= max + 1, `${id} max-height de 88dvh`);
+    assert.ok(short.dialog.height <= max + 1, `${id} plafonnée à 92dvh`);
+    assert.ok(parseFloat(short.maxHeight) <= max + 1, `${id} max-height de 92dvh`);
     assert.ok(short.dialog.y > 0, `${id} laisse la page visible au-dessus`);
     assert.ok(short.header.bottom <= short.scroller.y + 1, `${id} header fixe au-dessus du contenu`);
     assert.ok(Math.abs(short.scroller.bottom - short.footer.y) < 1, `${id} contenu jusqu’au footer`);
@@ -150,7 +150,7 @@ async function verifyMobileDialog(browser, server, id, width, height, mode, comp
 
     await addLongContent(page, `#${id} .modal-scroll`);
     const beforeScroll = await measure(page, id);
-    assert.ok(Math.abs(beforeScroll.dialog.height - max) < 1, `${id} grandit jusqu’au plafond de 88dvh`);
+    assert.ok(Math.abs(beforeScroll.dialog.height - max) < 1, `${id} grandit jusqu’au plafond de 92dvh`);
     assert.ok(beforeScroll.scroll.scrollHeight > beforeScroll.scroll.clientHeight, `${id} contenu long dans un scroller interne`);
     await page.locator(`#${id} .modal-scroll`).evaluate(scroller => { scroller.scrollTop = 300; });
     const afterScroll = await measure(page, id);

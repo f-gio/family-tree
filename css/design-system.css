@@ -3954,10 +3954,10 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 
 }
 
-/* Lot 3A — Document et Dossier réutilisent le système sheet avec un plafond
-   plus haut pour leurs formulaires longs ; la hauteur reste naturelle. */
+/* Lot 3A → Lot 4 — Document et Dossier : formulaires longs alignés sur le
+   standard 92dvh des grandes feuilles de gestion (continuité Démarches). */
 @media (max-width: 760px) {
-  dialog.modal-mobile-sheet--long-form { max-height: 88dvh; }
+  dialog.modal-mobile-sheet--long-form { max-height: 92dvh; }
   dialog#documentDialog.modal-mobile-sheet,
   dialog#dossierDialog.modal-mobile-sheet {
     inset: auto 0 0;
@@ -3965,7 +3965,7 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
     height: auto;
     min-height: 0;
     max-width: none;
-    max-height: 88dvh;
+    max-height: 92dvh;
     margin: 0;
     border: 0;
     border-top: var(--border-default);
