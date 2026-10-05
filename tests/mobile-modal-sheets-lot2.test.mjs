@@ -181,15 +181,16 @@ async function measureProfile(page) {
     const layout = dialog.querySelector(":scope > .settings-layout");
     const nav = layout.querySelector(":scope > .settings-nav");
     const panel = layout.querySelector(":scope > .settings-panel:not([hidden])");
+    const content = panel.querySelector(":scope > .settings-panel-content");
     const actions = panel.querySelector(":scope > .settings-actions");
-    const style = getComputedStyle(panel);
+    const style = getComputedStyle(content);
     return {
       viewport: { width: document.documentElement.clientWidth, height: innerHeight },
       dialog: rect(dialog), maxHeight: getComputedStyle(dialog).maxHeight,
-      header: rect(header), layout: rect(layout), nav: rect(nav), panel: rect(panel), actions: rect(actions),
+      header: rect(header), layout: rect(layout), nav: rect(nav), panel: rect(panel), content: rect(content), actions: rect(actions),
       navScroll: { width: nav.scrollWidth, clientWidth: nav.clientWidth, overflowX: getComputedStyle(nav).overflowX, scrollbarWidth: getComputedStyle(nav).scrollbarWidth, webkitScrollbar: getComputedStyle(nav, "::-webkit-scrollbar").display },
       tabs: [...nav.querySelectorAll("[data-settings-tab]")].map(tab => ({ label: tab.textContent.trim(), box: rect(tab), selected: tab.getAttribute("aria-selected"), active: tab.classList.contains("active"), minHeight: getComputedStyle(tab).minHeight })),
-      panelScroll: { height: panel.scrollHeight, clientHeight: panel.clientHeight, scrollTop: panel.scrollTop, overflowY: style.overflowY, overflowX: style.overflowX, scrollbarWidth: style.scrollbarWidth, webkitScrollbar: getComputedStyle(panel, "::-webkit-scrollbar").display },
+      panelScroll: { height: content.scrollHeight, clientHeight: content.clientHeight, scrollTop: content.scrollTop, overflowY: style.overflowY, overflowX: style.overflowX, scrollbarWidth: style.scrollbarWidth, webkitScrollbar: getComputedStyle(content, "::-webkit-scrollbar").display },
       actionPaddingBottom: parseFloat(getComputedStyle(actions).paddingBottom),
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       open: dialog.open
@@ -199,12 +200,12 @@ async function measureProfile(page) {
 
 async function addSettingsFiller(page, panelId) {
   await page.locator(`#${panelId}`).evaluate(panel => {
+    const content = panel.querySelector(":scope > .settings-panel-content");
     const filler = document.createElement("div");
     filler.dataset.lot2Filler = "true";
     filler.style.height = "1000px";
     filler.setAttribute("aria-hidden", "true");
-    const actions = panel.querySelector(":scope > .settings-actions");
-    panel.insertBefore(filler, actions);
+    content.append(filler);
   });
 }
 
@@ -242,19 +243,21 @@ async function checkProfile(browser, server, width, height, t) {
       assert.ok(before.panelScroll.height > before.panelScroll.clientHeight, `${key} offre un panneau scrollable long`);
       assert.ok(before.actionPaddingBottom >= 12, "les actions respectent la safe-area basse");
       assert.ok(before.actions.bottom <= before.panel.bottom + 1, "actions du panneau actif accessibles");
-      await page.locator(`#${panelId}`).evaluate(panel => { panel.scrollTop = 200; });
+      await page.locator(`#${panelId} > .settings-panel-content`).evaluate(content => { content.scrollTop = 200; });
       const after = await measureProfile(page);
       assert.ok(after.panelScroll.scrollTop > 0, `${key} défile dans son panneau seulement`);
       assert.deepEqual(after.header, before.header, "header fixe au scroll");
       assert.deepEqual(after.nav, before.nav, "navigation fixe au scroll");
       assert.deepEqual(after.actions, before.actions, "actions sticky accessibles au scroll");
       assert.equal(after.pageOverflow, 0);
-      positions[key] = { height: before.dialog.height, band: before.dialog.y, header: before.header.height, nav: before.nav.height, tabs: before.tabs.map(tab => ({ label: tab.label, x: tab.box.x, width: tab.box.width, height: tab.box.height })), panel: before.panel.height, actions: before.actions.height };
+      positions[key] = { height: before.dialog.height, band: before.dialog.y, header: before.header.height, nav: before.nav.height, contentY: before.content.y, content: before.content.height, actionY: before.actions.y, actions: before.actions.height, tabs: before.tabs.map(tab => ({ label: tab.label, x: tab.box.x, width: tab.box.width, height: tab.box.height })) };
       if (key === "profile") {
         t.diagnostic(`${width}×${height} Paramètres Profil: ${JSON.stringify(positions.profile)}`);
       } else t.diagnostic(`${width}×${height} Paramètres Sécurité: ${JSON.stringify(positions.security)}`);
     }
     assert.ok(Math.abs(positions.profile.height - positions.security.height) < 0.5);
+    assert.ok(Math.abs(positions.profile.contentY - positions.security.contentY) <= 2, "Profil et Sécurité commencent leur contenu à la même coordonnée");
+    assert.ok(Math.abs(positions.profile.actionY - positions.security.actionY) <= 2, "les zones CTA Profil et Sécurité commencent à la même coordonnée");
     await page.locator('[data-settings-tab="profile"]').focus();
     await page.keyboard.press("Escape");
     assert.equal(await page.locator("#profileDialog").evaluate(dialog => dialog.open), false, "Paramètres fermable avec Escape");
