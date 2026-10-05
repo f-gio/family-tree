@@ -3981,6 +3981,55 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
   }
 }
 
+/* Lot 3B — les modales de consultation/action Démarches adoptent les sheets
+   mobiles existantes sans modifier le plein écran formulaire de #dossierDialog. */
+@media (max-width: 760px) {
+  #procedureDetailDialog.modal-mobile-sheet--stable {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
+  #procedureDetailDialog > .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #procedureDetailDialog > .modal-body::-webkit-scrollbar,
+  #procedureActionDialog #procedureActionForm > .modal-scroll::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  #procedureActionDialog > #procedureActionForm {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    scrollbar-gutter: auto;
+  }
+  #procedureActionDialog #procedureActionForm > .modal-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    overflow-x: clip;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #procedureActionDialog #procedureActionForm > .modal-actions {
+    position: relative;
+    bottom: auto;
+    flex: 0 0 auto;
+    padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+  }
+}
+
 /* En-têtes des vues principales : une seule hiérarchie pour Arbre et onglets. */
 #appMain .page-title,
 .workspace-view .page-title {
