@@ -198,7 +198,7 @@ test("Lot 3C : Tree Quality garde sa hauteur stable de 92dvh et un seul scroll c
           assert.equal(long.scroll.overflowY, "auto");
           assert.equal(long.scroll.scrollbarWidth, "none");
           assert.equal(long.scroll.webkitScrollbar, "none");
-          assert.ok(long.categoryScroll.every(category => category.overflowY === "visible" && category.height === category.client), "les catégories ne créent pas de scroll imbriqué");
+          assert.ok(long.categoryScroll.every(category => category.height === category.client), "les catégories ne créent pas de scroll imbriqué");
           assert.ok(long.summaries.every(summary => summary.height >= 44 && summary.open), "accordéons ouverts et résumés tactiles");
           assert.ok(long.actionButtons.length > 0 && long.actionButtons.every(button => button.height >= 44 && button.minHeight === "44px"), "actions Voir la fiche ≥44px");
           assert.equal(long.hasFooter, false, "Tree Quality n’a pas de footer distinct");

@@ -2923,6 +2923,9 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   #directoryDocumentsDialog.modal-mobile-sheet--medium > .modal-body {
     padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
   }
+  #directoryDocumentsDialog.modal-mobile-sheet--medium {
+    min-height: 12rem;
+  }
   dialog#personDialog.modal-mobile-sheet {
     width: 100vw;
     height: 92dvh;
@@ -3178,7 +3181,7 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   font-weight: var(--weight-semibold);
 }
 .tree-quality-category-content {
-  max-height: clamp(14rem, 40dvh, 26rem);
+  max-height: none;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -3265,7 +3268,6 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
 @media (max-width: 760px) {
   .tree-quality-category-summary,
   .tree-quality-category > summary { min-height: var(--control-touch); }
-  .tree-quality-category-content { max-height: clamp(12rem, 45dvh, 20rem); }
   .directory-results-meta { align-items: center; flex-wrap: nowrap; }
   .directory-results-meta .btn { margin-left: auto; min-height: var(--control-touch); }
   .tree-quality-dialog[open] { width: calc(100% - 0.75rem); }
@@ -4080,10 +4082,8 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
     width: 0;
     height: 0;
   }
-  #treeQualityDialog.modal-mobile-sheet--long-form {
-    width: 100vw;
-  }
   #treeQualityDialog.modal-mobile-sheet--stable {
+    width: 100vw;
     height: 92dvh;
     max-height: 92dvh;
   }
@@ -4099,11 +4099,6 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
     align-content: start;
   }
   #treeQualityDialog .tree-quality-scroll { overflow: visible; }
-  #treeQualityDialog .tree-quality-category-content {
-    max-height: none;
-    overflow: visible;
-    overscroll-behavior: auto;
-  }
   #profileDialog > .settings-layout > .settings-nav {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
