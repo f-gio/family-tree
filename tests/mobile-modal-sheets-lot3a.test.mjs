@@ -140,7 +140,7 @@ async function verifyMobileDialog(browser, server, id, width, height, mode, comp
     assert.equal(short.scroll.scrollbarWidth, "none");
     assert.equal(short.scroll.webkitScrollbar, "none");
     assert.equal(short.viewport.scrollWidth, short.viewport.width, "aucun overflow horizontal");
-    if (compact) assert.ok(short.dialog.height < max - 1, `${id} conserve une hauteur naturelle, sans plage vide`);
+    if (compact) assert.ok(Math.abs(short.dialog.height - max) < 1, `${id} garde 92dvh même avec contenu compact`);
     if (id === "documentDialog" && mode === "edit") {
       assert.ok(short.fileArea.visible, "le document existant reste affiché");
       assert.equal(short.fileArea.people, 3, "les personnes associées restent affichées");

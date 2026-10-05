@@ -3957,12 +3957,12 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 /* Lot 3A → Lot 4 — Document et Dossier : formulaires longs alignés sur le
    standard 92dvh des grandes feuilles de gestion (continuité Démarches). */
 @media (max-width: 760px) {
-  dialog.modal-mobile-sheet--long-form { max-height: 92dvh; }
+  dialog.modal-mobile-sheet--long-form { height: 92dvh; max-height: 92dvh; }
   dialog#documentDialog.modal-mobile-sheet,
   dialog#dossierDialog.modal-mobile-sheet {
     inset: auto 0 0;
     width: 100vw;
-    height: auto;
+    height: 92dvh;
     min-height: 0;
     max-width: none;
     max-height: 92dvh;
