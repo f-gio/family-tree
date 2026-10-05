@@ -71,7 +71,7 @@ test("Actions : chaque ligne est une tuile séparée sans séparateur interne", 
 });
 
 test("Footer modale Action : deux décisions dans le footer, suppression dans le menu du header", () => {
-  const modal = html.slice(html.indexOf('<dialog class="modal-md" id="taskDialog"'), html.indexOf("</dialog>", html.indexOf('<dialog class="modal-md" id="taskDialog"')));
+  const modal = html.slice(html.indexOf('<dialog class="modal-md modal-mobile-sheet modal-mobile-sheet--form" id="taskDialog"'), html.indexOf("</dialog>", html.indexOf('<dialog class="modal-md modal-mobile-sheet modal-mobile-sheet--form" id="taskDialog"')));
   assert.match(modal, /id="taskMenuBtn"[^>]*aria-haspopup="menu"[^>]*hidden/);
   assert.match(modal, /id="taskActionMenu" role="menu"[^>]*hidden/);
   assert.match(modal, /id="deleteTaskBtn" role="menuitem" hidden/);
