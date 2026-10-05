@@ -557,6 +557,32 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 .icon-btn .ui-icon { width: 1.25rem; height: 1.25rem; }
 .tree-controls button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); }
 
+/* Marqueur discret activé exclusivement pour le projet Firebase de recette. */
+.environment-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.25rem;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-surface);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.06em;
+  line-height: 1;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+#environmentBadgeAuth {
+  position: absolute;
+  top: max(var(--space-3), env(safe-area-inset-top));
+  right: max(var(--space-3), env(safe-area-inset-right));
+  z-index: 2;
+}
+#environmentBadgeApp { margin-left: var(--space-2); }
+
 /* Arbre : l'action principale reste dans l'introduction, les filtres forment
    une ligne distincte dont le groupe commence à gauche. */
 .tree-filter-toolbar {
@@ -2714,6 +2740,31 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .viewer-head-actions { flex: 0 0 auto; }
   .viewer-head-actions .btn.small { min-height: var(--control-touch); }
 
+  /* Lot viewer mobile — header compact et prévisible : titre borné à 2 lignes,
+     nom de fichier visible (exception à la règle modal-head p masquée ≤560px),
+     safe-area basse. Scope strictement #documentViewerDialog / .viewer-dialog. */
+  .viewer-dialog .modal-head > div:first-child { min-width: 0; flex: 1 1 auto; }
+  .viewer-dialog .modal-head h3 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .viewer-dialog .modal-head p {
+    display: block;
+    margin: 2px 0 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  .viewer-dialog .modal-body {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
   .account-dropdown {
     position: fixed;
     left: 0.5rem;
@@ -2811,6 +2862,23 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   .directory-document-item .btn { width: 100%; }
 }
 
+/* Viewer : « Nouvel onglet » réduit à l'icône seule sur très petits écrans.
+   aria-label/title conservent l'accessible name ; cible ≥44px. */
+@media (max-width: 480px) {
+  .viewer-dialog #viewerExternalBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--control-touch);
+    min-width: var(--control-touch);
+    height: var(--control-touch);
+    min-height: var(--control-touch);
+    padding: 0;
+  }
+  .viewer-dialog #viewerExternalBtn .viewer-external-label { display: none; }
+  .viewer-dialog #viewerExternalBtn .ui-icon { width: 1.25rem; height: 1.25rem; }
+}
+
 @media (max-width: 390px) {
   .brand p { display: none; }
   .brand h1 { font-size: 1rem; }
@@ -2897,6 +2965,9 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   #directoryDocumentsDialog.modal-mobile-sheet--medium > .modal-body {
     padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
   }
+  #directoryDocumentsDialog.modal-mobile-sheet--medium {
+    min-height: 12rem;
+  }
   dialog#personDialog.modal-mobile-sheet {
     width: 100vw;
     height: 92dvh;
@@ -2949,6 +3020,17 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   }
   dialog#taskDialog.modal-mobile-sheet--form,
   dialog#familyDetailsDialog.modal-mobile-sheet--form { max-height: 86dvh; }
+  dialog#taskDialog.modal-mobile-sheet--form {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
+  /* Lot mobile — Action de démarche + Imprimer en PDF : sheets stables 92dvh.
+     Ciblage ID uniquement ; pattern FORM global et #familyDetailsDialog inchangés. */
+  dialog#procedureActionDialog.modal-mobile-sheet--form,
+  dialog#personPrintDialog.modal-mobile-sheet--form {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
   #taskDialog > .modal-body.modal-form,
   #familyDetailsDialog > .modal-body.modal-form {
     flex: 1 1 auto;
@@ -2983,14 +3065,21 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   dialog#profileDialog.modal-mobile-sheet--stable {
     inset: auto 0 0;
     width: 100vw;
-    height: 90dvh;
+    height: 92dvh;
     min-height: 0;
     max-width: none;
-    max-height: 90dvh;
+    max-height: 92dvh;
     margin: 0;
     border: 0;
     border-top: var(--border-default);
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+  #dataDialog.modal-mobile-sheet--stable {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
+  #dataDialog.modal-mobile-sheet--stable > .modal-body {
+    padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
   }
   #profileDialog > .settings-layout {
     display: grid;
@@ -3008,8 +3097,19 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   #profileDialog > .settings-layout > .settings-panel {
     grid-column: 1;
     grid-row: 2;
+    display: flex;
+    flex-direction: column;
     min-width: 0;
     min-height: 0;
+    padding: 0;
+    overflow: hidden;
+    scrollbar-gutter: auto;
+  }
+  #profileDialog .settings-panel-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    padding: var(--space-4) max(var(--space-4), env(safe-area-inset-right)) var(--space-4) max(var(--space-4), env(safe-area-inset-left));
     overflow-x: clip;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -3017,14 +3117,20 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
     scrollbar-width: none;
     -ms-overflow-style: none;
   }
-  #profileDialog > .settings-layout > .settings-panel::-webkit-scrollbar {
+  #profileDialog .settings-panel-content::-webkit-scrollbar {
     display: none;
     width: 0;
     height: 0;
   }
   #profileDialog .settings-actions {
-    bottom: 0;
-    padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: var(--space-3) max(var(--space-4), env(safe-area-inset-right)) max(var(--space-3), env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left));
+    border-top: var(--border-subtle);
+    background: var(--color-surface);
   }
 }
 
@@ -3128,7 +3234,7 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   font-weight: var(--weight-semibold);
 }
 .tree-quality-category-content {
-  max-height: clamp(14rem, 40dvh, 26rem);
+  max-height: none;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -3215,7 +3321,6 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
 @media (max-width: 760px) {
   .tree-quality-category-summary,
   .tree-quality-category > summary { min-height: var(--control-touch); }
-  .tree-quality-category-content { max-height: clamp(12rem, 45dvh, 20rem); }
   .directory-results-meta { align-items: center; flex-wrap: nowrap; }
   .directory-results-meta .btn { margin-left: auto; min-height: var(--control-touch); }
   .tree-quality-dialog[open] { width: calc(100% - 0.75rem); }
@@ -3902,18 +4007,18 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 
 }
 
-/* Lot 3A — Document et Dossier réutilisent le système sheet avec un plafond
-   plus haut pour leurs formulaires longs ; la hauteur reste naturelle. */
+/* Lot 3A → Lot 4 — Document et Dossier : formulaires longs alignés sur le
+   standard 92dvh des grandes feuilles de gestion (continuité Démarches). */
 @media (max-width: 760px) {
-  dialog.modal-mobile-sheet--long-form { max-height: 88dvh; }
+  dialog.modal-mobile-sheet--long-form { height: 92dvh; max-height: 92dvh; }
   dialog#documentDialog.modal-mobile-sheet,
   dialog#dossierDialog.modal-mobile-sheet {
     inset: auto 0 0;
     width: 100vw;
-    height: auto;
+    height: 92dvh;
     min-height: 0;
     max-width: none;
-    max-height: 88dvh;
+    max-height: 92dvh;
     margin: 0;
     border: 0;
     border-top: var(--border-default);
@@ -3952,6 +4057,127 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
     bottom: auto;
     flex: 0 0 auto;
     padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+  }
+}
+
+/* Lot 3B — les modales de consultation/action Démarches adoptent les sheets
+   mobiles existantes sans modifier le plein écran formulaire de #dossierDialog. */
+@media (max-width: 760px) {
+  #procedureDetailDialog.modal-mobile-sheet--stable {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
+  #procedureDetailDialog > .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #procedureDetailDialog > .modal-body::-webkit-scrollbar,
+  #procedureActionDialog #procedureActionForm > .modal-scroll::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  #procedureActionDialog > #procedureActionForm {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    scrollbar-gutter: auto;
+  }
+  #procedureActionDialog #procedureActionForm > .modal-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    overflow-x: clip;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #procedureActionDialog #procedureActionForm > .modal-actions {
+    position: relative;
+    bottom: auto;
+    flex: 0 0 auto;
+    padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+  }
+}
+
+/* Lot 3C — Administration stable ; Contrôle de l’arbre naturel court avec
+   un seul scroll central pour les diagnostics longs. */
+@media (max-width: 760px) {
+  #adminDialog.modal-mobile-sheet--stable {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
+  #adminDialog > .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #adminDialog > .modal-head > [data-close="adminDialog"] {
+    flex: 0 0 var(--control-touch);
+  }
+  #adminDialog > .modal-body::-webkit-scrollbar,
+  #treeQualityDialog > .tree-quality-body::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  #treeQualityDialog.modal-mobile-sheet--stable {
+    width: 100vw;
+    height: 92dvh;
+    max-height: 92dvh;
+  }
+  #treeQualityDialog > .tree-quality-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    align-content: start;
+  }
+  #treeQualityDialog .tree-quality-scroll { overflow: visible; }
+  #profileDialog > .settings-layout > .settings-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    width: 100%;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    overscroll-behavior-inline: auto;
+    scroll-snap-type: none;
+    scrollbar-width: none;
+  }
+  #profileDialog > .settings-layout > .settings-nav::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  #profileDialog > .settings-layout > .settings-nav > .settings-tab {
+    box-sizing: border-box;
+    flex: none;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    padding-inline: var(--space-2);
+    white-space: normal;
+    overflow-wrap: anywhere;
+    scroll-snap-align: none;
   }
 }
 

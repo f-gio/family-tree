@@ -102,8 +102,9 @@ async function checkViewport(label, viewportSize, touch) {
     });
     const overflowOk = metrics.dialogScrollWidth <= Math.ceil(metrics.viewport.w) && metrics.docScrollWidth <= Math.ceil(metrics.viewport.w) + 1 && internalOverflow.offenders.length === 0 && internalOverflow.scrollEquality <= 0.5;
     overflowOk ? pass(`aucun défilement horizontal (.modal-scroll Δ ${internalOverflow.scrollEquality} px, dialog + descendants nickel)`) : fail("aucun défilement horizontal (.modal-scroll + dialog + descendants)", `dialog ${metrics.dialogScrollWidth} / doc ${metrics.docScrollWidth} / Δscroll ${internalOverflow.scrollEquality} / ${internalOverflow.offenders.join(" ; ") || "aucun"}`);
-    // 5. Le header est en haut et visible sans défilement.
-    metrics.headTop >= 0 && metrics.headTop < 40 ? pass("header fixe en haut") : fail("header fixe en haut", `top ${metrics.headTop}`);
+    // 5. Le header reste en tête de la feuille ; son top suit le top du sheet
+    // ancré en bas (la bande de page visible varie avec la hauteur naturelle).
+    metrics.headTop >= metrics.rect.top && metrics.headTop <= metrics.rect.top + 2 ? pass("header fixe en tête de la feuille") : fail("header fixe en tête de la feuille", `top ${metrics.headTop} / feuille ${metrics.rect.top}`);
     // 6. Boutons Annuler/Enregistrer sur une ligne.
     const tops = metrics.buttonTop;
     tops.length === 2 && Math.abs(tops[0] - tops[1]) < 2 ? pass("Annuler | Enregistrer sur une seule ligne") : fail("Annuler | Enregistrer sur une seule ligne", `tops ${tops.join(",")}`);

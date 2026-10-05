@@ -44,3 +44,11 @@ The Firestore database holds **real production genealogical data** (people, rela
 - Non-regression fixtures: `tests/fixtures/v16/`, `tests/fixtures/v17/`, `tests/fixtures/v18/` hold **historical snapshots** (`firestore.rules`; v18 also pins `js/tree-camera.js`, `js/tree-layout.js`, `js/family-relations.js`, `js/genealogy-date.js`, `js/directory-utils.js`, `js/document-utils.js`). They were extracted from the Git baseline `d58f668` and are read with relative paths (no external sibling folders). `final-qa.test.mjs`, `interaction-language.test.mjs` and `responsive-accessibility.test.mjs` assert `firestore.rules` and those core JS files must not drift from the pinned version — treat those files as frozen if the tests are expected to pass. Fixtures must never be updated automatically when current code evolves; modifying a historical fixture requires an explicit justification and is **never** justified by a failing test.
 - `interaction-responsive-smoke.test.mjs` needs Playwright Chromium (env `CODEX_PRIMARY_RUNTIME_NODE_MODULES` or a local `playwright` package); it silently passes/skips when unavailable.
 - Search is accent-insensitive everywhere; `filterAndSortDirectory` and date formatting are covered by tests, keep them behind the same pure-utility surface.
+
+## Workflow Git recette → production
+- `recette` est la branche normale de travail et de validation ; tout développement commence sur `recette`.
+- `main` est la branche de production ; ne jamais y développer directement.
+- Une publication en production ou un merge vers `main` nécessite l’accord explicite de François.
+- Après chaque publication/merge vers `main`, revenir systématiquement sur `recette` et la synchroniser avec la version publiée avant le chantier suivant.
+- Aucun force push et aucune opération Git destructive (`reset --hard`, `clean`, restauration globale ou rebase destructif).
+- Le workflow de recette ne doit jamais publier vers Firebase Production ; tout déploiement de recette cible explicitement le projet Recette et Hosting uniquement.

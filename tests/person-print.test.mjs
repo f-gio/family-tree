@@ -18,7 +18,7 @@ test("A. point d'accès : bouton discret dans la modale Personne", () => {
 });
 
 test("B. aperçu dédié : dialogue + gabarit + portail d'impression", () => {
-  assert.match(html, /<dialog class="modal-lg" id="personPrintDialog" aria-labelledby="personPrintTitle">/);
+  assert.match(html, /<dialog class="modal-lg modal-mobile-sheet modal-mobile-sheet--form" id="personPrintDialog" aria-labelledby="personPrintTitle">/);
   assert.match(html, /id="personPrintSheet"/);
   assert.match(html, /<button class="btn primary" id="personPrintGoBtn" type="button">Imprimer \/ PDF<\/button>/);
   assert.match(html, /<div id="printPortal" aria-hidden="true" hidden><\/div>/);
@@ -54,6 +54,130 @@ test("F. réutilisation de l'existant : relationRole, filiation discrète, label
   assert.match(app, /function printFiliationLabel\(filiationType\) \{[^}]*\["adoptive", "uncertain"\]/);
   assert.match(app, /documentDisplayLabel\(documentItem\)/);
   assert.doesNotMatch(app, /function buildPersonPrintSheet\(item, scope = null\) \{[\s\S]{0,9000}\n\}[\s\S]{0,400}?documentDisplayLabel/);
+});
+
+test("G0. géométrie mobile : sheet interactive 92dvh, print/UI séparés", () => {
+  assert.match(css, /dialog#procedureActionDialog\.modal-mobile-sheet--form,\r?\n\s*dialog#personPrintDialog\.modal-mobile-sheet--form \{\r?\n\s*height: 92dvh;\r?\n\s*max-height: 92dvh;\r?\n\s*\}/);
+  /* Le fullscreen historique ne venait pas du mécanisme d'impression :
+     @media print masque les dialogs et n'imprime que #printPortal. */
+  assert.match(css, /body\.is-printing-person dialog,\r?\n\s*body\.is-printing-person dialog::backdrop \{ display: none !important; \}/);
+  assert.match(css, /#printPortal \{\r?\n\s*display: block !important;/);
+  assert.match(css, /\.print-preview \{ max-height: calc\(100dvh - 11rem\); overflow: auto;/);
+});
+
+test("G1. navigateur mobile : #personPrintDialog en sheet 92dvh, impression intacte", async t => {
+  let chromium, webkit, startStaticServer, isAllowedRequest, blockedServiceFor, ROOT;
+  try {
+    ({ chromium, webkit } = await import("playwright"));
+    ({ startStaticServer, isAllowedRequest, blockedServiceFor, ROOT } = await import("./helpers.mjs"));
+  } catch {
+    return;
+  }
+  const server = await startStaticServer(ROOT);
+  const viewports = [[320, 844], [390, 844], [760, 900]];
+  const engines = [["Chromium", chromium], ["WebKit", webkit]];
+  try {
+    for (const [engineName, engine] of engines) {
+      let browser;
+      try { browser = await engine.launch({ headless: true }); }
+      catch (error) {
+        if (engineName === "WebKit") continue;
+        throw error;
+      }
+      try {
+        for (const [width, height] of viewports) {
+          await t.test(`${engineName} ${width}×${height}`, async () => {
+            const context = await browser.newContext({
+              viewport: { width, height },
+              locale: "fr-FR",
+              isMobile: width <= 760,
+              hasTouch: width <= 760,
+              reducedMotion: "reduce"
+            });
+            await context.route("**/*", route => {
+              const url = route.request().url();
+              if (isAllowedRequest(url, server.baseURL)) return route.continue().catch(() => {});
+              if (blockedServiceFor(url)) return route.abort("blockedbyclient").catch(() => {});
+              return route.continue().catch(() => {});
+            });
+            const page = await context.newPage();
+            try {
+              await page.goto(server.baseURL, { waitUntil: "load" });
+              await page.waitForTimeout(700);
+              await page.evaluate(() => {
+                const item = {
+                  id: "PGEOM", firstName: "Geom", lastName: "Test",
+                  birthDateInfo: { type: "year", year: 1900 }, deathDateInfo: { type: "unknown" }
+                };
+                window.__personPrint.openForTest(item, { people: [item], families: [], documents: [] });
+                document.getElementById("personMenuBtn").click();
+                document.getElementById("printPersonBtn").hidden = false;
+              });
+              await page.click("#printPersonBtn");
+              await page.waitForTimeout(120);
+              const geometry = await page.evaluate(() => {
+                const dialog = document.getElementById("personPrintDialog");
+                const rect = dialog.getBoundingClientRect();
+                const body = dialog.querySelector(":scope > .modal-body.print-preview");
+                const footer = dialog.querySelector(":scope > .modal-actions");
+                const bodyRect = body.getBoundingClientRect();
+                const footerRect = footer.getBoundingClientRect();
+                return {
+                  open: dialog.open,
+                  height: rect.height,
+                  top: rect.y,
+                  bottom: rect.bottom,
+                  maxHeight: getComputedStyle(dialog).maxHeight,
+                  bodyOverflowY: getComputedStyle(body).overflowY,
+                  footerBottom: footerRect.bottom,
+                  viewportHeight: innerHeight,
+                  docOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+                };
+              });
+              const target = height * 0.92;
+              assert.ok(geometry.open, "aperçu ouvert");
+              assert.ok(Math.abs(geometry.height - target) < 1, `hauteur 92dvh (${geometry.height.toFixed(1)} / ${target.toFixed(1)})`);
+              assert.ok(Math.abs(parseFloat(geometry.maxHeight) - target) < 1, `max-height 92dvh (${geometry.maxHeight})`);
+              assert.ok(geometry.top > 0 && Math.abs(geometry.bottom - height) < 1, "sheet ancrée en bas, page visible derrière");
+              assert.ok(geometry.bodyOverflowY === "auto" || geometry.bodyOverflowY === "scroll", "aperçu défilable");
+              assert.ok(geometry.footerBottom <= height + 1, "CTA dans le viewport");
+              assert.equal(geometry.docOverflow, 0, "aucun overflow horizontal");
+              // impression : portail + afterprint toujours fonctionnels
+              await page.evaluate(() => {
+                Object.defineProperty(window, "print", { value: () => { window.__printCalled = (window.__printCalled || 0) + 1; }, configurable: true });
+                window.__printCalled = 0;
+              });
+              await page.click("#personPrintGoBtn");
+              await page.waitForTimeout(150);
+              assert.equal(await page.evaluate(() => window.__printCalled), 1, "print appelé");
+              const portal = await page.evaluate(() => ({
+                filled: document.getElementById("printPortal").children.length > 0,
+                printing: document.body.classList.contains("is-printing-person")
+              }));
+              assert.ok(portal.filled, "portail rempli");
+              assert.ok(portal.printing, "état d'impression conservé");
+              await page.emulateMedia({ media: "print" });
+              const printState = await page.evaluate(() => ({
+                portal: getComputedStyle(document.getElementById("printPortal")).display,
+                dialog: getComputedStyle(document.getElementById("personPrintDialog")).display
+              }));
+              assert.equal(printState.portal, "block", "portail rendu à l'impression");
+              assert.equal(printState.dialog, "none", "dialog masqué à l'impression");
+              await page.emulateMedia({ media: "screen" });
+              await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
+              const restored = await page.evaluate(() => ({
+                printing: document.body.classList.contains("is-printing-person"),
+                portalEmpty: document.getElementById("printPortal").children.length === 0
+              }));
+              assert.ok(!restored.printing && restored.portalEmpty, "restauré après afterprint");
+              await page.keyboard.press("Escape");
+              assert.equal(await page.locator("#personPrintDialog").evaluate(dialog => dialog.open), false, "fermeture Escape");
+            } finally { await context.close(); }
+          });
+        }
+      } finally { await browser.close(); }
+    }
+  } finally { await server.close(); }
 });
 
 test("G. mise en page A4 static : colonnes, ruptures, portail, fond, aperçu mobile", () => {

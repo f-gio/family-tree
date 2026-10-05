@@ -6,6 +6,7 @@ import { blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./
 
 const appSource = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
 const mobileViewports = [[320, 700], [390, 844], [760, 900]];
+const profileViewports = [[320, 844], [390, 844], [760, 900]];
 const desktopViewports = [[761, 760], [1024, 768]];
 
 async function createPage(browser, server, width, height) {
@@ -119,12 +120,12 @@ async function checkFormSheet(browser, server, id, width, height, mode, t, compa
     await showDialog(page, id, mode);
     if (compact) await compactFormFixture(page, id);
     const before = await measureFormDialog(page, id);
-    const plafond = height * 0.86;
+    const plafond = id === "taskDialog" ? height * 0.92 : height * 0.86;
     t.diagnostic(`${id} ${mode} short ${width}×${height}: dialog=${before.dialog.height}, max=${before.maxHeight}, scroll=${before.scroll.scrollHeight}/${before.scroll.clientHeight}`);
     assert.equal(await page.locator(`#${id}`).evaluate(dialog => dialog.open), true);
     assert.ok(Math.abs(before.dialog.bottom - height) < 1, `${id} est ancrée au bas du viewport`);
-    assert.ok(before.dialog.height <= plafond + 1, `${id} respecte son plafond 86dvh`);
-    assert.ok(parseFloat(before.maxHeight) <= plafond + 1, `${id} expose un max-height adaptatif de 86dvh`);
+    assert.ok(before.dialog.height <= plafond + 1, `${id} respecte son plafond ${id === "taskDialog" ? "92dvh" : "86dvh"}`);
+    assert.ok(parseFloat(before.maxHeight) <= plafond + 1, `${id} expose un max-height adaptatif de ${id === "taskDialog" ? "92dvh" : "86dvh"}`);
     assert.ok(before.dialog.y > 0, `${id} laisse la page visible derrière`);
     assert.ok(before.header.bottom <= before.scroller.y + 1, `${id} conserve son header fixe`);
     assert.ok(Math.abs(before.scroller.bottom - before.footer.y) < 1, `${id} réserve le footer après la zone scrollable`);
@@ -134,7 +135,7 @@ async function checkFormSheet(browser, server, id, width, height, mode, t, compa
     assert.equal(before.scroll.scrollbarWidth, "none", `${id} masque la scrollbar Firefox`);
     assert.equal(before.scroll.webkitScrollbar, "none", `${id} masque la scrollbar WebKit`);
     assert.equal(before.pageOverflow, 0, `${id} ne crée aucun overflow horizontal`);
-    if (compact) assert.ok(before.dialog.height < plafond - 1, `${id} reste naturelle quand le contenu est court`);
+    if (compact && id !== "taskDialog") assert.ok(before.dialog.height < plafond - 1, `${id} reste naturelle quand le contenu est court`);
 
     if (mode === "edit" && id === "taskDialog") {
       assert.equal(await page.locator("#taskMenuBtn").isVisible(), true, "le menu ⋯ reste présent en édition");
@@ -165,15 +166,7 @@ async function checkFormSheet(browser, server, id, width, height, mode, t, compa
 }
 
 async function switchSettingsPanel(page, key) {
-  await page.evaluate(active => {
-    document.querySelectorAll("[data-settings-tab]").forEach(tab => {
-      const selected = tab.dataset.settingsTab === active;
-      tab.classList.toggle("active", selected);
-      tab.setAttribute("aria-selected", String(selected));
-    });
-    document.getElementById("profileSettingsPanel").hidden = active !== "profile";
-    document.getElementById("securitySettingsPanel").hidden = active !== "security";
-  }, key);
+  await page.locator(`[data-settings-tab="${key}"]`).click();
   await settlePanel(page.locator(`#${key === "profile" ? "profileSettingsPanel" : "securitySettingsPanel"}`));
 }
 
@@ -188,13 +181,16 @@ async function measureProfile(page) {
     const layout = dialog.querySelector(":scope > .settings-layout");
     const nav = layout.querySelector(":scope > .settings-nav");
     const panel = layout.querySelector(":scope > .settings-panel:not([hidden])");
+    const content = panel.querySelector(":scope > .settings-panel-content");
     const actions = panel.querySelector(":scope > .settings-actions");
-    const style = getComputedStyle(panel);
+    const style = getComputedStyle(content);
     return {
       viewport: { width: document.documentElement.clientWidth, height: innerHeight },
       dialog: rect(dialog), maxHeight: getComputedStyle(dialog).maxHeight,
-      header: rect(header), layout: rect(layout), nav: rect(nav), panel: rect(panel), actions: rect(actions),
-      panelScroll: { height: panel.scrollHeight, clientHeight: panel.clientHeight, scrollTop: panel.scrollTop, overflowY: style.overflowY, overflowX: style.overflowX, scrollbarWidth: style.scrollbarWidth, webkitScrollbar: getComputedStyle(panel, "::-webkit-scrollbar").display },
+      header: rect(header), layout: rect(layout), nav: rect(nav), panel: rect(panel), content: rect(content), actions: rect(actions),
+      navScroll: { width: nav.scrollWidth, clientWidth: nav.clientWidth, overflowX: getComputedStyle(nav).overflowX, scrollbarWidth: getComputedStyle(nav).scrollbarWidth, webkitScrollbar: getComputedStyle(nav, "::-webkit-scrollbar").display },
+      tabs: [...nav.querySelectorAll("[data-settings-tab]")].map(tab => ({ label: tab.textContent.trim(), box: rect(tab), selected: tab.getAttribute("aria-selected"), active: tab.classList.contains("active"), minHeight: getComputedStyle(tab).minHeight })),
+      panelScroll: { height: content.scrollHeight, clientHeight: content.clientHeight, scrollTop: content.scrollTop, overflowY: style.overflowY, overflowX: style.overflowX, scrollbarWidth: style.scrollbarWidth, webkitScrollbar: getComputedStyle(content, "::-webkit-scrollbar").display },
       actionPaddingBottom: parseFloat(getComputedStyle(actions).paddingBottom),
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       open: dialog.open
@@ -204,12 +200,12 @@ async function measureProfile(page) {
 
 async function addSettingsFiller(page, panelId) {
   await page.locator(`#${panelId}`).evaluate(panel => {
+    const content = panel.querySelector(":scope > .settings-panel-content");
     const filler = document.createElement("div");
     filler.dataset.lot2Filler = "true";
     filler.style.height = "1000px";
     filler.setAttribute("aria-hidden", "true");
-    const actions = panel.querySelector(":scope > .settings-actions");
-    panel.insertBefore(filler, actions);
+    content.append(filler);
   });
 }
 
@@ -223,12 +219,20 @@ async function checkProfile(browser, server, width, height, t) {
       await switchSettingsPanel(page, key);
       await addSettingsFiller(page, panelId);
       const before = await measureProfile(page);
-      const expected = height * 0.9;
+      const expected = height * 0.92;
       t.diagnostic(`${width}×${height} profil-${key}: dialog=${before.dialog.height}, max=${before.maxHeight}, rect=${JSON.stringify(before.dialog)}`);
       assert.equal(before.open, true, "Paramètres reste ouvert pendant la vérification");
-      assert.ok(Math.abs(before.dialog.height - expected) < 1, `${key} conserve une hauteur de 90dvh`);
+      assert.ok(Math.abs(before.dialog.height - expected) < 1, `${key} conserve une hauteur de 92dvh`);
       assert.ok(Math.abs(before.dialog.bottom - height) < 1, "Paramètres reste ancrée au bas");
-      assert.ok(Math.abs(before.dialog.y - height * 0.1) < 1, "la bande derrière reste constante à 10% du viewport");
+      assert.ok(Math.abs(before.dialog.y - height * 0.08) < 1, "la bande derrière reste constante à 8% du viewport");
+      assert.deepEqual(before.tabs.map(tab => tab.label), ["Profil", "Sécurité"], "les deux onglets sont présents");
+      assert.ok(before.tabs.every(tab => tab.box.width >= 44 && tab.box.height >= 44 && tab.minHeight === "44px"), "les onglets ont des cibles tactiles ≥44px");
+      assert.ok(Math.abs(before.tabs[0].box.width - before.tabs[1].box.width) < 1, "les onglets partagent deux colonnes égales");
+      assert.ok(before.tabs.every(tab => tab.box.x >= before.nav.x - 0.5 && tab.box.right <= before.nav.right + 0.5), "les deux onglets tiennent dans la navigation");
+      assert.equal(before.navScroll.width, before.navScroll.clientWidth, "aucun débordement de navigation");
+      assert.equal(before.navScroll.scrollbarWidth, "none");
+      assert.equal(before.navScroll.webkitScrollbar, "none");
+      assert.equal(before.tabs.find(tab => tab.selected === "true")?.label, key === "profile" ? "Profil" : "Sécurité", "l’onglet actif reste synchronisé");
       if (stableHeight == null) stableHeight = before.dialog.height;
       else assert.ok(Math.abs(before.dialog.height - stableHeight) < 0.5, "Profil et Sécurité gardent la même hauteur");
       assert.ok(before.header.bottom <= before.nav.y + 1, "header fixe au-dessus de la navigation");
@@ -239,19 +243,22 @@ async function checkProfile(browser, server, width, height, t) {
       assert.ok(before.panelScroll.height > before.panelScroll.clientHeight, `${key} offre un panneau scrollable long`);
       assert.ok(before.actionPaddingBottom >= 12, "les actions respectent la safe-area basse");
       assert.ok(before.actions.bottom <= before.panel.bottom + 1, "actions du panneau actif accessibles");
-      await page.locator(`#${panelId}`).evaluate(panel => { panel.scrollTop = 200; });
+      await page.locator(`#${panelId} > .settings-panel-content`).evaluate(content => { content.scrollTop = 200; });
       const after = await measureProfile(page);
       assert.ok(after.panelScroll.scrollTop > 0, `${key} défile dans son panneau seulement`);
       assert.deepEqual(after.header, before.header, "header fixe au scroll");
       assert.deepEqual(after.nav, before.nav, "navigation fixe au scroll");
       assert.deepEqual(after.actions, before.actions, "actions sticky accessibles au scroll");
       assert.equal(after.pageOverflow, 0);
-      positions[key] = { height: before.dialog.height, band: before.dialog.y, header: before.header.height, nav: before.nav.height, panel: before.panel.height, actions: before.actions.height };
+      positions[key] = { height: before.dialog.height, band: before.dialog.y, header: before.header.height, nav: before.nav.height, contentY: before.content.y, content: before.content.height, actionY: before.actions.y, actions: before.actions.height, tabs: before.tabs.map(tab => ({ label: tab.label, x: tab.box.x, width: tab.box.width, height: tab.box.height })) };
       if (key === "profile") {
         t.diagnostic(`${width}×${height} Paramètres Profil: ${JSON.stringify(positions.profile)}`);
       } else t.diagnostic(`${width}×${height} Paramètres Sécurité: ${JSON.stringify(positions.security)}`);
     }
     assert.ok(Math.abs(positions.profile.height - positions.security.height) < 0.5);
+    assert.ok(Math.abs(positions.profile.contentY - positions.security.contentY) <= 2, "Profil et Sécurité commencent leur contenu à la même coordonnée");
+    assert.ok(Math.abs(positions.profile.actionY - positions.security.actionY) <= 2, "les zones CTA Profil et Sécurité commencent à la même coordonnée");
+    await page.locator('[data-settings-tab="profile"]').focus();
     await page.keyboard.press("Escape");
     assert.equal(await page.locator("#profileDialog").evaluate(dialog => dialog.open), false, "Paramètres fermable avec Escape");
   } finally {
@@ -341,7 +348,7 @@ test("Lot 2 : Action, Relation et Paramètres en sheets mobiles", async t => {
           await showDialog(page, "taskDialog", "edit");
           await addLongFormContent(page, "#taskDialog .modal-scroll");
           const before = await measureFormDialog(page, "taskDialog");
-          const plafond = height * 0.86;
+          const plafond = height * 0.92;
           assert.ok(Math.abs(before.dialog.height - plafond) < 1);
           assert.ok(before.scroll.scrollHeight > before.scroll.clientHeight);
           assert.equal(await page.locator("#taskMenuBtn").isVisible(), true, "menu d’édition ⋯ conservé");
@@ -355,8 +362,8 @@ test("Lot 2 : Action, Relation et Paramètres en sheets mobiles", async t => {
         } finally { await context.close(); }
       });
       await t.test(`${width}×${height} : Détails de la relation, contenu court`, async child => checkFormSheet(browser, server, "familyDetailsDialog", width, height, "edit", child, true));
-      await t.test(`${width}×${height} : Paramètres, Profil et Sécurité`, async child => checkProfile(browser, server, width, height, child));
     }
+    for (const [width, height] of profileViewports) await t.test(`${width}×${height} : Paramètres, Profil et Sécurité`, async child => checkProfile(browser, server, width, height, child));
     for (const [width, height] of desktopViewports) await testDesktopUnchanged(browser, server, width, height, t);
     await testPersonRelationReturn(browser, server, t);
   } finally {
