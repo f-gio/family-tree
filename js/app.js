@@ -22,7 +22,7 @@ import { formatCompactPlace } from "./place-format.js";
 import { createPersonMultiSelect } from "./person-multiselect.js";
 import { analyzeTreeQuality } from "./tree-quality.js";
 import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, validateFamilyDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, buildBackupManifest, parseBackupManifestText } from "./backup-utils.js";
-import { firebaseConfigurationMatchesEnvironment, resolveFirebaseEnvironment } from "./firebase-environment.js";
+import { firebaseConfigurationMatchesEnvironment, resolveFirebaseEnvironment, environmentFeatureFlags } from "./firebase-environment.js";
 
 const firebaseEnvironment = resolveFirebaseEnvironment(window.location);
 if (!firebaseEnvironment.allowed || !firebaseConfigurationMatchesEnvironment(firebaseEnvironment.environment, firebaseEnvironment.firebaseConfig)) {
@@ -44,6 +44,14 @@ if (!firebaseEnvironment.allowed || !firebaseConfigurationMatchesEnvironment(fir
 }
 
 document.documentElement.dataset.firebaseEnvironment = firebaseEnvironment.environment;
+const featureFlags = environmentFeatureFlags(firebaseEnvironment.environment);
+if (!featureFlags.showProcedures) {
+  document.documentElement.classList.add("procedures-hidden");
+  document.querySelectorAll('[data-view="dossiers"]').forEach(button => {
+    button.hidden = true;
+    button.setAttribute("aria-hidden", "true");
+  });
+}
 const environmentBadgeAuth = document.getElementById("environmentBadgeAuth");
 const environmentBadgeApp = document.getElementById("environmentBadgeApp");
 if (firebaseEnvironment.environment === "recette") {
@@ -3298,6 +3306,7 @@ async function updateManagedUser(userId, changes) {
 }
 
 function setView(view) {
+  if (view === "dossiers" && !featureFlags.showProcedures) view = "tree";
   $("appMain").hidden = view !== "tree";
   $("directoryView").hidden = view !== "directory";
   $("documentsView").hidden = view !== "documents";
