@@ -729,6 +729,10 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 /* Navigation et menus : état actif stable, menus alignés et actions prévisibles. */
 .main-nav .nav-btn.active { color: var(--color-brand); }
 .main-nav .nav-btn[aria-current="page"]::after { background: var(--color-brand); }
+/* Masquage temporaire Démarches (production) : la nav mobile repasse à 4 colonnes. */
+@media (max-width: 760px) {
+  html.procedures-hidden .main-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 .account-dropdown { padding: var(--space-2); border: var(--border-subtle); border-radius: var(--radius-md); }
 .account-action {
   display: flex;

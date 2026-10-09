@@ -7,6 +7,16 @@ export const FIREBASE_PROJECT_IDS = Object.freeze({
   local: "family-tree-emulator-test"
 });
 
+/* Feature flags UI centralisés par environnement.
+   showProcedures : l'onglet Démarches est masqué temporairement en production
+   et visible ailleurs (recette, local). Pour réactiver en production, passer
+   ici la valeur à true — une seule ligne. */
+export function environmentFeatureFlags(environment) {
+  return Object.freeze({
+    showProcedures: environment !== "production"
+  });
+}
+
 const firebaseConfigs = Object.freeze({
   production: Object.freeze({
     apiKey: "AIzaSyCJEcONT97K3y0MqsiPORRjWfNj8XZGfM8",
