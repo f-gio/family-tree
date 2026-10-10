@@ -51,6 +51,41 @@ service cloud.firestore {
         && (!('deathDateInfo' in request.resource.data) || validGenealogyDate(request.resource.data.deathDateInfo));
     }
 
+    function validTreeId(treeId) {
+      return treeId is string
+        && treeId.matches('^[A-Za-z0-9_-]{1,128}$');
+    }
+
+    function validPersonTreeReference() {
+      return !('treeId' in request.resource.data)
+        || request.resource.data.treeId == 'main'
+        || (validTreeId(request.resource.data.treeId)
+          && existsAfter(/databases/$(database)/documents/trees/$(request.resource.data.treeId)));
+    }
+
+    function validPersonTreeAssignmentOnCreate() {
+      return !('treeId' in request.resource.data)
+        || request.resource.data.treeId == 'main'
+        || isAdmin();
+    }
+
+    function validTree(treeId) {
+      return treeId != 'main'
+        && validTreeId(treeId)
+        && request.resource.data.keys().hasAll(['name', 'createdAt', 'createdBy', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'description', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 1
+        && request.resource.data.name.size() <= 80
+        && (!('description' in request.resource.data)
+          || (request.resource.data.description is string && request.resource.data.description.size() <= 200))
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.createdBy is string
+        && request.resource.data.createdBy.size() > 0
+        && request.resource.data.updatedAt is timestamp
+        && validUpdatedBy();
+    }
+
     function validUpdatedBy() {
       return !('updatedBy' in request.resource.data)
         || request.resource.data.updatedBy == request.auth.uid;
@@ -183,7 +218,22 @@ service cloud.firestore {
     // L'arbre est accessible uniquement aux comptes approuvés.
     match /people/{personId} {
       allow read, delete: if isApproved();
-      allow create, update: if isApproved() && validPerson() && validUpdatedBy();
+      allow create: if isApproved() && validPerson() && validUpdatedBy()
+        && validPersonTreeReference() && validPersonTreeAssignmentOnCreate();
+      allow update: if isApproved() && validPerson() && validUpdatedBy()
+        && validPersonTreeReference()
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['treeId']) || isAdmin());
+    }
+
+    // Métadonnées des arbres secondaires. L'arbre principal est implicite et
+    // ne doit pas avoir de document trees/main. La suppression reste interdite
+    // tant qu'un protocole de transfert avec garantie d'appartenance atomique
+    // n'existe pas : les règles Firestore ne peuvent pas vérifier une requête
+    // portant sur toute la collection people.
+    match /trees/{treeId} {
+      allow read: if isApproved();
+      allow create, update: if isAdmin() && validTree(treeId);
+      allow delete: if false;
     }
 
     // Une famille relie un ou deux partenaires à leurs enfants.

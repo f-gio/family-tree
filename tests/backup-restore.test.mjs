@@ -15,6 +15,7 @@ import {
   backupFileEntryPath,
   isValidStoredDate,
   validateFamilyDataset,
+  validateTreeDataset,
   documentChunkId,
   chunkCountForBytes,
   splitBytesIntoChunks,
@@ -96,12 +97,15 @@ test("exportableRecord produit un clone profond sans références partagées", (
   assert.equal(clone.nested.key, "value");
 });
 
-test("buildBackupManifest inclut exactement people, families, tasks et documents", () => {
+test("buildBackupManifest inclut arbres en plus des collections sauvegardées existantes", () => {
   const blobs = new Map([["document-a", blobForDocumentA]]);
-  const manifest = buildBackupManifest({ people, families, tasks, documents, blobs, exportedAt: "2026-09-18T00:00:00.000Z" });
-  assert.deepEqual(Object.keys(manifest), ["format", "version", "exportedAt", "people", "families", "tasks", "documents"]);
+  const trees = [{ id: "tree-a", name: "Branche secondaire", description: "Famille connue" }];
+  const manifest = buildBackupManifest({ people, families, trees, tasks, documents, blobs, exportedAt: "2026-09-18T00:00:00.000Z" });
+  assert.deepEqual(Object.keys(manifest), ["format", "version", "exportedAt", "people", "families", "trees", "tasks", "documents"]);
   assert.equal(manifest.people.length, people.length);
   assert.equal(manifest.families.length, families.length);
+  assert.equal(manifest.trees.length, 1);
+  assert.equal(manifest.trees[0].id, "tree-a");
   assert.equal(manifest.tasks.length, tasks.length);
   assert.equal(manifest.documents.length, documents.length);
   assert.equal(manifest.people[0].id, "person-grandpa-a");
@@ -150,7 +154,7 @@ test("la sauvegarde n’exporte ni users, ni droits, ni mots de passe, ni settin
   const fictiveSettings = { access: { openRegistration: true, adminUid: "user-admin-1" } };
   const blobs = new Map([["document-a", blobForDocumentA]]);
   const manifest = buildBackupManifest({ people, families, tasks, documents, blobs });
-  assert.deepEqual(Object.keys(manifest), ["format", "version", "exportedAt", "people", "families", "tasks", "documents"]);
+  assert.deepEqual(Object.keys(manifest), ["format", "version", "exportedAt", "people", "families", "trees", "tasks", "documents"]);
   const text = JSON.stringify(manifest);
   assert.equal(text.includes("user-admin-1"), false);
   assert.equal(text.includes("passwordHash"), false);
@@ -220,6 +224,54 @@ test("importedDataFields retire id, createdAt, updatedAt et backupFile sans mute
 
 test("validateFamilyDataset accepte un jeu fictif complet, y compris les filiations", () => {
   assert.doesNotThrow(() => validateFamilyDataset(people, families));
+});
+
+test("validateTreeDataset accepte treeId absent/main et les arbres secondaires référencés", () => {
+  const peopleWithTrees = [
+    { id: "legacy-main" },
+    { id: "explicit-main", treeId: "main" },
+    { id: "secondary", treeId: "tree-a" }
+  ];
+  assert.doesNotThrow(() => validateTreeDataset(peopleWithTrees, [{ id: "tree-a", name: "Branche secondaire", description: "" }]));
+  assert.doesNotThrow(() => validateTreeDataset(peopleWithTrees.slice(0, 2), []));
+});
+
+test("validateTreeDataset rejette arbres invalides/dupliqués et treeId sans document", () => {
+  assert.throws(() => validateTreeDataset([], [{ id: "main", name: "Arbre principal" }]), /invalide ou réservé/);
+  assert.throws(() => validateTreeDataset([], [{ id: "tree/a", name: "Arbre" }]), /invalide ou réservé/);
+  assert.throws(() => validateTreeDataset([], [{ id: "tree-a", name: "A" }, { id: "tree-a", name: "B" }]), /invalide ou réservé/);
+  assert.throws(() => validateTreeDataset([], [{ id: "tree-a", name: "   " }]), /nom invalide/);
+  assert.throws(() => validateTreeDataset([], [{ id: "tree-a", name: "A".repeat(81) }]), /nom invalide/);
+  assert.throws(() => validateTreeDataset([], [{ id: "tree-a", name: "A", description: "x".repeat(201) }]), /description invalide/);
+  assert.throws(() => validateTreeDataset([{ id: "person-a", treeId: "tree-absent" }], []), /arbre absent ou invalide/);
+  assert.throws(() => validateTreeDataset([{ id: "person-a", treeId: 42 }], []), /arbre absent ou invalide/);
+});
+
+test("une sauvegarde ancienne sans champ trees reste compatible", () => {
+  const oldManifest = { format: BACKUP_FORMAT, version: 3, exportedAt: "2026-01-01T00:00:00.000Z", people: [{ id: "legacy" }], families: [] };
+  const parsed = parseBackupManifestText(JSON.stringify(oldManifest));
+  assert.deepEqual(parsed.trees, []);
+  assert.doesNotThrow(() => validateTreeDataset(parsed.people, parsed.trees));
+  assert.equal("trees" in oldManifest, false, "le parseur ne mute pas l'objet source sérialisé");
+});
+
+test("sauvegarde/restauration conserve treeId, arbres et références documents sans duplication", () => {
+  const peopleWithTree = people.map((person, index) => index === 4 ? { ...person, treeId: "tree-secondary" } : { ...person });
+  const trees = [{ id: "tree-secondary", name: "Branche secondaire", description: "Liens connus" }];
+  const manifest = buildBackupManifest({ people: peopleWithTree, families, trees, tasks, documents, blobs: new Map([["document-a", blobForDocumentA]]) });
+  const parsed = parseBackupManifestText(JSON.stringify(manifest));
+  assert.doesNotThrow(() => validateFamilyDataset(parsed.people, parsed.families));
+  assert.doesNotThrow(() => validateTreeDataset(parsed.people, parsed.trees));
+  assert.equal(parsed.people.find(person => person.id === "person-child-a").treeId, "tree-secondary");
+  assert.equal(parsed.trees[0].id, "tree-secondary");
+  assert.deepEqual(parsed.documents[0].personIds, ["person-child-a"]);
+  assert.equal(importedDataFields(parsed.people.find(person => person.id === "person-child-a")).treeId, "tree-secondary");
+  assert.equal(parsed.people.length, new Set(parsed.people.map(person => person.id)).size);
+  assert.equal(parsed.trees.length, new Set(parsed.trees.map(tree => tree.id)).size);
+});
+
+test("parseBackupManifestText refuse une propriété trees mal formée", () => {
+  assert.throws(() => parseBackupManifestText(JSON.stringify({ format: BACKUP_FORMAT, people: [], families: [], trees: {} })), /liste d’arbres invalide/);
 });
 
 test("validateFamilyDataset rejette un identifiant de personne dupliqué ou contenant un slash", () => {
@@ -507,7 +559,14 @@ test("formatBytes produit les libellés français attendus", () => {
 test("app.js est réellement câblé sur backup-utils et ne redéfinit plus les helpers déplacés", () => {
   const source = fs.readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
   assert.match(source, /from "\.\/backup-utils\.js"/);
-  assert.match(source, /buildBackupManifest\(\{ people, families, tasks, documents, blobs \}\)/);
+  assert.match(source, /const treeSnapshot = await getDocs\(refs\.trees\)/, "l'export lit la collection trees réelle");
+  assert.match(source, /buildBackupManifest\(\{ people, families, trees, tasks, documents, blobs \}\)/);
+  assert.match(source, /validateTreeDataset\(manifest\.people, manifest\.trees \|\| \[\]\)/);
+  const restoreBlock = source.slice(source.indexOf("async function restoreCompleteBackup("), source.indexOf("async function openStoredDocument("));
+  assert.match(restoreBlock, /await writeImportedRecords\("trees", manifest\.trees \|\| \[\]\)/);
+  const treesRestoreIndex = restoreBlock.indexOf('await writeImportedRecords("trees", manifest.trees || [])');
+  const peopleRestoreIndex = restoreBlock.indexOf('await writeImportedRecords("people", manifest.people)');
+  assert.ok(treesRestoreIndex >= 0 && peopleRestoreIndex > treesRestoreIndex, "les arbres sont restaurés avant les personnes qui les référencent");
   assert.match(source, /parseBackupManifestText\(await manifestEntry\.async\("string"\)\)/);
   assert.doesNotMatch(source, /function validateFamilyDataset/);
   assert.doesNotMatch(source, /function exportableRecord/);

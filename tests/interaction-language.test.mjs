@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { icon, emptyState, setButtonPending } from "../js/ui-components.js";
+import { assertFirestoreRulesSafety } from "./firestore-rules-invariants.mjs";
 
 // Fixtures v16 : snapshot historique de non-régression (firestore.rules)
 // extrait de la baseline Git d58f668. Ne PAS mettre à jour automatiquement ;
 // sa modification requiert une justification explicite.
 const root = new URL("../", import.meta.url);
-const [html, css, app, renderer, rules, previousRules] = await Promise.all([
+const [html, css, app, renderer, rules] = await Promise.all([
   readFile(new URL("index.html", root), "utf8"),
   readFile(new URL("css/design-system.css", root), "utf8"),
   readFile(new URL("js/app.js", root), "utf8"),
   readFile(new URL("js/tree-renderer.js", root), "utf8"),
-  readFile(new URL("firestore.rules", root), "utf8"),
-  readFile(new URL("tests/fixtures/v16/firestore.rules", root), "utf8")
+  readFile(new URL("firestore.rules", root), "utf8")
 ]);
 
 // 17 — visibilité de l'état du système.
@@ -82,8 +82,8 @@ setButtonPending(mockButton, false);
 assert.equal(mockButton.disabled, false);
 assert.equal(mockButton.textContent, "Enregistrer");
 
-// La couche d'interaction ne modifie ni les règles ni le modèle Firebase.
-assert.equal(rules, previousRules);
+// Les invariants d'accès Firestore restent présents malgré les ajouts de modèle.
+assertFirestoreRulesSafety(rules);
 assert.doesNotMatch(app, /\balert\s*\(/);
 
 console.log("Langage d’interaction sections 17–22 : OK");

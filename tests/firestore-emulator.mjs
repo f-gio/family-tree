@@ -679,3 +679,103 @@ test("users : membre approuvé ne peut pas lire le profil d'un autre membre (com
   await expectDenied(getDoc(doc(db, "users", adminUid)));
 });
 
+// ─── MULTI-ARBRES — foundations (uniquement émulateur local) ───────────────
+const TREE_FIXTURE_ID = "tree-multi-fixture";
+const TREE_ATOMIC_ID = "tree-atomic-fixture";
+const TREE_EMPTY_ID = "tree-empty-fixture";
+
+function validTreeRecord(name = "Arbre fictif") {
+  return {
+    name,
+    description: "Fixture émulateur uniquement",
+    createdAt: new Date(),
+    createdBy: adminUid,
+    updatedAt: new Date(),
+    updatedBy: adminUid
+  };
+}
+
+test("trees : admin crée/modifie un arbre secondaire valide; main et champs invalides refusés", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await setDoc(doc(db, "trees", TREE_FIXTURE_ID), validTreeRecord());
+  await updateDoc(doc(db, "trees", TREE_FIXTURE_ID), { ...validTreeRecord("Arbre renommé"), updatedAt: new Date() });
+  assert.equal((await getDoc(doc(db, "trees", TREE_FIXTURE_ID))).data().name, "Arbre renommé");
+  await expectDenied(setDoc(doc(db, "trees", "main"), validTreeRecord("Arbre principal")));
+  await expectDenied(setDoc(doc(db, "trees", "tree-empty-name"), validTreeRecord("")));
+  await expectDenied(setDoc(doc(db, "trees", "tree-long-name"), validTreeRecord("A".repeat(81))));
+  await expectDenied(setDoc(doc(db, "trees", "tree-long-description"), { ...validTreeRecord(), description: "x".repeat(201) }));
+  await expectDenied(setDoc(doc(db, "trees", "tree-extra-field"), { ...validTreeRecord(), unexpected: true }));
+});
+
+test("trees : lecture réservée aux comptes approuvés; membre et comptes pending/suspended refusés", async () => {
+  await signOutAll();
+  await expectDenied(getDoc(doc(db, "trees", TREE_FIXTURE_ID)));
+  await expectDenied(getDocs(collection(db, "trees")));
+
+  const pendingEmail = "tree-pending-emulator@test-fictif.fr";
+  await createUserWithEmailAndPassword(auth, pendingEmail, "tree-pending-123");
+  const pendingUid = auth.currentUser.uid;
+  await setDoc(doc(db, "users", pendingUid), { email: pendingEmail, displayName: "Tree pending", photo: "", role: "member", status: "pending" });
+  await expectDenied(getDoc(doc(db, "trees", TREE_FIXTURE_ID)));
+
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const suspendedEmail = "tree-suspended-emulator@test-fictif.fr";
+  await createUserWithEmailAndPassword(auth, suspendedEmail, "tree-suspended-123");
+  const suspendedUid = auth.currentUser.uid;
+  await setDoc(doc(db, "users", suspendedUid), { email: suspendedEmail, displayName: "Tree suspended", photo: "", role: "member", status: "pending" });
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await updateDoc(doc(db, "users", suspendedUid), { email: suspendedEmail, displayName: "Tree suspended", photo: "", role: "member", status: "suspended" });
+  await signIn(suspendedUid, suspendedEmail, "tree-suspended-123");
+  await expectDenied(getDoc(doc(db, "trees", TREE_FIXTURE_ID)));
+
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  assert.equal((await getDoc(doc(db, "trees", TREE_FIXTURE_ID))).data().name, "Arbre renommé");
+  assert.ok((await getDocs(collection(db, "trees"))).size >= 1, "un compte approuvé peut lister les arbres");
+});
+
+test("trees : seuls les admins peuvent créer/modifier et aucune suppression n'est permise", async () => {
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(setDoc(doc(db, "trees", "tree-member-create"), validTreeRecord()));
+  await expectDenied(updateDoc(doc(db, "trees", TREE_FIXTURE_ID), { name: "Modification membre", updatedAt: new Date(), updatedBy: memberUid }));
+  await expectDenied(deleteDoc(doc(db, "trees", TREE_FIXTURE_ID)));
+
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await setDoc(doc(db, "trees", TREE_EMPTY_ID), validTreeRecord("Arbre vide"));
+  // Refusé même vide : les règles seules ne savent pas vérifier qu'aucune personne
+  // n'a treeId=tree-empty-fixture. Une future suppression nécessite un protocole sûr.
+  await expectDenied(deleteDoc(doc(db, "trees", TREE_EMPTY_ID)));
+  await expectDenied(deleteDoc(doc(db, "trees", TREE_FIXTURE_ID)));
+});
+
+test("people.treeId : absent/main rétrocompatibles; arbre existant assignable par admin seulement", async () => {
+  const memberMain = doc(db, "people", "tree-person-main-member");
+  const memberSecondary = doc(db, "people", "tree-person-secondary-member");
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await setDoc(memberMain, { firstName: "Main", lastName: "Fictif" });
+  await setDoc(doc(db, "people", "tree-person-explicit-main"), { firstName: "Main", lastName: "Explicite", treeId: "main" });
+  await expectDenied(setDoc(memberSecondary, { firstName: "Secondaire", lastName: "Fictif", treeId: TREE_FIXTURE_ID }));
+  await expectDenied(setDoc(doc(db, "people", "tree-person-missing-tree"), { firstName: "Absent", lastName: "Fictif", treeId: "tree-unknown" }));
+  await expectDenied(setDoc(doc(db, "people", "tree-person-invalid-id"), { firstName: "Invalide", lastName: "Fictif", treeId: "tree/a" }));
+
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await setDoc(memberSecondary, { firstName: "Secondaire", lastName: "Fictif", treeId: TREE_FIXTURE_ID });
+  assert.equal((await getDoc(memberSecondary)).data().treeId, TREE_FIXTURE_ID);
+  await expectDenied(deleteDoc(doc(db, "trees", TREE_FIXTURE_ID)));
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(updateDoc(memberMain, { treeId: TREE_FIXTURE_ID }));
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await updateDoc(memberMain, { treeId: TREE_FIXTURE_ID });
+  assert.equal((await getDoc(memberMain)).data().treeId, TREE_FIXTURE_ID);
+  await updateDoc(memberMain, { treeId: "main" });
+  assert.equal((await getDoc(memberMain)).data().treeId, "main");
+});
+
+test("trees + people : arbre et première personne peuvent être créés atomiquement", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const batch = writeBatch(db);
+  batch.set(doc(db, "trees", TREE_ATOMIC_ID), validTreeRecord("Arbre atomique"));
+  batch.set(doc(db, "people", "tree-person-atomic"), { firstName: "Atomique", lastName: "Fictif", treeId: TREE_ATOMIC_ID });
+  await batch.commit();
+  assert.equal((await getDoc(doc(db, "trees", TREE_ATOMIC_ID))).exists(), true);
+  assert.equal((await getDoc(doc(db, "people", "tree-person-atomic"))).data().treeId, TREE_ATOMIC_ID);
+});

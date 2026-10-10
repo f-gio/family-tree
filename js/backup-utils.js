@@ -1,5 +1,6 @@
 import { normalizeGenealogyDate } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS } from "./family-relations.js";
+import { MAIN_TREE_ID, getPersonTreeId, isValidTreeId } from "./tree-model.js";
 
 export const FILE_CHUNK_BYTES = 700 * 1024;
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -98,6 +99,30 @@ export function validateFamilyDataset(personRecords = [], familyRecords = []) {
   personIds.forEach(visit);
 }
 
+export function validateTreeDataset(personRecords = [], treeRecords = []) {
+  if (!Array.isArray(personRecords) || !Array.isArray(treeRecords)) throw new Error("La sauvegarde contient des arbres invalides");
+  const treeIds = new Set();
+  for (const tree of treeRecords) {
+    if (!isValidTreeId(tree?.id) || tree.id === MAIN_TREE_ID || treeIds.has(tree.id)) {
+      throw new Error("La sauvegarde contient un identifiant d’arbre invalide ou réservé");
+    }
+    treeIds.add(tree.id);
+    if (typeof tree.name !== "string" || tree.name.trim().length < 1 || tree.name.length > 80) {
+      throw new Error(`L’arbre ${tree.id} contient un nom invalide`);
+    }
+    if (tree.description != null && (typeof tree.description !== "string" || tree.description.length > 200)) {
+      throw new Error(`L’arbre ${tree.id} contient une description invalide`);
+    }
+  }
+  for (const person of personRecords) {
+    const treeId = getPersonTreeId(person);
+    if (treeId === MAIN_TREE_ID) continue;
+    if (!treeId || !treeIds.has(treeId)) {
+      throw new Error(`La fiche ${person?.id || "inconnue"} référence un arbre absent ou invalide`);
+    }
+  }
+}
+
 export function documentChunkId(documentId, version, index) {
   return `${documentId}_${version}_${String(index).padStart(4, "0")}`;
 }
@@ -141,13 +166,14 @@ export function sliceIntoBatches(records = [], size = IMPORT_BATCH_SIZE) {
   return batches;
 }
 
-export function buildBackupManifest({ people = [], families = [], tasks = [], documents = [], blobs = new Map(), exportedAt = new Date().toISOString() } = {}) {
+export function buildBackupManifest({ people = [], families = [], trees = [], tasks = [], documents = [], blobs = new Map(), exportedAt = new Date().toISOString() } = {}) {
   const manifest = {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
     exportedAt,
     people: people.map(exportableRecord),
     families: families.map(exportableRecord),
+    trees: trees.map(exportableRecord),
     tasks: tasks.map(exportableRecord),
     documents: []
   };
@@ -170,5 +196,6 @@ export function buildBackupManifest({ people = [], families = [], tasks = [], do
 export function parseBackupManifestText(text) {
   const manifest = JSON.parse(text);
   if (manifest.format !== BACKUP_FORMAT || !Array.isArray(manifest.people) || !Array.isArray(manifest.families)) throw new Error("Format de sauvegarde non reconnu");
-  return manifest;
+  if (manifest.trees != null && !Array.isArray(manifest.trees)) throw new Error("La sauvegarde contient une liste d’arbres invalide");
+  return { ...manifest, trees: manifest.trees || [] };
 }

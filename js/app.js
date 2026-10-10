@@ -21,7 +21,7 @@ import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsern
 import { formatCompactPlace } from "./place-format.js";
 import { createPersonMultiSelect } from "./person-multiselect.js";
 import { analyzeTreeQuality } from "./tree-quality.js";
-import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, validateFamilyDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, buildBackupManifest, parseBackupManifestText } from "./backup-utils.js";
+import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, validateFamilyDataset, validateTreeDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, buildBackupManifest, parseBackupManifestText } from "./backup-utils.js";
 import { firebaseConfigurationMatchesEnvironment, resolveFirebaseEnvironment, environmentFeatureFlags } from "./firebase-environment.js";
 
 const firebaseEnvironment = resolveFirebaseEnvironment(window.location);
@@ -73,6 +73,7 @@ const refs = {
   documents: collection(db, "documents"),
   tasks: collection(db, "tasks"),
   users: collection(db, "users"),
+  trees: collection(db, "trees"),
   procedures: collection(db, "procedures")
 };
 
@@ -2321,7 +2322,9 @@ async function exportCompleteBackup() {
       button.innerHTML = `… <span class="label">Document ${index + 1}/${documents.length}</span>`;
       blobs.set(documents[index].id, await documentBlob(documents[index]));
     }
-    const manifest = buildBackupManifest({ people, families, tasks, documents, blobs });
+    const treeSnapshot = await getDocs(refs.trees);
+    const trees = treeSnapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+    const manifest = buildBackupManifest({ people, families, trees, tasks, documents, blobs });
     for (const item of manifest.documents) {
       if (item.backupFile) zip.file(item.backupFile, blobs.get(item.id));
     }
@@ -2367,8 +2370,10 @@ async function restoreCompleteBackup(file) {
     if (!manifestEntry) throw new Error("Cette archive ne contient pas de sauvegarde Family Tree");
     const manifest = parseBackupManifestText(await manifestEntry.async("string"));
     validateFamilyDataset(manifest.people, manifest.families);
+    validateTreeDataset(manifest.people, manifest.trees || []);
     if (!confirm(`Fusionner cette sauvegarde avec les données actuelles ?\n\n${manifest.people.length} personnes · ${manifest.documents?.length || 0} documents · ${manifest.tasks?.length || 0} tâches\n\nLes éléments de même identifiant seront mis à jour. Les autres données actuelles seront conservées.`)) return;
 
+    await writeImportedRecords("trees", manifest.trees || []);
     button.innerHTML = '… <span class="label">Personnes</span>';
     await writeImportedRecords("people", manifest.people);
     await writeImportedRecords("families", manifest.families);

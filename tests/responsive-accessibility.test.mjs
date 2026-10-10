@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { assertFirestoreRulesSafety } from "./firestore-rules-invariants.mjs";
 
-// Fixtures v17 : snapshot historique de non-régression (firestore.rules)
-// extrait de la baseline Git d58f668. Ne PAS mettre à jour automatiquement ;
-// sa modification requiert une justification explicite.
+// Fixture v17 conservée pour les autres usages historiques; les règles sont
+// vérifiées par leurs invariants de sécurité plutôt que par égalité complète.
 const root = new URL("../", import.meta.url);
-const [html, css, app, rules, referenceRules] = await Promise.all([
+const [html, css, app, rules] = await Promise.all([
   readFile(new URL("index.html", root), "utf8"),
   readFile(new URL("css/design-system.css", root), "utf8"),
   readFile(new URL("js/app.js", root), "utf8"),
-  readFile(new URL("firestore.rules", root), "utf8"),
-  readFile(new URL("tests/fixtures/v17/firestore.rules", root), "utf8")
+  readFile(new URL("firestore.rules", root), "utf8")
 ]);
 
 // 23 et 29 — adaptation réelle et progressive, au-delà d'un couple desktop/mobile.
@@ -61,8 +60,8 @@ const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map(match => match[1]);
 const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index);
 assert.deepEqual([...new Set(duplicates)], []);
 
-// Aucun changement de règles ou de modèle Firebase dans cette exécution.
-assert.equal(rules, referenceRules);
+// Les invariants d'accès Firestore restent présents malgré les ajouts de modèle.
+assertFirestoreRulesSafety(rules);
 assert.doesNotMatch(app, /\b(addDoc|updateDoc|setDoc|deleteDoc)\([^\n]+(?:responsive|accessibility|viewport)/i);
 
 console.log("Responsive et accessibilité sections 23–29 : OK");

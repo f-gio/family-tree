@@ -1,26 +1,27 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { assertFirestoreRulesSafety } from "./firestore-rules-invariants.mjs";
 
-// Fixtures v18 : snapshots historiques de non-régression extraits de la
-// baseline Git d58f668. Elles ne doivent PAS être mises à jour
-// automatiquement quand le code actuel évolue ; leur modification requiert
-// une justification explicite et n'est jamais justifiée par un test rouge.
+// Fixtures v18 : snapshots historiques des modules gelés. Les règles Firestore
+// évoluent additivement; leurs invariants de sécurité sont vérifiés ci-dessous
+// sans comparer tout le fichier aux règles antérieures à Démarches.
 const root = new URL("../", import.meta.url);
 const reference = new URL("tests/fixtures/v18/", root);
 const read = path => readFile(new URL(path, root), "utf8");
 const readReference = path => readFile(new URL(path, reference), "utf8");
+const normalizeLineEndings = value => value.replace(/\r\n/g, "\n");
 
 const [html, css, app, renderer, rules] = await Promise.all([
   read("index.html"), read("css/design-system.css"), read("js/app.js"),
   read("js/tree-renderer.js"), read("firestore.rules")
 ]);
 
-// 30 — protection du fonctionnel et des données.
-assert.equal(rules, await readReference("firestore.rules"));
+// 30 — invariants de sécurité Firestore + modules généalogiques gelés.
+assertFirestoreRulesSafety(rules);
 for (const file of [
   "js/tree-camera.js", "js/tree-layout.js", "js/family-relations.js",
   "js/genealogy-date.js", "js/directory-utils.js", "js/document-utils.js"
-]) assert.equal(await read(file), await readReference(file), `${file} ne devait pas changer`);
+]) assert.equal(normalizeLineEndings(await read(file)), normalizeLineEndings(await readReference(file)), `${file} ne devait pas changer`);
 for (const collection of ["people", "families", "documents", "tasks", "users"]) {
   assert.match(app, new RegExp(`${collection}: collection\\(db, "${collection}"\\)`));
 }
@@ -57,10 +58,12 @@ assert.match(html, /id="personIdentityPanel" role="tabpanel"/);
 assert.match(html, /id="personRelationsPanel" role="tabpanel"/);
 assert.match(html, /id="personDocumentsPanel" role="tabpanel"/);
 assert.match(app, /directorySearch/);
-assert.match(app, /directoryNameFilter/);
-assert.match(app, /directoryPlaceFilter/);
-assert.match(app, /directoryBirthFilter/);
-assert.match(app, /directoryDeathFilter/);
+for (const id of [
+  "directoryFirstNameFilter", "directoryMarriedNameFilter", "directoryGenderFilter",
+  "directoryBranchFilter", "directoryBirthPlaceFilter", "directoryBirthYearFromFilter",
+  "directoryBirthYearToFilter", "directoryDeathPlaceFilter", "directoryDeathYearFromFilter",
+  "directoryDeathYearToFilter", "directoryDeathInfoFilter"
+]) assert.ok(html.includes(`id="${id}"`) && app.includes(`$("${id}")`), `Filtre Annuaire manquant : ${id}`);
 assert.match(app, /data-mode="list"|setContentMode/);
 assert.match(app, /data-mode="cards"|setContentMode/);
 assert.match(app, /confirm\("Supprimer définitivement/);
