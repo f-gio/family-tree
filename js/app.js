@@ -615,6 +615,7 @@ function updateTreeSelectorOptions() {
     status.textContent = message;
     status.hidden = !message;
   }
+  updateTreeActionButtons();
   return wasActiveUnavailable;
 }
 
@@ -649,6 +650,79 @@ function setActiveTree(treeId) {
     camera.fit();
   }
 }
+
+function isAdminUser() {
+  return auth.currentUser?.uid === primaryAdminUid || currentUserProfile?.role === "admin";
+}
+
+function normalizeTreeName(name) {
+  return String(name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+function generateTreeId(name) {
+  const base = normalizeTreeName(name).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+  return `${base || "arbre"}-${Date.now().toString(36)}`;
+}
+
+function isDuplicateTreeName(name, excludeId = null) {
+  const normalized = normalizeTreeName(name);
+  return treeMetadata.some(item => item.id !== excludeId && normalizeTreeName(item.name) === normalized);
+}
+
+function updateTreeActionButtons() {
+  const actions = $("treeToolbarActions");
+  const createBtn = $("treeCreateBtn");
+  const renameBtn = $("treeRenameBtn");
+  if (!actions) return;
+  const admin = isAdminUser();
+  actions.hidden = !admin;
+  if (!admin) return;
+  const isSecondary = activeTreeId !== MAIN_TREE_ID && treeMetadata.some(item => item.id === activeTreeId);
+  renameBtn.hidden = !isSecondary;
+}
+
+function openTreeDialog(mode = "create", treeId = null) {
+  if (!isAdminUser()) return toast("Accès réservé aux administrateurs", "error");
+  $("treeForm").reset();
+  $("treeId").value = "";
+  $("treeDialogTitle").textContent = mode === "rename" ? "Renommer l'arbre" : "Créer un arbre";
+  if (mode === "rename" && treeId) {
+    const tree = treeMetadata.find(item => item.id === treeId);
+    if (!tree) return toast("Arbre introuvable", "error");
+    $("treeId").value = treeId;
+    $("treeName").value = tree.name;
+    $("treeDescription").value = tree.description || "";
+  }
+  $("treeDialog").showModal();
+  setTimeout(() => $("treeName").focus(), 30);
+}
+
+$("treeForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const submitButton = event.submitter;
+  const id = $("treeId").value;
+  const name = $("treeName").value.trim();
+  const description = $("treeDescription").value.trim();
+  if (!name) return toast("Le nom est obligatoire", "error");
+  if (name.length > 80) return toast("Le nom ne peut pas dépasser 80 caractères", "error");
+  if (description.length > 200) return toast("La description ne peut pas dépasser 200 caractères", "error");
+  if (isDuplicateTreeName(name, id || null)) return toast("Un arbre portant ce nom existe déjà", "error");
+  await withButtonPending(submitButton, () => runSafely(async () => {
+    const data = { name, description: description || "", updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.uid || "" };
+    if (id) {
+      await updateDoc(doc(db, "trees", id), data);
+      toast("Arbre renommé");
+    } else {
+      const treeId = generateTreeId(name);
+      await setDoc(doc(db, "trees", treeId), { ...data, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });
+      treeMetadata.push({ id: treeId, name, description: description || "" });
+      treeMetadata.sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }) || a.id.localeCompare(b.id));
+      toast("Arbre créé");
+      setActiveTree(treeId);
+    }
+    close("treeDialog");
+  }, "Enregistrement impossible"));
+});
 
 function acceptTreeCatalog(snapshot) {
   const records = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
@@ -922,6 +996,11 @@ function renderTree() {
   updateTreeBranchOptions();
   const scope = currentTreeScope();
   currentScope = scope;
+  const emptyMessage = $("treeEmptyMessage");
+  if (emptyMessage) {
+    const isEmptySecondary = scope.people.length === 0 && activeTreeId !== MAIN_TREE_ID;
+    emptyMessage.hidden = !isEmptySecondary;
+  }
   currentLayout = applyManualPositions(computeTreeLayout(scope));
   renderer.render(scope.people, currentLayout, treeContextMarkers(scope));
   renderer.setActive(activeId);
@@ -3253,6 +3332,7 @@ function stopPrivateData() {
   clearTreeScopedFilters();
   updateTreeSelectorOptions();
   updateTreeBranchOptions();
+  updateTreeActionButtons();
   $("topbar").hidden = true;
   $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("tasksView").hidden = true;
   if ($("adminDialog").open) $("adminDialog").close();
@@ -3279,6 +3359,7 @@ function applyAccessProfile(profile, user) {
   showAuthPanel("app");
   $("topbar").hidden = false;
   $("appMain").hidden = false;
+  updateTreeActionButtons();
   if (activeDataUid !== user.uid) {
     activeDataUid = user.uid;
     startData();
@@ -4004,6 +4085,8 @@ $("clearTreeSearchBtn").onclick = () => {
   $("search").focus();
 };
 $("treeSelect").onchange = () => setActiveTree($("treeSelect").value);
+$("treeCreateBtn").onclick = () => openTreeDialog("create");
+$("treeRenameBtn").onclick = () => openTreeDialog("rename", activeTreeId);
 $("treeBranchFilter").onchange = () => {
   lineageSurname = $("treeBranchFilter").value;
   branchView = null;

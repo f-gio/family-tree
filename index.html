@@ -151,9 +151,11 @@
 <label class="sr-only" for="search">Rechercher</label>
 <label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="search" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher et centrer une personne…"><button type="button" class="search-bar-clear" id="clearTreeSearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
 <label class="toolbar-tree"><span class="sr-only">Choisir un arbre</span><select class="field" id="treeSelect" aria-label="Choisir un arbre"><option value="main">Arbre familial</option></select></label>
+<div class="toolbar-tree-actions" id="treeToolbarActions" hidden><button class="btn icon-btn" type="button" id="treeCreateBtn" aria-label="Créer un arbre" title="Créer un arbre"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg></button><button class="btn icon-btn" type="button" id="treeRenameBtn" aria-label="Renommer l'arbre" title="Renommer l'arbre" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-edit"></use></svg></button></div>
 <label class="toolbar-branch"><span class="sr-only">Filtrer par branche familiale</span><select class="field" id="treeBranchFilter" aria-label="Filtrer par branche familiale"><option value="">Toutes les branches</option></select></label>
 </section>
 <p class="tree-catalog-status" id="treeCatalogStatus" role="status" aria-live="polite" hidden></p>
+<p class="tree-empty-message" id="treeEmptyMessage" role="status" aria-live="polite" hidden>Cet arbre ne contient encore aucune personne.</p>
 <section class="branch-banner" id="branchBanner" hidden aria-label="Mode branche">
 <span class="branch-banner-name">Branche de <strong id="branchBannerName"></strong></span>
 <span class="branch-banner-depth" id="branchBannerDepth"></span>
@@ -595,6 +597,13 @@
 </div></div>
 <div class="modal-actions modal-form-actions"><div class="right"><button class="btn" type="button" data-close="procedureActionDialog">Annuler</button><button class="btn primary" type="submit" id="saveProcedureActionBtn">Enregistrer</button></div></div>
 </form>
+</dialog>
+  <dialog class="modal-md modal-mobile-sheet modal-mobile-sheet--form" id="treeDialog" aria-labelledby="treeDialogTitle">
+<div class="modal-head"><div><h3 id="treeDialogTitle">Créer un arbre</h3><p>Les arbres secondaires permettent de conserver des branches familiales indépendantes.</p></div><button class="btn icon-btn" type="button" data-close="treeDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
+<form class="modal-body modal-form" id="treeForm"><div class="modal-scroll"><input type="hidden" id="treeId"><div class="grid">
+<label class="wide">Nom *<input class="field" id="treeName" required maxlength="80" autocomplete="off" autocapitalize="words" placeholder="Ex. Branche Conti"></label>
+<label class="wide">Description<textarea class="field" id="treeDescription" rows="3" maxlength="200" autocapitalize="sentences" placeholder="Facultatif"></textarea></label>
+</div></div><div class="modal-actions modal-form-actions"><div class="right"><button class="btn" type="button" data-close="treeDialog">Annuler</button><button class="btn primary" type="submit" id="saveTreeBtn">Enregistrer</button></div></div></form>
 </dialog>
   <dialog id="dataDialog" class="data-dialog modal-md modal-mobile-sheet modal-mobile-sheet--stable" aria-labelledby="dataDialogTitle">
 <div class="modal-head"><div><h3 id="dataDialogTitle">Données</h3><p>Sauvegardez ou restaurez le contenu de votre Family Tree.</p></div><button class="btn icon-btn" type="button" data-close="dataDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>

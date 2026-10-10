@@ -17,6 +17,7 @@ window.__treeSelectorHarness = {
     lineageSurname = "";
     activeId = null;
     loadedPeople = loadedFamilies = true;
+    window.__treeSelectorHarness.treeWrites = [];
     document.getElementById("authScreen").hidden = true;
     document.getElementById("topbar").hidden = false;
     document.getElementById("appMain").hidden = false;
@@ -50,6 +51,43 @@ window.__treeSelectorHarness = {
     treeMetadata = treeMetadata.filter(tree => tree.id !== activeTreeId);
     acceptTreeCatalog({ docs: treeMetadata.map(tree => ({ id: tree.id, data: () => ({ name: tree.name, description: tree.description || "" }) })) });
   },
+  treeWrites: [],
+  async saveTreeForTest(mode, name, description, existingId = null) {
+    if (existingId === "main") return { error: "L'arbre principal ne peut pas être renommé" };
+    if (!name) return { error: "Le nom est obligatoire" };
+    if (name.length > 80) return { error: "Le nom ne peut pas dépasser 80 caractères" };
+    if ((description || "").length > 200) return { error: "La description ne peut pas dépasser 200 caractères" };
+    if (isDuplicateTreeName(name, existingId || null)) return { error: "Un arbre portant ce nom existe déjà" };
+    const id = existingId || generateTreeId(name);
+    const tree = treeMetadata.find(item => item.id === id);
+    if (tree) { tree.name = name; tree.description = description || ""; }
+    else treeMetadata.push({ id, name, description: description || "" });
+    treeMetadata.sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }) || a.id.localeCompare(b.id));
+    window.__treeSelectorHarness.treeWrites.push({ mode, id, name, description });
+    if (!existingId) setActiveTree(id);
+    else { updateTreeSelectorOptions(); updateTreeBranchOptions(); renderTree(); }
+    return { id };
+  },
+  getTreeWrites() { return window.__treeSelectorHarness.treeWrites; },
+  isAdminUser() { return isAdminUser(); },
+  mainTreeCount() { return getTreePeople(treePeople(), "main").length; },
+  totalPeopleCount() { return treePeople().length; },
+  setAdminMode(isAdmin) {
+    if (isAdmin) {
+      currentUserProfile = { role: "admin", status: "approved", displayName: "Admin" };
+      primaryAdminUid = "test-admin";
+      Object.defineProperty(auth, "currentUser", { value: { uid: "test-admin" }, configurable: true });
+    } else {
+      currentUserProfile = { role: "member", status: "approved", displayName: "Membre" };
+      primaryAdminUid = "";
+      Object.defineProperty(auth, "currentUser", { value: null, configurable: true });
+    }
+    updateTreeActionButtons();
+  },
+  emptyMessageVisible() { return !document.getElementById("treeEmptyMessage").hidden; },
+  renameBtnVisible() { return !document.getElementById("treeRenameBtn").hidden; },
+  createBtnVisible() { return !document.getElementById("treeCreateBtn").hidden; },
+  openTreeDialog(mode, treeId) { openTreeDialog(mode, treeId); },
   state() {
     return {
       activeTreeId,
@@ -219,4 +257,184 @@ test("catalogue Firestore refusé ou arbre supprimé : principal affiché et err
     assert.equal(state.catalogStatusHidden, false);
     assert.match(state.catalogStatusText, /n’est plus disponible/i);
   } finally { await context.close(); await browser.close(); await server.close(); }
+});
+
+async function createHarnessPage(browser, server, viewport, forcedEnv = "recette") {
+  const context = await browser.newContext({ viewport, locale: "fr-FR", isMobile: viewport.width <= 760, hasTouch: viewport.width <= 760, reducedMotion: "reduce" });
+  await context.addInitScript(env => { window.__forcedEnv = env; }, forcedEnv);
+  await context.route("**/*", async route => {
+    const url = route.request().url();
+    if (url.endsWith("/js/app.js")) {
+      const response = await route.fetch();
+      return route.fulfill({ response, body: `${await response.text()}\n${testHooks}` });
+    }
+    if (isAllowedRequest(url, server.baseURL)) return route.continue().catch(() => {});
+    if (blockedServiceFor(url)) return route.abort("blockedbyclient").catch(() => {});
+    return route.continue().catch(() => {});
+  });
+  const page = await context.newPage();
+  await page.goto(server.baseURL, { waitUntil: "load" });
+  await page.waitForFunction(() => typeof window.__treeSelectorHarness === "object");
+  return { context, page };
+}
+
+test("création d'arbre : admin voit les boutons, validation, sélection après création", async t => {
+  const server = await startStaticServer(ROOT);
+  try {
+    let browser;
+    try { browser = await chromium.launch({ headless: true }); }
+    catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+    try {
+      const { context, page } = await createHarnessPage(browser, server, { width: 390, height: 844 });
+      try {
+        await page.evaluate(data => window.__treeSelectorHarness.setData(data), fixture);
+        /* admin voit les boutons */
+        const btnState = await page.evaluate(() => ({
+          admin: window.__treeSelectorHarness.isAdminUser(),
+          createVisible: window.__treeSelectorHarness.createBtnVisible(),
+          renameVisible: window.__treeSelectorHarness.renameBtnVisible()
+        }));
+        assert.equal(btnState.admin, false, "par défaut non-admin dans le harness");
+
+        /* forcer admin */
+        await page.evaluate(() => window.__treeSelectorHarness.setAdminMode(true));
+        const adminBtns = await page.evaluate(() => ({
+          createVisible: window.__treeSelectorHarness.createBtnVisible(),
+          renameVisible: window.__treeSelectorHarness.renameBtnVisible()
+        }));
+        assert.equal(adminBtns.createVisible, true, "admin voit le bouton Créer");
+        assert.equal(adminBtns.renameVisible, false, "pas de bouton Renommer sur l'arbre principal");
+
+        /* création valide */
+        const createResult = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("create", "Branche Test", "Une description"));
+        assert.ok(createResult.id, "création réussie");
+        let state = await page.evaluate(() => window.__treeSelectorHarness.state());
+        assert.equal(state.activeTreeId, createResult.id, "nouvel arbre sélectionné");
+        assert.ok(state.treeOptions.some(o => o.label === "Branche Test"), "arbre dans le sélecteur");
+        const writes = await page.evaluate(() => window.__treeSelectorHarness.getTreeWrites());
+        assert.equal(writes.length, 1, "une écriture enregistrée");
+        assert.equal(writes[0].mode, "create");
+
+        /* arbre vide : message visible */
+        const emptyVisible = await page.evaluate(() => window.__treeSelectorHarness.emptyMessageVisible());
+        assert.equal(emptyVisible, true, "message arbre vide affiché");
+
+        /* les personnes de l'annuaire ne sont pas affectées (fixture intacte) */
+        const catalogCheck = await page.evaluate(() => ({
+          mainCount: window.__treeSelectorHarness.mainTreeCount(),
+          totalPeople: window.__treeSelectorHarness.totalPeopleCount()
+        }));
+        assert.equal(catalogCheck.mainCount, 2, "personnes du principal inchangées");
+        assert.equal(catalogCheck.totalPeople, 6, "annuaire commun intact (inTree !== false)");
+
+        /* bouton renommer visible sur arbre secondaire */
+        const renameOnSecondary = await page.evaluate(() => window.__treeSelectorHarness.renameBtnVisible());
+        assert.equal(renameOnSecondary, true, "bouton Renommer visible sur arbre secondaire");
+
+        /* nom vide refusé */
+        const emptyName = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("create", "", ""));
+        assert.ok(emptyName.error, "nom vide refusé");
+        assert.match(emptyName.error, /obligatoire/);
+
+        /* nom trop long refusé */
+        const longName = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("create", "A".repeat(81), ""));
+        assert.ok(longName.error, "nom trop long refusé");
+        assert.match(longName.error, /80/);
+
+        /* description trop longue refusée */
+        const longDesc = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("create", "Arbre OK", "B".repeat(201)));
+        assert.ok(longDesc.error, "description trop longue refusée");
+        assert.match(longDesc.error, /200/);
+
+        /* doublon refusé (insensible accents/casse) */
+        const dup = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("create", "branche test", ""));
+        assert.ok(dup.error, "doublon refusé");
+        assert.match(dup.error, /existe déjà/);
+
+        /* renommage */
+        const renameResult = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("rename", "Branche Test Renommée", "Nouvelle desc", "tree-empty"));
+        assert.ok(renameResult.id, "renommage réussi");
+        state = await page.evaluate(() => window.__treeSelectorHarness.state());
+        assert.ok(state.treeOptions.some(o => o.label === "Branche Test Renommée"), "nom mis à jour");
+        const writes2 = await page.evaluate(() => window.__treeSelectorHarness.getTreeWrites());
+        assert.equal(writes2.length, 2, "deux écritures");
+        assert.equal(writes2[1].mode, "rename");
+      } finally { await context.close(); }
+    } finally { await browser.close(); }
+  } finally { await server.close(); }
+});
+
+test("mobile 390px : boutons créer/renommer tactiles, dialogue accessible", async t => {
+  const server = await startStaticServer(ROOT);
+  try {
+    let browser;
+    try { browser = await chromium.launch({ headless: true }); }
+    catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+    try {
+      const { context, page } = await createHarnessPage(browser, server, { width: 390, height: 844 });
+      try {
+        await page.evaluate(data => window.__treeSelectorHarness.setData(data), fixture);
+        await page.evaluate(() => window.__treeSelectorHarness.setAdminMode(true));
+        const boxes = await page.evaluate(() => {
+          const create = document.getElementById("treeCreateBtn");
+          const rename = document.getElementById("treeRenameBtn");
+          const cBox = create.getBoundingClientRect();
+          const rBox = rename.getBoundingClientRect();
+          return {
+            create: { w: cBox.width, h: cBox.height, visible: create.offsetParent !== null },
+            rename: { w: rBox.width, h: rBox.height, visible: rename.offsetParent !== null },
+            ariaCreate: create.getAttribute("aria-label"),
+            ariaRename: rename.getAttribute("aria-label")
+          };
+        });
+        assert.ok(boxes.create.visible, "bouton Créer visible");
+        assert.ok(boxes.create.h >= 43, `bouton Créer ≥44px (${boxes.create.h})`);
+        assert.equal(boxes.ariaCreate, "Créer un arbre");
+        /* renommer masqué sur main */
+        await page.evaluate(() => window.__treeSelectorHarness.chooseTree("tree-conti"));
+        const renameOnConti = await page.evaluate(() => {
+          const r = document.getElementById("treeRenameBtn");
+          const box = r.getBoundingClientRect();
+          return { visible: r.offsetParent !== null, h: box.height };
+        });
+        assert.ok(renameOnConti.visible, "Renommer visible sur arbre secondaire");
+        assert.ok(renameOnConti.h >= 43, `Renommer ≥44px (${renameOnConti.h})`);
+        /* dialogue ouvre */
+        await page.evaluate(() => window.__treeSelectorHarness.openTreeDialog("create"));
+        const dialogOpen = await page.evaluate(() => document.getElementById("treeDialog").open);
+        assert.ok(dialogOpen, "dialogue de création ouvert");
+        const title = await page.evaluate(() => document.getElementById("treeDialogTitle").textContent);
+        assert.equal(title, "Créer un arbre");
+      } finally { await context.close(); }
+    } finally { await browser.close(); }
+  } finally { await server.close(); }
+});
+
+test("arbre principal protégé : pas de renommage, pas de treeId main dans le catalogue", async t => {
+  const server = await startStaticServer(ROOT);
+  try {
+    let browser;
+    try { browser = await chromium.launch({ headless: true }); }
+    catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+    try {
+      const { context, page } = await createHarnessPage(browser, server, { width: 1024, height: 768 });
+      try {
+        await page.evaluate(data => window.__treeSelectorHarness.setData(data), fixture);
+        await page.evaluate(() => window.__treeSelectorHarness.setAdminMode(true));
+        /* sur main : renommer masqué */
+        const onMain = await page.evaluate(() => ({
+          renameVisible: window.__treeSelectorHarness.renameBtnVisible(),
+          activeTreeId: window.__treeSelectorHarness.state().activeTreeId
+        }));
+        assert.equal(onMain.activeTreeId, "main");
+        assert.equal(onMain.renameVisible, false, "renommage impossible sur main");
+        /* le catalogue ne contient pas trees/main */
+        const catalog = await page.evaluate(() => window.__treeSelectorHarness.state().treeOptions);
+        assert.ok(!catalog.some(o => o.value === "main" && o.label !== "Arbre familial"), "pas de doublon main dans le catalogue");
+        /* rename sur main est refusé par le helper */
+        const renameMain = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("rename", "Nouveau nom", "", "main"));
+        assert.ok(renameMain.error, "renommage de main refusé");
+      } finally { await context.close(); }
+    } finally { await browser.close(); }
+  } finally { await server.close(); }
 });
