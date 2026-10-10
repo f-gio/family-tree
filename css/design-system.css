@@ -607,6 +607,12 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 .tree-filter-toolbar .toolbar-tree-actions .btn {
   min-height: var(--control-touch);
 }
+.tree-filter-toolbar .toolbar-tree-actions .icon-btn {
+  width: var(--control-touch);
+  min-width: var(--control-touch);
+  height: var(--control-touch);
+  min-height: var(--control-touch);
+}
 .tree-catalog-status {
   margin: calc(-1 * var(--space-2)) 0 var(--space-3);
   color: var(--color-text-muted);

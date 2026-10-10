@@ -656,12 +656,7 @@ function isAdminUser() {
 }
 
 function normalizeTreeName(name) {
-  return String(name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-}
-
-function generateTreeId(name) {
-  const base = normalizeTreeName(name).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
-  return `${base || "arbre"}-${Date.now().toString(36)}`;
+  return String(name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function isDuplicateTreeName(name, excludeId = null) {
@@ -676,6 +671,8 @@ function updateTreeActionButtons() {
   if (!actions) return;
   const admin = isAdminUser();
   actions.hidden = !admin;
+  createBtn.disabled = treeCatalogState !== "ready";
+  createBtn.title = treeCatalogState === "ready" ? "Créer un arbre" : "Catalogue des arbres indisponible";
   if (!admin) return;
   const isSecondary = activeTreeId !== MAIN_TREE_ID && treeMetadata.some(item => item.id === activeTreeId);
   renameBtn.hidden = !isSecondary;
@@ -683,6 +680,8 @@ function updateTreeActionButtons() {
 
 function openTreeDialog(mode = "create", treeId = null) {
   if (!isAdminUser()) return toast("Accès réservé aux administrateurs", "error");
+  if (treeCatalogState !== "ready") return toast("Le catalogue des arbres est indisponible", "error");
+  if (mode === "rename" && treeId === MAIN_TREE_ID) return toast("L’arbre familial principal ne peut pas être renommé", "error");
   $("treeForm").reset();
   $("treeId").value = "";
   $("treeDialogTitle").textContent = mode === "rename" ? "Renommer l'arbre" : "Créer un arbre";
@@ -699,8 +698,10 @@ function openTreeDialog(mode = "create", treeId = null) {
 
 $("treeForm").addEventListener("submit", async event => {
   event.preventDefault();
+  if (!isAdminUser()) return toast("Accès réservé aux administrateurs", "error");
   const submitButton = event.submitter;
   const id = $("treeId").value;
+  if (id === MAIN_TREE_ID) return toast("L’arbre familial principal ne peut pas être renommé", "error");
   const name = $("treeName").value.trim();
   const description = $("treeDescription").value.trim();
   if (!name) return toast("Le nom est obligatoire", "error");
@@ -711,11 +712,16 @@ $("treeForm").addEventListener("submit", async event => {
     const data = { name, description: description || "", updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.uid || "" };
     if (id) {
       await updateDoc(doc(db, "trees", id), data);
+      const cachedTree = treeMetadata.find(item => item.id === id);
+      if (cachedTree) Object.assign(cachedTree, { name, description: description || "" });
+      updateTreeSelectorOptions();
       toast("Arbre renommé");
     } else {
-      const treeId = generateTreeId(name);
-      await setDoc(doc(db, "trees", treeId), { ...data, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });
-      treeMetadata.push({ id: treeId, name, description: description || "" });
+      const created = await addDoc(refs.trees, { ...data, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });
+      const treeId = created.id;
+      const cachedTree = treeMetadata.find(item => item.id === treeId);
+      if (cachedTree) Object.assign(cachedTree, { name, description: description || "" });
+      else treeMetadata.push({ id: treeId, name, description: description || "" });
       treeMetadata.sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }) || a.id.localeCompare(b.id));
       toast("Arbre créé");
       setActiveTree(treeId);

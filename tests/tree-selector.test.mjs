@@ -17,7 +17,7 @@ window.__treeSelectorHarness = {
     lineageSurname = "";
     activeId = null;
     loadedPeople = loadedFamilies = true;
-    window.__treeSelectorHarness.treeWrites = [];
+    window.__treeWriteLog = [];
     document.getElementById("authScreen").hidden = true;
     document.getElementById("topbar").hidden = false;
     document.getElementById("appMain").hidden = false;
@@ -51,24 +51,6 @@ window.__treeSelectorHarness = {
     treeMetadata = treeMetadata.filter(tree => tree.id !== activeTreeId);
     acceptTreeCatalog({ docs: treeMetadata.map(tree => ({ id: tree.id, data: () => ({ name: tree.name, description: tree.description || "" }) })) });
   },
-  treeWrites: [],
-  async saveTreeForTest(mode, name, description, existingId = null) {
-    if (existingId === "main") return { error: "L'arbre principal ne peut pas être renommé" };
-    if (!name) return { error: "Le nom est obligatoire" };
-    if (name.length > 80) return { error: "Le nom ne peut pas dépasser 80 caractères" };
-    if ((description || "").length > 200) return { error: "La description ne peut pas dépasser 200 caractères" };
-    if (isDuplicateTreeName(name, existingId || null)) return { error: "Un arbre portant ce nom existe déjà" };
-    const id = existingId || generateTreeId(name);
-    const tree = treeMetadata.find(item => item.id === id);
-    if (tree) { tree.name = name; tree.description = description || ""; }
-    else treeMetadata.push({ id, name, description: description || "" });
-    treeMetadata.sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }) || a.id.localeCompare(b.id));
-    window.__treeSelectorHarness.treeWrites.push({ mode, id, name, description });
-    if (!existingId) setActiveTree(id);
-    else { updateTreeSelectorOptions(); updateTreeBranchOptions(); renderTree(); }
-    return { id };
-  },
-  getTreeWrites() { return window.__treeSelectorHarness.treeWrites; },
   isAdminUser() { return isAdminUser(); },
   mainTreeCount() { return getTreePeople(treePeople(), "main").length; },
   totalPeopleCount() { return treePeople().length; },
@@ -86,8 +68,19 @@ window.__treeSelectorHarness = {
   },
   emptyMessageVisible() { return !document.getElementById("treeEmptyMessage").hidden; },
   renameBtnVisible() { return !document.getElementById("treeRenameBtn").hidden; },
-  createBtnVisible() { return !document.getElementById("treeCreateBtn").hidden; },
+  createBtnVisible() {
+    const container = document.getElementById("treeToolbarActions");
+    const button = document.getElementById("treeCreateBtn");
+    return !container.hidden && !button.hidden && button.offsetParent !== null;
+  },
   openTreeDialog(mode, treeId) { openTreeDialog(mode, treeId); },
+  submitTreeForm() {
+    const form = document.getElementById("treeForm");
+    const event = new Event("submit", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "submitter", { value: document.getElementById("saveTreeBtn") });
+    form.dispatchEvent(event);
+  },
+  treeWriteLog() { return window.__treeWriteLog.map(({ mode, id, name, description, createdBy, hasCreatedAt }) => ({ mode, id, name, description, createdBy, hasCreatedAt })); },
   state() {
     return {
       activeTreeId,
@@ -266,7 +259,30 @@ async function createHarnessPage(browser, server, viewport, forcedEnv = "recette
     const url = route.request().url();
     if (url.endsWith("/js/app.js")) {
       const response = await route.fetch();
-      return route.fulfill({ response, body: `${await response.text()}\n${testHooks}` });
+      let source = await response.text();
+      const createCall = 'const created = await addDoc(refs.trees, { ...data, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });';
+      const renameCall = 'await updateDoc(doc(db, "trees", id), data);';
+      assert.ok(source.includes(createCall), "appel Firestore de création d'arbre attendu");
+      assert.ok(source.includes(renameCall), "appel Firestore de renommage attendu");
+      source = source
+        .replace(createCall, 'const created = await window.__treeWriteMock("create", null, { ...data, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });')
+        .replace(renameCall, 'await window.__treeWriteMock("rename", id, data);');
+      const mockWrites = `
+window.__treeWriteLog = [];
+window.__treeWriteMock = async (mode, id, data) => {
+  const treeId = id || "tree-test-" + (window.__treeWriteLog.length + 1);
+  window.__treeWriteLog.push({ mode, id: treeId, name: data.name, description: data.description || "", createdBy: data.createdBy || "", hasCreatedAt: !!data.createdAt });
+  const tree = treeMetadata.find(item => item.id === treeId);
+  if (mode === "create" && !tree) treeMetadata.push({ id: treeId, name: data.name, description: data.description || "" });
+  if (mode === "rename" && tree) {
+    Object.assign(tree, { name: data.name, description: data.description || "" });
+    updateTreeSelectorOptions();
+    updateTreeBranchOptions();
+    renderTree();
+  }
+  return { id: treeId };
+};`;
+      return route.fulfill({ response, body: `${source}\n${testHooks}\n${mockWrites}` });
     }
     if (isAllowedRequest(url, server.baseURL)) return route.continue().catch(() => {});
     if (blockedServiceFor(url)) return route.abort("blockedbyclient").catch(() => {});
@@ -295,6 +311,10 @@ test("création d'arbre : admin voit les boutons, validation, sélection après 
           renameVisible: window.__treeSelectorHarness.renameBtnVisible()
         }));
         assert.equal(btnState.admin, false, "par défaut non-admin dans le harness");
+        assert.equal(btnState.createVisible, false, "bouton Créer masqué aux membres");
+        await page.evaluate(() => window.__treeSelectorHarness.openTreeDialog("create"));
+        assert.equal(await page.locator("#treeDialog").evaluate(dialog => dialog.open), false, "membre ne peut pas ouvrir le dialogue par appel direct");
+        assert.match(await page.locator("#toastMessage").textContent(), /réservé aux administrateurs/);
 
         /* forcer admin */
         await page.evaluate(() => window.__treeSelectorHarness.setAdminMode(true));
@@ -305,60 +325,85 @@ test("création d'arbre : admin voit les boutons, validation, sélection après 
         assert.equal(adminBtns.createVisible, true, "admin voit le bouton Créer");
         assert.equal(adminBtns.renameVisible, false, "pas de bouton Renommer sur l'arbre principal");
 
-        /* création valide */
-        const createResult = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("create", "Branche Test", "Une description"));
-        assert.ok(createResult.id, "création réussie");
+        const submitForm = () => page.locator("#treeForm").evaluate(form => {
+          const event = new Event("submit", { bubbles: true, cancelable: true });
+          Object.defineProperty(event, "submitter", { value: document.getElementById("saveTreeBtn") });
+          form.dispatchEvent(event);
+        });
+        const setFormValues = (name, description) => page.evaluate(({ name, description }) => {
+          document.getElementById("treeName").value = name;
+          document.getElementById("treeDescription").value = description;
+        }, { name, description });
+        const openCreate = async () => page.locator("#treeCreateBtn").click();
+        const writeLog = () => page.evaluate(() => window.__treeWriteLog.map(write => ({ ...write })));
+
+        /* nom vide et bornes sont validés par le handler réel */
+        await openCreate();
+        await setFormValues("   ", "");
+        await submitForm();
+        assert.match(await page.locator("#toastMessage").textContent(), /nom est obligatoire/);
+        assert.equal((await writeLog()).length, 0, "aucune écriture pour nom vide");
+        await page.locator("#treeDialog .modal-actions [data-close=treeDialog]").click();
+
+        await openCreate();
+        await setFormValues("A".repeat(81), "");
+        await submitForm();
+        assert.match(await page.locator("#toastMessage").textContent(), /80 caractères/);
+        assert.equal((await writeLog()).length, 0, "aucune écriture pour nom trop long");
+        await page.locator("#treeDialog .modal-actions [data-close=treeDialog]").click();
+
+        await openCreate();
+        await setFormValues("Arbre Test", "D".repeat(201));
+        await submitForm();
+        assert.match(await page.locator("#toastMessage").textContent(), /200 caractères/);
+        assert.equal((await writeLog()).length, 0, "aucune écriture pour description trop longue");
+        await page.locator("#treeDialog .modal-actions [data-close=treeDialog]").click();
+
+        /* création valide : chemin réel, écriture Firestore interceptée au bord réseau */
+        await openCreate();
+        await setFormValues("Branche Test", "Une description");
+        assert.deepEqual(await page.evaluate(() => ({ name: document.getElementById("treeName").value, description: document.getElementById("treeDescription").value })), { name: "Branche Test", description: "Une description" }, "champs création distincts");
+        await submitForm();
+        await page.waitForFunction(() => window.__treeWriteLog.length === 1);
         let state = await page.evaluate(() => window.__treeSelectorHarness.state());
-        assert.equal(state.activeTreeId, createResult.id, "nouvel arbre sélectionné");
-        assert.ok(state.treeOptions.some(o => o.label === "Branche Test"), "arbre dans le sélecteur");
-        const writes = await page.evaluate(() => window.__treeSelectorHarness.getTreeWrites());
-        assert.equal(writes.length, 1, "une écriture enregistrée");
+        const writes = await writeLog();
         assert.equal(writes[0].mode, "create");
-
-        /* arbre vide : message visible */
-        const emptyVisible = await page.evaluate(() => window.__treeSelectorHarness.emptyMessageVisible());
-        assert.equal(emptyVisible, true, "message arbre vide affiché");
-
-        /* les personnes de l'annuaire ne sont pas affectées (fixture intacte) */
-        const catalogCheck = await page.evaluate(() => ({
-          mainCount: window.__treeSelectorHarness.mainTreeCount(),
-          totalPeople: window.__treeSelectorHarness.totalPeopleCount()
-        }));
+        assert.match(writes[0].id, /^tree-test-/);
+        assert.equal(writes[0].name, "Branche Test");
+        assert.equal(writes[0].createdBy, "test-admin");
+        assert.ok(writes[0].hasCreatedAt, "createdAt transmis à Firestore");
+        assert.equal(state.activeTreeId, writes[0].id, "nouvel arbre sélectionné");
+        assert.ok(state.treeOptions.some(o => o.label === "Branche Test"), "arbre dans le sélecteur");
+        assert.equal(await page.locator("#treeDialog").evaluate(dialog => dialog.open), false, "dialogue fermé après sauvegarde");
+        assert.equal(await page.evaluate(() => window.__treeSelectorHarness.emptyMessageVisible()), true, "arbre vide annoncé sans erreur");
+        const catalogCheck = await page.evaluate(() => ({ mainCount: window.__treeSelectorHarness.mainTreeCount(), totalPeople: window.__treeSelectorHarness.totalPeopleCount() }));
         assert.equal(catalogCheck.mainCount, 2, "personnes du principal inchangées");
         assert.equal(catalogCheck.totalPeople, 6, "annuaire commun intact (inTree !== false)");
 
-        /* bouton renommer visible sur arbre secondaire */
-        const renameOnSecondary = await page.evaluate(() => window.__treeSelectorHarness.renameBtnVisible());
-        assert.equal(renameOnSecondary, true, "bouton Renommer visible sur arbre secondaire");
+        /* doublon normalisé rejeté avant tout nouvel appel Firestore */
+        await openCreate();
+        await setFormValues("  BRÁNCHE   test  ", "");
+        await submitForm();
+        assert.match(await page.locator("#toastMessage").textContent(), /existe déjà/);
+        assert.equal((await writeLog()).length, 1, "pas de second document pour le doublon");
+        await page.locator("#treeDialog .modal-actions [data-close=treeDialog]").click();
 
-        /* nom vide refusé */
-        const emptyName = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("create", "", ""));
-        assert.ok(emptyName.error, "nom vide refusé");
-        assert.match(emptyName.error, /obligatoire/);
-
-        /* nom trop long refusé */
-        const longName = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("create", "A".repeat(81), ""));
-        assert.ok(longName.error, "nom trop long refusé");
-        assert.match(longName.error, /80/);
-
-        /* description trop longue refusée */
-        const longDesc = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("create", "Arbre OK", "B".repeat(201)));
-        assert.ok(longDesc.error, "description trop longue refusée");
-        assert.match(longDesc.error, /200/);
-
-        /* doublon refusé (insensible accents/casse) */
-        const dup = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("create", "branche test", ""));
-        assert.ok(dup.error, "doublon refusé");
-        assert.match(dup.error, /existe déjà/);
-
-        /* renommage */
-        const renameResult = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("rename", "Branche Test Renommée", "Nouvelle desc", "tree-empty"));
-        assert.ok(renameResult.id, "renommage réussi");
+        /* renommage réel : même identifiant, pas de nouvel arbre */
+        await page.evaluate(() => window.__treeSelectorHarness.chooseTree("tree-empty"));
+        const renameVisible = await page.evaluate(() => window.__treeSelectorHarness.renameBtnVisible());
+        assert.equal(renameVisible, true, "bouton Renommer visible sur arbre secondaire");
+        await page.locator("#treeRenameBtn").click();
+        assert.equal(await page.locator("#treeDialogTitle").textContent(), "Renommer l'arbre");
+        assert.equal(await page.locator("#treeId").inputValue(), "tree-empty");
+        await setFormValues("Ramo isolé Renommé", "Nouvelle desc");
+        assert.deepEqual(await page.evaluate(() => ({ name: document.getElementById("treeName").value, description: document.getElementById("treeDescription").value })), { name: "Ramo isolé Renommé", description: "Nouvelle desc" }, "champs renommage distincts");
+        await submitForm();
+        await page.waitForFunction(() => window.__treeWriteLog.length === 2);
         state = await page.evaluate(() => window.__treeSelectorHarness.state());
-        assert.ok(state.treeOptions.some(o => o.label === "Branche Test Renommée"), "nom mis à jour");
-        const writes2 = await page.evaluate(() => window.__treeSelectorHarness.getTreeWrites());
-        assert.equal(writes2.length, 2, "deux écritures");
-        assert.equal(writes2[1].mode, "rename");
+        const writesAfterRename = await writeLog();
+        assert.equal(writesAfterRename[1].mode, "rename");
+        assert.equal(writesAfterRename[1].id, "tree-empty", "identifiant préservé");
+        assert.ok(state.treeOptions.some(o => o.value === "tree-empty" && o.label === "Ramo isolé Renommé"), `nom mis à jour dans le sélecteur : ${JSON.stringify({ options: state.treeOptions, writesAfterRename })}`);
       } finally { await context.close(); }
     } finally { await browser.close(); }
   } finally { await server.close(); }
@@ -388,8 +433,12 @@ test("mobile 390px : boutons créer/renommer tactiles, dialogue accessible", asy
           };
         });
         assert.ok(boxes.create.visible, "bouton Créer visible");
-        assert.ok(boxes.create.h >= 43, `bouton Créer ≥44px (${boxes.create.h})`);
+        assert.ok(boxes.create.w >= 43 && boxes.create.h >= 43, `bouton Créer ≥44×44px (${boxes.create.w}×${boxes.create.h})`);
         assert.equal(boxes.ariaCreate, "Créer un arbre");
+        await page.locator("#treeCreateBtn").click();
+        assert.equal(await page.locator("#treeDialog").evaluate(dialog => dialog.open), true, "clic Créer ouvre le dialogue réel");
+        assert.equal(await page.locator("#treeDialogTitle").textContent(), "Créer un arbre");
+        await page.locator("#treeDialog .modal-actions [data-close=treeDialog]").click();
         /* renommer masqué sur main */
         await page.evaluate(() => window.__treeSelectorHarness.chooseTree("tree-conti"));
         const renameOnConti = await page.evaluate(() => {
@@ -398,13 +447,16 @@ test("mobile 390px : boutons créer/renommer tactiles, dialogue accessible", asy
           return { visible: r.offsetParent !== null, h: box.height };
         });
         assert.ok(renameOnConti.visible, "Renommer visible sur arbre secondaire");
-        assert.ok(renameOnConti.h >= 43, `Renommer ≥44px (${renameOnConti.h})`);
-        /* dialogue ouvre */
-        await page.evaluate(() => window.__treeSelectorHarness.openTreeDialog("create"));
+        assert.ok(renameOnConti.h >= 43, `Renommer hauteur ≥44px (${renameOnConti.h})`);
+        const renameWidth = await page.locator("#treeRenameBtn").evaluate(button => button.getBoundingClientRect().width);
+        assert.ok(renameWidth >= 43, `Renommer largeur ≥44px (${renameWidth})`);
+        /* bouton Renommer ouvre le dialogue pré-rempli */
+        await page.locator("#treeRenameBtn").click();
         const dialogOpen = await page.evaluate(() => document.getElementById("treeDialog").open);
-        assert.ok(dialogOpen, "dialogue de création ouvert");
+        assert.ok(dialogOpen, "dialogue de renommage ouvert");
         const title = await page.evaluate(() => document.getElementById("treeDialogTitle").textContent);
-        assert.equal(title, "Créer un arbre");
+        assert.equal(title, "Renommer l'arbre");
+        assert.equal(await page.locator("#treeId").inputValue(), "tree-conti");
       } finally { await context.close(); }
     } finally { await browser.close(); }
   } finally { await server.close(); }
@@ -431,9 +483,10 @@ test("arbre principal protégé : pas de renommage, pas de treeId main dans le c
         /* le catalogue ne contient pas trees/main */
         const catalog = await page.evaluate(() => window.__treeSelectorHarness.state().treeOptions);
         assert.ok(!catalog.some(o => o.value === "main" && o.label !== "Arbre familial"), "pas de doublon main dans le catalogue");
-        /* rename sur main est refusé par le helper */
-        const renameMain = await page.evaluate(() => window.__treeSelectorHarness.saveTreeForTest("rename", "Nouveau nom", "", "main"));
-        assert.ok(renameMain.error, "renommage de main refusé");
+        /* ouverture programmatique de renommage main refusée également */
+        await page.evaluate(() => window.__treeSelectorHarness.openTreeDialog("rename", "main"));
+        assert.equal(await page.locator("#treeDialog").evaluate(dialog => dialog.open), false, "dialogue principal non ouvert");
+        assert.match(await page.locator("#toastMessage").textContent(), /principal ne peut pas être renommé/);
       } finally { await context.close(); }
     } finally { await browser.close(); }
   } finally { await server.close(); }
