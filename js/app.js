@@ -13,7 +13,7 @@ import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
 import { MAIN_TREE_ID, getPersonTreeId, getTreePeople, getTreeFamilies, isValidTreeId } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
-import { filterAndSortDirectory, countActiveDirectoryFilters } from "./directory-advanced.js";
+import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel } from "./directory-advanced.js";
 import { filterAndSortProcedures, sortProcedureActions, procedureTypeLabel, procedureStatusLabel, procedureActionTypeLabel, isProcedureClosed, DOSSIER_MIN_QUERY_LENGTH } from "./procedures.js";
 import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText, genealogyDateYears } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
@@ -87,6 +87,9 @@ let treeCatalogMessage = "";
 let invalidTreeMetadataCount = 0;
 let activeId = null, currentLayout = null, automaticPositions = new Map();
 let personDialogSource = "tree";
+let personCreationTreeId = MAIN_TREE_ID;
+let pendingPersonCreateId = "";
+let personFormSaving = false;
 let cameraPositioned = false, focusAfterRender = null;
 let branchView = null;
 let lineageSurname = "";
@@ -610,6 +613,8 @@ function updateTreeSelectorOptions() {
   }
   select.innerHTML = `<option value="${MAIN_TREE_ID}">Arbre familial</option>${treeMetadata.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("")}`;
   select.value = activeTreeId;
+  updateDirectoryTreeOptions();
+  updatePersonTreeOptions();
   if (status) {
     const message = treeCatalogStatusText();
     status.textContent = message;
@@ -617,6 +622,35 @@ function updateTreeSelectorOptions() {
   }
   updateTreeActionButtons();
   return wasActiveUnavailable;
+}
+
+function updateDirectoryTreeOptions() {
+  const select = $("directoryTreeFilter");
+  if (!select) return;
+  const previous = select.value || "all";
+  const available = previous === "all" || previous === MAIN_TREE_ID || treeMetadata.some(item => item.id === previous);
+  const options = [
+    '<option value="all">Tous les arbres</option>',
+    `<option value="${MAIN_TREE_ID}">Arbre familial</option>`,
+    ...treeMetadata.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`)
+  ];
+  if (!available) options.push(`<option value="${esc(previous)}">Arbre indisponible</option>`);
+  select.innerHTML = options.join("");
+  select.value = previous;
+}
+
+function updatePersonTreeOptions() {
+  const select = $("personTreeSelect");
+  if (!select) return;
+  const previous = select.value || MAIN_TREE_ID;
+  const available = previous === MAIN_TREE_ID || treeMetadata.some(item => item.id === previous);
+  const options = [
+    `<option value="${MAIN_TREE_ID}">Arbre familial</option>`,
+    ...treeMetadata.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`)
+  ];
+  if (!available) options.push(`<option value="${esc(previous)}">Arbre indisponible</option>`);
+  select.innerHTML = options.join("");
+  select.value = previous;
 }
 
 function updateTreeBranchOptions() {
@@ -748,6 +782,7 @@ function acceptTreeCatalog(snapshot) {
     renderTree();
     if (activeTreeUnavailable) camera.fit();
   }
+  if (loadedPeople && !$('directoryView').hidden) renderDirectory();
 }
 
 function rejectTreeCatalog(error) {
@@ -763,6 +798,7 @@ function rejectTreeCatalog(error) {
     renderTree();
     if (activeTreeUnavailable) camera.fit();
   }
+  if (loadedPeople && !$('directoryView').hidden) renderDirectory();
 }
 
 function comparePeopleBySurname(a, b) {
@@ -1378,6 +1414,12 @@ async function compressPersonPhoto(file) {
 
 function openPerson(item = null, source = "tree") {
   personDialogSource = source;
+  if (item) {
+    pendingPersonCreateId = "";
+  } else {
+    personCreationTreeId = source === "tree" ? activeTreeId : MAIN_TREE_ID;
+    pendingPersonCreateId = doc(refs.people).id;
+  }
   activeId = item?.id || null;
   renderer.setActive(activeId);
   setPersonMenu(false);
@@ -1395,6 +1437,19 @@ function openPerson(item = null, source = "tree") {
   setActionLabel($("deleteBtn"), source === "directory" ? "Supprimer" : "Retirer de l’arbre", source === "directory" ? "trash" : "unlink");
   $("restoreTreeBtn").hidden = !item || item.inTree !== false || source !== "directory";
   $("personId").value = item?.id || "";
+  const isCreating = !item;
+  $("personTreeAssignment").hidden = !isCreating || source !== "tree";
+  $("personTreeSelectWrap").hidden = !isCreating || source !== "directory";
+  if (isCreating && source === "tree") {
+    const activeTree = personCreationTreeId === MAIN_TREE_ID ? null : treeMetadata.find(tree => tree.id === personCreationTreeId);
+    $("personTreeAssignmentName").textContent = personCreationTreeId === MAIN_TREE_ID
+      ? "Arbre familial"
+      : activeTree?.name || "Arbre indisponible";
+  }
+  if (isCreating && source === "directory") {
+    updatePersonTreeOptions();
+    $("personTreeSelect").value = MAIN_TREE_ID;
+  }
   for (const key of personFields) $(key).value = item?.[key] || "";
   setLocationField("place", item?.place || "", item?.birthPlaceInfo);
   setLocationField("deathPlace", item?.deathPlace || "", item?.deathPlaceInfo);
@@ -1798,6 +1853,7 @@ function renderDirectory() {
     deathYearTo: $("directoryDeathYearToFilter").value,
     deathInfo: $("directoryDeathInfoFilter").value,
     branch: $("directoryBranchFilter").value,
+    treeId: $("directoryTreeFilter").value || "all",
     sort: $("directorySort").value
   };
   const filtered = filterAndSortDirectory(people, filters);
@@ -1815,8 +1871,9 @@ function renderDirectory() {
       ? `<button class="directory-action directory-doc-action" type="button" data-directory-documents="${item.id}" aria-label="Afficher ${documentCount} document${documentCount > 1 ? "s" : ""} associé${documentCount > 1 ? "s" : ""} à ${esc(directoryDisplayName(item))}">${icon("document")}<span class="directory-doc-count-value">${documentCount}</span><span class="directory-doc-count-label"> document${documentCount > 1 ? "s" : ""}</span></button>`
       : `<span class="directory-action directory-doc-action" aria-label="Aucun document associé">${icon("document")}<span class="directory-doc-count-value">0</span><span class="directory-doc-count-label"> document</span></span>`;
     const middleName = item.middleName ? `<span class="person-middle-name">${esc(item.middleName)}</span>` : "";
+    const treeLabel = directoryTreeLabel(item, treeMetadata);
     const menu = tileContextMenuMarkup("directory", item.id, directoryDisplayName(item), [{ key: "delete", label: "Supprimer", icon: "trash", danger: true }]);
-    return `<article class="directory-entry" data-letter="${surnameLetter(item)}" data-directory-person="${item.id}" data-primary-tile tabindex="0" role="group" aria-label="Ouvrir la fiche de ${esc(directoryDisplayName(item))}" aria-keyshortcuts="Enter Space"><span class="directory-avatar">${avatar}</span><div class="directory-main"><h3><span class="directory-surname">${esc(item.lastName || "—")}</span> <span class="directory-first-name">${esc(item.firstName || "")}</span>${middleName}</h3><p class="directory-life"><span class="directory-birth-date"><span class="directory-life-symbol" aria-hidden="true">✦</span> ${esc(formatDirectoryDate(item.birthDateInfo, item.birthDate))}</span><span class="directory-life-divider" aria-hidden="true">—</span><span class="directory-death-date"><span class="directory-life-symbol" aria-hidden="true">†</span> ${esc(formatDirectoryDate(item.deathDateInfo, item.deathDate))}</span></p>${presence}</div><div class="directory-entry-actions"><div class="directory-entry-documents">${documentAction}</div><div class="directory-entry-menu">${menu}</div></div></article>`;
+    return `<article class="directory-entry" data-letter="${surnameLetter(item)}" data-directory-person="${item.id}" data-primary-tile tabindex="0" role="group" aria-label="Ouvrir la fiche de ${esc(directoryDisplayName(item))}" aria-keyshortcuts="Enter Space"><span class="directory-avatar">${avatar}</span><div class="directory-main"><h3><span class="directory-surname">${esc(item.lastName || "—")}</span> <span class="directory-first-name">${esc(item.firstName || "")}</span>${middleName}</h3><p class="directory-life"><span class="directory-birth-date"><span class="directory-life-symbol" aria-hidden="true">✦</span> ${esc(formatDirectoryDate(item.birthDateInfo, item.birthDate))}</span><span class="directory-life-divider" aria-hidden="true">—</span><span class="directory-death-date"><span class="directory-life-symbol" aria-hidden="true">†</span> ${esc(formatDirectoryDate(item.deathDateInfo, item.deathDate))}</span></p><span class="directory-tree-label">${esc(treeLabel)}</span>${presence}</div><div class="directory-entry-actions"><div class="directory-entry-documents">${documentAction}</div><div class="directory-entry-menu">${menu}</div></div></article>`;
   }).join("") : (people.length
     ? emptyState({ iconName: "people", title: "Aucune personne trouvée", description: "Modifiez la recherche ou retirez un filtre pour afficher d’autres résultats." })
     : emptyState({ iconName: "people", title: "Votre annuaire est vide", description: "Ajoutez une première personne pour commencer votre histoire familiale.", action: `<button class="btn primary" type="button" data-empty-add-person>${icon("plus")}<span>Ajouter une personne</span></button>` }));
@@ -1859,6 +1916,12 @@ function renderDirectoryChips(filters) {
     chips.push({ key: "deathYear", label: "Décès", value: period, clear: () => { $("directoryDeathYearFromFilter").value = ""; $("directoryDeathYearToFilter").value = ""; renderDirectory(); } });
   }
   pushChip("deathInfo", "Décès", directoryDeathInfoLabels[filters.deathInfo] || "", () => { $("directoryDeathInfoFilter").value = ""; renderDirectory(); });
+  if (filters.treeId && filters.treeId !== "all") {
+    const label = filters.treeId === MAIN_TREE_ID
+      ? "Arbre familial"
+      : treeMetadata.find(tree => tree.id === filters.treeId)?.name || "Arbre indisponible";
+    chips.push({ key: "treeId", label: "Arbre", value: label, clear: () => { $("directoryTreeFilter").value = "all"; renderDirectory(); } });
+  }
   const container = $("directoryFilterChips");
   if (!container) return;
   if (!chips.length) {
@@ -3675,6 +3738,8 @@ $("signupForm").addEventListener("submit", async event => {
 
 $("personForm").addEventListener("submit", async event => {
   event.preventDefault();
+  if (personFormSaving) return;
+  personFormSaving = true;
   const saveButton = $("savePersonBtn");
   setButtonPending(saveButton, true);
   const data = Object.fromEntries(personFields.map(key => [key, $(key).value.trim()]));
@@ -3702,13 +3767,34 @@ $("personForm").addEventListener("submit", async event => {
       toast("Personne mise à jour");
     } else {
       const createData = { ...data };
+      const destinationTreeId = personDialogSource === "directory" ? $("personTreeSelect").value : personCreationTreeId;
+      if (!destinationTreeId || (destinationTreeId !== MAIN_TREE_ID && !isValidTreeId(destinationTreeId))) {
+        throw new Error("L’arbre de destination est invalide. Aucune fiche n’a été créée.");
+      }
+      if (destinationTreeId !== MAIN_TREE_ID) {
+        if (treeCatalogState !== "ready" || !treeMetadata.some(tree => tree.id === destinationTreeId)) {
+          throw new Error("L’arbre choisi n’est plus disponible. Aucune fiche n’a été créée.");
+        }
+        let destinationSnapshot;
+        try {
+          destinationSnapshot = await getDoc(doc(db, "trees", destinationTreeId));
+        } catch (error) {
+          console.error("Vérification de l’arbre de destination impossible", error);
+          throw new Error("Impossible de vérifier l’arbre choisi. Vérifiez votre connexion puis réessayez.");
+        }
+        if (!destinationSnapshot.exists()) throw new Error("L’arbre choisi n’existe plus. Aucune fiche n’a été créée.");
+        createData.treeId = destinationTreeId;
+      }
       if (birthDateInfo.type !== "exact") delete createData.birthDate;
       if (deathDateInfo.type !== "exact") delete createData.deathDate;
-      const created = await addDoc(refs.people, { ...createData, inTree: true, createdAt: serverTimestamp() });
-      people.push({ id: created.id, ...createData, inTree: true });
-      activeId = created.id;
-      focusAfterRender = created.id;
-      $("personId").value = created.id;
+      if (!pendingPersonCreateId) pendingPersonCreateId = doc(refs.people).id;
+      const createdId = pendingPersonCreateId;
+      await setDoc(doc(db, "people", createdId), { ...createData, inTree: true, createdAt: serverTimestamp() });
+      people.push({ id: createdId, ...createData, inTree: true });
+      pendingPersonCreateId = "";
+      activeId = createdId;
+      focusAfterRender = createdId;
+      $("personId").value = createdId;
       $("personMenuBtn").hidden = false;
       $("dialogTitle").textContent = "Modifier la personne";
       $("savePersonBtn").textContent = "Enregistrer";
@@ -3716,13 +3802,22 @@ $("personForm").addEventListener("submit", async event => {
       $("savePersonBtn").dataset.idleContent = "Enregistrer";
       $("deleteBtn").hidden = false;
       setActionLabel($("deleteBtn"), personDialogSource === "directory" ? "Supprimer" : "Retirer de l’arbre", personDialogSource === "directory" ? "trash" : "unlink");
+      $("personTreeAssignment").hidden = true;
+      $("personTreeSelectWrap").hidden = true;
       setPersonSection("relations", true);
       toast("Personne ajoutée — indiquez maintenant ses liens familiaux");
     }
   } catch (error) {
     console.error(error);
-    toast(error.message || "Enregistrement impossible", "error");
+    const errorText = `${error.code || ""} ${error.message || ""}`;
+    const message = /permission-denied|insufficient permissions/i.test(errorText)
+      ? "Création refusée par les règles Firestore. Vérifiez votre accès à l’arbre choisi."
+      : /unavailable|network|offline|failed to fetch|deadline-exceeded/i.test(errorText)
+        ? "Connexion impossible : la fiche n’a pas pu être enregistrée. Réessayez sans fermer ce formulaire."
+        : error.message || "Enregistrement impossible";
+    toast(message, "error");
   } finally {
+    personFormSaving = false;
     setButtonPending(saveButton, false);
   }
 });
@@ -4320,6 +4415,7 @@ $("directoryFilterDialog").addEventListener("close", () => {
 $("directoryGenderFilter").addEventListener("change", renderDirectory);
 $("directoryDeathInfoFilter").addEventListener("change", renderDirectory);
 $("directoryBranchFilter").addEventListener("change", renderDirectory);
+$("directoryTreeFilter").addEventListener("change", renderDirectory);
 $("directorySort").addEventListener("change", () => {
   saveDirectorySort($("directorySort").value);
   renderDirectory();
@@ -4331,6 +4427,7 @@ $("clearDirectoryFiltersBtn").onclick = () => {
   $("directoryGenderFilter").value = "";
   $("directoryDeathInfoFilter").value = "";
   $("directoryBranchFilter").value = "";
+  $("directoryTreeFilter").value = "all";
   renderDirectory();
 };
 $("applyDirectoryFiltersBtn").onclick = () => {

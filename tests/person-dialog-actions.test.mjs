@@ -64,7 +64,7 @@ test("E. footer allégé : Annuler / Enregistrer uniquement (hors actions condit
 test("le CTA de création continue vers les liens, l’édition conserve Enregistrer", () => {
   assert.match(html, /id="savePersonBtn" type="submit">Continuer<\/button>/);
   assert.match(app, /\$\("savePersonBtn"\)\.textContent = item \? "Enregistrer" : "Continuer";/);
-  assert.match(app, /await addDoc\(refs\.people,[\s\S]{0,900}setPersonSection\("relations", true\);/);
+  assert.match(app, /await setDoc\(doc\(db, "people", createdId\),[\s\S]{0,900}setPersonSection\("relations", true\);/);
   assert.match(app, /\$\("savePersonBtn"\)\.textContent = "Enregistrer";/);
 });
 

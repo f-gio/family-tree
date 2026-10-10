@@ -2327,6 +2327,29 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .tree-filter-toolbar > label .field { margin-top: 0; }
 
 /* Filtres Annuaire : toolbar, modale structurée et unique zone centrale défilante. */
+.directory-toolbar {
+  grid-template-columns: minmax(220px, 1fr) auto minmax(140px, 180px) minmax(140px, 180px) auto;
+}
+.directory-tree-filter { min-width: 0; }
+.directory-tree-filter .field { width: 100%; min-width: 0; }
+.directory-tree-label {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+}
+.person-tree-assignment {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.person-tree-assignment strong { color: var(--color-text); font-weight: var(--weight-semibold); }
+.person-tree-select { margin: 0 0 var(--space-4); }
 .directory-filters-trigger {
   display: flex;
   align-items: center;
@@ -2527,8 +2550,10 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 
 @media (max-width: 980px) and (min-width: 761px) {
   .header-tools .label { display: inline; }
-  .directory-toolbar { grid-template-columns: minmax(15rem, 1fr) auto minmax(9rem, 11rem); }
-  .directory-view-switch { grid-column: 3; grid-row: 2; justify-self: stretch; }
+  .directory-toolbar { grid-template-columns: minmax(220px, 1fr) auto minmax(130px, 170px) auto; }
+  .directory-toolbar .directory-tree-filter { grid-column: 1 / 3; grid-row: 2; }
+  .directory-toolbar .directory-sort { grid-column: 3; grid-row: 2; }
+  .directory-toolbar .directory-view-switch { grid-column: 4; grid-row: 2; justify-self: stretch; }
   .directory-view-switch button { flex: 1; }
   .content-grid:not(.list-mode) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
@@ -3394,6 +3419,7 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
 
   .directory-toolbar .search-bar { grid-column: 1 / -1; }
   .directory-toolbar .directory-filters-trigger { grid-column: 1; }
+  .directory-toolbar .directory-tree-filter { grid-column: 1 / -1; grid-row: 3; }
   .directory-toolbar .directory-sort { grid-column: 2; }
   .directory-toolbar .directory-view-switch {
     display: contents;
@@ -3413,6 +3439,7 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
   .directory-toolbar .directory-filters-trigger { width: 100%; padding-inline: var(--space-2); }
   .directory-toolbar .directory-sort { min-width: 0; }
   .directory-toolbar .directory-sort .field { width: 100%; padding-inline: var(--space-2); }
+  .directory-toolbar .directory-tree-filter .field { height: var(--control-touch); min-height: var(--control-touch); }
   .directory-toolbar .directory-view-switch button {
     display: grid;
     place-items: center;

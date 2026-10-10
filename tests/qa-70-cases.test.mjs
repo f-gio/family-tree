@@ -25,7 +25,7 @@ const people = [
 ];
 const family = { id: "f1", partnerIds: ["p1", "p2"], childIds: ["p3"], relationType: "marriage", unionDateInfo: { type: "year", year: 1890 }, unionPlace: "Orino", endType: "divorce", endDateInfo: { type: "about", year: 1900 }, parentChildLinks: [{ parentId: "p1", childId: "p3", type: "biological" }, { parentId: "p2", childId: "p3", type: "adoptive" }] };
 
-staticCheck(1, "Créer une personne", () => { includes('addDoc(refs.people', 'createdAt: serverTimestamp()'); assert.ok(app.includes("birthDateInfo")); });
+staticCheck(1, "Créer une personne", () => { includes('setDoc(doc(db, "people", createdId)', 'createdAt: serverTimestamp()'); assert.ok(app.includes("birthDateInfo")); });
 staticCheck(2, "Modifier une personne", () => includes('updateDoc(doc(db, "people", id), data)'));
 staticCheck(3, "Personne avec photo", () => { includes('id="personPhotoFile"', "compressPersonPhoto"); assert.ok(people[0].photoUrl); });
 automatic(4, "Personne sans photo", () => assert.equal(`${people[1].firstName[0]}${people[1].lastName[0]}`, "VC"));

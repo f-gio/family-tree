@@ -747,19 +747,29 @@ test("trees : seuls les admins peuvent créer/modifier et aucune suppression n'e
   await expectDenied(deleteDoc(doc(db, "trees", TREE_FIXTURE_ID)));
 });
 
-test("people.treeId : absent/main rétrocompatibles; arbre existant assignable par admin seulement", async () => {
+test("people.treeId : membre approuvé crée dans un arbre existant; seul admin déplace une fiche", async () => {
   const memberMain = doc(db, "people", "tree-person-main-member");
+  const memberNullMain = doc(db, "people", "tree-person-null-main-member");
   const memberSecondary = doc(db, "people", "tree-person-secondary-member");
   await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
   await setDoc(memberMain, { firstName: "Main", lastName: "Fictif" });
+  await setDoc(memberNullMain, { firstName: "Main nul", lastName: "Fictif", treeId: null });
+  await updateDoc(memberNullMain, { firstName: "Main nul modifié" });
+  assert.equal((await getDoc(memberNullMain)).data().treeId, null, "treeId null reste compatible lors d’une édition sans déplacement");
   await setDoc(doc(db, "people", "tree-person-explicit-main"), { firstName: "Main", lastName: "Explicite", treeId: "main" });
-  await expectDenied(setDoc(memberSecondary, { firstName: "Secondaire", lastName: "Fictif", treeId: TREE_FIXTURE_ID }));
+  await setDoc(memberSecondary, { firstName: "Secondaire", lastName: "Fictif", treeId: TREE_FIXTURE_ID });
+  assert.equal((await getDoc(memberSecondary)).data().treeId, TREE_FIXTURE_ID);
   await expectDenied(setDoc(doc(db, "people", "tree-person-missing-tree"), { firstName: "Absent", lastName: "Fictif", treeId: "tree-unknown" }));
   await expectDenied(setDoc(doc(db, "people", "tree-person-invalid-id"), { firstName: "Invalide", lastName: "Fictif", treeId: "tree/a" }));
 
+  await signOutAll();
+  const pendingEmail = "tree-person-pending-emulator@test-fictif.fr";
+  const pending = await createUserWithEmailAndPassword(auth, pendingEmail, "tree-person-pending-123");
+  await setDoc(doc(db, "users", pending.user.uid), { email: pendingEmail, displayName: "Tree pending", photo: "", role: "member", status: "pending" });
+  await expectDenied(setDoc(doc(db, "people", "tree-person-pending-secondary"), { firstName: "Pending", lastName: "Fictif", treeId: TREE_FIXTURE_ID }));
+
   await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
-  await setDoc(memberSecondary, { firstName: "Secondaire", lastName: "Fictif", treeId: TREE_FIXTURE_ID });
-  assert.equal((await getDoc(memberSecondary)).data().treeId, TREE_FIXTURE_ID);
+  await setDoc(doc(db, "people", "tree-person-admin-secondary"), { firstName: "Secondaire admin", lastName: "Fictif", treeId: TREE_FIXTURE_ID });
   await expectDenied(deleteDoc(doc(db, "trees", TREE_FIXTURE_ID)));
   await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
   await expectDenied(updateDoc(memberMain, { treeId: TREE_FIXTURE_ID }));

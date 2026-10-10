@@ -203,6 +203,7 @@
 <section class="directory-toolbar" aria-label="Recherche, filtres et affichage de l’annuaire">
 <label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="directorySearch" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher un nom ou un prénom…"><button type="button" class="search-bar-clear" id="clearDirectorySearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
 <button class="directory-filters-trigger" id="directoryFiltersBtn" type="button" aria-haspopup="dialog" aria-controls="directoryFilterDialog" aria-expanded="false"><svg class="ui-icon" aria-hidden="true"><use href="#icon-filter"></use></svg><span>Filtres</span><span class="filter-count" id="directoryFilterCount" hidden>0</span></button>
+<label class="directory-tree-filter"><span class="sr-only">Filtrer l’annuaire par arbre</span><select class="field" id="directoryTreeFilter" aria-label="Filtrer l’annuaire par arbre"><option value="all" selected>Tous les arbres</option><option value="main">Arbre familial</option></select></label>
 <dialog class="directory-filter-dialog" id="directoryFilterDialog" aria-labelledby="directoryFilterTitle">
 <header class="directory-filter-header"><h3 id="directoryFilterTitle">Filtres</h3><button class="btn icon-btn" id="closeDirectoryFiltersBtn" type="button" aria-label="Fermer les filtres" title="Fermer" autofocus><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></header>
 <div class="directory-filter-content">
@@ -369,6 +370,8 @@
 <form class="modal-body person-modal-form" id="personForm">
 <input type="hidden" id="personId">
 <section class="person-section-panel" id="personIdentityPanel" role="tabpanel" aria-labelledby="personIdentityTab" data-person-panel="identity">
+<p class="person-tree-assignment" id="personTreeAssignment" hidden>Ajoutée à : <strong id="personTreeAssignmentName"></strong></p>
+<label class="person-tree-select" id="personTreeSelectWrap" hidden>Arbre<select class="field" id="personTreeSelect" aria-label="Arbre de destination lors de la création"><option value="main">Arbre familial</option></select></label>
 <div class="identity-overview">
 <input id="photoUrl" type="hidden">
 <section class="compact-photo-uploader identity-photo" aria-labelledby="photoUploadTitle">

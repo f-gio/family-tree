@@ -53,6 +53,18 @@ export function assertFirestoreRulesSafety(rules) {
   assert.match(people, /allow update: if isApproved\(\).*validPerson\(\).*validUpdatedBy\(\)/s);
   assert.match(people, /validPersonTreeReference\(\)/, "les références treeId sont contrôlées");
   assert.match(people, /hasAny\(\['treeId'\]\).*isAdmin\(\)/, "le déplacement entre arbres est contrôlé");
+  const createAssignmentStart = rules.indexOf("function validPersonTreeAssignmentOnCreate()");
+  const createAssignmentEnd = rules.indexOf("function validTree(treeId)");
+  const createAssignment = rules.slice(createAssignmentStart, createAssignmentEnd);
+  assert.match(createAssignment, /isApproved\(\)/, "un membre approuvé peut créer dans un arbre secondaire");
+  assert.match(createAssignment, /existsAfter\([\s\S]*trees/,
+    "la création secondaire exige un arbre cible existant");
+  assert.match(createAssignment, /request\.resource\.data\.treeId == null/,
+    "treeId null reste rétrocompatible");
+  assert.match(rules.slice(0, createAssignmentStart), /request\.resource\.data\.treeId == null/,
+    "les mises à jour gardent valides les fiches historiques avec treeId null");
+  assert.doesNotMatch(createAssignment, /isAdmin\(\)/,
+    "la création secondaire n'est pas réservée aux administrateurs");
 
   const families = rules.slice(familiesStart, documentsStart);
   assert.match(families, /allow read, delete: if isApproved\(\);/);

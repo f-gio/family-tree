@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { filterAndSortDirectory, countActiveDirectoryFilters, hasDeathInformation, genealogyDateOverlapsRange } from "../js/directory-advanced.js";
+import { filterAndSortDirectory, countActiveDirectoryFilters, hasDeathInformation, genealogyDateOverlapsRange, directoryTreeLabel } from "../js/directory-advanced.js";
 
 const people = [
   { id: "a", firstName: "Anna", middleName: "Maria", lastName: "Alberti", gender: "F", branch: "Giovannoni", place: "Orino", birthDate: "1869-03-14", deathDateInfo: { type: "year", year: 1932 }, deathPlace: "Varese" },
@@ -176,6 +176,31 @@ test("AL. compatibilité legacy place structuré", () => {
 test("AM. lieu structuré décès", () => {
   const peopleWithInfo = [{ id: "x", firstName: "Test", deathPlace: "", deathPlaceInfo: { name: "Varese" } }];
   assert.deepEqual(filterAndSortDirectory(peopleWithInfo, { deathPlace: "varese" }).map(p => p.id), ["x"]);
+});
+
+test("AN. filtre arbre conserve le périmètre global par défaut et combine recherche/tri", () => {
+  const records = [
+    { id: "legacy", firstName: "Anna", lastName: "Rossi" },
+    { id: "explicit-main", firstName: "Bruno", lastName: "Rossi", treeId: "main" },
+    { id: "secondary", firstName: "Carlo", lastName: "Rossi", treeId: "tree-a" },
+    { id: "unknown", firstName: "Dario", lastName: "Rossi", treeId: "tree-missing" },
+    { id: "invalid", firstName: "Enzo", lastName: "Rossi", treeId: "tree/bad" }
+  ];
+  assert.equal(filterAndSortDirectory(records, { treeId: "all" }).length, 5);
+  assert.deepEqual(filterAndSortDirectory(records, { treeId: "main" }).map(item => item.id), ["legacy", "explicit-main"]);
+  assert.deepEqual(filterAndSortDirectory(records, { treeId: "tree-a", query: "carlo" }).map(item => item.id), ["secondary"]);
+  assert.deepEqual(filterAndSortDirectory(records, { treeId: "tree-a", query: "dario" }), []);
+  assert.equal(countActiveDirectoryFilters({ treeId: "tree-a" }), 1);
+});
+
+test("AO. libellé d’arbre sans classement silencieux des memberships invalides", () => {
+  const trees = [{ id: "tree-a", name: "Branche A" }];
+  assert.equal(directoryTreeLabel({}, trees), "Arbre familial");
+  assert.equal(directoryTreeLabel({ treeId: null }, trees), "Arbre familial");
+  assert.equal(directoryTreeLabel({ treeId: "main" }, trees), "Arbre familial");
+  assert.equal(directoryTreeLabel({ treeId: "tree-a" }, trees), "Branche A");
+  assert.equal(directoryTreeLabel({ treeId: "tree-missing" }, trees), "Arbre indisponible");
+  assert.equal(directoryTreeLabel({ treeId: "tree/bad" }, trees), "Arbre indisponible");
 });
 
 console.log("Filtres Annuaire — logique : OK");

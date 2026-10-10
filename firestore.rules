@@ -58,6 +58,7 @@ service cloud.firestore {
 
     function validPersonTreeReference() {
       return !('treeId' in request.resource.data)
+        || request.resource.data.treeId == null
         || request.resource.data.treeId == 'main'
         || (validTreeId(request.resource.data.treeId)
           && existsAfter(/databases/$(database)/documents/trees/$(request.resource.data.treeId)));
@@ -65,8 +66,11 @@ service cloud.firestore {
 
     function validPersonTreeAssignmentOnCreate() {
       return !('treeId' in request.resource.data)
+        || request.resource.data.treeId == null
         || request.resource.data.treeId == 'main'
-        || isAdmin();
+        || (isApproved()
+          && validTreeId(request.resource.data.treeId)
+          && existsAfter(/databases/$(database)/documents/trees/$(request.resource.data.treeId)));
     }
 
     function validTree(treeId) {
