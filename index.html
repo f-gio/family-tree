@@ -150,8 +150,10 @@
 <section class="toolbar tree-filter-toolbar" aria-label="Recherche et filtres de l’arbre">
 <label class="sr-only" for="search">Rechercher</label>
 <label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="search" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher et centrer une personne…"><button type="button" class="search-bar-clear" id="clearTreeSearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
-<label class="toolbar-branch"><span class="sr-only">Filtrer par branche familiale</span><select class="field" id="treeBranchFilter" aria-label="Filtrer par branche familiale"><option value="">Toutes les branches</option><option value="Giovannoni">Giovannoni</option><option value="Conti">Conti</option><option value="Pianezza">Pianezza</option><option value="Paglia">Paglia</option><option value="Piolini">Piolini</option></select></label>
+<label class="toolbar-tree"><span class="sr-only">Choisir un arbre</span><select class="field" id="treeSelect" aria-label="Choisir un arbre"><option value="main">Arbre familial</option></select></label>
+<label class="toolbar-branch"><span class="sr-only">Filtrer par branche familiale</span><select class="field" id="treeBranchFilter" aria-label="Filtrer par branche familiale"><option value="">Toutes les branches</option></select></label>
 </section>
+<p class="tree-catalog-status" id="treeCatalogStatus" role="status" aria-live="polite" hidden></p>
 <section class="branch-banner" id="branchBanner" hidden aria-label="Mode branche">
 <span class="branch-banner-name">Branche de <strong id="branchBannerName"></strong></span>
 <span class="branch-banner-depth" id="branchBannerDepth"></span>

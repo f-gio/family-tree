@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { LINEAGE_SURNAMES } from "../js/family-lineage.js";
 
 const root = new URL("../", import.meta.url);
 const [html, app, lineage] = await Promise.all([
@@ -10,25 +9,27 @@ const [html, app, lineage] = await Promise.all([
   readFile(new URL("js/family-lineage.js", root), "utf8")
 ]);
 
-test("A. le filtre est présent à droite de la recherche, dans la même zone de contrôles", () => {
+test("A. les sélecteurs d’arbre puis de branche suivent la recherche dans la toolbar", () => {
   const toolbar = html.match(/<section class="toolbar[^\"]*"[^>]*>([\s\S]*?)<\/section>/);
   assert.ok(toolbar, "barre de recherche introuvable");
   const body = toolbar[1];
   const searchIndex = body.indexOf('id="search"');
+  const treeIndex = body.indexOf('id="treeSelect"');
   const filterIndex = body.indexOf('id="treeBranchFilter"');
-  assert.ok(searchIndex >= 0 && filterIndex > searchIndex,
-    "le filtre de branche doit suivre la recherche dans la toolbar");
+  assert.ok(searchIndex >= 0 && treeIndex > searchIndex && filterIndex > treeIndex,
+    "le sélecteur d’arbre doit précéder le sélecteur de branche après la recherche");
   assert.ok(!body.includes('id="resetBtn"'), "le bouton séparé Effacer est supprimé (le X est dans la barre)");
   assert.ok(!html.includes('data-view="lineage"'), "aucune entrée de navigation ajoutée");
   assert.ok(!html.includes("Arbre global"), "pas de menu « Arbres » ni de bandeau de lignée");
 });
 
-test("B. options exactement : Toutes les branches puis les cinq patronymes", () => {
+test("B. le HTML fournit le choix Toutes les branches, les patronymes sont remplis par arbre", () => {
   const select = html.match(/<select[^>]*id="treeBranchFilter"[^>]*>([\s\S]*?)<\/select>/);
   assert.ok(select, "sélecteur de branche introuvable");
   const options = [...select[1].matchAll(/<option value="([^"]*)">([^<]*)<\/option>/g)].map(match => ({ value: match[1], label: match[2] }));
-  assert.deepEqual(options.map(option => option.label), ["Toutes les branches", ...LINEAGE_SURNAMES]);
-  assert.deepEqual(options.slice(1).map(option => option.value), LINEAGE_SURNAMES);
+  assert.deepEqual(options, [{ value: "", label: "Toutes les branches" }]);
+  assert.match(app, /function updateTreeBranchOptions\(\)[\s\S]*?getTreePeople\(treePeople\(\), activeTreeId\)/);
+  assert.match(app, /normalizeLineageName\(name\)/);
 });
 
 test("C. valeur par défaut = Toutes les branches", () => {
@@ -68,7 +69,8 @@ test("H. aucune écriture Firestore et module sans accès DOM", () => {
   assert.doesNotMatch(lineage, /\b(collection|addDoc|updateDoc|deleteDoc|setDoc|writeBatch|runTransaction)\s*\(/);
   assert.doesNotMatch(lineage, /\bfirebase\b/i);
   assert.doesNotMatch(lineage, /\b(document|window)\b/);
-  assert.match(app, /import \{ computeLineageScope \} from "\.\/family-lineage\.js"/);
+  assert.match(app, /import \{ computeLineageScope, normalizeLineageName \} from "\.\/family-lineage\.js"/);
+  assert.match(app, /import \{ MAIN_TREE_ID, getPersonTreeId, getTreePeople, getTreeFamilies, isValidTreeId \} from "\.\/tree-model\.js"/);
 });
 
 console.log("Filtre de branche (interface et intégration) : OK");

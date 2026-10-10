@@ -79,13 +79,15 @@ test("les contrôles mobiles de l’Arbre reprennent la largeur et le rythme de 
               text: treeDescription.textContent.trim()
             },
             search: rect("#appMain .search-bar"),
+            treeSelector: rect("#treeSelect"),
             branch: rect("#treeBranchFilter"),
             shell: rect("#treeViewport"),
             status: rect("#appMain .tree-sync-status"),
             controls: rect("#appMain .tree-controls"),
             descriptionCtaGap: rect("#headerTreeActions").y - rect("#appMain .page-title + p").bottom,
             ctaSearchGap: rect("#appMain .search-bar").y - rect("#addBtn").bottom,
-            searchBranchGap: rect("#treeBranchFilter").y - rect("#appMain .search-bar").bottom,
+            searchTreeGap: rect("#treeSelect").y - rect("#appMain .search-bar").bottom,
+            treeBranchGap: rect("#treeBranchFilter").y - rect("#treeSelect").bottom,
             branchCanvasGap: rect("#treeViewport").y - rect("#treeBranchFilter").bottom,
             filterGap: getComputedStyle(document.querySelector("#appMain .tree-filter-toolbar")).rowGap
           };
@@ -117,14 +119,15 @@ test("les contrôles mobiles de l’Arbre reprennent la largeur et le rythme de 
           assert.ok(Math.abs(measures.tree.cta.x - measures.directory.cta.x) < 0.1, "les CTA partagent le même axe gauche");
           assert.ok(Math.abs(measures.tree.cta.width - measures.directory.cta.width) < 0.1, "le CTA Arbre a la même largeur que celui de l’Annuaire");
           assert.ok(Math.abs(measures.tree.cta.height - measures.directory.cta.height) < 0.1, "les CTA ont la même hauteur");
-          for (const element of [measures.tree.search, measures.tree.branch, measures.tree.shell]) {
+          for (const element of [measures.tree.search, measures.tree.treeSelector, measures.tree.branch, measures.tree.shell]) {
             assert.ok(Math.abs(element.x - measures.directory.cta.x) < 0.1, "recherche, filtre et canvas partagent l’axe du CTA");
             assert.ok(Math.abs(element.width - measures.directory.cta.width) < 0.1, "recherche, filtre et canvas ont la largeur du contenu");
           }
           assert.ok(Math.abs(measures.directory.ctaSearchGap - 20) < 0.1, "espace CTA → recherche Annuaire : --space-5");
           assert.ok(Math.abs(measures.tree.ctaSearchGap - measures.directory.ctaSearchGap) < 0.1, "espace CTA → recherche commun");
           assert.ok(Math.abs(measures.directory.searchFilterGap - 8) < 0.1, "espace recherche → filtres Annuaire : --space-2");
-          assert.ok(Math.abs(measures.tree.searchBranchGap - measures.directory.searchFilterGap) < 0.1, "espace recherche → branche commun");
+          assert.ok(Math.abs(measures.tree.searchTreeGap - measures.directory.searchFilterGap) < 0.1, "espace recherche → arbre : --space-2");
+          assert.ok(Math.abs(measures.tree.treeBranchGap - measures.directory.searchFilterGap) < 0.1, "espace arbre → branche : --space-2");
           assert.equal(measures.tree.filterGap, measures.directory.filterGap, "le rythme de grille reprend celui de l’Annuaire");
           assert.ok(Math.abs(measures.tree.branchCanvasGap - 8) < 0.1, "espace branche → canvas conservé à --space-2");
           assert.ok(measures.tree.status.y >= measures.tree.shell.bottom, "Synchronisé reste sous le canvas");

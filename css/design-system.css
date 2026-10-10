@@ -586,8 +586,23 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 /* Arbre : l'action principale reste dans l'introduction, les filtres forment
    une ligne distincte dont le groupe commence à gauche. */
 .tree-filter-toolbar {
+  grid-template-columns: minmax(190px, 1fr) auto auto;
   align-items: center;
   justify-content: start;
+}
+.tree-filter-toolbar .toolbar-tree,
+.tree-filter-toolbar .toolbar-branch { min-width: 0; }
+.tree-filter-toolbar .toolbar-tree .field,
+.tree-filter-toolbar .toolbar-branch .field {
+  width: auto;
+  min-width: 168px;
+  min-height: var(--control-touch);
+  margin-top: 0;
+}
+.tree-catalog-status {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 
 /* Le menu reste attaché au bord droit du groupe de contrôles, sans dépasser
@@ -624,11 +639,16 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 
 @media (max-width: 760px) {
   .tree-filter-toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
   }
 
 .tree-filter-toolbar .search-bar { grid-column: 1 / -1; }
+.tree-filter-toolbar .toolbar-tree,
 .tree-filter-toolbar .toolbar-branch { grid-column: 1; }
+.tree-filter-toolbar .toolbar-tree .field,
+.tree-filter-toolbar .toolbar-branch .field { width: 100%; }
+.tree-filter-toolbar .toolbar-tree .field,
+.tree-filter-toolbar .toolbar-branch .field { min-height: var(--control-touch); }
 .tree-menu button { min-height: var(--control-touch); }
 
   /* Quand le menu est ouvert, le canvas déborde temporairement de son shell;
@@ -4230,7 +4250,12 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
     margin: 0 0 var(--space-2);
   }
   #appMain > .tree-filter-toolbar .search-bar,
+  #appMain > .tree-filter-toolbar .toolbar-tree,
   #appMain > .tree-filter-toolbar .toolbar-branch { grid-column: 1; }
+  #appMain > .tree-filter-toolbar .search-bar { grid-row: 1; }
+  #appMain > .tree-filter-toolbar .toolbar-tree { grid-row: 2; }
+  #appMain > .tree-filter-toolbar .toolbar-branch { grid-row: 3; }
+  #appMain > .tree-filter-toolbar .toolbar-tree .field,
   #appMain > .tree-filter-toolbar .toolbar-branch .field { width: 100%; }
 
   body:has(main#appMain:not([hidden])) main#appMain { padding-top: var(--space-4); }

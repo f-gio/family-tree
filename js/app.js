@@ -9,7 +9,8 @@ import { captureTreeExportCards } from "./tree-export-cards.js";
 import { lifeTimelineEvents } from "./life-timeline.js";
 import { createTreeCamera } from "./tree-camera.js";
 import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree-branch-view.js";
-import { computeLineageScope } from "./family-lineage.js";
+import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
+import { MAIN_TREE_ID, getPersonTreeId, getTreePeople, getTreeFamilies, isValidTreeId } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
 import { filterAndSortDirectory, countActiveDirectoryFilters } from "./directory-advanced.js";
@@ -79,6 +80,11 @@ const refs = {
 
 let people = [], families = [], documents = [], tasks = [];
 let procedures = [];
+let treeMetadata = [];
+let activeTreeId = MAIN_TREE_ID;
+let treeCatalogState = "idle";
+let treeCatalogMessage = "";
+let invalidTreeMetadataCount = 0;
 let activeId = null, currentLayout = null, automaticPositions = new Map();
 let personDialogSource = "tree";
 let cameraPositioned = false, focusAfterRender = null;
@@ -568,6 +574,117 @@ function nameOf(id) {
   return item ? [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ") : "Personne supprimée";
 }
 
+function clearTreeScopedFilters() {
+  branchView = null;
+  lineageSurname = "";
+  focusAfterRender = null;
+  if ($("treeBranchFilter")) $("treeBranchFilter").value = "";
+}
+
+function treeCatalogStatusText() {
+  if (treeCatalogState === "error") return treeCatalogMessage || "Les arbres secondaires sont indisponibles. L’arbre familial principal reste affiché.";
+  if (treeCatalogState !== "ready") return "";
+  if (treeCatalogMessage) return treeCatalogMessage;
+  const knownIds = new Set(treeMetadata.map(item => item.id));
+  const unresolved = people.some(item => {
+    if (item.treeId == null || item.treeId === MAIN_TREE_ID) return false;
+    const id = getPersonTreeId(item);
+    return !id || !knownIds.has(id);
+  });
+  return unresolved
+    ? "Certaines fiches référencent un arbre indisponible et ne sont pas affichées dans cet arbre."
+    : "";
+}
+
+function updateTreeSelectorOptions() {
+  const select = $("treeSelect");
+  const status = $("treeCatalogStatus");
+  if (!select) return false;
+  const knownIds = new Set(treeMetadata.map(item => item.id));
+  const wasActiveUnavailable = activeTreeId !== MAIN_TREE_ID
+    && (treeCatalogState === "error" || (treeCatalogState === "ready" && !knownIds.has(activeTreeId)));
+  if (wasActiveUnavailable) {
+    activeTreeId = MAIN_TREE_ID;
+    clearTreeScopedFilters();
+    if (treeCatalogState === "ready") treeCatalogMessage = "L’arbre sélectionné n’est plus disponible. L’arbre familial principal est affiché.";
+  }
+  select.innerHTML = `<option value="${MAIN_TREE_ID}">Arbre familial</option>${treeMetadata.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("")}`;
+  select.value = activeTreeId;
+  if (status) {
+    const message = treeCatalogStatusText();
+    status.textContent = message;
+    status.hidden = !message;
+  }
+  return wasActiveUnavailable;
+}
+
+function updateTreeBranchOptions() {
+  const select = $("treeBranchFilter");
+  if (!select) return;
+  const namesByKey = new Map();
+  for (const item of getTreePeople(treePeople(), activeTreeId)) {
+    const name = typeof item.lastName === "string" ? item.lastName.trim() : "";
+    const key = normalizeLineageName(name);
+    if (key && !namesByKey.has(key)) namesByKey.set(key, name);
+  }
+  const names = [...namesByKey.values()].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  const selectedKey = normalizeLineageName(lineageSurname);
+  const selected = names.find(name => normalizeLineageName(name) === selectedKey) || "";
+  lineageSurname = selected;
+  select.innerHTML = '<option value="">Toutes les branches</option>' + names.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
+  select.value = selected;
+}
+
+function setActiveTree(treeId) {
+  const available = treeId === MAIN_TREE_ID || treeMetadata.some(item => item.id === treeId);
+  if (!available || treeId === activeTreeId) return;
+  activeTreeId = treeId;
+  clearTreeScopedFilters();
+  if (activeId && !getTreePeople(treePeople(), activeTreeId).some(item => item.id === activeId)) activeId = null;
+  updateTreeSelectorOptions();
+  updateTreeBranchOptions();
+  if (loadedPeople && loadedFamilies) {
+    cameraPositioned = true;
+    renderTree();
+    camera.fit();
+  }
+}
+
+function acceptTreeCatalog(snapshot) {
+  const records = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+  treeMetadata = records.filter(item => item.id !== MAIN_TREE_ID
+    && isValidTreeId(item.id)
+    && typeof item.name === "string"
+    && item.name.trim().length > 0
+    && item.name.length <= 80)
+    .sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }) || a.id.localeCompare(b.id));
+  invalidTreeMetadataCount = records.length - treeMetadata.length;
+  treeCatalogState = "ready";
+  treeCatalogMessage = invalidTreeMetadataCount ? "Certaines métadonnées d’arbres invalides ont été ignorées." : "";
+  const activeTreeUnavailable = updateTreeSelectorOptions();
+  updateTreeBranchOptions();
+  if (loadedPeople && loadedFamilies) {
+    if (activeTreeUnavailable) cameraPositioned = true;
+    renderTree();
+    if (activeTreeUnavailable) camera.fit();
+  }
+}
+
+function rejectTreeCatalog(error) {
+  console.warn("Lecture du catalogue d’arbres impossible; arbre principal conservé.", error);
+  treeMetadata = [];
+  invalidTreeMetadataCount = 0;
+  treeCatalogState = "error";
+  treeCatalogMessage = "Les arbres secondaires ne peuvent pas être chargés. L’arbre familial principal reste affiché.";
+  const activeTreeUnavailable = updateTreeSelectorOptions();
+  updateTreeBranchOptions();
+  if (loadedPeople && loadedFamilies) {
+    if (activeTreeUnavailable) cameraPositioned = true;
+    renderTree();
+    if (activeTreeUnavailable) camera.fit();
+  }
+}
+
 function comparePeopleBySurname(a, b) {
   const surname = (a.lastName || "").localeCompare(b.lastName || "", "fr", { sensitivity: "base" });
   if (surname) return surname;
@@ -670,10 +787,14 @@ if (typeof window !== "undefined") {
 }
 
 function currentTreeScope() {
-  const basePeople = treePeople();
+  const activeTreePeople = getTreePeople(people, activeTreeId);
+  // Les personnes masquées de la scène restent membres de leur arbre : garder
+  // leurs foyers ici préserve le filtrage historique que le layout sanitise ensuite.
+  const basePeople = activeTreePeople.filter(item => item.inTree !== false);
+  const baseFamilies = getTreeFamilies(families, activeTreePeople);
   if (branchView && basePeople.some(item => item.id === branchView.personId)) {
     try {
-      return computeBranchView({ people: basePeople, families, rootId: branchView.personId, ancestorDepth: branchView.ancestorDepth });
+      return computeBranchView({ people: basePeople, families: baseFamilies, rootId: branchView.personId, ancestorDepth: branchView.ancestorDepth });
     } catch (error) {
       console.error(error);
       branchView = null;
@@ -682,10 +803,10 @@ function currentTreeScope() {
     branchView = null;
   }
   if (lineageSurname) {
-    const lineageScope = computeLineageScope({ people: basePeople, families, surname: lineageSurname });
+    const lineageScope = computeLineageScope({ people: basePeople, families: baseFamilies, surname: lineageSurname });
     if (lineageScope) return lineageScope;
   }
-  return { people: basePeople, families, hiddenAncestorCounts: new Map(), rootId: null };
+  return { people: basePeople, families: baseFamilies, hiddenAncestorCounts: new Map(), rootId: null };
 }
 
 /**
@@ -797,6 +918,8 @@ function frameInitialTreeView() {
 
 function renderTree() {
   if (!loadedPeople || !loadedFamilies) return;
+  updateTreeSelectorOptions();
+  updateTreeBranchOptions();
   const scope = currentTreeScope();
   currentScope = scope;
   currentLayout = applyManualPositions(computeTreeLayout(scope));
@@ -3122,6 +3245,14 @@ function stopPrivateData() {
   adminUsersUnsub = null;
   activeDataUid = "";
   people = []; families = []; documents = []; tasks = [];
+  treeMetadata = [];
+  activeTreeId = MAIN_TREE_ID;
+  treeCatalogState = "idle";
+  treeCatalogMessage = "";
+  invalidTreeMetadataCount = 0;
+  clearTreeScopedFilters();
+  updateTreeSelectorOptions();
+  updateTreeBranchOptions();
   $("topbar").hidden = true;
   $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("tasksView").hidden = true;
   if ($("adminDialog").open) $("adminDialog").close();
@@ -3346,6 +3477,14 @@ function startData() {
 
   unsubs.forEach(unsub => unsub());
   unsubs = [];
+  treeMetadata = [];
+  activeTreeId = MAIN_TREE_ID;
+  treeCatalogState = "loading";
+  treeCatalogMessage = "";
+  invalidTreeMetadataCount = 0;
+  clearTreeScopedFilters();
+  updateTreeSelectorOptions();
+  updateTreeBranchOptions();
   loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = false;
   loadedProcedures = false;
   ["treeViewport", "directoryList", "documentsList", "tasksList", "proceduresList"].forEach(id => setLoadingSurface(id, true));
@@ -3382,6 +3521,7 @@ function startData() {
     syncState();
     updateReadyViews();
   }, dataError));
+  unsubs.push(onSnapshot(refs.trees, acceptTreeCatalog, rejectTreeCatalog));
 }
 
 onAuthStateChanged(auth, async user => {
@@ -3863,6 +4003,7 @@ $("clearTreeSearchBtn").onclick = () => {
   $("search").dispatchEvent(new Event("input"));
   $("search").focus();
 };
+$("treeSelect").onchange = () => setActiveTree($("treeSelect").value);
 $("treeBranchFilter").onchange = () => {
   lineageSurname = $("treeBranchFilter").value;
   branchView = null;
