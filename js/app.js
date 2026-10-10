@@ -4113,6 +4113,16 @@ $("adminDialog").addEventListener("close", () => {
   adminUsersUnsub = null;
 });
 $("addBtn").onclick = () => openPerson();
+// La caméra capture le pointeur sur le viewport dès le pointerdown, ce qui
+// redirige le click du bouton central vers le viewport. On détecte le clic
+// sur le viewport en vérifiant les coordonnées du bouton.
+$("treeViewport").addEventListener("click", event => {
+  if (event.target.closest("[data-empty-add]")) return openPerson();
+  const btn = $("treeScene").querySelector("[data-empty-add]");
+  if (!btn) return;
+  const rect = btn.getBoundingClientRect();
+  if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) openPerson();
+});
 $("viewBranchBtn").onclick = () => {
   const id = $("personId").value;
   if (id) activateBranchView(id);
