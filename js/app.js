@@ -704,17 +704,29 @@ function isDuplicateTreeName(name, excludeId = null) {
 }
 
 function updateTreeActionButtons() {
-  const actions = $("treeToolbarActions");
-  const createBtn = $("treeCreateBtn");
-  const renameBtn = $("treeRenameBtn");
-  if (!actions) return;
+  const trigger = $("manageTreesBtn");
+  const createBtn = $("manageTreeCreateBtn");
+  const renameBtn = $("manageTreeRenameBtn");
+  const deleteBtn = $("manageTreeDeleteBtn");
+  const deleteNotice = $("manageTreeDeleteNotice");
+  const manager = $("treeManagement");
+  if (!trigger) return;
   const admin = isAdminUser();
-  actions.hidden = !admin;
+  manager.hidden = !admin;
+  trigger.hidden = !admin;
+  trigger.disabled = treeCatalogState !== "ready";
   createBtn.disabled = treeCatalogState !== "ready";
   createBtn.title = treeCatalogState === "ready" ? "Créer un arbre" : "Catalogue des arbres indisponible";
-  if (!admin) return;
   const isSecondary = activeTreeId !== MAIN_TREE_ID && treeMetadata.some(item => item.id === activeTreeId);
-  renameBtn.hidden = !isSecondary;
+  renameBtn.disabled = treeCatalogState !== "ready" || !isSecondary;
+  renameBtn.title = isSecondary ? "Renommer l’arbre actuel" : "L’arbre principal ne peut pas être renommé";
+  deleteBtn.disabled = true;
+  const deleteReason = activeTreeId === MAIN_TREE_ID
+    ? "L’arbre principal ne peut pas être supprimé."
+    : "Suppression indisponible : les règles Firestore l’interdisent et une simple vérification de vacuité ne protège pas contre les créations simultanées.";
+  deleteBtn.title = deleteReason;
+  deleteNotice.textContent = deleteReason;
+  if (!admin) setTreeManagementMenu(false);
 }
 
 function openTreeDialog(mode = "create", treeId = null) {
@@ -734,6 +746,82 @@ function openTreeDialog(mode = "create", treeId = null) {
   $("treeDialog").showModal();
   setTimeout(() => $("treeName").focus(), 30);
 }
+
+function setTreeManagementMenu(open, restoreFocus = false) {
+  const trigger = $("manageTreesBtn");
+  const popover = $("treeManagementPopover");
+  const items = [...popover.querySelectorAll("button:not([hidden]):not([disabled])")];
+  const nextOpen = Boolean(open && !trigger.hidden && !trigger.disabled);
+  popover.hidden = !nextOpen;
+  trigger.setAttribute("aria-expanded", String(nextOpen));
+  if (nextOpen) {
+    popover.style.left = "";
+    popover.style.right = "";
+    const bounds = popover.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth;
+    if (bounds.left < 8) {
+      popover.style.left = "0";
+      popover.style.right = "auto";
+    } else if (bounds.right > viewportWidth - 8) {
+      popover.style.left = "auto";
+      popover.style.right = "0";
+    }
+    items[0]?.focus({ preventScroll: true });
+  } else {
+    popover.style.left = "";
+    popover.style.right = "";
+    if (restoreFocus && !trigger.hidden) trigger.focus({ preventScroll: true });
+  }
+}
+
+function openTreeManagementAction(action) {
+  if (!isAdminUser()) return toast("Accès réservé aux administrateurs", "error");
+  if (treeCatalogState !== "ready") return toast("Le catalogue des arbres est indisponible", "error");
+  setTreeManagementMenu(false);
+  if (action === "create") return openTreeDialog("create");
+  if (action === "rename") {
+    if (activeTreeId === MAIN_TREE_ID) return toast("L’arbre familial principal ne peut pas être renommé", "error");
+    return openTreeDialog("rename", activeTreeId);
+  }
+}
+
+$("manageTreesBtn").addEventListener("click", event => {
+  event.stopPropagation();
+  setTreeManagementMenu($("treeManagementPopover").hidden);
+});
+$("manageTreesBtn").addEventListener("keydown", event => {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  setTreeManagementMenu(true);
+  if (event.key === "ArrowUp") {
+    const items = [...$("treeManagementPopover").querySelectorAll("button:not([hidden]):not([disabled])")];
+    items.at(-1)?.focus({ preventScroll: true });
+  }
+});
+$("treeManagementPopover").addEventListener("click", event => {
+  const button = event.target.closest("button");
+  if (button && !button.disabled) setTreeManagementMenu(false);
+});
+$("treeManagementPopover").addEventListener("keydown", event => {
+  const items = [...$("treeManagementPopover").querySelectorAll("button:not([hidden]):not([disabled])")];
+  const index = items.indexOf(document.activeElement);
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    setTreeManagementMenu(false, true);
+  } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && items.length) {
+    event.preventDefault();
+    if (event.key === "Home") items[0].focus({ preventScroll: true });
+    else if (event.key === "End") items.at(-1).focus({ preventScroll: true });
+    else items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length].focus({ preventScroll: true });
+  }
+});
+document.addEventListener("click", event => {
+  if ($("treeManagementPopover").hidden || event.target.closest("#treeManagement")) return;
+  setTreeManagementMenu(false);
+});
+$("manageTreeCreateBtn").addEventListener("click", () => openTreeManagementAction("create"));
+$("manageTreeRenameBtn").addEventListener("click", () => openTreeManagementAction("rename"));
 
 $("treeForm").addEventListener("submit", async event => {
   event.preventDefault();
@@ -781,6 +869,7 @@ function acceptTreeCatalog(snapshot) {
   treeCatalogState = "ready";
   treeCatalogMessage = invalidTreeMetadataCount ? "Certaines métadonnées d’arbres invalides ont été ignorées." : "";
   const activeTreeUnavailable = updateTreeSelectorOptions();
+  if (activeId && $("personDialog").open) updatePersonTreeMembershipLabel(person(activeId));
   updateTreeBranchOptions();
   if (loadedPeople && loadedFamilies) {
     if (activeTreeUnavailable) cameraPositioned = true;
@@ -1423,6 +1512,33 @@ function canChangePersonTree(item) {
   return !!treeId && (treeId === MAIN_TREE_ID || treeMetadata.some(tree => tree.id === treeId));
 }
 
+function updatePersonTreeMembershipLabel(item) {
+  const label = $("personTreeMembershipLabel");
+  const value = $("personTreeMembershipName");
+  if (!item) {
+    label.hidden = true;
+    value.textContent = "";
+    return;
+  }
+  const treeId = getPersonTreeId(item);
+  value.textContent = !treeId
+    ? "Arbre indisponible"
+    : treeId === MAIN_TREE_ID
+      ? "Arbre principal"
+      : treeMetadata.find(tree => tree.id === treeId)?.name || "Arbre indisponible";
+  label.hidden = false;
+}
+
+function updatePersonMenuActions(item) {
+  $("personMenuBtn").hidden = !item;
+  $("printPersonBtn").hidden = !item;
+  $("viewBranchBtn").hidden = !item;
+  $("changePersonTreeBtn").hidden = !canChangePersonTree(item);
+  $("removePersonFromTreeBtn").hidden = !item || item.inTree === false;
+  $("deleteBtn").hidden = !item;
+  updatePersonTreeMembershipLabel(item);
+}
+
 function openPerson(item = null, source = "tree") {
   personDialogSource = source;
   if (item) {
@@ -1434,8 +1550,7 @@ function openPerson(item = null, source = "tree") {
   activeId = item?.id || null;
   renderer.setActive(activeId);
   setPersonMenu(false);
-  $("personMenuBtn").hidden = !item;
-  $("changePersonTreeBtn").hidden = !canChangePersonTree(item);
+  updatePersonMenuActions(item);
   const titleName = item ? [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ") : "";
   $("dialogTitle").textContent = item ? (titleName || "Modifier la personne") : "Nouvelle personne";
   const modMeta = item ? personModMetaParts(item) : null;
@@ -1443,10 +1558,6 @@ function openPerson(item = null, source = "tree") {
     ? `<span class="meta-long">${esc(modMeta.long)}</span><span class="meta-short">${esc(modMeta.short)}</span>`
     : "Les champs marqués d’un astérisque sont obligatoires.";
   $("savePersonBtn").textContent = item ? "Enregistrer" : "Continuer";
-  $("deleteBtn").hidden = !item;
-  $("printPersonBtn").hidden = !item;
-  $("viewBranchBtn").hidden = !item;
-  setActionLabel($("deleteBtn"), source === "directory" ? "Supprimer" : "Retirer de l’arbre", source === "directory" ? "trash" : "unlink");
   $("restoreTreeBtn").hidden = !item || item.inTree !== false || source !== "directory";
   $("personId").value = item?.id || "";
   const isCreating = !item;
@@ -2243,6 +2354,7 @@ if (typeof window !== "undefined") {
        chemin utilisateur (openPerson puis clic réel du bouton) ; scope
        applicatif jamais fourni en production => zéro impact. */
     openForTest: (item, scope = null) => {
+      if (scope?.seedAppPeopleForTest && Array.isArray(scope.people)) people = scope.people;
       activeId = item?.id || null;
       personPrintScopeOverride = scope;
       openPerson(item, "tree");
@@ -2276,6 +2388,7 @@ $("personMenu").addEventListener("click", event => {
   if (!button) return;
   setPersonMenu(false);
   if (button.id === "changePersonTreeBtn") openPersonTreeTransfer($("personId").value);
+  if (button.id === "removePersonFromTreeBtn") runSafely(() => removePersonFromTree($("personId").value), "Retrait de l’arbre impossible");
 });
 $("personMenu").addEventListener("keydown", event => {
   const items = [...$("personMenu").querySelectorAll("button:not([hidden])")];
@@ -4393,18 +4506,17 @@ $("personForm").addEventListener("submit", async event => {
       if (!pendingPersonCreateId) pendingPersonCreateId = doc(refs.people).id;
       const createdId = pendingPersonCreateId;
       await setDoc(doc(db, "people", createdId), { ...createData, inTree: true, createdAt: serverTimestamp() });
-      people.push({ id: createdId, ...createData, inTree: true });
+      const createdPerson = { id: createdId, ...createData, inTree: true };
+      people.push(createdPerson);
       pendingPersonCreateId = "";
       activeId = createdId;
       focusAfterRender = createdId;
       $("personId").value = createdId;
-      $("personMenuBtn").hidden = false;
+      updatePersonMenuActions(createdPerson);
       $("dialogTitle").textContent = "Modifier la personne";
       $("savePersonBtn").textContent = "Enregistrer";
       $("savePersonBtn").dataset.idleLabel = "Enregistrer";
       $("savePersonBtn").dataset.idleContent = "Enregistrer";
-      $("deleteBtn").hidden = false;
-      setActionLabel($("deleteBtn"), personDialogSource === "directory" ? "Supprimer" : "Retirer de l’arbre", personDialogSource === "directory" ? "trash" : "unlink");
       $("personTreeAssignment").hidden = true;
       $("personTreeSelectWrap").hidden = true;
       setPersonSection("relations", true);
@@ -4452,21 +4564,30 @@ async function removeDirectoryPersonPermanently(id) {
   return true;
 }
 
+async function removePersonFromTree(id) {
+  const item = person(id);
+  if (!item) return toast("Cette personne est introuvable", "error");
+  if (item.inTree === false) return toast("Cette personne est déjà masquée de l’arbre", "error");
+  if (!confirm("Retirer cette personne de l’arbre ? Sa fiche et ses liens resteront disponibles dans l’annuaire.")) return false;
+  await updateDoc(doc(db, "people", id), {
+    inTree: false,
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.uid || "",
+    updatedByName: currentUserProfile?.displayName || ""
+  });
+  delete manualOffsets[id];
+  saveOffsets();
+  if ($("personDialog").open && $("personId").value === id) close("personDialog");
+  else if (activeId === id) { activeId = null; renderer.setActive(null); }
+  toast("Personne retirée de l’arbre, fiche conservée dans l’annuaire");
+  return true;
+}
+
 $("deleteBtn").onclick = async () => {
   const id = $("personId").value;
   if (!id) return;
-  if (personDialogSource === "tree") {
-    if (!confirm("Retirer cette personne de l’arbre ? Sa fiche et ses liens resteront disponibles dans l’annuaire.")) return;
-    await updateDoc(doc(db, "people", id), { inTree: false, updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.uid || "", updatedByName: currentUserProfile?.displayName || "" });
-    delete manualOffsets[id];
-    saveOffsets();
-    close("personDialog");
-    toast("Personne retirée de l’arbre, fiche conservée dans l’annuaire");
-    return;
-  }
-  await removeDirectoryPersonPermanently(id);
+  await runSafely(() => removeDirectoryPersonPermanently(id), "Suppression de la personne impossible");
 };
-
 $("restoreTreeBtn").onclick = async () => {
   const id = $("personId").value;
   if (!id) return;
@@ -4802,8 +4923,6 @@ $("clearTreeSearchBtn").onclick = () => {
   $("search").focus();
 };
 $("treeSelect").onchange = () => setActiveTree($("treeSelect").value);
-$("treeCreateBtn").onclick = () => openTreeDialog("create");
-$("treeRenameBtn").onclick = () => openTreeDialog("rename", activeTreeId);
 $("treeBranchFilter").onchange = () => {
   lineageSurname = $("treeBranchFilter").value;
   branchView = null;

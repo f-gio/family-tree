@@ -586,7 +586,7 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 /* Arbre : l'action principale reste dans l'introduction, les filtres forment
    une ligne distincte dont le groupe commence à gauche. */
 .tree-filter-toolbar {
-  grid-template-columns: minmax(190px, 1fr) auto auto auto;
+  grid-template-columns: minmax(190px, 1fr) auto auto;
   align-items: center;
   justify-content: start;
 }
@@ -599,20 +599,26 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   min-height: var(--control-touch);
   margin-top: 0;
 }
-.tree-filter-toolbar .toolbar-tree-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
+.tree-management { position: relative; }
+.tree-management > #manageTreesBtn { min-height: var(--control-touch); }
+.tree-management-popover {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 80;
+  width: min(19rem, calc(100vw - 1rem));
+  padding: var(--space-2);
+  border: var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
 }
-.tree-filter-toolbar .toolbar-tree-actions .btn {
-  min-height: var(--control-touch);
-}
-.tree-filter-toolbar .toolbar-tree-actions .icon-btn {
-  width: var(--control-touch);
-  min-width: var(--control-touch);
-  height: var(--control-touch);
-  min-height: var(--control-touch);
-}
+.tree-management-actions { display: grid; gap: var(--space-1); }
+.tree-management-actions .btn { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: var(--control-touch); text-align: left; }
+.tree-management-actions .btn:disabled { opacity: .58; cursor: not-allowed; }
+.tree-management-notice { margin: var(--space-2) 0 0; padding: var(--space-2); border-radius: var(--radius-sm); background: var(--color-surface-soft); color: var(--color-text-muted); font-size: var(--text-xs); }
+.person-tree-membership-label { display: flex; align-items: center; gap: var(--space-1); margin: var(--space-1) 0 0; color: var(--color-text-muted); font-size: var(--text-xs); line-height: var(--leading-tight); }
+.person-tree-membership-label .ui-icon { width: 1rem; height: 1rem; color: var(--color-brand); }
 .tree-catalog-status {
   margin: calc(-1 * var(--space-2)) 0 var(--space-3);
   color: var(--color-text-muted);
@@ -663,7 +669,6 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 
 .tree-filter-toolbar .search-bar { grid-column: 1 / -1; }
 .tree-filter-toolbar .toolbar-tree,
-.tree-filter-toolbar .toolbar-tree-actions,
 .tree-filter-toolbar .toolbar-branch { grid-column: 1; }
 .tree-filter-toolbar .toolbar-tree .field,
 .tree-filter-toolbar .toolbar-branch .field { width: 100%; }
@@ -4369,12 +4374,10 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
   }
   #appMain > .tree-filter-toolbar .search-bar,
   #appMain > .tree-filter-toolbar .toolbar-tree,
-  #appMain > .tree-filter-toolbar .toolbar-tree-actions,
   #appMain > .tree-filter-toolbar .toolbar-branch { grid-column: 1; }
   #appMain > .tree-filter-toolbar .search-bar { grid-row: 1; }
   #appMain > .tree-filter-toolbar .toolbar-tree { grid-row: 2; }
-  #appMain > .tree-filter-toolbar .toolbar-tree-actions { grid-row: 3; }
-  #appMain > .tree-filter-toolbar .toolbar-branch { grid-row: auto; }
+  #appMain > .tree-filter-toolbar .toolbar-branch { grid-row: 3; }
   #appMain > .tree-filter-toolbar .toolbar-tree .field,
   #appMain > .tree-filter-toolbar .toolbar-branch .field { width: 100%; }
 

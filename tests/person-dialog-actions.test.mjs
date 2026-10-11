@@ -30,13 +30,23 @@ test("B. métadonnée : source réelle updatedAt + auteur, aucun faux fallback, 
 
 test("C. colonne d'actions : croix + bouton ⋯ accessible, menu contextuel complet", () => {
   assert.match(html, /<button class="btn icon-btn" type="button" id="personMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="personMenu" aria-label="Plus d’actions sur la fiche" title="Plus d’actions" hidden>⋯<\/button>/);
-  assert.match(app, /\$\("personMenuBtn"\)\.hidden = !item;/);
-  assert.match(app, /\$\("personMenuBtn"\)\.hidden = false;/);
+  assert.match(app, /function updatePersonMenuActions\(item\)/);
   assert.match(html, /<div class="person-action-menu" id="personMenu" role="menu" aria-label="Actions de la fiche" hidden>/);
   assert.match(html, /id="viewBranchBtn" role="menuitem"/);
   assert.match(html, /id="printPersonBtn" role="menuitem"/);
   assert.match(html, /id="deleteBtn" role="menuitem" hidden/);
-  assert.match(html, /<hr class="person-menu-sep" aria-hidden="true">/);
+  assert.match(html, /id="removePersonFromTreeBtn" role="menuitem"/);
+  assert.match(html, /<span>Supprimer la personne<\/span>/);
+  const menu = html.match(/<div class="person-action-menu" id="personMenu"[\s\S]*?<\/div>/)?.[0] || "";
+  const orderedIds = ["printPersonBtn", "viewBranchBtn", "changePersonTreeBtn", "removePersonFromTreeBtn", "deleteBtn"];
+  const positions = orderedIds.map(id => menu.indexOf(`id="${id}"`));
+  assert.ok(positions.every(position => position >= 0));
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b), "ordre menu fiche validé");
+  assert.equal((menu.match(/class="person-menu-sep"/g) || []).length, 2, "deux séparateurs sémantiques");
+  assert.match(html, /id="personTreeMembershipLabel"/);
+  assert.match(app, /updatePersonTreeMembershipLabel\(item\)/);
+  assert.match(app, /async function removePersonFromTree\(id\)/);
+  assert.match(app, /await updateDoc\(doc\(db, "people", id\), \{[\s\S]*?inTree: false/);
   assert.match(css, /\.person-head-actions,\s*\.modal-head-actions \{[^}]*position: relative;/);
   assert.match(css, /\.person-action-menu,\s*\.modal-action-menu \{[^}]*position: absolute;[^}]*max-height: min\(60dvh, 18rem\);/);
 });
@@ -115,7 +125,7 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
         birthDateInfo: { type: "year", year: 1900 }, deathDateInfo: { type: "unknown" },
         updatedAt: { seconds: 1758458280, nanoseconds: 0, toDate: () => new Date(1758458280 * 1000) }, updatedByName: "François"
       };
-      window.__personPrint.openForTest(item, { people: [item], families: [], documents: [] });
+      window.__personPrint.openForTest(item, { people: [item], families: [], documents: [], seedAppPeopleForTest: true });
     });
     await page.waitForTimeout(150);
 
@@ -125,7 +135,9 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
       saveLabel: document.getElementById("savePersonBtn").textContent,
       dialogOpen: document.getElementById("personDialog").open,
       menuButtonHidden: document.getElementById("personMenuBtn").hidden,
-      menuHidden: document.getElementById("personMenu").hidden
+      menuHidden: document.getElementById("personMenu").hidden,
+      membershipLabel: document.getElementById("personTreeMembershipName").textContent,
+      membershipHidden: document.getElementById("personTreeMembershipLabel").hidden
     }));
     assert.equal(head.dialogOpen, true);
     assert.equal(head.title, "Andrea Giovannoni");
@@ -133,6 +145,8 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     assert.ok(head.meta.includes("Dernière modification :") && head.meta.includes("François"), head.meta);
     assert.ok(!head.meta.toLowerCase().includes("undefined") && !head.meta.toLowerCase().includes("null"));
     assert.equal(head.menuButtonHidden, false, "le menu reste disponible en modification");
+    assert.equal(head.membershipLabel, "Arbre principal", "treeId absent indique l'appartenance principale, pas aucun arbre");
+    assert.equal(head.membershipHidden, false);
     await page.setViewportSize({ width: 1024, height: 768 });
     assert.equal(await page.locator("#personMenuBtn").isVisible(), true, "le menu de modification reste visible sur desktop");
     await page.setViewportSize({ width: 390, height: 844 });
@@ -156,12 +170,12 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     const menuOpen = await page.evaluate(() => ({
       hidden: document.getElementById("personMenu").hidden,
       expanded: document.getElementById("personMenuBtn").getAttribute("aria-expanded"),
-      items: [...document.querySelectorAll("#personMenu button:not([hidden])")].map(b => b.textContent.trim())
+      items: [...document.querySelectorAll("#personMenu button:not([hidden])")].map(b => b.id)
     }));
     assert.equal(menuOpen.hidden, false);
     assert.equal(menuOpen.expanded, "true");
-    assert.deepEqual(menuOpen.items.map(t => t.startsWith("Voir") ? "voir" : t.includes("Imprimer") ? "print" : /\b(Retirer|Supprimer)\b/.test(t) ? "danger" : "autre"),
-      ["voir", "print", "danger"]);
+    assert.deepEqual(menuOpen.items, ["printPersonBtn", "viewBranchBtn", "removePersonFromTreeBtn", "deleteBtn"],
+      "ordre visible non-admin conforme, Changer d'arbre réservé à l'admin");
 
     // navigation clavier : flèche bas déplace le focus dans le menu
     await page.keyboard.press("ArrowDown");
@@ -176,14 +190,20 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     await page.click('[data-close="personPrintDialog"]');
     await page.waitForTimeout(80);
 
-    // Retirer de l'arbre depuis le menu : confirmation stub sans action destructive
+    // Retirer de l'arbre est distinct de la suppression permanente.
     await page.evaluate(() => { window.__confirmCalled = 0; window.confirm = () => { window.__confirmCalled++; return false; }; });
     await page.click("#personMenuBtn");
     await page.waitForTimeout(80);
+    await page.click("#removePersonFromTreeBtn");
+    await page.waitForTimeout(80);
+    assert.equal(await page.evaluate(() => window.__confirmCalled), 1, "confirmation explicite du retrait utilisée");
+    assert.ok(await page.evaluate(() => document.getElementById("personDialog").open), "modale non fermée par le retrait refusé");
+    await page.click("#personMenuBtn");
+    await page.waitForTimeout(60);
     await page.click("#deleteBtn");
     await page.waitForTimeout(80);
-    assert.equal(await page.evaluate(() => window.__confirmCalled), 1, "confirmation existante utilisée");
-    assert.ok(await page.evaluate(() => document.getElementById("personDialog").open), "modale non fermée par le retrait refusé");
+    assert.equal(await page.evaluate(() => window.__confirmCalled), 2, "suppression définitive garde sa confirmation existante");
+    assert.ok(await page.evaluate(() => document.getElementById("personDialog").open), "la suppression refusée ne ferme pas la fiche");
 
     // Échap ferme le menu et conserve la modale
     await page.click("#personMenuBtn");
@@ -207,12 +227,14 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     assert.ok(await page.evaluate(() => document.getElementById("personMenu").hidden));
 
     // fermeture X + réouverture : personne sans updatedAt → titre neutre + hint
+    await page.evaluate(() => window.__personPrint.openForTest({ id: "PX3", firstName: "Andrea", lastName: "Giovannoni" }, { people: [{ id: "PX3", firstName: "Andrea", lastName: "Giovannoni" }], families: [], documents: [], seedAppPeopleForTest: true }));
+    await page.waitForTimeout(80);
     await page.click('[data-close="personDialog"]');
     await page.waitForTimeout(80);
     assert.ok(!(await page.evaluate(() => document.getElementById("personDialog").open)));
     await page.evaluate(() => {
-      const item = { id: "PX2", firstName: "", lastName: "", birthDateInfo: { type: "unknown" }, deathDateInfo: { type: "unknown" } };
-      window.__personPrint.openForTest(item, { people: [item], families: [], documents: [] });
+      const item = { id: "PX2", firstName: "", lastName: "", inTree: false, birthDateInfo: { type: "unknown" }, deathDateInfo: { type: "unknown" } };
+      window.__personPrint.openForTest(item, { people: [item], families: [], documents: [], seedAppPeopleForTest: true });
     });
     await page.waitForTimeout(120);
     const legacyHead = await page.evaluate(() => ({
@@ -223,6 +245,8 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     assert.equal(legacyHead.title, "Modifier la personne");
     assert.equal(legacyHead.saveLabel, "Enregistrer");
     assert.ok(legacyHead.meta.includes("astérisque"), "libellé neutre sans updatedAt");
+    assert.equal(await page.locator("#personTreeMembershipName").textContent(), "Arbre principal", "inTree=false ne signifie pas aucun arbre");
+    assert.equal(await page.locator("#removePersonFromTreeBtn").isHidden(), true, "retrait masqué pour une fiche déjà masquée");
 
     // nouvelle personne : titre neutre
     await page.evaluate(() => window.__personPrint.openForTest(null, { people: [], families: [], documents: [] }));

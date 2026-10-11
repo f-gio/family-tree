@@ -67,12 +67,13 @@ window.__treeSelectorHarness = {
     updateTreeActionButtons();
   },
   emptyMessageVisible() { return !document.getElementById("treeEmptyMessage").hidden; },
-  renameBtnVisible() { return !document.getElementById("treeRenameBtn").hidden; },
-  createBtnVisible() {
-    const container = document.getElementById("treeToolbarActions");
-    const button = document.getElementById("treeCreateBtn");
-    return !container.hidden && !button.hidden && button.offsetParent !== null;
-  },
+  renameBtnVisible() { return !document.getElementById("manageTreeRenameBtn").disabled; },
+  createBtnVisible() { return !document.getElementById("manageTreesBtn").hidden && !document.getElementById("manageTreeCreateBtn").disabled; },
+  managerButtonVisible() { return !document.getElementById("manageTreesBtn").hidden && document.getElementById("manageTreesBtn").offsetParent !== null; },
+  managerContainerHidden() { return document.getElementById("treeManagement").hidden; },
+  managerMenuOpen() { return !document.getElementById("treeManagementPopover").hidden; },
+  deleteActionDisabled() { return document.getElementById("manageTreeDeleteBtn").disabled; },
+  deleteNotice() { return document.getElementById("manageTreeDeleteNotice").textContent; },
   openTreeDialog(mode, treeId) { openTreeDialog(mode, treeId); },
   submitTreeForm() {
     const form = document.getElementById("treeForm");
@@ -120,6 +121,19 @@ const fixture = {
     { id: "tree-empty", name: "Ramo isolato", description: "" }
   ]
 };
+
+test("le sélecteur d'arbres ne porte plus les actions créer/renommer; le menu Gérer les arbres les regroupe", async () => {
+  const html = await (await import("node:fs/promises")).readFile(new URL("../index.html", import.meta.url), "utf8");
+  const css = await (await import("node:fs/promises")).readFile(new URL("../css/design-system.css", import.meta.url), "utf8");
+  assert.ok(!html.includes("treeCreateBtn") && !html.includes("treeRenameBtn") && !html.includes("treeToolbarActions"));
+  assert.match(html, /id="manageTreesBtn"[^>]*>[^<]*<svg[\s\S]*?<span>Gérer les arbres<\/span>/);
+  assert.match(html, /id="treeManagement" hidden/);
+  assert.match(html, /id="manageTreeCreateBtn"[^>]*>[^<]*<svg[\s\S]*?<span>Créer un arbre<\/span>/);
+  assert.match(html, /id="manageTreeRenameBtn"/);
+  assert.match(html, /id="manageTreeDeleteBtn"[^>]*disabled/);
+  assert.match(html, /id="manageTreeDeleteNotice"/);
+  assert.match(css, /\.tree-management-popover/);
+});
 
 test("sélecteur d'arbre : options, scope indépendant, filtres réinitialisés et familles confinées", async t => {
   const server = await startStaticServer(ROOT);
@@ -308,10 +322,12 @@ test("création d'arbre : admin voit les boutons, validation, sélection après 
         const btnState = await page.evaluate(() => ({
           admin: window.__treeSelectorHarness.isAdminUser(),
           createVisible: window.__treeSelectorHarness.createBtnVisible(),
-          renameVisible: window.__treeSelectorHarness.renameBtnVisible()
+          renameVisible: window.__treeSelectorHarness.renameBtnVisible(),
+          managerHidden: window.__treeSelectorHarness.managerContainerHidden()
         }));
         assert.equal(btnState.admin, false, "par défaut non-admin dans le harness");
         assert.equal(btnState.createVisible, false, "bouton Créer masqué aux membres");
+        assert.equal(btnState.managerHidden, true, "conteneur masqué aux membres sans créer de ligne vide");
         await page.evaluate(() => window.__treeSelectorHarness.openTreeDialog("create"));
         assert.equal(await page.locator("#treeDialog").evaluate(dialog => dialog.open), false, "membre ne peut pas ouvrir le dialogue par appel direct");
         assert.match(await page.locator("#toastMessage").textContent(), /réservé aux administrateurs/);
@@ -320,10 +336,12 @@ test("création d'arbre : admin voit les boutons, validation, sélection après 
         await page.evaluate(() => window.__treeSelectorHarness.setAdminMode(true));
         const adminBtns = await page.evaluate(() => ({
           createVisible: window.__treeSelectorHarness.createBtnVisible(),
-          renameVisible: window.__treeSelectorHarness.renameBtnVisible()
+          renameVisible: window.__treeSelectorHarness.renameBtnVisible(),
+          managerHidden: window.__treeSelectorHarness.managerContainerHidden()
         }));
         assert.equal(adminBtns.createVisible, true, "admin voit le bouton Créer");
         assert.equal(adminBtns.renameVisible, false, "pas de bouton Renommer sur l'arbre principal");
+        assert.equal(adminBtns.managerHidden, false, "conteneur de gestion montré aux administrateurs");
 
         const submitForm = () => page.locator("#treeForm").evaluate(form => {
           const event = new Event("submit", { bubbles: true, cancelable: true });
@@ -334,7 +352,10 @@ test("création d'arbre : admin voit les boutons, validation, sélection après 
           document.getElementById("treeName").value = name;
           document.getElementById("treeDescription").value = description;
         }, { name, description });
-        const openCreate = async () => page.locator("#treeCreateBtn").click();
+        const openCreate = async () => {
+          await page.locator("#manageTreesBtn").click();
+          await page.locator("#manageTreeCreateBtn").click();
+        };
         const writeLog = () => page.evaluate(() => window.__treeWriteLog.map(write => ({ ...write })));
 
         /* nom vide et bornes sont validés par le handler réel */
@@ -391,8 +412,9 @@ test("création d'arbre : admin voit les boutons, validation, sélection après 
         /* renommage réel : même identifiant, pas de nouvel arbre */
         await page.evaluate(() => window.__treeSelectorHarness.chooseTree("tree-empty"));
         const renameVisible = await page.evaluate(() => window.__treeSelectorHarness.renameBtnVisible());
-        assert.equal(renameVisible, true, "bouton Renommer visible sur arbre secondaire");
-        await page.locator("#treeRenameBtn").click();
+        assert.equal(renameVisible, true, "action Renommer activée sur arbre secondaire dans Gérer les arbres");
+        await page.locator("#manageTreesBtn").click();
+        await page.locator("#manageTreeRenameBtn").click();
         assert.equal(await page.locator("#treeDialogTitle").textContent(), "Renommer l'arbre");
         assert.equal(await page.locator("#treeId").inputValue(), "tree-empty");
         await setFormValues("Ramo isolé Renommé", "Nouvelle desc");
@@ -409,7 +431,7 @@ test("création d'arbre : admin voit les boutons, validation, sélection après 
   } finally { await server.close(); }
 });
 
-test("mobile 390px : boutons créer/renommer tactiles, dialogue accessible", async t => {
+test("mobile 390px : menu Gérer les arbres accessible et actions tactiles", async t => {
   const server = await startStaticServer(ROOT);
   try {
     let browser;
@@ -421,37 +443,52 @@ test("mobile 390px : boutons créer/renommer tactiles, dialogue accessible", asy
         await page.evaluate(data => window.__treeSelectorHarness.setData(data), fixture);
         await page.evaluate(() => window.__treeSelectorHarness.setAdminMode(true));
         const boxes = await page.evaluate(() => {
-          const create = document.getElementById("treeCreateBtn");
-          const rename = document.getElementById("treeRenameBtn");
-          const cBox = create.getBoundingClientRect();
-          const rBox = rename.getBoundingClientRect();
+          const trigger = document.getElementById("manageTreesBtn");
+          const tBox = trigger.getBoundingClientRect();
           return {
-            create: { w: cBox.width, h: cBox.height, visible: create.offsetParent !== null },
-            rename: { w: rBox.width, h: rBox.height, visible: rename.offsetParent !== null },
-            ariaCreate: create.getAttribute("aria-label"),
-            ariaRename: rename.getAttribute("aria-label")
+            trigger: { w: tBox.width, h: tBox.height, visible: trigger.offsetParent !== null },
+            oldButtonsAbsent: !document.getElementById("treeCreateBtn") && !document.getElementById("treeRenameBtn")
           };
         });
-        assert.ok(boxes.create.visible, "bouton Créer visible");
-        assert.ok(boxes.create.w >= 43 && boxes.create.h >= 43, `bouton Créer ≥44×44px (${boxes.create.w}×${boxes.create.h})`);
-        assert.equal(boxes.ariaCreate, "Créer un arbre");
-        await page.locator("#treeCreateBtn").click();
+        assert.ok(boxes.trigger.visible, "bouton Gérer les arbres visible");
+        assert.ok(boxes.trigger.w >= 43 && boxes.trigger.h >= 43, `déclencheur ≥44×44px (${boxes.trigger.w}×${boxes.trigger.h})`);
+        assert.ok(boxes.oldButtonsAbsent, "plus/crayon absents du sélecteur d'arbres");
+        await page.setViewportSize({ width: 1024, height: 768 });
+        const desktopTrigger = await page.locator("#manageTreesBtn").boundingBox();
+        assert.ok(desktopTrigger && desktopTrigger.width >= 44 && desktopTrigger.x >= 0 && desktopTrigger.x + desktopTrigger.width <= 1024, "déclencheur visible et dans l’en-tête desktop");
+        await page.locator("#manageTreesBtn").click();
+        const desktopMenu = await page.locator("#treeManagementPopover").boundingBox();
+        assert.ok(desktopMenu && desktopMenu.x >= 0 && desktopMenu.y >= 0 && desktopMenu.x + desktopMenu.width <= 1024 && desktopMenu.y + desktopMenu.height <= 768, "menu ancré dans le viewport desktop");
+        await page.keyboard.press("Escape");
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.locator("#manageTreesBtn").click();
+        assert.equal(await page.evaluate(() => window.__treeSelectorHarness.managerMenuOpen()), true, "menu de gestion ouvert");
+        const mobileMenu = await page.locator("#treeManagementPopover").boundingBox();
+        assert.ok(mobileMenu && mobileMenu.x >= 0 && mobileMenu.y >= 0 && mobileMenu.x + mobileMenu.width <= 390 && mobileMenu.y + mobileMenu.height <= 844, `menu ancré dans le viewport mobile : ${JSON.stringify(mobileMenu)}`);
+        await page.keyboard.press("Escape");
+        assert.equal(await page.evaluate(() => window.__treeSelectorHarness.managerMenuOpen()), false, "Échap ferme le menu");
+        assert.equal(await page.evaluate(() => document.activeElement.id), "manageTreesBtn", "le focus revient au déclencheur");
+        await page.locator("#manageTreesBtn").press("ArrowDown");
+        assert.equal(await page.evaluate(() => document.activeElement.id), "manageTreeCreateBtn", "flèche bas ouvre et focalise la première action");
+        const createBox = await page.locator("#manageTreeCreateBtn").evaluate(button => button.getBoundingClientRect());
+        assert.ok(createBox.width >= 43 && createBox.height >= 43, `action Créer ≥44×44px (${createBox.width}×${createBox.height})`);
+        await page.locator("#manageTreeCreateBtn").click();
         assert.equal(await page.locator("#treeDialog").evaluate(dialog => dialog.open), true, "clic Créer ouvre le dialogue réel");
         assert.equal(await page.locator("#treeDialogTitle").textContent(), "Créer un arbre");
         await page.locator("#treeDialog .modal-actions [data-close=treeDialog]").click();
-        /* renommer masqué sur main */
+        /* renommage principal indisponible et suppression bloquée par sécurité */
+        assert.equal(await page.evaluate(() => window.__treeSelectorHarness.renameBtnVisible()), false);
+        assert.equal(await page.evaluate(() => window.__treeSelectorHarness.deleteActionDisabled()), true);
+        assert.match(await page.evaluate(() => window.__treeSelectorHarness.deleteNotice()), /arbre principal ne peut pas être supprimé/i);
         await page.evaluate(() => window.__treeSelectorHarness.chooseTree("tree-conti"));
-        const renameOnConti = await page.evaluate(() => {
-          const r = document.getElementById("treeRenameBtn");
-          const box = r.getBoundingClientRect();
-          return { visible: r.offsetParent !== null, h: box.height };
-        });
-        assert.ok(renameOnConti.visible, "Renommer visible sur arbre secondaire");
-        assert.ok(renameOnConti.h >= 43, `Renommer hauteur ≥44px (${renameOnConti.h})`);
-        const renameWidth = await page.locator("#treeRenameBtn").evaluate(button => button.getBoundingClientRect().width);
-        assert.ok(renameWidth >= 43, `Renommer largeur ≥44px (${renameWidth})`);
-        /* bouton Renommer ouvre le dialogue pré-rempli */
-        await page.locator("#treeRenameBtn").click();
+        await page.locator("#manageTreesBtn").click();
+        const rename = page.locator("#manageTreeRenameBtn");
+        const renameBox = await rename.evaluate(button => button.getBoundingClientRect());
+        assert.equal(await rename.isEnabled(), true, "Renommer activé sur arbre secondaire");
+        assert.ok(renameBox.height >= 43 && renameBox.width >= 43, "action Renommer tactile");
+        assert.equal(await page.evaluate(() => window.__treeSelectorHarness.deleteActionDisabled()), true, "suppression bloquée sans protocole Firestore sûr");
+        assert.match(await page.evaluate(() => window.__treeSelectorHarness.deleteNotice()), /règles Firestore l’interdisent/i);
+        await rename.click();
         const dialogOpen = await page.evaluate(() => document.getElementById("treeDialog").open);
         assert.ok(dialogOpen, "dialogue de renommage ouvert");
         const title = await page.evaluate(() => document.getElementById("treeDialogTitle").textContent);

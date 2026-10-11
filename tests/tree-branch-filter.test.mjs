@@ -70,7 +70,7 @@ test("H. aucune écriture Firestore et module sans accès DOM", () => {
   assert.doesNotMatch(lineage, /\bfirebase\b/i);
   assert.doesNotMatch(lineage, /\b(document|window)\b/);
   assert.match(app, /import \{ computeLineageScope, normalizeLineageName \} from "\.\/family-lineage\.js"/);
-  assert.match(app, /import \{ MAIN_TREE_ID, getPersonTreeId, getTreePeople, getTreeFamilies, isValidTreeId \} from "\.\/tree-model\.js"/);
+  assert.match(app, /import \{[^}]*\bMAIN_TREE_ID\b[^}]*\bgetPersonTreeId\b[^}]*\bgetTreePeople\b[^}]*\bgetTreeFamilies\b[^}]*\bisValidTreeId\b[^}]*\} from "\.\/tree-model\.js"/);
 });
 
 console.log("Filtre de branche (interface et intégration) : OK");

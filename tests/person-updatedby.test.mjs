@@ -50,10 +50,12 @@ test("la création de personne inclut updatedBy et updatedByName", () => {
 });
 
 test("le retrait de l'arbre inclut updatedBy et updatedByName", () => {
-  const match = app.match(/updateDoc\(doc\(db, "people", id\), \{ inTree: false[\s\S]*?\}\)/);
-  assert.ok(match, "updateDoc inTree:false introuvable");
-  assert.ok(match[0].includes("updatedBy:"), "updatedBy absent du retrait de l'arbre");
-  assert.ok(match[0].includes("updatedByName:"), "updatedByName absent du retrait de l'arbre");
+  const handler = app.match(/async function removePersonFromTree\(id\) \{([\s\S]*?)\n\}/)?.[1] || "";
+  const update = handler.match(/updateDoc\(doc\(db, "people", id\), \{[\s\S]*?\}\)/);
+  assert.ok(update, "updateDoc de retrait de l'arbre introuvable");
+  assert.match(update[0], /inTree: false/);
+  assert.ok(update[0].includes("updatedBy:"), "updatedBy absent du retrait de l'arbre");
+  assert.ok(update[0].includes("updatedByName:"), "updatedByName absent du retrait de l'arbre");
 });
 
 // --- Sécurité Firestore ---
