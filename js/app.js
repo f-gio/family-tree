@@ -24,6 +24,7 @@ import { createPersonMultiSelect } from "./person-multiselect.js";
 import { analyzeTreeQuality } from "./tree-quality.js";
 import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, validateFamilyDataset, validateTreeDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, buildBackupManifest, parseBackupManifestText } from "./backup-utils.js";
 import { firebaseConfigurationMatchesEnvironment, resolveFirebaseEnvironment, environmentFeatureFlags } from "./firebase-environment.js";
+import { TRANSFER_DIAGNOSTIC_STAGES, resolveTransferDiagnosticEnabled, buildTransferDiagnosticReport } from "./transfer-diagnostic.js";
 
 const firebaseEnvironment = resolveFirebaseEnvironment(window.location);
 if (!firebaseEnvironment.allowed || !firebaseConfigurationMatchesEnvironment(firebaseEnvironment.environment, firebaseEnvironment.firebaseConfig)) {
@@ -2419,6 +2420,27 @@ async function readFreshPersonTreeTransferData(personId) {
   return { people: [...freshById.values()], families: freshFamilies };
 }
 
+/* Instrumentation de diagnostic du transfert (Lot 4C).
+   Désactivée par défaut. Activable uniquement sur Recette via :
+   sessionStorage.setItem("transferDiagnostic", "1") puis recharger la page.
+   Désactivation : sessionStorage.removeItem("transferDiagnostic") puis recharger.
+   Les rapports sont locaux (console + window.__transferDiagnostics) ; aucune
+   écriture Firestore ni envoi réseau. */
+const transferDiagnosticsEnabled = resolveTransferDiagnosticEnabled({
+  environment: firebaseEnvironment.environment,
+  storage: typeof window !== "undefined" ? window.sessionStorage : null
+});
+const transferDiagnosticReports = [];
+if (transferDiagnosticsEnabled && typeof window !== "undefined") {
+  window.__transferDiagnostics = transferDiagnosticReports;
+  console.info("[Transfert] Diagnostic activé. Rapports : window.__transferDiagnostics");
+}
+function recordTransferDiagnostic(report) {
+  if (!transferDiagnosticsEnabled) return;
+  transferDiagnosticReports.push(report);
+  console.warn("[Transfert] Diagnostic", report);
+}
+
 async function confirmPersonTreeTransfer() {
   if (personTreeTransferSaving) return;
   if (!isAdminUser()) return showPersonTreeTransferError("Seuls les administrateurs peuvent changer l'arbre d'une personne.");
@@ -2431,6 +2453,7 @@ async function confirmPersonTreeTransfer() {
   $("personTreeTransferDestination").disabled = true;
   $("personTreeTransferDialog").querySelectorAll('[data-close="personTreeTransferDialog"]').forEach(closeButton => { closeButton.disabled = true; });
   showPersonTreeTransferError("");
+  let transferDiagnosticRecorded = false;
   try {
     if (treeCatalogState !== "ready" || !treeMetadata.some(tree => tree.id === expectedPlan.destinationTreeId) && expectedPlan.destinationTreeId !== MAIN_TREE_ID) {
       throw new Error("Le catalogue ou l'arbre de destination n'est plus disponible. Fermez l'aperçu et réessayez.");
@@ -2441,6 +2464,9 @@ async function confirmPersonTreeTransfer() {
       trees: treeMetadata, destinationTreeId: expectedPlan.destinationTreeId
     });
     if (refreshedPlan.fingerprint !== expectedPlan.fingerprint) {
+      recordTransferDiagnostic(buildTransferDiagnosticReport({
+        stage: TRANSFER_DIAGNOSTIC_STAGES.PREVIEW_VS_FRESH, expectedPlan, actualPlan: refreshedPlan
+      }));
       state.plan = refreshedPlan;
       renderPersonTreeTransferPreview(refreshedPlan);
       showPersonTreeTransferError("Les relations ou l'appartenance ont changé depuis l'aperçu. Vérifiez le nouvel aperçu puis confirmez à nouveau.");
@@ -2489,6 +2515,10 @@ async function confirmPersonTreeTransfer() {
         trees: treeMetadata, destinationTreeId: expectedPlan.destinationTreeId
       });
       if (txPlan.fingerprint !== expectedPlan.fingerprint) {
+        recordTransferDiagnostic(buildTransferDiagnosticReport({
+          stage: TRANSFER_DIAGNOSTIC_STAGES.FRESH_VS_TRANSACTION, expectedPlan, actualPlan: txPlan
+        }));
+        transferDiagnosticRecorded = true;
         const error = new Error("Les relations ou l'appartenance ont changé pendant la confirmation. Fermez l'aperçu et recommencez.");
         error.code = "tree-transfer-stale";
         throw error;
@@ -2513,6 +2543,9 @@ async function confirmPersonTreeTransfer() {
     toast(`${expectedPlan.personName} a été déplacé vers ${expectedPlan.destinationTreeName}.`);
   } catch (error) {
     console.error("Transfert individuel impossible", error);
+    if (!transferDiagnosticRecorded) {
+      recordTransferDiagnostic(buildTransferDiagnosticReport({ stage: TRANSFER_DIAGNOSTIC_STAGES.ERROR, expectedPlan, error }));
+    }
     if (error.code === "tree-transfer-stale" && personTreeTransferState) personTreeTransferState.plan = null;
     const text = `${error.code || ""} ${error.message || ""}`;
     const message = /permission-denied|insufficient permissions/i.test(text)
