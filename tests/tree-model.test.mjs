@@ -6,7 +6,8 @@ import {
   getTreePeople,
   getTreeMemberIds,
   getTreeFamilies,
-  prepareTreeTransferPlan
+  prepareTreeTransferPlan,
+  prepareIndividualTreeTransferPlan
 } from "../js/tree-model.js";
 
 const people = Object.freeze([
@@ -107,4 +108,95 @@ test("le transfert ou la suppression de main est refusé; source et destination 
   assert.throws(() => prepareTreeTransferPlan({ people, families, sourceTreeId: "tree-a", destinationTreeId: "tree-a" }), /différents/);
   assert.throws(() => prepareTreeTransferPlan({ people, families, sourceTreeId: "" }), /source/);
   assert.throws(() => prepareTreeTransferPlan({ people, families, sourceTreeId: "tree-a", destinationTreeId: "tree/a" }), /destination/);
+});
+
+test("transfert individuel main → secondaire prévisualise les foyers conservés et invisibles sans mutation", () => {
+  const transferPeople = [
+    { id: "jean", firstName: "Jean", lastName: "Rossi" },
+    { id: "marie", firstName: "Marie", lastName: "Rossi", treeId: null },
+    { id: "paul", firstName: "Paul", lastName: "Rossi" },
+    { id: "sophie", firstName: "Sophie", lastName: "Conti", treeId: "tree-a" },
+    { id: "child-a", firstName: "Enfant", lastName: "Conti", treeId: "tree-a" }
+  ];
+  const transferFamilies = [
+    { id: "parents-paul", partnerIds: ["jean", "marie"], childIds: ["paul"], parentChildLinks: [{ parentId: "jean", childId: "paul", type: "biological" }] },
+    { id: "paul-sophie", partnerIds: ["paul", "sophie"], childIds: ["child-a"], parentChildLinks: [{ parentId: "sophie", childId: "child-a", type: "biological" }] },
+    { id: "unknown-link", partnerIds: ["paul", "missing"], childIds: [] }
+  ];
+  const beforePeople = JSON.stringify(transferPeople);
+  const beforeFamilies = JSON.stringify(transferFamilies);
+  const plan = prepareIndividualTreeTransferPlan({
+    personId: "paul", people: transferPeople, families: transferFamilies,
+    trees: [{ id: "tree-a", name: "Branche A" }], destinationTreeId: "tree-a"
+  });
+  assert.equal(plan.personName, "Paul Rossi");
+  assert.equal(plan.sourceTreeId, MAIN_TREE_ID);
+  assert.equal(plan.destinationTreeName, "Branche A");
+  assert.equal(plan.personInTree, true);
+  assert.deepEqual(plan.affectedFamilies.map(family => family.familyId), ["parents-paul", "paul-sophie", "unknown-link"]);
+  assert.deepEqual(plan.affectedFamilies.map(family => family.visibilityChange), ["becomes-hidden", "becomes-visible", "remains-hidden"]);
+  assert.deepEqual(plan.affectedFamilies[0].beforeVisibleTreeIds, ["main"]);
+  assert.deepEqual(plan.affectedFamilies[0].afterVisibleTreeIds, []);
+  assert.deepEqual(plan.affectedFamilies[1].beforeVisibleTreeIds, []);
+  assert.deepEqual(plan.affectedFamilies[1].afterVisibleTreeIds, ["tree-a"]);
+  assert.deepEqual(plan.affectedFamilies[2].unresolvedPersonIds, ["missing"]);
+  assert.deepEqual(plan.summary, {
+    affectedFamilyCount: 3, remainsVisibleCount: 0, becomesHiddenCount: 1,
+    becomesVisibleCount: 1, unresolvedReferenceCount: 1, invalidMembershipCount: 0
+  });
+  assert.equal(JSON.stringify(transferPeople), beforePeople);
+  assert.equal(JSON.stringify(transferFamilies), beforeFamilies);
+});
+
+test("transfert individuel secondary → main et secondary → autre secondaire", () => {
+  const transferPeople = [
+    { id: "parent-a", firstName: "Parent", lastName: "A", treeId: "tree-a" },
+    { id: "child-a", firstName: "Enfant", lastName: "A", treeId: "tree-a", inTree: false },
+    { id: "other", firstName: "Autre", lastName: "B", treeId: "tree-b" }
+  ];
+  const transferFamilies = [{ id: "family-a", partnerIds: ["parent-a"], childIds: ["child-a"] }];
+  const trees = [{ id: "tree-a", name: "Branche A" }, { id: "tree-b", name: "Branche B" }];
+  const toMain = prepareIndividualTreeTransferPlan({ personId: "child-a", people: transferPeople, families: transferFamilies, trees, destinationTreeId: "main" });
+  assert.equal(toMain.sourceTreeId, "tree-a");
+  assert.equal(toMain.destinationTreeId, "main");
+  assert.equal(toMain.personInTree, false, "inTree false est préservé et signalé");
+  assert.equal(toMain.affectedFamilies[0].visibilityChange, "remains-hidden", "inTree false n'est pas rendu visible par le transfert");
+  const toOtherSecondary = prepareIndividualTreeTransferPlan({ personId: "child-a", people: transferPeople, families: transferFamilies, trees, destinationTreeId: "tree-b" });
+  assert.equal(toOtherSecondary.destinationTreeId, "tree-b");
+  assert.equal(toOtherSecondary.affectedFamilies[0].visibilityChange, "remains-hidden");
+
+  const visibleParents = [
+    { id: "parent-1", firstName: "Jean", lastName: "Test" },
+    { id: "parent-2", firstName: "Marie", lastName: "Test" },
+    { id: "hidden-child", firstName: "Enfant", lastName: "Test", inTree: false }
+  ];
+  const recomposedFamily = { id: "parents-with-hidden-child", partnerIds: ["parent-1", "parent-2"], childIds: ["hidden-child"] };
+  const hiddenPlan = prepareIndividualTreeTransferPlan({
+    personId: "hidden-child", people: visibleParents, families: [recomposedFamily],
+    trees: [{ id: "tree-a", name: "Branche A" }], destinationTreeId: "tree-a"
+  });
+  assert.equal(hiddenPlan.personInTree, false);
+  assert.deepEqual(hiddenPlan.affectedFamilies[0].beforeVisibleTreeIds, ["main"], "l'union des parents reste dessinable malgré l'enfant masqué");
+  assert.deepEqual(hiddenPlan.affectedFamilies[0].afterVisibleTreeIds, [], "le foyer mixte devient absent du dessin");
+  assert.equal(visibleParents[2].treeId, undefined, "le plan ne mute pas l'appartenance source");
+});
+
+test("transfert individuel refuse source incohérente, destination identique ou inconnue", () => {
+  const transferPeople = [{ id: "person", firstName: "Test", lastName: "A", treeId: "tree-a" }];
+  const trees = [{ id: "tree-a", name: "Branche A" }];
+  assert.throws(() => prepareIndividualTreeTransferPlan({ personId: "missing", people: transferPeople, trees, destinationTreeId: "main" }), /introuvable/);
+  assert.throws(() => prepareIndividualTreeTransferPlan({ personId: "person", people: transferPeople, trees: [], destinationTreeId: "main" }), /arbre actuel.*indisponible/);
+  assert.throws(() => prepareIndividualTreeTransferPlan({ personId: "person", people: transferPeople, trees, destinationTreeId: "tree-a" }), /différent/);
+  assert.throws(() => prepareIndividualTreeTransferPlan({ personId: "person", people: transferPeople, trees, destinationTreeId: "tree-gone" }), /destination.*indisponible/);
+});
+
+test("fingerprint individuel change si l'appartenance ou les références d'un foyer changent", () => {
+  const transferPeople = [{ id: "person", firstName: "Test", lastName: "A" }, { id: "relative", firstName: "Autre", lastName: "A" }];
+  const family = { id: "family", partnerIds: ["person", "relative"], childIds: [] };
+  const args = { personId: "person", trees: [{ id: "tree-a", name: "Branche A" }], destinationTreeId: "tree-a" };
+  const first = prepareIndividualTreeTransferPlan({ ...args, people: transferPeople, families: [family] });
+  const changedMembership = prepareIndividualTreeTransferPlan({ ...args, people: [transferPeople[0], { ...transferPeople[1], treeId: "tree-a" }], families: [family] });
+  const changedFamily = prepareIndividualTreeTransferPlan({ ...args, people: transferPeople, families: [{ ...family, partnerIds: ["person"] }] });
+  assert.notEqual(first.fingerprint, changedMembership.fingerprint);
+  assert.notEqual(first.fingerprint, changedFamily.fingerprint);
 });

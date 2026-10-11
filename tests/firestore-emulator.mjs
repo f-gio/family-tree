@@ -7,7 +7,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { initializeApp } from "firebase/app";
 import { getAuth, connectAuthEmulator, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { initializeFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, query, where, Bytes } from "firebase/firestore";
+import { initializeFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, runTransaction, query, where, Bytes } from "firebase/firestore";
 import { FILE_CHUNK_BYTES, splitBytesIntoChunks, concatByteArrays, documentChunkId, sliceIntoBatches, importedDataFields } from "../js/backup-utils.js";
 import { assertLocalEmulator, assertFictiveProject, EMULATOR_PROJECT_ID } from "./emulator-guard.mjs";
 
@@ -752,7 +752,7 @@ test("people.treeId : membre approuvé crée dans un arbre existant; seul admin 
   const memberNullMain = doc(db, "people", "tree-person-null-main-member");
   const memberSecondary = doc(db, "people", "tree-person-secondary-member");
   await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
-  await setDoc(memberMain, { firstName: "Main", lastName: "Fictif" });
+  await setDoc(memberMain, { firstName: "Main", lastName: "Fictif", updatedBy: memberUid, updatedByName: "Membre Émulateur" });
   await setDoc(memberNullMain, { firstName: "Main nul", lastName: "Fictif", treeId: null });
   await updateDoc(memberNullMain, { firstName: "Main nul modifié" });
   assert.equal((await getDoc(memberNullMain)).data().treeId, null, "treeId null reste compatible lors d’une édition sans déplacement");
@@ -773,11 +773,49 @@ test("people.treeId : membre approuvé crée dans un arbre existant; seul admin 
   await expectDenied(deleteDoc(doc(db, "trees", TREE_FIXTURE_ID)));
   await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
   await expectDenied(updateDoc(memberMain, { treeId: TREE_FIXTURE_ID }));
+  await expectDenied(runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(memberMain);
+    transaction.update(memberMain, { treeId: TREE_FIXTURE_ID });
+    return snapshot.exists();
+  }));
   await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
-  await updateDoc(memberMain, { treeId: TREE_FIXTURE_ID });
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(memberMain);
+    assert.equal(snapshot.exists(), true);
+    transaction.update(memberMain, { treeId: TREE_FIXTURE_ID, updatedBy: adminUid, updatedByName: "Administrateur Émulateur" });
+  });
   assert.equal((await getDoc(memberMain)).data().treeId, TREE_FIXTURE_ID);
   await updateDoc(memberMain, { treeId: "main" });
   assert.equal((await getDoc(memberMain)).data().treeId, "main");
+});
+
+test("transaction de transfert refuse une source changée concurremment", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const ref = doc(db, "people", "tree-person-transfer-concurrent");
+  await setDoc(ref, { firstName: "Concurrence", lastName: "Fictive" });
+  let attempts = 0;
+  let signalRead;
+  let releaseTransaction;
+  const readFinished = new Promise(resolve => { signalRead = resolve; });
+  const continueTransaction = new Promise(resolve => { releaseTransaction = resolve; });
+  const transfer = runTransaction(db, async transaction => {
+    attempts++;
+    const snapshot = await transaction.get(ref);
+    const currentTreeId = snapshot.data().treeId == null ? "main" : snapshot.data().treeId;
+    if (attempts === 1) {
+      signalRead();
+      await continueTransaction;
+    }
+    if (currentTreeId !== "main") throw new Error("L'appartenance a changé depuis l'aperçu");
+    transaction.update(ref, { treeId: TREE_FIXTURE_ID, updatedBy: adminUid });
+  });
+
+  await readFinished;
+  await updateDoc(ref, { treeId: TREE_FIXTURE_ID, updatedBy: adminUid });
+  releaseTransaction();
+  await assert.rejects(transfer, /appartenance a changé/);
+  assert.ok(attempts >= 2, "la transaction a relu la personne après conflit");
+  assert.equal((await getDoc(ref)).data().treeId, TREE_FIXTURE_ID, "le transfert concurrent n'est pas écrasé");
 });
 
 test("trees + people : arbre et première personne peuvent être créés atomiquement", async () => {

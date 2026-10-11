@@ -18,6 +18,8 @@ window.__btnHarness = {
     setView("tree"); renderTree();
   },
   chooseTree(id) { setActiveTree(id); },
+  resetOpenCalls() { window.__openPersonCalls = 0; },
+  openCalls() { return window.__openPersonCalls; },
   openPersonFor(id) {
     const item = people.find(p => p.id === id);
     openPerson(item || null, "tree");
@@ -28,6 +30,7 @@ window.__btnHarness = {
       creationTreeId: personCreationTreeId,
       dialogSource: personDialogSource,
       dialogOpen: document.getElementById("personDialog").open,
+      personFormSaving,
       treeCatalogState,
       personCount: people.length,
       emptyBtnVisible: !!document.querySelector("#treeScene [data-empty-add]"),
@@ -40,6 +43,9 @@ window.__btnHarness = {
     };
   }
 };
+window.__openPersonCalls = 0;
+const originalOpenPerson = openPerson;
+openPerson = (...args) => { window.__openPersonCalls++; return originalOpenPerson(...args); };
 window.__personWrites = [];
 window.__personUpdates = [];
 window.__personTargetMock = async id => ({ exists: () => true });
@@ -106,15 +112,48 @@ test("Bug A : le bouton central d'un arbre secondaire vide ouvre le formulaire",
     assert.ok(state.emptyBtnBox && state.emptyBtnBox.visible, "le bouton a une taille non nulle");
 
     // Clic réel sur le bouton central
+    await page.evaluate(() => window.__btnHarness.resetOpenCalls());
     await page.locator("#treeScene [data-empty-add]").click();
     state = await page.evaluate(() => window.__btnHarness.state());
     assert.equal(state.dialogOpen, true, "le formulaire s'ouvre après clic sur le bouton central");
+    assert.equal(await page.evaluate(() => window.__btnHarness.openCalls()), 1, "le clic souris ne déclenche qu'une ouverture");
     assert.equal(state.creationTreeId, "tree-giovannoni", "la destination est l'arbre secondaire actif");
     assert.equal(state.dialogSource, "tree");
 
     // Le formulaire affiche le bon arbre
     const assignment = await page.locator("#personTreeAssignment").textContent();
     assert.match(assignment, /Giovannoni Orino/, "le formulaire indique le bon arbre");
+  } finally { await context.close(); await browser.close(); await server.close(); }
+});
+
+test("bouton central : Entrée, Espace et tactile ouvrent une seule fois; clic voisin ne l'ouvre pas", async t => {
+  const h = await openHarness(t, 390);
+  if (!h) return;
+  const { page, context, browser, server } = h;
+  try {
+    await page.evaluate(data => window.__btnHarness.setData(data), { people: emptyPeople, trees: secondaryTrees });
+    await page.evaluate(() => window.__btnHarness.chooseTree("tree-giovannoni"));
+    const button = page.locator("#treeScene [data-empty-add]");
+
+    for (const key of ["Enter", "Space"]) {
+      await page.evaluate(() => window.__btnHarness.resetOpenCalls());
+      await button.focus();
+      await page.keyboard.press(key);
+      assert.equal(await page.locator("#personDialog").evaluate(dialog => dialog.open), true, `${key} ouvre le formulaire`);
+      assert.equal(await page.evaluate(() => window.__btnHarness.openCalls()), 1, `${key} n'ouvre qu'une fois`);
+      await page.evaluate(() => { const dialog = document.getElementById("personDialog"); if (dialog.open) dialog.close(); });
+    }
+
+    await page.evaluate(() => window.__btnHarness.resetOpenCalls());
+    const rect = await button.boundingBox();
+    await page.mouse.click(rect.x + rect.width + 8, rect.y + rect.height / 2);
+    assert.equal(await page.locator("#personDialog").evaluate(dialog => dialog.open), false, "un clic à proximité ne l'ouvre pas");
+    assert.equal(await page.evaluate(() => window.__btnHarness.openCalls()), 0);
+
+    await page.evaluate(() => window.__btnHarness.resetOpenCalls());
+    await page.touchscreen.tap(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    assert.equal(await page.locator("#personDialog").evaluate(dialog => dialog.open), true, "le tap tactile ouvre le formulaire");
+    assert.equal(await page.evaluate(() => window.__btnHarness.openCalls()), 1, "le tap n'ouvre qu'une fois");
   } finally { await context.close(); await browser.close(); await server.close(); }
 });
 
@@ -180,7 +219,7 @@ test("Bug B : la création depuis un arbre secondaire affecte bien cet arbre", a
     await page.locator("#firstName").fill("Giuseppe");
     await page.locator("#lastName").fill("Giovannoni");
     await page.locator("#savePersonBtn").click();
-    await page.waitForFunction(() => window.__personWrites.length === 1);
+    await page.waitForFunction(() => window.__personWrites.length === 1 && document.getElementById("personId").value && !window.__btnHarness.state().personFormSaving);
 
     const writes = await page.evaluate(() => window.__personWrites.map(item => ({ ...item })));
     assert.equal(writes[0].treeId, "tree-giovannoni", "la personne est créée dans l'arbre secondaire");
@@ -224,7 +263,7 @@ test("Bug B : après édition et fermeture, une nouvelle création garde le bon 
     await page.locator("#firstName").fill("Premier");
     await page.locator("#lastName").fill("Test");
     await page.locator("#savePersonBtn").click();
-    await page.waitForFunction(() => window.__personWrites.length === 1);
+    await page.waitForFunction(() => window.__personWrites.length === 1 && document.getElementById("personId").value && !window.__btnHarness.state().personFormSaving);
 
     // Fermer la fiche (elle est passée en mode édition)
     await page.locator('#personDialog button.icon-btn[data-close="personDialog"]').click();
@@ -233,11 +272,13 @@ test("Bug B : après édition et fermeture, une nouvelle création garde le bon 
     await page.locator("#addBtn").click();
     const state = await page.evaluate(() => window.__btnHarness.state());
     assert.equal(state.creationTreeId, "tree-giovannoni", "la deuxième création garde le même arbre");
+    assert.equal(await page.locator("#personId").inputValue(), "", "le second formulaire est bien en création");
+    assert.equal(await page.locator("#savePersonBtn").textContent(), "Continuer");
 
     await page.locator("#firstName").fill("Second");
     await page.locator("#lastName").fill("Test");
     await page.locator("#savePersonBtn").click();
-    await page.waitForFunction(() => window.__personWrites.length === 2);
+    await page.waitForFunction(() => window.__personWrites.length === 2 && document.getElementById("personId").value && !window.__btnHarness.state().personFormSaving);
 
     const writes = await page.evaluate(() => window.__personWrites.map(item => ({ ...item })));
     assert.equal(writes[1].treeId, "tree-giovannoni");

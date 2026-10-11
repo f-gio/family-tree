@@ -10,7 +10,7 @@ import { lifeTimelineEvents } from "./life-timeline.js";
 import { createTreeCamera } from "./tree-camera.js";
 import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree-branch-view.js";
 import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
-import { MAIN_TREE_ID, getPersonTreeId, getTreePeople, getTreeFamilies, isValidTreeId } from "./tree-model.js";
+import { MAIN_TREE_ID, getPersonTreeId, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
 import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel } from "./directory-advanced.js";
@@ -90,6 +90,8 @@ let personDialogSource = "tree";
 let personCreationTreeId = MAIN_TREE_ID;
 let pendingPersonCreateId = "";
 let personFormSaving = false;
+let personTreeTransferState = null;
+let personTreeTransferSaving = false;
 let cameraPositioned = false, focusAfterRender = null;
 let branchView = null;
 let lineageSurname = "";
@@ -1412,6 +1414,12 @@ async function compressPersonPhoto(file) {
   throw new Error("La photo ne peut pas être réduite sous 5 Ko. Essayez une image plus simple.");
 }
 
+function canChangePersonTree(item) {
+  if (!item || !isAdminUser() || treeCatalogState !== "ready") return false;
+  const treeId = getPersonTreeId(item);
+  return !!treeId && (treeId === MAIN_TREE_ID || treeMetadata.some(tree => tree.id === treeId));
+}
+
 function openPerson(item = null, source = "tree") {
   personDialogSource = source;
   if (item) {
@@ -1424,6 +1432,7 @@ function openPerson(item = null, source = "tree") {
   renderer.setActive(activeId);
   setPersonMenu(false);
   $("personMenuBtn").hidden = !item;
+  $("changePersonTreeBtn").hidden = !canChangePersonTree(item);
   const titleName = item ? [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ") : "";
   $("dialogTitle").textContent = item ? (titleName || "Modifier la personne") : "Nouvelle personne";
   const modMeta = item ? personModMetaParts(item) : null;
@@ -2258,7 +2267,10 @@ $("personMenuBtn").addEventListener("click", event => {
   setPersonMenu($("personMenu").hidden);
 });
 $("personMenu").addEventListener("click", event => {
-  if (event.target.closest("button")) setPersonMenu(false);
+  const button = event.target.closest("button");
+  if (!button) return;
+  setPersonMenu(false);
+  if (button.id === "changePersonTreeBtn") openPersonTreeTransfer($("personId").value);
 });
 $("personMenu").addEventListener("keydown", event => {
   const items = [...$("personMenu").querySelectorAll("button:not([hidden])")];
@@ -2291,6 +2303,243 @@ $("personDialog").addEventListener("keydown", event => {
   event.stopPropagation();
   setPersonMenu(false);
   $("personMenuBtn").focus();
+});
+
+function transferTreeName(treeId) {
+  if (treeId === MAIN_TREE_ID) return "Arbre familial";
+  return treeMetadata.find(tree => tree.id === treeId)?.name || "Arbre indisponible";
+}
+
+function transferFamilyTreeNames(treeIds = []) {
+  return treeIds.map(transferTreeName).join(" et ");
+}
+
+function renderPersonTreeTransferPreview(plan) {
+  const summary = plan.summary;
+  const summaryText = summary.affectedFamilyCount
+    ? `${summary.affectedFamilyCount} foyer${summary.affectedFamilyCount > 1 ? "s" : ""} concerné${summary.affectedFamilyCount > 1 ? "s" : ""} : ${summary.remainsVisibleCount} resteront visibles, ${summary.becomesHiddenCount} ne seront plus dessinés et ${summary.becomesVisibleCount} deviendront visibles.`
+    : "Aucun foyer ne référence cette personne.";
+  const rows = plan.affectedFamilies.map(family => {
+    const names = family.members.map(member => member.name).join(" · ") || "Foyer sans personnes résolues";
+    const before = family.beforeVisibleTreeIds.length ? transferFamilyTreeNames(family.beforeVisibleTreeIds) : "aucun arbre";
+    const after = family.afterVisibleTreeIds.length ? transferFamilyTreeNames(family.afterVisibleTreeIds) : "aucun arbre";
+    const missing = family.unresolvedPersonIds.length
+      ? ` · ${family.unresolvedPersonIds.length} référence${family.unresolvedPersonIds.length > 1 ? "s" : ""} introuvable${family.unresolvedPersonIds.length > 1 ? "s" : ""}`
+      : "";
+    const invalid = family.invalidMembershipIds.length
+      ? ` · ${family.invalidMembershipIds.length} appartenance${family.invalidMembershipIds.length > 1 ? "s" : ""} invalide${family.invalidMembershipIds.length > 1 ? "s" : ""}`
+      : "";
+    return `<li><strong>${esc(names)}</strong><span>Avant : ${esc(before)} · Après : ${esc(after)}${esc(missing + invalid)}</span></li>`;
+  }).join("");
+  const hiddenNote = plan.personInTree
+    ? ""
+    : "Cette fiche est actuellement masquée de l'arbre (inTree désactivé) ; le transfert ne la rendra pas visible.";
+  const unresolvedNote = summary.unresolvedReferenceCount || summary.invalidMembershipCount
+    ? `<p>Des références ou appartenances sont incohérentes. Elles seront conservées telles quelles et rendent l'aperçu incomplet.</p>`
+    : "";
+  $("personTreeTransferPreview").innerHTML = `<h4>Conséquences sur les relations</h4><p>${esc(summaryText)}</p><p>Les liens familiaux ne sont pas supprimés. Aucun lien graphique inter-arbres n'est créé; un foyer réparti entre plusieurs arbres ne sera plus dessiné comme un ensemble complet.</p>${hiddenNote ? `<p>${esc(hiddenNote)}</p>` : ""}${unresolvedNote}${rows ? `<ul class="person-tree-transfer-list">${rows}</ul>` : ""}`;
+}
+
+function showPersonTreeTransferError(message) {
+  const error = $("personTreeTransferError");
+  error.textContent = message;
+  error.hidden = !message;
+}
+
+function previewPersonTreeTransfer() {
+  const state = personTreeTransferState;
+  const destination = $("personTreeTransferDestination").value;
+  const confirmButton = $("confirmPersonTreeTransferBtn");
+  state.plan = null;
+  confirmButton.disabled = true;
+  showPersonTreeTransferError("");
+  if (!destination) {
+    $("personTreeTransferPreview").innerHTML = "<p>Choisissez un arbre de destination pour afficher les conséquences sur les foyers.</p>";
+    return;
+  }
+  try {
+    const plan = prepareIndividualTreeTransferPlan({ personId: state.personId, people, families, trees: treeMetadata, destinationTreeId: destination });
+    state.plan = plan;
+    renderPersonTreeTransferPreview(plan);
+    confirmButton.disabled = false;
+  } catch (error) {
+    $("personTreeTransferPreview").innerHTML = `<p>${esc(error.message || "Impossible de préparer l'aperçu du transfert.")}</p>`;
+  }
+}
+
+function openPersonTreeTransfer(personId) {
+  if (!isAdminUser()) return toast("Accès réservé aux administrateurs", "error");
+  if (treeCatalogState !== "ready") return toast("Le catalogue des arbres est indisponible", "error");
+  const item = person(personId);
+  if (!canChangePersonTree(item)) return toast("L'arbre actuel de cette personne est indisponible", "error");
+  const sourceTreeId = getPersonTreeId(item);
+  personTreeTransferState = { personId, sourceTreeId, plan: null };
+  $("personTreeTransferPerson").textContent = [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ") || "Personne sans nom";
+  $("personTreeTransferSource").textContent = transferTreeName(sourceTreeId);
+  const destinations = [
+    ...(sourceTreeId === MAIN_TREE_ID ? [] : [{ id: MAIN_TREE_ID, name: "Arbre familial" }]),
+    ...treeMetadata.filter(tree => tree.id !== sourceTreeId).map(tree => ({ id: tree.id, name: tree.name }))
+  ];
+  $("personTreeTransferDestination").innerHTML = '<option value="">Sélectionner un arbre…</option>'
+    + destinations.map(tree => `<option value="${esc(tree.id)}">${esc(tree.name)}</option>`).join("");
+  $("personTreeTransferDestination").value = "";
+  $("personTreeTransferDestination").disabled = !destinations.length;
+  $("confirmPersonTreeTransferBtn").disabled = true;
+  $("personTreeTransferPreview").innerHTML = destinations.length
+    ? "<p>Choisissez un arbre de destination pour afficher les conséquences sur les foyers.</p>"
+    : "<p>Aucun autre arbre n'est disponible comme destination.</p>";
+  $("personTreeTransferNote").textContent = item.inTree === false
+    ? "Seule l'appartenance de cette personne changera. Ses proches et toutes ses données seront conservés. Cette fiche est masquée de l'arbre; le transfert ne la rendra pas visible."
+    : "Seule l'appartenance de cette personne changera. Ses proches ne seront pas déplacés; tous les liens familiaux et documents resteront enregistrés.";
+  showPersonTreeTransferError("");
+  $("personTreeTransferDialog").showModal();
+  setTimeout(() => $("personTreeTransferDestination").focus(), 30);
+}
+
+async function readFreshPersonTreeTransferData(personId) {
+  const familyQueries = await Promise.all([
+    getDocs(query(refs.families, where("partnerIds", "array-contains", personId))),
+    getDocs(query(refs.families, where("childIds", "array-contains", personId)))
+  ]);
+  const familySnapshots = new Map();
+  for (const snapshot of familyQueries) for (const item of snapshot.docs) familySnapshots.set(item.id, item);
+
+  // Keep support for legacy/odd family references in link arrays that are not
+  // indexed by partnerIds/childIds, while refreshing every cached affected doc.
+  for (const cached of families.filter(family => familyPersonIds(family).includes(personId) && typeof family.id === "string")) {
+    if (familySnapshots.has(cached.id)) continue;
+    const snapshot = await getDoc(doc(db, "families", cached.id));
+    if (snapshot.exists()) familySnapshots.set(snapshot.id, snapshot);
+  }
+  const freshFamilies = [...familySnapshots.values()].map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+  const personIds = new Set([personId, ...freshFamilies.flatMap(familyPersonIds)]);
+  const freshSnapshots = await Promise.all([...personIds].map(id => getDoc(doc(db, "people", id))));
+  const freshById = new Map();
+  for (const snapshot of freshSnapshots) if (snapshot.exists()) freshById.set(snapshot.id, { id: snapshot.id, ...snapshot.data() });
+  return { people: [...freshById.values()], families: freshFamilies };
+}
+
+async function confirmPersonTreeTransfer() {
+  if (personTreeTransferSaving) return;
+  if (!isAdminUser()) return showPersonTreeTransferError("Seuls les administrateurs peuvent changer l'arbre d'une personne.");
+  const state = personTreeTransferState;
+  const expectedPlan = state?.plan;
+  if (!expectedPlan) return showPersonTreeTransferError("Choisissez une destination et vérifiez l'aperçu avant de confirmer.");
+  personTreeTransferSaving = true;
+  const button = $("confirmPersonTreeTransferBtn");
+  setButtonPending(button, true, "Vérification…");
+  $("personTreeTransferDestination").disabled = true;
+  $("personTreeTransferDialog").querySelectorAll('[data-close="personTreeTransferDialog"]').forEach(closeButton => { closeButton.disabled = true; });
+  showPersonTreeTransferError("");
+  try {
+    if (treeCatalogState !== "ready" || !treeMetadata.some(tree => tree.id === expectedPlan.destinationTreeId) && expectedPlan.destinationTreeId !== MAIN_TREE_ID) {
+      throw new Error("Le catalogue ou l'arbre de destination n'est plus disponible. Fermez l'aperçu et réessayez.");
+    }
+    const fresh = await readFreshPersonTreeTransferData(state.personId);
+    const refreshedPlan = prepareIndividualTreeTransferPlan({
+      personId: state.personId, people: fresh.people, families: fresh.families,
+      trees: treeMetadata, destinationTreeId: expectedPlan.destinationTreeId
+    });
+    if (refreshedPlan.fingerprint !== expectedPlan.fingerprint) {
+      state.plan = refreshedPlan;
+      renderPersonTreeTransferPreview(refreshedPlan);
+      showPersonTreeTransferError("Les relations ou l'appartenance ont changé depuis l'aperçu. Vérifiez le nouvel aperçu puis confirmez à nouveau.");
+      return;
+    }
+
+    const personRef = doc(db, "people", state.personId);
+    const familyRefs = expectedPlan.affectedFamilies.map(family => family.familyId);
+    if (familyRefs.some(id => typeof id !== "string" || !id)) throw new Error("Un foyer concerné n'a pas d'identifiant valide; transfert annulé.");
+    const familyMemberIds = [...new Set(expectedPlan.affectedFamilies.flatMap(family => family.memberIds).filter(id => id !== state.personId))];
+    await runTransaction(db, async transaction => {
+      const personSnapshot = await transaction.get(personRef);
+      if (!personSnapshot.exists()) throw new Error("La fiche a été supprimée ou n'est plus accessible.");
+      const livePerson = { id: personSnapshot.id, ...personSnapshot.data() };
+      if (getPersonTreeId(livePerson) !== expectedPlan.sourceTreeId) {
+        const error = new Error("L'appartenance de cette personne a changé depuis l'aperçu. Fermez-le et recommencez.");
+        error.code = "tree-transfer-stale";
+        throw error;
+      }
+      const sourceTreeSnapshot = expectedPlan.sourceTreeId === MAIN_TREE_ID
+        ? null
+        : await transaction.get(doc(db, "trees", expectedPlan.sourceTreeId));
+      const destinationTreeSnapshot = expectedPlan.destinationTreeId === MAIN_TREE_ID
+        ? null
+        : await transaction.get(doc(db, "trees", expectedPlan.destinationTreeId));
+      const familySnapshots = await Promise.all(familyRefs.map(id => transaction.get(doc(db, "families", id))));
+      const memberSnapshots = await Promise.all(familyMemberIds.map(id => transaction.get(doc(db, "people", id))));
+      if (sourceTreeSnapshot && !sourceTreeSnapshot.exists()) throw new Error("L'arbre source n'est plus disponible; transfert annulé.");
+      if (destinationTreeSnapshot && !destinationTreeSnapshot.exists()) throw new Error("L'arbre de destination n'existe plus; transfert annulé.");
+      if (sourceTreeSnapshot && sourceTreeSnapshot.data().name !== expectedPlan.sourceTreeName) {
+        const error = new Error("Le nom de l'arbre source a changé depuis l'aperçu. Fermez-le et recommencez.");
+        error.code = "tree-transfer-stale";
+        throw error;
+      }
+      if (destinationTreeSnapshot && destinationTreeSnapshot.data().name !== expectedPlan.destinationTreeName) {
+        const error = new Error("Le nom de l'arbre de destination a changé depuis l'aperçu. Fermez-le et recommencez.");
+        error.code = "tree-transfer-stale";
+        throw error;
+      }
+
+      const txFamilies = familySnapshots.filter(snapshot => snapshot.exists()).map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+      const txPeopleById = new Map([[livePerson.id, livePerson]]);
+      for (const snapshot of memberSnapshots) if (snapshot.exists()) txPeopleById.set(snapshot.id, { id: snapshot.id, ...snapshot.data() });
+      const txPlan = prepareIndividualTreeTransferPlan({
+        personId: state.personId, people: [...txPeopleById.values()], families: txFamilies,
+        trees: treeMetadata, destinationTreeId: expectedPlan.destinationTreeId
+      });
+      if (txPlan.fingerprint !== expectedPlan.fingerprint) {
+        const error = new Error("Les relations ou l'appartenance ont changé pendant la confirmation. Fermez l'aperçu et recommencez.");
+        error.code = "tree-transfer-stale";
+        throw error;
+      }
+
+      const changes = { treeId: expectedPlan.destinationTreeId };
+      const uid = auth.currentUser?.uid || "";
+      if (!uid) throw new Error("Votre session a expiré; reconnectez-vous avant le transfert.");
+      // La règle validUpdatedBy exige que cet auteur corresponde à l'utilisateur
+      // courant lorsqu'un ancien updatedBy est présent. Ne toucher updatedAt
+      // que si les règles ne l'exigent pas (elles ne l'exigent pas).
+      if (Object.prototype.hasOwnProperty.call(livePerson, "updatedBy") && livePerson.updatedBy !== uid) {
+        changes.updatedBy = uid;
+        changes.updatedByName = currentUserProfile?.displayName || "";
+      }
+      transaction.update(personRef, changes);
+    });
+
+    close("personTreeTransferDialog");
+    personTreeTransferState = null;
+    close("personDialog");
+    toast(`${expectedPlan.personName} a été déplacé vers ${expectedPlan.destinationTreeName}.`);
+  } catch (error) {
+    console.error("Transfert individuel impossible", error);
+    if (error.code === "tree-transfer-stale" && personTreeTransferState) personTreeTransferState.plan = null;
+    const text = `${error.code || ""} ${error.message || ""}`;
+    const message = /permission-denied|insufficient permissions/i.test(text)
+      ? "Transfert refusé par les règles Firestore. Vérifiez votre rôle et l'arbre de destination."
+      : /unavailable|network|offline|failed to fetch|deadline-exceeded/i.test(text)
+        ? "Connexion impossible; le transfert n'a pas été confirmé. Réessayez après vérification."
+        : error.message || "Le transfert n'a pas pu être effectué.";
+    showPersonTreeTransferError(message);
+  } finally {
+    personTreeTransferSaving = false;
+    setButtonPending(button, false);
+    button.disabled = !personTreeTransferState?.plan;
+    $("personTreeTransferDestination").disabled = !personTreeTransferState
+      || $("personTreeTransferDestination").options.length <= 1;
+    $("personTreeTransferDialog").querySelectorAll('[data-close="personTreeTransferDialog"]').forEach(closeButton => { closeButton.disabled = false; });
+  }
+}
+
+$("personTreeTransferDestination").addEventListener("change", previewPersonTreeTransfer);
+$("confirmPersonTreeTransferBtn").addEventListener("click", confirmPersonTreeTransfer);
+$("personTreeTransferDialog").addEventListener("cancel", event => {
+  if (personTreeTransferSaving) event.preventDefault();
+});
+$("personTreeTransferDialog").addEventListener("close", () => {
+  personTreeTransferState = null;
+  personTreeTransferSaving = false;
+  if ($("personDialog").open && !$("personMenuBtn").hidden) $("personMenuBtn").focus({ preventScroll: true });
 });
 
 function bindModalActionMenu(dialogId, buttonId, menuId) {
@@ -4117,7 +4366,10 @@ $("addBtn").onclick = () => openPerson();
 // redirige le click du bouton central vers le viewport. On détecte le clic
 // sur le viewport en vérifiant les coordonnées du bouton.
 $("treeViewport").addEventListener("click", event => {
-  if (event.target.closest("[data-empty-add]")) return openPerson();
+  // Les clics clavier/souris non capturés remontent aussi à la scène, dont
+  // le renderer appelle déjà onEmptyAdd. Seul le clic retargeté au viewport
+  // par pointer capture doit être reconstitué par ses coordonnées.
+  if (event.target.closest("[data-empty-add]")) return;
   const btn = $("treeScene").querySelector("[data-empty-add]");
   if (!btn) return;
   const rect = btn.getBoundingClientRect();

@@ -2350,6 +2350,55 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 }
 .person-tree-assignment strong { color: var(--color-text); font-weight: var(--weight-semibold); }
 .person-tree-select { margin: 0 0 var(--space-4); }
+.person-tree-transfer-dialog { width: min(var(--modal-md), calc(100vw - var(--space-8))); }
+.person-tree-transfer-body { display: flex; flex-direction: column; gap: var(--space-4); }
+.person-tree-transfer-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: var(--space-3);
+}
+.person-tree-transfer-route p { min-width: 0; margin: 0; }
+.person-tree-transfer-route p span,
+.person-tree-transfer-route p strong { display: block; }
+.person-tree-transfer-route p span { color: var(--color-text-muted); font-size: var(--text-xs); }
+.person-tree-transfer-route p strong { margin-top: var(--space-1); overflow-wrap: anywhere; }
+.person-tree-transfer-route label { min-width: 0; margin: 0; }
+.person-tree-transfer-route .field { width: 100%; min-width: 0; margin-top: var(--space-2); }
+.person-tree-transfer-arrow { padding-bottom: var(--space-2); color: var(--color-text-muted); }
+.person-tree-transfer-note { margin: 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+.person-tree-transfer-preview {
+  min-width: 0;
+  max-height: min(34dvh, 19rem);
+  overflow: auto;
+  padding: var(--space-3);
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-soft);
+  overscroll-behavior: contain;
+}
+.person-tree-transfer-preview > :first-child { margin-top: 0; }
+.person-tree-transfer-preview > :last-child { margin-bottom: 0; }
+.person-tree-transfer-preview h4 { margin: 0 0 var(--space-2); font-size: var(--text-md); }
+.person-tree-transfer-preview p { margin: var(--space-2) 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+.person-tree-transfer-list { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 0; list-style: none; }
+.person-tree-transfer-list li { padding-top: var(--space-2); border-top: var(--border-subtle); }
+.person-tree-transfer-list strong,
+.person-tree-transfer-list span { display: block; }
+.person-tree-transfer-list span { margin-top: var(--space-1); color: var(--color-text-muted); font-size: var(--text-xs); }
+.person-tree-transfer-error { margin: 0; color: var(--color-danger); font-size: var(--text-sm); }
+.person-tree-transfer-dialog .modal-actions { display: flex; justify-content: space-between; gap: var(--space-3); }
+.person-tree-transfer-dialog .modal-actions .right { margin-left: auto; }
+.person-tree-transfer-dialog .modal-actions > .btn { min-height: var(--control-touch); }
+.person-tree-transfer-dialog #confirmPersonTreeTransferBtn { min-height: var(--control-touch); }
+@media (max-width: 560px) {
+  .person-tree-transfer-dialog .person-tree-transfer-route { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+  .person-tree-transfer-arrow { display: none; }
+  .person-tree-transfer-dialog .modal-actions { align-items: stretch; flex-direction: column; }
+  .person-tree-transfer-dialog .modal-actions .right,
+  .person-tree-transfer-dialog .modal-actions > .btn { width: 100%; margin: 0; }
+  .person-tree-transfer-dialog .modal-actions .right .btn { width: 100%; min-height: var(--control-touch); }
+}
 .directory-filters-trigger {
   display: flex;
   align-items: center;
