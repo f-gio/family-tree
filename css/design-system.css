@@ -617,8 +617,21 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 .tree-management-actions .btn { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: var(--control-touch); text-align: left; }
 .tree-management-actions .btn:disabled { opacity: .58; cursor: not-allowed; }
 .tree-management-notice { margin: var(--space-2) 0 0; padding: var(--space-2); border-radius: var(--radius-sm); background: var(--color-surface-soft); color: var(--color-text-muted); font-size: var(--text-xs); }
-.person-tree-membership-label { display: flex; align-items: center; gap: var(--space-1); margin: var(--space-1) 0 0; color: var(--color-text-muted); font-size: var(--text-xs); line-height: var(--leading-tight); }
-.person-tree-membership-label .ui-icon { width: 1rem; height: 1rem; color: var(--color-brand); }
+.person-tree-membership-field {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.person-tree-membership-field .ui-icon { flex: 0 0 auto; width: 1.125rem; height: 1.125rem; color: var(--color-brand); }
+.person-tree-membership-copy { display: grid; min-width: 0; gap: 1px; line-height: var(--leading-tight); }
+.person-tree-membership-title { color: var(--color-text-muted); font-size: var(--text-xs); }
+.person-tree-membership-copy strong { overflow-wrap: anywhere; color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
 .tree-catalog-status {
   margin: calc(-1 * var(--space-2)) 0 var(--space-3);
   color: var(--color-text-muted);

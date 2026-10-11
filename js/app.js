@@ -2355,6 +2355,7 @@ if (typeof window !== "undefined") {
        applicatif jamais fourni en production => zéro impact. */
     openForTest: (item, scope = null) => {
       if (scope?.seedAppPeopleForTest && Array.isArray(scope.people)) people = scope.people;
+      if (scope?.seedAppTreesForTest && Array.isArray(scope.trees)) treeMetadata = scope.trees;
       activeId = item?.id || null;
       personPrintScopeOverride = scope;
       openPerson(item, "tree");

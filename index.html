@@ -143,8 +143,6 @@
 <p class="lead">Cliquez sur une carte pour modifier la personne. Faites-la glisser pour ajuster sa position.</p>
 </div>
 <div class="hero-actions" id="headerTreeActions">
-<button class="btn primary page-primary-action" id="addBtn" type="button" aria-label="Ajouter une personne"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span class="label">Ajouter une personne</span>
-</button>
 <div class="tree-management" id="treeManagement" hidden>
 <button class="btn" id="manageTreesBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="treeManagementPopover" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-tree"></use></svg><span>Gérer les arbres</span></button>
 <div class="tree-management-popover" id="treeManagementPopover" hidden>
@@ -156,6 +154,8 @@
 <p class="tree-management-notice" id="manageTreeDeleteNotice" role="note"></p>
 </div>
 </div>
+<button class="btn primary page-primary-action" id="addBtn" type="button" aria-label="Ajouter une personne"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span class="label">Ajouter une personne</span>
+</button>
 </div>
 </section>
 <section class="toolbar tree-filter-toolbar" aria-label="Recherche et filtres de l’arbre">
@@ -375,7 +375,6 @@
 </div>
 </div>
 </div>
-<p class="person-tree-membership-label" id="personTreeMembershipLabel" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-tree"></use></svg><span id="personTreeMembershipName"></span></p>
 <nav class="person-section-nav" role="tablist" aria-label="Sections de la fiche Personne">
 <button class="person-section-tab active" id="personIdentityTab" type="button" role="tab" aria-selected="true" aria-controls="personIdentityPanel" data-person-section="identity">Identité</button>
 <button class="person-section-tab" id="personRelationsTab" type="button" role="tab" aria-selected="false" aria-controls="personRelationsPanel" data-person-section="relations">Liens familiaux</button>
@@ -414,6 +413,7 @@
 </label>
 <label>Branche familiale<input class="field" id="branch" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Ex. Giovannoni" maxlength="80">
 </label>
+<div class="person-tree-membership-field" id="personTreeMembershipLabel" hidden aria-live="polite"><svg class="ui-icon" aria-hidden="true"><use href="#icon-tree"></use></svg><span class="person-tree-membership-copy"><span class="person-tree-membership-title">Arbre d’appartenance</span><strong id="personTreeMembershipName"></strong></span></div>
 </div>
 </div>
 <div class="identity-life-sections">

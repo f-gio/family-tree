@@ -37,6 +37,16 @@ test("C. colonne d'actions : croix + bouton ⋯ accessible, menu contextuel comp
   assert.match(html, /id="deleteBtn" role="menuitem" hidden/);
   assert.match(html, /id="removePersonFromTreeBtn" role="menuitem"/);
   assert.match(html, /<span>Supprimer la personne<\/span>/);
+  const personHeader = html.match(/<div class="modal-head person-head">([\s\S]*?)<nav class="person-section-nav"/)?.[1] || "";
+  assert.ok(!personHeader.includes('id="personTreeMembershipLabel"'), "l’appartenance n’est plus dans l’en-tête");
+  const identity = html.match(/<section class="person-section-panel" id="personIdentityPanel"[\s\S]*?<section class="person-section-panel" id="personRelationsPanel"/)?.[0] || "";
+  const branchIndex = identity.indexOf('id="branch"');
+  const membershipIndex = identity.indexOf('id="personTreeMembershipLabel"');
+  const birthIndex = identity.indexOf("<legend>Naissance</legend>");
+  assert.ok(branchIndex >= 0 && membershipIndex > branchIndex && birthIndex > membershipIndex, "appartenance placée après les champs d’identité et avant Naissance");
+  assert.match(identity, /class="person-tree-membership-field" id="personTreeMembershipLabel" hidden aria-live="polite"[\s\S]*?<span class="person-tree-membership-title">Arbre d’appartenance<\/span>[\s\S]*?<strong id="personTreeMembershipName"><\/strong>/);
+  const membershipField = identity.match(/<div class="person-tree-membership-field"[\s\S]*?<\/div>/)?.[0] || "";
+  assert.doesNotMatch(membershipField, /<(?:button|select)\b|\btabindex=/, "champ en lecture seule, non interactif");
   const menu = html.match(/<div class="person-action-menu" id="personMenu"[\s\S]*?<\/div>/)?.[0] || "";
   const orderedIds = ["printPersonBtn", "viewBranchBtn", "changePersonTreeBtn", "removePersonFromTreeBtn", "deleteBtn"];
   const positions = orderedIds.map(id => menu.indexOf(`id="${id}"`));
@@ -137,7 +147,9 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
       menuButtonHidden: document.getElementById("personMenuBtn").hidden,
       menuHidden: document.getElementById("personMenu").hidden,
       membershipLabel: document.getElementById("personTreeMembershipName").textContent,
-      membershipHidden: document.getElementById("personTreeMembershipLabel").hidden
+      membershipHidden: document.getElementById("personTreeMembershipLabel").hidden,
+      membershipInIdentity: !!document.getElementById("personTreeMembershipLabel").closest("#personIdentityPanel"),
+      membershipTitle: document.querySelector(".person-tree-membership-title")?.textContent
     }));
     assert.equal(head.dialogOpen, true);
     assert.equal(head.title, "Andrea Giovannoni");
@@ -147,6 +159,15 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     assert.equal(head.menuButtonHidden, false, "le menu reste disponible en modification");
     assert.equal(head.membershipLabel, "Arbre principal", "treeId absent indique l'appartenance principale, pas aucun arbre");
     assert.equal(head.membershipHidden, false);
+    assert.equal(head.membershipInIdentity, true);
+    assert.equal(head.membershipTitle, "Arbre d’appartenance");
+    for (const width of [320, 390, 760, 1024]) {
+      await page.setViewportSize({ width, height: width <= 760 ? 844 : 768 });
+      const membershipBox = await page.locator("#personTreeMembershipLabel").boundingBox();
+      const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+      assert.ok(membershipBox && membershipBox.x >= 0 && membershipBox.x + membershipBox.width <= width, `${width}px : champ dans le viewport`);
+      assert.equal(horizontalOverflow, false, `${width}px : aucun débordement horizontal`);
+    }
     await page.setViewportSize({ width: 1024, height: 768 });
     assert.equal(await page.locator("#personMenuBtn").isVisible(), true, "le menu de modification reste visible sur desktop");
     await page.setViewportSize({ width: 390, height: 844 });
@@ -247,6 +268,16 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     assert.ok(legacyHead.meta.includes("astérisque"), "libellé neutre sans updatedAt");
     assert.equal(await page.locator("#personTreeMembershipName").textContent(), "Arbre principal", "inTree=false ne signifie pas aucun arbre");
     assert.equal(await page.locator("#removePersonFromTreeBtn").isHidden(), true, "retrait masqué pour une fiche déjà masquée");
+
+    await page.evaluate(() => {
+      const item = { id: "PX3", firstName: "Andrea", lastName: "Giovannoni", treeId: "tree-conti" };
+      window.__personPrint.openForTest(item, {
+        people: [item], families: [], documents: [], trees: [{ id: "tree-conti", name: "Giovannoni Orino" }],
+        seedAppPeopleForTest: true, seedAppTreesForTest: true
+      });
+    });
+    await page.waitForTimeout(80);
+    assert.equal(await page.locator("#personTreeMembershipName").textContent(), "Giovannoni Orino", "appartenance secondaire résolue depuis le catalogue");
 
     // nouvelle personne : titre neutre
     await page.evaluate(() => window.__personPrint.openForTest(null, { people: [], families: [], documents: [] }));

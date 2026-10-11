@@ -133,6 +133,12 @@ test("le sélecteur d'arbres ne porte plus les actions créer/renommer; le menu 
   assert.match(html, /id="manageTreeDeleteBtn"[^>]*disabled/);
   assert.match(html, /id="manageTreeDeleteNotice"/);
   assert.match(css, /\.tree-management-popover/);
+  const headerActions = html.match(/<div class="hero-actions" id="headerTreeActions">([\s\S]*?)<\/div>\s*<\/section>/)?.[1] || "";
+  const managerIndex = headerActions.indexOf('id="manageTreesBtn"');
+  const addIndex = headerActions.indexOf('id="addBtn"');
+  assert.ok(managerIndex >= 0 && addIndex > managerIndex, "Gérer les arbres précède Ajouter une personne");
+  assert.match(headerActions, /<button class="btn" id="manageTreesBtn"/);
+  assert.match(headerActions, /<button class="btn primary page-primary-action" id="addBtn"/);
 });
 
 test("sélecteur d'arbre : options, scope indépendant, filtres réinitialisés et familles confinées", async t => {
@@ -447,15 +453,20 @@ test("mobile 390px : menu Gérer les arbres accessible et actions tactiles", asy
           const tBox = trigger.getBoundingClientRect();
           return {
             trigger: { w: tBox.width, h: tBox.height, visible: trigger.offsetParent !== null },
+            add: document.getElementById("addBtn").getBoundingClientRect().toJSON(),
+            manager: tBox.toJSON(),
             oldButtonsAbsent: !document.getElementById("treeCreateBtn") && !document.getElementById("treeRenameBtn")
           };
         });
         assert.ok(boxes.trigger.visible, "bouton Gérer les arbres visible");
         assert.ok(boxes.trigger.w >= 43 && boxes.trigger.h >= 43, `déclencheur ≥44×44px (${boxes.trigger.w}×${boxes.trigger.h})`);
         assert.ok(boxes.oldButtonsAbsent, "plus/crayon absents du sélecteur d'arbres");
+        assert.ok(boxes.manager.y < boxes.add.y || (Math.abs(boxes.manager.y - boxes.add.y) < 1 && boxes.manager.x < boxes.add.x), "ordre visuel Gérer puis Ajouter à 390px");
         await page.setViewportSize({ width: 1024, height: 768 });
         const desktopTrigger = await page.locator("#manageTreesBtn").boundingBox();
-        assert.ok(desktopTrigger && desktopTrigger.width >= 44 && desktopTrigger.x >= 0 && desktopTrigger.x + desktopTrigger.width <= 1024, "déclencheur visible et dans l’en-tête desktop");
+        const desktopAdd = await page.locator("#addBtn").boundingBox();
+        assert.ok(desktopTrigger && desktopAdd && desktopTrigger.width >= 44 && desktopTrigger.x >= 0 && desktopTrigger.x + desktopTrigger.width <= 1024, "déclencheur visible et dans l’en-tête desktop");
+        assert.ok(desktopTrigger.x < desktopAdd.x, "ordre visuel Gérer puis Ajouter sur desktop");
         await page.locator("#manageTreesBtn").click();
         const desktopMenu = await page.locator("#treeManagementPopover").boundingBox();
         assert.ok(desktopMenu && desktopMenu.x >= 0 && desktopMenu.y >= 0 && desktopMenu.x + desktopMenu.width <= 1024 && desktopMenu.y + desktopMenu.height <= 768, "menu ancré dans le viewport desktop");
