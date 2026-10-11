@@ -2332,6 +2332,8 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 }
 .directory-tree-filter { min-width: 0; }
 .directory-tree-filter .field { width: 100%; min-width: 0; }
+.directory-heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.directory-heading-actions .btn { min-height: var(--control-touch); }
 .directory-tree-label {
   display: block;
   margin-top: var(--space-1);
@@ -2399,6 +2401,17 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .person-tree-transfer-dialog .modal-actions > .btn { width: 100%; margin: 0; }
   .person-tree-transfer-dialog .modal-actions .right .btn { width: 100%; min-height: var(--control-touch); }
 }
+.multi-tree-transfer-dialog { width: min(58rem, calc(100vw - var(--space-8))); }
+.multi-tree-transfer-body { display: flex; flex-direction: column; gap: var(--space-4); }
+.multi-tree-transfer-selection-meta { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.multi-tree-transfer-selection-meta strong { color: var(--color-brand); }
+.multi-tree-transfer-picker { min-width: 0; }
+.multi-tree-transfer-picker label { margin-bottom: var(--space-1); }
+.multi-tree-transfer-picker .person-multiselect-results { z-index: 5; }
+.multi-tree-transfer-warning { padding: var(--space-2) var(--space-3); border-left: 3px solid var(--color-accent); background: var(--color-surface); }
+.multi-tree-transfer-actions { display: flex; justify-content: space-between; gap: var(--space-3); }
+.multi-tree-transfer-actions .right { margin-left: auto; }
+.multi-tree-transfer-actions .btn { min-height: var(--control-touch); }
 .directory-filters-trigger {
   display: flex;
   align-items: center;
@@ -2657,6 +2670,15 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 
   .section-head h2 { font-size: clamp(1.75rem, 8vw, 2.25rem); }
   .page-primary-action { width: 100%; }
+  .directory-heading-actions { width: 100%; flex-direction: column; align-items: stretch; }
+  .directory-heading-actions .btn { width: 100%; }
+  .multi-tree-transfer-dialog .person-tree-transfer-route { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+  .multi-tree-transfer-dialog .person-tree-transfer-arrow { display: none; }
+  .multi-tree-transfer-selection-meta { align-items: stretch; flex-direction: column; }
+  .multi-tree-transfer-actions { align-items: stretch; flex-direction: column; }
+  .multi-tree-transfer-actions .right,
+  .multi-tree-transfer-actions > .btn { width: 100%; margin: 0; }
+  .multi-tree-transfer-actions .right .btn { width: 100%; min-height: var(--control-touch); }
 
   .field,
   label .field,

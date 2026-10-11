@@ -199,7 +199,7 @@
 </div>
 </main>
 <main class="workspace-view page-content-lane" id="directoryView" hidden>
-<section class="section-head page-heading"><div><p class="eyebrow page-kicker">Famille</p><h2 class="page-title">Annuaire</h2><p>Retrouvez toutes les personnes enregistrées, y compris celles masquées de l’arbre.</p></div><button class="btn primary page-primary-action" id="addDirectoryPersonBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une personne</span></button></section>
+<section class="section-head page-heading"><div><p class="eyebrow page-kicker">Famille</p><h2 class="page-title">Annuaire</h2><p>Retrouvez toutes les personnes enregistrées, y compris celles masquées de l’arbre.</p></div><div class="directory-heading-actions"><button class="btn" id="multiTreeTransferOpenBtn" type="button" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-tree"></use></svg><span>Transférer plusieurs personnes</span></button><button class="btn primary page-primary-action" id="addDirectoryPersonBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une personne</span></button></div></section>
 <section class="directory-toolbar" aria-label="Recherche, filtres et affichage de l’annuaire">
 <label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="directorySearch" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher un nom ou un prénom…"><button type="button" class="search-bar-clear" id="clearDirectorySearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
 <button class="directory-filters-trigger" id="directoryFiltersBtn" type="button" aria-haspopup="dialog" aria-controls="directoryFilterDialog" aria-expanded="false"><svg class="ui-icon" aria-hidden="true"><use href="#icon-filter"></use></svg><span>Filtres</span><span class="filter-count" id="directoryFilterCount" hidden>0</span></button>
@@ -483,6 +483,23 @@
 <p class="person-tree-transfer-error" id="personTreeTransferError" role="alert" hidden></p>
 </div>
 <div class="modal-actions"><button class="btn" type="button" data-close="personTreeTransferDialog">Annuler</button><div class="right"><button class="btn primary" type="button" id="confirmPersonTreeTransferBtn" disabled>Confirmer le déplacement</button></div></div>
+</dialog>
+  <dialog class="modal-lg modal-mobile-sheet modal-mobile-sheet--form multi-tree-transfer-dialog" id="multiTreeTransferDialog" aria-labelledby="multiTreeTransferTitle">
+<div class="modal-head"><div><h3 id="multiTreeTransferTitle">Transférer plusieurs personnes</h3><p>Seules les personnes sélectionnées changeront d’arbre.</p></div><button class="btn icon-btn" type="button" data-close="multiTreeTransferDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button></div>
+<div class="modal-body multi-tree-transfer-body">
+  <div class="person-tree-transfer-route multi-tree-transfer-route"><p><span>Arbre source</span><strong id="multiTreeTransferSource">Sélectionnez des personnes</strong></p><span class="person-tree-transfer-arrow" aria-hidden="true">→</span><label>Arbre de destination<select class="field" id="multiTreeTransferDestination" aria-label="Arbre de destination du transfert multiple" disabled><option value="">Sélectionnez d’abord des personnes</option></select></label></div>
+  <div class="multi-tree-transfer-selection-meta"><strong id="multiTreeTransferSelectionCount" role="status" aria-live="polite">0 personne sélectionnée</strong><button class="btn small tertiary" id="clearMultiTreeTransferSelectionBtn" type="button" disabled>Vider la sélection</button></div>
+  <div class="person-multiselect multi-tree-transfer-picker" id="multiTreeTransferPickerRoot">
+    <div class="person-multiselect-chips" id="multiTreeTransferChips"></div>
+    <label for="multiTreeTransferSearch">Rechercher une personne</label>
+    <input class="field" id="multiTreeTransferSearch" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" aria-label="Rechercher une personne à transférer" aria-expanded="false" aria-controls="multiTreeTransferResults" placeholder="Au moins deux lettres du nom ou prénom">
+    <div class="person-multiselect-results" id="multiTreeTransferResults" role="listbox" aria-label="Personnes à sélectionner" hidden></div>
+  </div>
+  <p class="person-tree-transfer-note" id="multiTreeTransferSelectionNote">Sélectionnez jusqu’à 20 personnes, toutes dans le même arbre source. Les fiches masquées restent masquées après transfert.</p>
+  <section class="person-tree-transfer-preview multi-tree-transfer-preview" id="multiTreeTransferPreview" role="status" aria-live="polite"><p>Sélectionnez les personnes, puis choisissez la destination pour voir les relations concernées.</p></section>
+  <p class="person-tree-transfer-error" id="multiTreeTransferError" role="alert" hidden></p>
+</div>
+<div class="modal-actions multi-tree-transfer-actions"><button class="btn" type="button" data-close="multiTreeTransferDialog">Annuler</button><div class="right"><button class="btn primary" type="button" id="confirmMultiTreeTransferBtn" disabled>Confirmer le transfert</button></div></div>
 </dialog>
   <div id="printPortal" aria-hidden="true" hidden></div>
   <dialog class="modal-lg modal-mobile-sheet modal-mobile-sheet--form" id="personPrintDialog" aria-labelledby="personPrintTitle">

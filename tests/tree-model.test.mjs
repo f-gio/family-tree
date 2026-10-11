@@ -7,7 +7,10 @@ import {
   getTreeMemberIds,
   getTreeFamilies,
   prepareTreeTransferPlan,
-  prepareIndividualTreeTransferPlan
+  prepareIndividualTreeTransferPlan,
+  MAX_MULTI_TREE_TRANSFER_PEOPLE,
+  MAX_MULTI_TREE_TRANSFER_READS,
+  prepareMultipleTreeTransferPlan
 } from "../js/tree-model.js";
 
 const people = Object.freeze([
@@ -251,4 +254,134 @@ test("les vraies différences de filiation restent détectées malgré la normal
   assert.notEqual(reference.fingerprint, orderPlan([]).fingerprint, "relation supprimée");
   const swapped = orderPlan([{ parentId: "jean", childId: "marie", type: "biological" }]);
   assert.notEqual(reference.fingerprint, swapped.fingerprint, "enfant remplacé : les valeurs ne sont pas neutralisées");
+});
+
+/* ─── Transfert multiple explicite, aperçu pur et limites atomiques ────────── */
+
+const multiPeople = [
+  { id: "jean", firstName: "Jean", lastName: "Test" },
+  { id: "marie", firstName: "Marie", lastName: "Test", treeId: null },
+  { id: "paul", firstName: "Paul", lastName: "Test", inTree: false, notes: "À conserver" },
+  { id: "sophie", firstName: "Sophie", lastName: "Test", treeId: "tree-a" },
+  { id: "sans-lien", firstName: "Autre", lastName: "Test" }
+];
+const multiFamilies = [
+  { id: "parents-paul", partnerIds: ["jean", "marie"], childIds: ["paul"], parentChildLinks: [
+    { parentId: "jean", childId: "paul", type: "biological" },
+    { parentId: "marie", childId: "paul", type: "biological" }
+  ] },
+  { id: "union-paul", partnerIds: ["paul", "sophie"], childIds: [] }
+];
+const multiTrees = [{ id: "tree-a", name: "Giovannoni Orino" }, { id: "tree-b", name: "Autre arbre" }];
+
+function multiPlan(personIds, destinationTreeId = "tree-a", peopleList = multiPeople, familiesList = multiFamilies, treesList = multiTrees) {
+  return prepareMultipleTreeTransferPlan({ personIds, people: peopleList, families: familiesList, trees: treesList, destinationTreeId });
+}
+
+test("sélection multiple : zéro, doublons, personnes inconnues, arbres sources mixtes et destination invalide refusés", () => {
+  assert.throws(() => multiPlan([]), /au moins une personne/);
+  assert.throws(() => multiPlan(["paul", "paul"]), /double/);
+  assert.throws(() => multiPlan(["absente"]), /n'existe plus/);
+  assert.throws(() => multiPlan(["paul", "sophie"], "tree-b"), /même arbre source/);
+  assert.throws(() => multiPlan(["paul"], "tree-gone"), /destination.*indisponible/);
+  assert.throws(() => multiPlan(["paul"], "tree-a", multiPeople, multiFamilies, []), /destination.*indisponible/);
+});
+
+test("arbre principal absent/null/main est normalisé et les transferts multi couvrent les trois directions", () => {
+  const historicalPeople = [
+    { id: "legacy-absent" },
+    { id: "legacy-null", treeId: null },
+    { id: "legacy-main", treeId: MAIN_TREE_ID },
+    { id: "secondary", treeId: "tree-a" },
+    { id: "secondary-two", treeId: "tree-a" }
+  ];
+  const toSecondary = prepareMultipleTreeTransferPlan({
+    personIds: ["legacy-absent", "legacy-null", "legacy-main"], people: historicalPeople,
+    families: [], trees: multiTrees, destinationTreeId: "tree-a"
+  });
+  assert.equal(toSecondary.sourceTreeId, MAIN_TREE_ID);
+  assert.equal(toSecondary.personIds.length, 3);
+  const toMain = prepareMultipleTreeTransferPlan({ personIds: ["secondary", "secondary-two"], people: historicalPeople, families: [], trees: multiTrees, destinationTreeId: MAIN_TREE_ID });
+  assert.equal(toMain.sourceTreeId, "tree-a");
+  assert.equal(toMain.personIds.length, 2);
+  const toOtherSecondary = prepareMultipleTreeTransferPlan({ personIds: ["secondary", "secondary-two"], people: historicalPeople, families: [], trees: multiTrees, destinationTreeId: "tree-b" });
+  assert.equal(toOtherSecondary.destinationTreeId, "tree-b");
+});
+
+test("aperçu multi distingue liens internes, limites externes, tiers et inTree false sans mutation", () => {
+  const beforePeople = JSON.stringify(multiPeople);
+  const beforeFamilies = JSON.stringify(multiFamilies);
+  const plan = multiPlan(["jean", "marie", "paul"]);
+  assert.equal(plan.summary.selectedCount, 3);
+  assert.equal(plan.summary.internalFamilyCount, 1, "foyer parental entièrement sélectionné");
+  assert.equal(plan.summary.boundaryFamilyCount, 1, "union avec Sophie non sélectionnée");
+  assert.equal(plan.summary.hiddenSelectionCount, 1, "inTree false est préservé et signalé");
+  assert.deepEqual(plan.affectedFamilies.find(f => f.familyId === "parents-paul").selectedMemberIds.sort(), ["jean", "marie", "paul"]);
+  assert.deepEqual(plan.affectedFamilies.find(f => f.familyId === "union-paul").unselectedMemberIds, ["sophie"]);
+  assert.equal(plan.affectedFamilies.find(f => f.familyId === "union-paul").otherTreeMemberIds.length, 0);
+  assert.equal(JSON.stringify(multiPeople), beforePeople);
+  assert.equal(JSON.stringify(multiFamilies), beforeFamilies);
+});
+
+test("foyers multiples et liens déjà situés dans un troisième arbre sont exposés", () => {
+  const threeTreePeople = multiPeople.concat({ id: "relative-tree-b", firstName: "Autre", lastName: "Arbre", treeId: "tree-b" });
+  const threeTreeFamilies = multiFamilies.concat({ id: "paul-other-tree", partnerIds: ["paul", "relative-tree-b"], childIds: [] });
+  const plan = multiPlan(["paul"], "tree-a", threeTreePeople, threeTreeFamilies);
+  assert.equal(plan.affectedFamilies.length, 3, "tous les foyers liés à Paul sont pris en compte");
+  assert.equal(plan.summary.otherTreeLinkCount, 1);
+  assert.deepEqual(plan.affectedFamilies.find(family => family.familyId === "paul-other-tree").otherTreeMemberIds, ["relative-tree-b"]);
+});
+
+test("parent unique, couple sans enfant et famille recomposée produisent un aperçu cohérent", () => {
+  const parentUniquePeople = [{ id: "parent" }, { id: "enfant" }];
+  const parentUnique = { id: "parent-unique", partnerIds: ["parent"], childIds: ["enfant"], parentChildLinks: [{ parentId: "parent", childId: "enfant", type: "biological" }] };
+  const childOnly = prepareMultipleTreeTransferPlan({ personIds: ["enfant"], people: parentUniquePeople, families: [parentUnique], trees: multiTrees, destinationTreeId: "tree-a" });
+  assert.equal(childOnly.summary.boundaryFamilyCount, 1, "le parent non sélectionné reste dans l'arbre source");
+  const parentAndChild = prepareMultipleTreeTransferPlan({ personIds: ["parent", "enfant"], people: parentUniquePeople, families: [parentUnique], trees: multiTrees, destinationTreeId: "tree-a" });
+  assert.equal(parentAndChild.summary.internalFamilyCount, 1);
+
+  const couple = { id: "couple", partnerIds: ["parent", "partenaire"], childIds: [] };
+  const couplePlan = prepareMultipleTreeTransferPlan({
+    personIds: ["parent", "partenaire"], people: [...parentUniquePeople, { id: "partenaire" }],
+    families: [couple], trees: multiTrees, destinationTreeId: "tree-a"
+  });
+  assert.equal(couplePlan.summary.internalFamilyCount, 1, "un couple sans enfant reste une relation interne intacte");
+
+  const blendedPeople = [{ id: "parent-a" }, { id: "parent-b" }, { id: "parent-c" }, { id: "child" }, { id: "stepchild" }];
+  const blendedFamilies = [
+    { id: "first-home", partnerIds: ["parent-a", "parent-b"], childIds: ["child"] },
+    { id: "recomposed-home", partnerIds: ["parent-a", "parent-c"], childIds: ["child", "stepchild"] }
+  ];
+  const blended = prepareMultipleTreeTransferPlan({
+    personIds: ["child"], people: blendedPeople, families: blendedFamilies,
+    trees: multiTrees, destinationTreeId: "tree-a"
+  });
+  assert.equal(blended.summary.affectedFamilyCount, 2, "les deux foyers recomposés sont présentés");
+  assert.ok(blended.affectedFamilies.every(family => family.unselectedMemberIds.length > 0));
+});
+
+test(`transfert multiple plafonné à ${MAX_MULTI_TREE_TRANSFER_PEOPLE} personnes et à ${MAX_MULTI_TREE_TRANSFER_READS} lectures`, () => {
+  const manyPeople = Array.from({ length: MAX_MULTI_TREE_TRANSFER_PEOPLE + 1 }, (_, index) => ({ id: `p-${index}`, treeId: null }));
+  assert.throws(() => multiPlan(manyPeople.map(p => p.id), "tree-a", manyPeople, [], multiTrees), /limitée à/);
+  const exactlyMaximum = manyPeople.slice(0, MAX_MULTI_TREE_TRANSFER_PEOPLE);
+  assert.equal(multiPlan(exactlyMaximum.map(p => p.id), "tree-a", exactlyMaximum, [], multiTrees).personIds.length, MAX_MULTI_TREE_TRANSFER_PEOPLE);
+
+  const selected = [{ id: "paul" }];
+  const oversizedFamily = { id: "large-family", partnerIds: ["paul"], childIds: [], memberIds: Array.from({ length: MAX_MULTI_TREE_TRANSFER_READS }, (_, i) => `ref-${i}`) };
+  assert.throws(() => multiPlan(["paul"], "tree-a", selected, [oversizedFamily], multiTrees), /trop de documents/);
+});
+
+test("fingerprint multiple canonique détecte appartenance, foyer et relations réelles", () => {
+  const original = multiPlan(["jean", "paul"]);
+  const changedMemberTree = multiPlan(["jean", "paul"], "tree-a", multiPeople.map(p => p.id === "marie" ? { ...p, treeId: "tree-a" } : p));
+  const changedRelation = multiPlan(["jean", "paul"], "tree-a", multiPeople, [{ ...multiFamilies[0], parentChildLinks: [{ parentId: "marie", childId: "paul", type: "adoptive" }] }, multiFamilies[1]]);
+  assert.notEqual(original.fingerprint, changedMemberTree.fingerprint);
+  assert.notEqual(original.fingerprint, changedRelation.fingerprint);
+});
+
+test("fingerprint multiple reste stable pour l'ordre des propriétés des filiations", () => {
+  const firstOrder = multiFamilies.map(family => ({ ...family, parentChildLinks: family.parentChildLinks?.map(link => ({ ...link })) }));
+  const reverseOrder = multiFamilies.map(family => ({ ...family, parentChildLinks: family.parentChildLinks?.map(link => ({ type: link.type, childId: link.childId, parentId: link.parentId })) }));
+  assert.equal(multiPlan(["jean", "paul"], "tree-a", multiPeople, firstOrder).fingerprint,
+    multiPlan(["jean", "paul"], "tree-a", multiPeople, reverseOrder).fingerprint);
 });

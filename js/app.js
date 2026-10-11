@@ -10,7 +10,7 @@ import { lifeTimelineEvents } from "./life-timeline.js";
 import { createTreeCamera } from "./tree-camera.js";
 import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree-branch-view.js";
 import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
-import { MAIN_TREE_ID, getPersonTreeId, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan } from "./tree-model.js";
+import { MAIN_TREE_ID, MAX_MULTI_TREE_TRANSFER_PEOPLE, MAX_MULTI_TREE_TRANSFER_READS, getPersonTreeId, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan, prepareMultipleTreeTransferPlan } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
 import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel } from "./directory-advanced.js";
@@ -93,6 +93,8 @@ let pendingPersonCreateId = "";
 let personFormSaving = false;
 let personTreeTransferState = null;
 let personTreeTransferSaving = false;
+let multipleTreeTransferState = null;
+let multipleTreeTransferSaving = false;
 let cameraPositioned = false, focusAfterRender = null;
 let branchView = null;
 let lineageSurname = "";
@@ -1889,6 +1891,8 @@ function renderDirectory() {
     : emptyState({ iconName: "people", title: "Votre annuaire est vide", description: "Ajoutez une première personne pour commencer votre histoire familiale.", action: `<button class="btn primary" type="button" data-empty-add-person>${icon("plus")}<span>Ajouter une personne</span></button>` }));
   applyDirectoryViewPreference();
   updateTreeQualityButton();
+  const multiTransferButton = $("multiTreeTransferOpenBtn");
+  if (multiTransferButton) multiTransferButton.hidden = !isAdminUser() || treeCatalogState !== "ready" || !loadedPeople || !loadedFamilies;
 }
 
 const directoryChipLabels = {
@@ -2573,6 +2577,323 @@ $("personTreeTransferDialog").addEventListener("close", () => {
   personTreeTransferState = null;
   personTreeTransferSaving = false;
   if ($("personDialog").open && !$("personMenuBtn").hidden) $("personMenuBtn").focus({ preventScroll: true });
+});
+
+async function readFreshMultipleTreeTransferData(personIds, destinationTreeId) {
+  /* Découverte via requêtes avant la transaction : le SDK Web ne peut pas
+     verrouiller une nouvelle famille créée après ces requêtes. Chaque foyer
+     alors découvert, ainsi que ses membres, est relu et vérifié en transaction. */
+  const familyQueries = await Promise.all(personIds.flatMap(personId => [
+    getDocs(query(refs.families, where("partnerIds", "array-contains", personId))),
+    getDocs(query(refs.families, where("childIds", "array-contains", personId)))
+  ]));
+  const familySnapshots = new Map();
+  for (const snapshot of familyQueries) for (const item of snapshot.docs) familySnapshots.set(item.id, item);
+
+  const selected = new Set(personIds);
+  const cachedFamilies = families.filter(family => familyPersonIds(family).some(id => selected.has(id))
+    && typeof family.id === "string" && !familySnapshots.has(family.id));
+  const sourceTreeId = getPersonTreeId(person(personIds[0]));
+  const treesToRead = new Set([sourceTreeId, destinationTreeId].filter(id => id && id !== MAIN_TREE_ID));
+  const candidateFamilies = [
+    ...[...familySnapshots.values()].map(snapshot => ({ id: snapshot.id, ...snapshot.data() })),
+    ...cachedFamilies
+  ];
+  const candidatePersonIds = new Set([...personIds, ...candidateFamilies.flatMap(familyPersonIds)]);
+  const candidateFamilyIds = new Set(candidateFamilies.map(family => family.id));
+  if (candidatePersonIds.size + candidateFamilyIds.size + treesToRead.size > MAX_MULTI_TREE_TRANSFER_READS) {
+    throw new Error(`Les relations concernent trop de documents pour une transaction sûre (limite ${MAX_MULTI_TREE_TRANSFER_READS}). Réduisez la sélection.`);
+  }
+  const cachedSnapshots = await Promise.all(cachedFamilies.map(family => getDoc(doc(db, "families", family.id))));
+  for (const snapshot of cachedSnapshots) if (snapshot.exists()) familySnapshots.set(snapshot.id, snapshot);
+
+  const freshFamilies = [...familySnapshots.values()].map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+  const allPersonIds = new Set([...personIds, ...freshFamilies.flatMap(familyPersonIds)]);
+  if (allPersonIds.size + freshFamilies.length + treesToRead.size > MAX_MULTI_TREE_TRANSFER_READS) {
+    throw new Error(`Les relations concernent trop de documents pour une transaction sûre (limite ${MAX_MULTI_TREE_TRANSFER_READS}). Réduisez la sélection.`);
+  }
+  const personSnapshots = await Promise.all([...allPersonIds].map(id => getDoc(doc(db, "people", id))));
+  const freshPeople = personSnapshots.filter(snapshot => snapshot.exists())
+    .map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+  return { people: freshPeople, families: freshFamilies };
+}
+
+const multipleTreeTransferPicker = createPersonMultiSelect({
+  kind: "tree-transfer",
+  root: $("multiTreeTransferPickerRoot"),
+  input: $("multiTreeTransferSearch"),
+  chips: $("multiTreeTransferChips"),
+  results: $("multiTreeTransferResults"),
+  dialog: $("multiTreeTransferDialog"),
+  minQueryLength: DOSSIER_MIN_QUERY_LENGTH,
+  findMatches: (queryText, selectedIds) => {
+    const text = searchable(queryText);
+    if (text.length < DOSSIER_MIN_QUERY_LENGTH || selectedIds.size >= MAX_MULTI_TREE_TRANSFER_PEOPLE) return [];
+    const firstSelected = selectedIds.values().next().value;
+    const selectedSource = firstSelected ? getPersonTreeId(person(firstSelected)) : null;
+    return people.filter(item => canChangePersonTree(item)
+      && (!selectedSource || getPersonTreeId(item) === selectedSource)
+      && !selectedIds.has(item.id)
+      && searchable(`${item.firstName || ""} ${item.middleName || ""} ${item.lastName || ""} ${item.marriedName || ""}`).includes(text))
+      .sort(comparePeopleBySurname)
+      .slice(0, PERSON_PICKER_MAX_RESULTS);
+  },
+  suggestionFor: item => ({
+    label: directoryDisplayName(item),
+    context: `${directoryTreeLabel(item, treeMetadata)}${item.inTree === false ? " · Masquée de l’arbre" : ""}`
+  }),
+  nameFor: id => {
+    const item = person(id);
+    return item ? directoryDisplayName(item) : "Personne introuvable";
+  },
+  escapeHtml: esc
+});
+
+function updateMultipleTreeTransferDestination(sourceTreeId, preserveDestination = true) {
+  const select = $("multiTreeTransferDestination");
+  const previous = preserveDestination ? select.value : "";
+  const destinations = [
+    ...(sourceTreeId !== MAIN_TREE_ID ? [{ id: MAIN_TREE_ID, name: "Arbre familial" }] : []),
+    ...treeMetadata.filter(tree => tree.id !== sourceTreeId).map(tree => ({ id: tree.id, name: tree.name }))
+  ];
+  select.innerHTML = '<option value="">Choisir une destination…</option>'
+    + destinations.map(tree => `<option value="${esc(tree.id)}">${esc(tree.name)}</option>`).join("");
+  select.disabled = !sourceTreeId || !destinations.length || multipleTreeTransferSaving;
+  if (destinations.some(tree => tree.id === previous)) select.value = previous;
+}
+
+function showMultipleTreeTransferError(message) {
+  const error = $("multiTreeTransferError");
+  error.textContent = message;
+  error.hidden = !message;
+}
+
+function renderMultipleTreeTransferPreview(plan) {
+  const selectedRows = plan.selectedPeople.map(item => {
+    const hidden = !item.inTree ? " · Masquée de l’arbre (restera masquée)" : "";
+    return `<li><strong>${esc(item.name)}</strong><span>${esc(transferTreeName(item.treeId))}${esc(hidden)}</span></li>`;
+  }).join("");
+  const familyRows = plan.affectedFamilies.map(family => {
+    const selectedNames = family.members.filter(member => member.selected).map(member => member.name);
+    const remainingNames = family.members.filter(member => !member.selected).map(member => member.name);
+    const category = family.internalToSelection
+      ? "Relation entre personnes transférées"
+      : "Relation avec une personne non transférée";
+    const outsideTrees = family.otherTreeMemberIds.map(id => family.members.find(member => member.id === id)?.name).filter(Boolean);
+    const before = family.beforeVisibleTreeIds.length ? transferFamilyTreeNames(family.beforeVisibleTreeIds) : "aucun arbre";
+    const after = family.afterVisibleTreeIds.length ? transferFamilyTreeNames(family.afterVisibleTreeIds) : "aucun arbre";
+    const missing = family.members.filter(member => !member.exists).length;
+    const details = [
+      `Transférées : ${selectedNames.join(" · ") || "—"}`,
+      `Restent dans leur arbre : ${remainingNames.join(" · ") || "aucune"}`,
+      `Visibilité du foyer : ${before} → ${after}`,
+      outsideTrees.length ? `Liens déjà situés dans d’autres arbres : ${outsideTrees.join(" · ")}` : "",
+      missing ? `${missing} référence${missing > 1 ? "s" : ""} de personne introuvable${missing > 1 ? "s" : ""} (conservée${missing > 1 ? "s" : ""})` : ""
+    ].filter(Boolean);
+    return `<li><strong>${esc(category)}</strong><span>${details.map(esc).join(" · ")}</span></li>`;
+  }).join("");
+  const warnings = [];
+  if (plan.summary.hiddenSelectionCount) warnings.push(`${plan.summary.hiddenSelectionCount} fiche${plan.summary.hiddenSelectionCount > 1 ? "s" : ""} masquée${plan.summary.hiddenSelectionCount > 1 ? "s" : ""} restera${plan.summary.hiddenSelectionCount > 1 ? "ont" : "a"} masquée${plan.summary.hiddenSelectionCount > 1 ? "s" : ""}.`);
+  if (plan.summary.boundaryFamilyCount) warnings.push("Les liens avec les personnes non transférées resteront enregistrés ; leur affichage dépendra des règles actuelles de visibilité par arbre.");
+  if (plan.summary.otherTreeLinkCount) warnings.push("Certains foyers concernés comportent déjà des liens avec d’autres arbres ; aucune relation ne sera supprimée.");
+  const warningHtml = warnings.length ? `<div class="multi-tree-transfer-warning">${warnings.map(text => `<p>${esc(text)}</p>`).join("")}</div>` : "";
+  $("multiTreeTransferPreview").innerHTML = `<h4>Aperçu du transfert</h4><p><strong>${plan.summary.selectedCount} personne${plan.summary.selectedCount > 1 ? "s" : ""}</strong> : ${esc(plan.sourceTreeName)} → ${esc(plan.destinationTreeName)}.</p><p>${plan.summary.affectedFamilyCount} foyer${plan.summary.affectedFamilyCount > 1 ? "s" : ""} concerné${plan.summary.affectedFamilyCount > 1 ? "s" : ""} · ${plan.summary.internalFamilyCount} relation${plan.summary.internalFamilyCount > 1 ? "s" : ""} interne${plan.summary.internalFamilyCount > 1 ? "s" : ""} · ${plan.summary.boundaryFamilyCount} foyer${plan.summary.boundaryFamilyCount > 1 ? "s" : ""} avec des personnes non transférées.</p><h4>Personnes sélectionnées</h4><ul class="person-tree-transfer-list">${selectedRows}</ul>${familyRows ? `<h4>Relations concernées</h4><ul class="person-tree-transfer-list">${familyRows}</ul>` : "<p>Aucun foyer ne référence ces personnes.</p>"}${warningHtml}`;
+}
+
+function previewMultipleTreeTransfer() {
+  const state = multipleTreeTransferState;
+  const destination = $("multiTreeTransferDestination").value;
+  const confirm = $("confirmMultiTreeTransferBtn");
+  state.plan = null;
+  confirm.disabled = true;
+  showMultipleTreeTransferError("");
+  if (!state.personIds.length) {
+    $("multiTreeTransferPreview").innerHTML = "<p>Sélectionnez les personnes, puis choisissez la destination pour voir les relations concernées.</p>";
+    return;
+  }
+  if (!destination) {
+    $("multiTreeTransferPreview").innerHTML = "<p>Choisissez l’arbre de destination pour afficher l’aperçu détaillé.</p>";
+    return;
+  }
+  try {
+    state.plan = prepareMultipleTreeTransferPlan({
+      personIds: state.personIds, people, families, trees: treeMetadata, destinationTreeId: destination
+    });
+    renderMultipleTreeTransferPreview(state.plan);
+    confirm.disabled = false;
+  } catch (error) {
+    $("multiTreeTransferPreview").innerHTML = `<p>${esc(error.message || "Impossible de préparer l’aperçu.")}</p>`;
+  }
+}
+
+function updateMultipleTreeTransferSelection() {
+  const state = multipleTreeTransferState;
+  if (!state) return;
+  const ids = multipleTreeTransferPicker.getSelected();
+  const previousSource = state.sourceTreeId;
+  state.personIds = ids;
+  state.sourceTreeId = ids.length ? getPersonTreeId(person(ids[0])) : null;
+  $("multiTreeTransferSelectionCount").textContent = `${ids.length} personne${ids.length > 1 ? "s" : ""} sélectionnée${ids.length > 1 ? "s" : ""} sur ${MAX_MULTI_TREE_TRANSFER_PEOPLE} maximum`;
+  $("clearMultiTreeTransferSelectionBtn").disabled = !ids.length || multipleTreeTransferSaving;
+  $("multiTreeTransferSource").textContent = state.sourceTreeId ? transferTreeName(state.sourceTreeId) : "Sélectionnez des personnes";
+  const note = $("multiTreeTransferSelectionNote");
+  note.textContent = ids.length >= MAX_MULTI_TREE_TRANSFER_PEOPLE
+    ? `Limite de ${MAX_MULTI_TREE_TRANSFER_PEOPLE} personnes atteinte. Les personnes doivent appartenir au même arbre source.`
+    : `Sélectionnez jusqu’à ${MAX_MULTI_TREE_TRANSFER_PEOPLE} personnes du même arbre source. Les fiches masquées restent masquées après le transfert.`;
+  if (previousSource !== state.sourceTreeId) updateMultipleTreeTransferDestination(state.sourceTreeId, false);
+  else updateMultipleTreeTransferDestination(state.sourceTreeId, true);
+  previewMultipleTreeTransfer();
+}
+
+function openMultipleTreeTransfer() {
+  if (!isAdminUser()) return toast("Accès réservé aux administrateurs", "error");
+  if (treeCatalogState !== "ready") return toast("Le catalogue des arbres est indisponible", "error");
+  if (!loadedPeople || !loadedFamilies) return toast("Les personnes et foyers ne sont pas encore chargés", "error");
+  multipleTreeTransferSaving = false;
+  multipleTreeTransferState = { personIds: [], sourceTreeId: null, plan: null };
+  multipleTreeTransferPicker.setSelected([]);
+  updateMultipleTreeTransferDestination(null, false);
+  updateMultipleTreeTransferSelection();
+  $("multiTreeTransferDialog").showModal();
+  setTimeout(() => $("multiTreeTransferSearch").focus(), 30);
+}
+
+async function confirmMultipleTreeTransfer() {
+  if (multipleTreeTransferSaving) return;
+  if (!isAdminUser()) return showMultipleTreeTransferError("Seuls les administrateurs peuvent transférer des personnes.");
+  const state = multipleTreeTransferState;
+  const expectedPlan = state?.plan;
+  if (!expectedPlan) return showMultipleTreeTransferError("Sélectionnez les personnes, choisissez la destination et vérifiez l’aperçu avant de confirmer.");
+  multipleTreeTransferSaving = true;
+  const button = $("confirmMultiTreeTransferBtn");
+  setButtonPending(button, true, "Vérification…");
+  $("multiTreeTransferDestination").disabled = true;
+  $("multiTreeTransferSearch").disabled = true;
+  $("clearMultiTreeTransferSelectionBtn").disabled = true;
+  $("multiTreeTransferPickerRoot").querySelectorAll("button").forEach(item => { item.disabled = true; });
+  $("multiTreeTransferDialog").querySelectorAll('[data-close="multiTreeTransferDialog"]').forEach(item => { item.disabled = true; });
+  showMultipleTreeTransferError("");
+  try {
+    if (!isAdminUser()) throw new Error("Votre rôle ne permet plus ce transfert.");
+    if (treeCatalogState !== "ready"
+      || (expectedPlan.sourceTreeId !== MAIN_TREE_ID && !treeMetadata.some(tree => tree.id === expectedPlan.sourceTreeId))
+      || (expectedPlan.destinationTreeId !== MAIN_TREE_ID && !treeMetadata.some(tree => tree.id === expectedPlan.destinationTreeId))) {
+      throw new Error("L’arbre source ou la destination n’est plus disponible. Fermez le dialogue et recommencez.");
+    }
+    if (expectedPlan.personIds.length > MAX_MULTI_TREE_TRANSFER_PEOPLE
+      || expectedPlan.readDocumentCount > MAX_MULTI_TREE_TRANSFER_READS) {
+      throw new Error("Cette sélection dépasse la limite de sécurité d’une transaction unique. Réduisez-la.");
+    }
+
+    const fresh = await readFreshMultipleTreeTransferData(expectedPlan.personIds, expectedPlan.destinationTreeId);
+    const refreshedPlan = prepareMultipleTreeTransferPlan({
+      personIds: expectedPlan.personIds, people: fresh.people, families: fresh.families,
+      trees: treeMetadata, destinationTreeId: expectedPlan.destinationTreeId
+    });
+    if (refreshedPlan.fingerprint !== expectedPlan.fingerprint) {
+      state.plan = refreshedPlan;
+      state.sourceTreeId = refreshedPlan.sourceTreeId;
+      renderMultipleTreeTransferPreview(refreshedPlan);
+      showMultipleTreeTransferError("Les personnes ou relations ont changé depuis l’aperçu. Vérifiez le nouvel aperçu puis confirmez à nouveau.");
+      return;
+    }
+
+    const selectedIds = expectedPlan.personIds;
+    const personDocumentIds = [...new Set([...selectedIds, ...expectedPlan.affectedFamilies.flatMap(family => family.memberIds)])];
+    const familyDocumentIds = expectedPlan.affectedFamilies.map(family => family.familyId);
+    const sourceTreeRef = expectedPlan.sourceTreeId === MAIN_TREE_ID ? null : doc(db, "trees", expectedPlan.sourceTreeId);
+    const destinationTreeRef = expectedPlan.destinationTreeId === MAIN_TREE_ID ? null : doc(db, "trees", expectedPlan.destinationTreeId);
+
+    await runTransaction(db, async transaction => {
+      const personSnapshots = await Promise.all(personDocumentIds.map(id => transaction.get(doc(db, "people", id))));
+      const familySnapshots = await Promise.all(familyDocumentIds.map(id => transaction.get(doc(db, "families", id))));
+      const sourceTreeSnapshot = sourceTreeRef ? await transaction.get(sourceTreeRef) : null;
+      const destinationTreeSnapshot = destinationTreeRef ? await transaction.get(destinationTreeRef) : null;
+
+      const peopleById = new Map(personSnapshots.filter(snapshot => snapshot.exists())
+        .map(snapshot => [snapshot.id, { id: snapshot.id, ...snapshot.data() }]));
+      for (const id of selectedIds) if (!peopleById.has(id)) throw new Error("Une personne sélectionnée a été supprimée ou n’est plus accessible.");
+      const txFamilies = familySnapshots.filter(snapshot => snapshot.exists())
+        .map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+
+      if (sourceTreeSnapshot && !sourceTreeSnapshot.exists()) throw new Error("L’arbre source n’existe plus.");
+      if (destinationTreeSnapshot && !destinationTreeSnapshot.exists()) throw new Error("L’arbre de destination n’existe plus.");
+      if (sourceTreeSnapshot && sourceTreeSnapshot.data().name !== expectedPlan.sourceTreeName) throw new Error("Le nom de l’arbre source a changé depuis l’aperçu. Recommencez.");
+      if (destinationTreeSnapshot && destinationTreeSnapshot.data().name !== expectedPlan.destinationTreeName) throw new Error("Le nom de l’arbre de destination a changé depuis l’aperçu. Recommencez.");
+      if (selectedIds.some(id => getPersonTreeId(peopleById.get(id)) !== expectedPlan.sourceTreeId)) {
+        throw new Error("L’appartenance d’une personne sélectionnée a changé depuis l’aperçu. Fermez le dialogue et recommencez.");
+      }
+
+      const txPlan = prepareMultipleTreeTransferPlan({
+        personIds: selectedIds, people: [...peopleById.values()], families: txFamilies,
+        trees: treeMetadata, destinationTreeId: expectedPlan.destinationTreeId
+      });
+      if (txPlan.readDocumentCount > MAX_MULTI_TREE_TRANSFER_READS) {
+        throw new Error("Les relations ont dépassé la limite de lecture sûre pendant la transaction. Aucune personne n’a été transférée.");
+      }
+      if (txPlan.fingerprint !== expectedPlan.fingerprint) {
+        const error = new Error("Les personnes, appartenances ou relations ont changé pendant la confirmation. Fermez et recommencez.");
+        error.code = "multi-tree-transfer-stale";
+        throw error;
+      }
+
+      const uid = auth.currentUser?.uid || "";
+      if (!uid) throw new Error("Votre session a expiré; reconnectez-vous avant le transfert.");
+      // Toutes les lectures et validations précèdent les écritures. Firestore
+      // valide l'ensemble des treeId dans une transaction indivisible ; aucune
+      // famille, relation ou autre personne n'est écrite.
+      for (const id of selectedIds) {
+        const livePerson = peopleById.get(id);
+        const changes = { treeId: expectedPlan.destinationTreeId };
+        if (Object.prototype.hasOwnProperty.call(livePerson, "updatedBy") && livePerson.updatedBy !== uid) {
+          changes.updatedBy = uid;
+          changes.updatedByName = currentUserProfile?.displayName || "";
+        }
+        transaction.update(doc(db, "people", id), changes);
+      }
+    });
+
+    close("multiTreeTransferDialog");
+    multipleTreeTransferState = null;
+    toast(`${expectedPlan.personIds.length} personnes transférées vers ${expectedPlan.destinationTreeName}.`);
+  } catch (error) {
+    console.error("Transfert multiple impossible", error);
+    if (error.code === "multi-tree-transfer-stale" && multipleTreeTransferState) multipleTreeTransferState.plan = null;
+    const text = `${error.code || ""} ${error.message || ""}`;
+    const message = /permission-denied|insufficient permissions/i.test(text)
+      ? "Transfert refusé par les règles Firestore. Vérifiez votre rôle et l’arbre de destination."
+      : /unavailable|network|offline|failed to fetch|deadline-exceeded/i.test(text)
+        ? "Connexion impossible; aucune personne n’a été transférée. Réessayez après vérification."
+        : error.message || "Le transfert multiple n’a pas pu être effectué.";
+    showMultipleTreeTransferError(message);
+  } finally {
+    multipleTreeTransferSaving = false;
+    setButtonPending(button, false);
+    button.disabled = !multipleTreeTransferState?.plan;
+    $("multiTreeTransferSearch").disabled = false;
+    $("multiTreeTransferPickerRoot").querySelectorAll("button").forEach(item => { item.disabled = false; });
+    $("multiTreeTransferDestination").disabled = !multipleTreeTransferState?.sourceTreeId
+      || $("multiTreeTransferDestination").options.length <= 1;
+    $("clearMultiTreeTransferSelectionBtn").disabled = !multipleTreeTransferState?.personIds.length;
+    $("multiTreeTransferDialog").querySelectorAll('[data-close="multiTreeTransferDialog"]').forEach(item => { item.disabled = false; });
+  }
+}
+
+$("multiTreeTransferOpenBtn").addEventListener("click", openMultipleTreeTransfer);
+$("multiTreeTransferDestination").addEventListener("change", previewMultipleTreeTransfer);
+$("confirmMultiTreeTransferBtn").addEventListener("click", confirmMultipleTreeTransfer);
+$("multiTreeTransferPickerRoot").addEventListener("click", updateMultipleTreeTransferSelection);
+$("clearMultiTreeTransferSelectionBtn").addEventListener("click", () => {
+  multipleTreeTransferPicker.setSelected([]);
+  updateMultipleTreeTransferSelection();
+});
+$("multiTreeTransferDialog").addEventListener("cancel", event => {
+  if (multipleTreeTransferSaving) event.preventDefault();
+});
+$("multiTreeTransferDialog").addEventListener("close", () => {
+  multipleTreeTransferState = null;
+  multipleTreeTransferSaving = false;
+  multipleTreeTransferPicker.setSelected([]);
 });
 
 function bindModalActionMenu(dialogId, buttonId, menuId) {

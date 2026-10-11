@@ -13,6 +13,11 @@ const FAMILY_PERSON_ARRAY_FIELDS = Object.freeze([
 ]);
 const FAMILY_LINK_FIELDS = Object.freeze(["parentChildLinks", "links"]);
 const LINK_PERSON_FIELDS = Object.freeze(["parentId", "childId", "personId", "fromId", "toId"]);
+/* 20 mises à jour = 4 % du plafond Firestore de 500 écritures par transaction.
+   Le budget de 100 documents lus borne la taille/durée des relectures relationnelles
+   et réserve une marge pour les validations et écritures atomiques. */
+export const MAX_MULTI_TREE_TRANSFER_PEOPLE = 20;
+export const MAX_MULTI_TREE_TRANSFER_READS = 100;
 
 export function isValidTreeId(treeId) {
   return typeof treeId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(treeId);
@@ -104,6 +109,11 @@ function canonicalRelationValue(value) {
     return canonical;
   }
   return value;
+}
+
+export function canonicalFamilyRelationData(family = {}) {
+  return Object.fromEntries([...FAMILY_PERSON_ARRAY_FIELDS, ...FAMILY_LINK_FIELDS]
+    .map(field => [field, family[field] == null ? null : canonicalRelationValue(family[field])]));
 }
 
 /* Prépare un aperçu descriptif du transfert global d'un arbre secondaire vers
@@ -220,8 +230,7 @@ export function prepareIndividualTreeTransferPlan({ personId, people = [], famil
       unresolvedPersonIds,
       invalidMembershipIds,
       visibilityChange,
-      relationData: Object.fromEntries([...FAMILY_PERSON_ARRAY_FIELDS, ...FAMILY_LINK_FIELDS]
-        .map(field => [field, family[field] == null ? null : canonicalRelationValue(family[field])]))
+      relationData: canonicalFamilyRelationData(family)
     };
   });
 
@@ -254,5 +263,134 @@ export function prepareIndividualTreeTransferPlan({ personId, people = [], famil
       personId, personName: personDisplayName(person), personInTree: person.inTree !== false,
       sourceTreeId, destinationTreeId: destination, sourceTreeName, destinationTreeName, familyReferences
     })
+  };
+}
+
+/* Plan pur d'un transfert explicite de plusieurs personnes d'un même arbre.
+   Les tableaux nuls/absents/main sont normalisés par getPersonTreeId ; aucune
+   donnée d'entrée n'est mutée. Le fingerprint partage la canonicalisation 4C. */
+export function prepareMultipleTreeTransferPlan({ personIds = [], people = [], families = [], trees = [], destinationTreeId } = {}) {
+  if (!Array.isArray(personIds) || !personIds.length) throw new Error("Sélectionnez au moins une personne à transférer.");
+  if (personIds.length > MAX_MULTI_TREE_TRANSFER_PEOPLE) {
+    throw new Error(`La sélection est limitée à ${MAX_MULTI_TREE_TRANSFER_PEOPLE} personnes par transfert.`);
+  }
+  if (new Set(personIds).size !== personIds.length) throw new Error("La sélection contient des personnes en double.");
+  if (!personIds.every(id => typeof id === "string" && id.length > 0)
+    || !Array.isArray(people) || !Array.isArray(families) || !Array.isArray(trees)) {
+    throw new Error("Les données du transfert multiple sont invalides.");
+  }
+
+  const peopleById = new Map(people.filter(item => typeof item?.id === "string").map(item => [item.id, item]));
+  const selectedPeople = personIds.map(id => {
+    const item = peopleById.get(id);
+    if (!item) throw new Error("Une personne sélectionnée n'existe plus. Recommencez la sélection.");
+    return item;
+  });
+  const sourceTreeId = getPersonTreeId(selectedPeople[0]);
+  if (!sourceTreeId) throw new Error("L'arbre source d'une personne sélectionnée est invalide ou indisponible.");
+  if (selectedPeople.some(item => getPersonTreeId(item) !== sourceTreeId)) {
+    throw new Error("Toutes les personnes sélectionnées doivent appartenir au même arbre source.");
+  }
+
+  const knownTrees = trees.filter(tree => isValidTreeId(tree?.id) && tree.id !== MAIN_TREE_ID);
+  if (sourceTreeId !== MAIN_TREE_ID && !knownTrees.some(tree => tree.id === sourceTreeId)) {
+    throw new Error("L'arbre source n'est plus disponible. Recommencez la sélection.");
+  }
+  const destination = normalizeRequestedTreeId(destinationTreeId);
+  if (!destination) throw new Error("L'arbre de destination est invalide.");
+  if (destination === sourceTreeId) throw new Error("Choisissez un arbre différent de l'arbre source.");
+  if (destination !== MAIN_TREE_ID && !knownTrees.some(tree => tree.id === destination)) {
+    throw new Error("L'arbre de destination est indisponible.");
+  }
+
+  const selectedIds = new Set(personIds);
+  const canonicalIds = [...selectedIds].sort((a, b) => a.localeCompare(b));
+  const affectedFamilies = families.filter(family => familyPersonIds(family).some(id => selectedIds.has(id)))
+    .sort((left, right) => String(left?.id || "").localeCompare(String(right?.id || "")));
+  const familyIds = affectedFamilies.map(family => typeof family?.id === "string" ? family.id : null);
+  if (familyIds.some(id => !id)) throw new Error("Un foyer concerné n'a pas d'identifiant valide.");
+
+  const allMemberIds = new Set(canonicalIds);
+  for (const family of affectedFamilies) for (const id of familyPersonIds(family)) allMemberIds.add(id);
+  const readTreeIds = [...new Set([sourceTreeId, destination])].filter(id => id !== MAIN_TREE_ID);
+  const readDocumentCount = allMemberIds.size + familyIds.length + readTreeIds.length;
+  if (readDocumentCount > MAX_MULTI_TREE_TRANSFER_READS) {
+    throw new Error(`Les relations concernent trop de documents (${readDocumentCount}) pour une transaction sûre. Réduisez la sélection.`);
+  }
+
+  const treeIds = new Set([MAIN_TREE_ID, ...knownTrees.map(tree => tree.id)]);
+  const afterPeople = people.map(item => selectedIds.has(item.id) ? { ...item, treeId: destination } : item);
+  const plannedFamilies = affectedFamilies.map(family => {
+    const memberIds = familyPersonIds(family);
+    const members = memberIds.map(id => {
+      const member = peopleById.get(id);
+      return {
+        id,
+        name: member ? personDisplayName(member) : "Personne introuvable",
+        treeId: member ? getPersonTreeId(member) : null,
+        inTree: member?.inTree !== false,
+        exists: !!member,
+        selected: selectedIds.has(id)
+      };
+    });
+    const beforeVisibleTreeIds = visibleFamilyTreeIds(family, people, treeIds);
+    const afterVisibleTreeIds = visibleFamilyTreeIds(family, afterPeople, treeIds);
+    const selectedMemberIds = memberIds.filter(id => selectedIds.has(id));
+    const otherTreeMemberIds = members.filter(member => member.exists
+      && member.treeId !== sourceTreeId && member.treeId !== destination).map(member => member.id);
+    return {
+      familyId: family.id,
+      memberIds,
+      members,
+      selectedMemberIds,
+      unselectedMemberIds: memberIds.filter(id => !selectedIds.has(id)),
+      otherTreeMemberIds,
+      internalToSelection: memberIds.length > 0 && memberIds.every(id => selectedIds.has(id)),
+      beforeVisibleTreeIds,
+      afterVisibleTreeIds,
+      relationData: canonicalFamilyRelationData(family)
+    };
+  });
+
+  const canonicalSelectedPeople = canonicalIds.map(id => {
+    const item = peopleById.get(id);
+    return { id, name: personDisplayName(item), treeId: getPersonTreeId(item), inTree: item.inTree !== false, exists: true };
+  });
+  const sourceTreeName = sourceTreeId === MAIN_TREE_ID ? "Arbre familial" : knownTrees.find(tree => tree.id === sourceTreeId)?.name || "Arbre indisponible";
+  const destinationTreeName = destination === MAIN_TREE_ID ? "Arbre familial" : knownTrees.find(tree => tree.id === destination)?.name || "Arbre indisponible";
+  const familyReferences = plannedFamilies.map(family => ({
+    familyId: family.familyId,
+    memberIds: family.memberIds,
+    members: family.members.map(({ id, name, treeId, inTree, exists }) => ({ id, name, treeId, inTree, exists })),
+    relations: family.relationData
+  }));
+  const fingerprint = JSON.stringify({
+    personIds: canonicalIds,
+    selectedPeople: canonicalSelectedPeople,
+    sourceTreeId,
+    destinationTreeId: destination,
+    sourceTreeName,
+    destinationTreeName,
+    familyReferences
+  });
+
+  return {
+    personIds: canonicalIds,
+    selectedPeople: canonicalSelectedPeople,
+    sourceTreeId,
+    destinationTreeId: destination,
+    sourceTreeName,
+    destinationTreeName,
+    affectedFamilies: plannedFamilies,
+    readDocumentCount,
+    summary: {
+      selectedCount: canonicalIds.length,
+      affectedFamilyCount: plannedFamilies.length,
+      internalFamilyCount: plannedFamilies.filter(family => family.internalToSelection).length,
+      boundaryFamilyCount: plannedFamilies.filter(family => !family.internalToSelection).length,
+      otherTreeLinkCount: plannedFamilies.filter(family => family.otherTreeMemberIds.length).length,
+      hiddenSelectionCount: canonicalSelectedPeople.filter(item => !item.inTree).length
+    },
+    fingerprint
   };
 }

@@ -9,6 +9,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, connectAuthEmulator, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { initializeFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, runTransaction, query, where, Bytes } from "firebase/firestore";
 import { FILE_CHUNK_BYTES, splitBytesIntoChunks, concatByteArrays, documentChunkId, sliceIntoBatches, importedDataFields } from "../js/backup-utils.js";
+import { prepareMultipleTreeTransferPlan } from "../js/tree-model.js";
 import { assertLocalEmulator, assertFictiveProject, EMULATOR_PROJECT_ID } from "./emulator-guard.mjs";
 
 // GARDE ANTI-PRODUCTION : échoue (rouge) si l'émulateur n'est pas démarré ou non local.
@@ -816,6 +817,229 @@ test("transaction de transfert refuse une source changée concurremment", async 
   await assert.rejects(transfer, /appartenance a changé/);
   assert.ok(attempts >= 2, "la transaction a relu la personne après conflit");
   assert.equal((await getDoc(ref)).data().treeId, TREE_FIXTURE_ID, "le transfert concurrent n'est pas écrasé");
+});
+
+test("transfert multiple atomique : seuls les identifiants sélectionnés changent", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const ids = ["multi-emulator-jean", "multi-emulator-marie", "multi-emulator-paul", "multi-emulator-sophie"];
+  const familyId = "multi-emulator-parents-paul";
+  const familyRef = doc(db, "families", familyId);
+  const selectedIds = [ids[0], ids[2]];
+  try {
+    await setDoc(doc(db, "people", ids[0]), { firstName: "Jean", lastName: "Fictif", notes: "Préservée" });
+    await setDoc(doc(db, "people", ids[1]), { firstName: "Marie", lastName: "Fictif", treeId: null });
+    await setDoc(doc(db, "people", ids[2]), { firstName: "Paul", lastName: "Fictif", inTree: false, notes: "Masqué conservé" });
+    await setDoc(doc(db, "people", ids[3]), { firstName: "Sophie", lastName: "Fictif", treeId: TREE_FIXTURE_ID });
+    await setDoc(familyRef, {
+      partnerIds: [ids[0], ids[1]], childIds: [ids[2]],
+      parentChildLinks: [
+        { parentId: ids[0], childId: ids[2], type: "biological" },
+        { parentId: ids[1], childId: ids[2], type: "biological" }
+      ]
+    });
+    const familyBefore = (await getDoc(familyRef)).data();
+    const personSnapshots = await Promise.all(ids.map(id => getDoc(doc(db, "people", id))));
+    const treeSnapshot = await getDoc(doc(db, "trees", TREE_FIXTURE_ID));
+    const initialPeople = personSnapshots.map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+    const expected = prepareMultipleTreeTransferPlan({
+      personIds: selectedIds, people: initialPeople, families: [{ id: familyId, ...familyBefore }],
+      trees: [{ id: TREE_FIXTURE_ID, name: treeSnapshot.data().name }], destinationTreeId: TREE_FIXTURE_ID
+    });
+    const refsToRead = [...new Set([...selectedIds, ...expected.affectedFamilies.flatMap(family => family.memberIds)])];
+    await runTransaction(db, async transaction => {
+      const personReads = await Promise.all(refsToRead.map(id => transaction.get(doc(db, "people", id))));
+      const familyReads = await Promise.all(expected.affectedFamilies.map(family => transaction.get(doc(db, "families", family.familyId))));
+      const targetTree = await transaction.get(doc(db, "trees", TREE_FIXTURE_ID));
+      assert.equal(targetTree.exists(), true);
+      const txPeople = personReads.filter(snapshot => snapshot.exists()).map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+      const txFamilies = familyReads.filter(snapshot => snapshot.exists()).map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+      const actual = prepareMultipleTreeTransferPlan({
+        personIds: selectedIds, people: txPeople, families: txFamilies,
+        trees: [{ id: TREE_FIXTURE_ID, name: targetTree.data().name }], destinationTreeId: TREE_FIXTURE_ID
+      });
+      assert.equal(actual.fingerprint, expected.fingerprint);
+      for (const id of selectedIds) transaction.update(doc(db, "people", id), { treeId: TREE_FIXTURE_ID });
+    });
+    for (const id of selectedIds) assert.equal((await getDoc(doc(db, "people", id))).data().treeId, TREE_FIXTURE_ID);
+    assert.equal((await getDoc(doc(db, "people", ids[1]))).data().treeId, null, "Marie non sélectionnée reste dans main");
+    assert.equal((await getDoc(doc(db, "people", ids[3]))).data().treeId, TREE_FIXTURE_ID, "Sophie non sélectionnée n'est pas réécrite");
+    const paulAfter = (await getDoc(doc(db, "people", ids[2]))).data();
+    assert.equal(paulAfter.inTree, false);
+    assert.equal(paulAfter.notes, "Masqué conservé");
+    assert.deepEqual((await getDoc(familyRef)).data(), familyBefore, "aucune famille ni relation n'est écrite");
+  } finally {
+    for (const id of ids) await deleteDoc(doc(db, "people", id));
+    await deleteDoc(familyRef);
+  }
+});
+
+test("transfert multiple atomique : relation modifiée durant la transaction annule tout le groupe", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const personA = "multi-emulator-conflict-a", personB = "multi-emulator-conflict-b";
+  const familyRef = doc(db, "families", "multi-emulator-conflict-family");
+  try {
+    await setDoc(doc(db, "people", personA), { firstName: "A", lastName: "Fictif" });
+    await setDoc(doc(db, "people", personB), { firstName: "B", lastName: "Fictif" });
+    await setDoc(familyRef, { partnerIds: [personA, personB], childIds: [], parentChildLinks: [] });
+    const initial = await Promise.all([getDoc(doc(db, "people", personA)), getDoc(doc(db, "people", personB)), getDoc(familyRef), getDoc(doc(db, "trees", TREE_FIXTURE_ID))]);
+    const expected = prepareMultipleTreeTransferPlan({
+      personIds: [personA, personB], people: initial.slice(0, 2).map(snapshot => ({ id: snapshot.id, ...snapshot.data() })),
+      families: [{ id: familyRef.id, ...initial[2].data() }],
+      trees: [{ id: TREE_FIXTURE_ID, name: initial[3].data().name }], destinationTreeId: TREE_FIXTURE_ID
+    });
+
+    let signalRead;
+    let releaseTransaction;
+    const readFinished = new Promise(resolve => { signalRead = resolve; });
+    const continueTransaction = new Promise(resolve => { releaseTransaction = resolve; });
+    let attempts = 0;
+    const transfer = runTransaction(db, async transaction => {
+      attempts++;
+      const personReads = await Promise.all([personA, personB].map(id => transaction.get(doc(db, "people", id))));
+      const familyRead = await transaction.get(familyRef);
+      const treeRead = await transaction.get(doc(db, "trees", TREE_FIXTURE_ID));
+      if (attempts === 1) { signalRead(); await continueTransaction; }
+      const actual = prepareMultipleTreeTransferPlan({
+        personIds: [personA, personB], people: personReads.filter(snapshot => snapshot.exists()).map(snapshot => ({ id: snapshot.id, ...snapshot.data() })),
+        families: familyRead.exists() ? [{ id: familyRead.id, ...familyRead.data() }] : [],
+        trees: treeRead.exists() ? [{ id: TREE_FIXTURE_ID, name: treeRead.data().name }] : [],
+        destinationTreeId: TREE_FIXTURE_ID
+      });
+      if (actual.fingerprint !== expected.fingerprint) throw new Error("Relations modifiées pendant le transfert");
+      transaction.update(doc(db, "people", personA), { treeId: TREE_FIXTURE_ID });
+      transaction.update(doc(db, "people", personB), { treeId: TREE_FIXTURE_ID });
+    });
+
+    await readFinished;
+    await updateDoc(familyRef, { parentChildLinks: [{ parentId: personA, childId: personB, type: "adoptive" }] });
+    releaseTransaction();
+    await assert.rejects(transfer, /Relations modifiées/);
+    assert.ok(attempts >= 2, "Firestore relit la transaction après conflit");
+    assert.equal((await getDoc(doc(db, "people", personA))).data().treeId, undefined, "aucune écriture partielle sur A");
+    assert.equal((await getDoc(doc(db, "people", personB))).data().treeId, undefined, "aucune écriture partielle sur B");
+  } finally {
+    await deleteDoc(doc(db, "people", personA));
+    await deleteDoc(doc(db, "people", personB));
+    await deleteDoc(familyRef);
+  }
+});
+
+test("limite du transfert multiple : 20 treeId se mettent à jour dans une seule transaction", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const ids = Array.from({ length: 20 }, (_, index) => `multi-emulator-cap-${index}`);
+  try {
+    for (const id of ids) await setDoc(doc(db, "people", id), { firstName: "Test", lastName: `Groupe ${id}` });
+    await runTransaction(db, async transaction => {
+      const personSnapshots = await Promise.all(ids.map(id => transaction.get(doc(db, "people", id))));
+      const targetTree = await transaction.get(doc(db, "trees", TREE_FIXTURE_ID));
+      assert.equal(targetTree.exists(), true);
+      assert.ok(personSnapshots.every(snapshot => snapshot.exists()));
+      for (const id of ids) transaction.update(doc(db, "people", id), { treeId: TREE_FIXTURE_ID });
+    });
+    for (const id of ids) assert.equal((await getDoc(doc(db, "people", id))).data().treeId, TREE_FIXTURE_ID);
+  } finally {
+    for (const id of ids) await deleteDoc(doc(db, "people", id));
+  }
+});
+
+test("transfert multiple : treeId sélectionnés atomiques, foyers et non-sélectionnés intacts", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const ids = ["multi-emulator-jean", "multi-emulator-marie", "multi-emulator-paul", "multi-emulator-sophie"];
+  const familyId = "multi-emulator-parents-paul";
+  const familyRef = doc(db, "families", familyId);
+  const selectedIds = [ids[0], ids[2]]; // Jean et Paul uniquement ; Marie reste dans main.
+  try {
+    await setDoc(doc(db, "people", ids[0]), { firstName: "Jean", lastName: "Fictif", notes: "Préservée" });
+    await setDoc(doc(db, "people", ids[1]), { firstName: "Marie", lastName: "Fictif", treeId: null });
+    await setDoc(doc(db, "people", ids[2]), { firstName: "Paul", lastName: "Fictif", inTree: false, notes: "Masqué conservé" });
+    await setDoc(doc(db, "people", ids[3]), { firstName: "Sophie", lastName: "Fictif", treeId: TREE_FIXTURE_ID });
+    await setDoc(familyRef, {
+      partnerIds: [ids[0], ids[1]], childIds: [ids[2]],
+      parentChildLinks: [
+        { parentId: ids[0], childId: ids[2], type: "biological" },
+        { parentId: ids[1], childId: ids[2], type: "biological" }
+      ]
+    });
+    const familyBefore = (await getDoc(familyRef)).data();
+    const personSnapshots = await Promise.all(ids.map(id => getDoc(doc(db, "people", id))));
+    const treeSnapshot = await getDoc(doc(db, "trees", TREE_FIXTURE_ID));
+    const initialPeople = personSnapshots.map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+    const expected = prepareMultipleTreeTransferPlan({
+      personIds: selectedIds, people: initialPeople, families: [{ id: familyId, ...familyBefore }],
+      trees: [{ id: TREE_FIXTURE_ID, name: treeSnapshot.data().name }], destinationTreeId: TREE_FIXTURE_ID
+    });
+    const refsToRead = [...new Set([...selectedIds, ...expected.affectedFamilies.flatMap(family => family.memberIds)])];
+    await runTransaction(db, async transaction => {
+      const personReads = await Promise.all(refsToRead.map(id => transaction.get(doc(db, "people", id))));
+      const familyReads = await Promise.all(expected.affectedFamilies.map(family => transaction.get(doc(db, "families", family.familyId))));
+      const targetTree = await transaction.get(doc(db, "trees", TREE_FIXTURE_ID));
+      assert.equal(targetTree.exists(), true);
+      const txPeople = personReads.filter(snapshot => snapshot.exists()).map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+      const txFamilies = familyReads.filter(snapshot => snapshot.exists()).map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+      const actual = prepareMultipleTreeTransferPlan({ personIds: selectedIds, people: txPeople, families: txFamilies, trees: [{ id: TREE_FIXTURE_ID, name: targetTree.data().name }], destinationTreeId: TREE_FIXTURE_ID });
+      assert.equal(actual.fingerprint, expected.fingerprint);
+      for (const id of selectedIds) transaction.update(doc(db, "people", id), { treeId: TREE_FIXTURE_ID });
+    });
+    for (const id of selectedIds) assert.equal((await getDoc(doc(db, "people", id))).data().treeId, TREE_FIXTURE_ID);
+    assert.equal((await getDoc(doc(db, "people", ids[1]))).data().treeId, null, "Marie non sélectionnée reste dans main");
+    assert.equal((await getDoc(doc(db, "people", ids[3]))).data().treeId, TREE_FIXTURE_ID, "Sophie préexistante n'est pas déplacée ni réécrite");
+    const paulAfter = (await getDoc(doc(db, "people", ids[2]))).data();
+    assert.equal(paulAfter.inTree, false, "inTree false reste inchangé");
+    assert.equal(paulAfter.notes, "Masqué conservé");
+    assert.deepEqual((await getDoc(familyRef)).data(), familyBefore, "aucune relation n'est réécrite");
+  } finally {
+    for (const id of ids) await deleteDoc(doc(db, "people", id));
+    await deleteDoc(familyRef);
+  }
+});
+
+test("transfert multiple : modification concurrente d'un foyer annule toutes les écritures", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const personA = "multi-emulator-conflict-a", personB = "multi-emulator-conflict-b";
+  const familyId = "multi-emulator-conflict-family";
+  const familyRef = doc(db, "families", familyId);
+  try {
+    await setDoc(doc(db, "people", personA), { firstName: "A", lastName: "Fictif" });
+    await setDoc(doc(db, "people", personB), { firstName: "B", lastName: "Fictif" });
+    await setDoc(familyRef, { partnerIds: [personA, personB], childIds: [], parentChildLinks: [] });
+    const snapshots = await Promise.all([getDoc(doc(db, "people", personA)), getDoc(doc(db, "people", personB)), getDoc(familyRef), getDoc(doc(db, "trees", TREE_FIXTURE_ID))]);
+    const expected = prepareMultipleTreeTransferPlan({
+      personIds: [personA, personB], people: snapshots.slice(0, 2).map(snapshot => ({ id: snapshot.id, ...snapshot.data() })),
+      families: [{ id: familyId, ...snapshots[2].data() }], trees: [{ id: TREE_FIXTURE_ID, name: snapshots[3].data().name }], destinationTreeId: TREE_FIXTURE_ID
+    });
+    let signalRead;
+    let releaseTransaction;
+    const readFinished = new Promise(resolve => { signalRead = resolve; });
+    const continueTransaction = new Promise(resolve => { releaseTransaction = resolve; });
+    let attempts = 0;
+    const transfer = runTransaction(db, async transaction => {
+      attempts++;
+      const personReads = await Promise.all([personA, personB].map(id => transaction.get(doc(db, "people", id))));
+      const familyRead = await transaction.get(familyRef);
+      const treeRead = await transaction.get(doc(db, "trees", TREE_FIXTURE_ID));
+      if (attempts === 1) { signalRead(); await continueTransaction; }
+      const actual = prepareMultipleTreeTransferPlan({
+        personIds: [personA, personB], people: personReads.filter(s => s.exists()).map(s => ({ id: s.id, ...s.data() })),
+        families: familyRead.exists() ? [{ id: familyRead.id, ...familyRead.data() }] : [],
+        trees: treeRead.exists() ? [{ id: TREE_FIXTURE_ID, name: treeRead.data().name }] : [], destinationTreeId: TREE_FIXTURE_ID
+      });
+      if (actual.fingerprint !== expected.fingerprint) throw new Error("Relations modifiées pendant le transfert");
+      transaction.update(doc(db, "people", personA), { treeId: TREE_FIXTURE_ID });
+      transaction.update(doc(db, "people", personB), { treeId: TREE_FIXTURE_ID });
+    });
+
+    await readFinished;
+    await updateDoc(familyRef, { parentChildLinks: [{ parentId: personA, childId: personB, type: "adoptive" }] });
+    releaseTransaction();
+    await assert.rejects(transfer, /Relations modifiées/);
+    assert.ok(attempts >= 2, "la transaction relit après le conflit de version Firestore");
+    assert.equal((await getDoc(doc(db, "people", personA))).data().treeId, undefined, "aucune écriture partielle sur A");
+    assert.equal((await getDoc(doc(db, "people", personB))).data().treeId, undefined, "aucune écriture partielle sur B");
+  } finally {
+    await deleteDoc(doc(db, "people", personA));
+    await deleteDoc(doc(db, "people", personB));
+    await deleteDoc(familyRef);
+  }
 });
 
 test("trees + people : arbre et première personne peuvent être créés atomiquement", async () => {

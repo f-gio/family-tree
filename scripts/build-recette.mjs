@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { copyFile, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildRecetteOnlyEnvironment } from "./build-recette-environment.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT = resolve(ROOT, "dist-recette");
@@ -156,7 +157,12 @@ for (const file of files) {
   const source = assertInside(ROOT, join(ROOT, file), "Source frontend");
   const target = assertInside(OUTPUT, join(OUTPUT, file), "Destination frontend");
   await mkdir(dirname(target), { recursive: true });
-  await copyFile(source, target);
+  if (file === "js/firebase-environment.js") {
+    const environmentSource = await readFile(source, "utf8");
+    await writeFile(target, buildRecetteOnlyEnvironment(environmentSource), "utf8");
+  } else {
+    await copyFile(source, target);
+  }
 }
 
 const outputFiles = (await listFiles(OUTPUT)).sort();
