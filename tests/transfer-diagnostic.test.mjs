@@ -61,6 +61,38 @@ test("plans identiques : aucune divergence, classification identical", () => {
   assert.equal(analysis.reasonCodes.length, 0);
 });
 
+test("ordre de propriétés des filiations équivalent : plus aucune divergence ni conflit", () => {
+  /* Scénario du diagnostic Recette : parentChildLinks lu avec un ordre de
+     propriétés différent selon la source (cache local vs transaction). */
+  const parentFirstFamilies = [
+    { id: "parents-paul", partnerIds: ["jean", "marie"], childIds: ["paul"], parentChildLinks: [{ parentId: "jean", childId: "paul", type: "biological" }] },
+    { id: "union-paul", partnerIds: ["paul", "sophie"], childIds: ["lea"], parentChildLinks: [{ parentId: "sophie", childId: "lea", type: "biological" }] }
+  ];
+  const childFirstFamilies = [
+    { id: "parents-paul", partnerIds: ["jean", "marie"], childIds: ["paul"], parentChildLinks: [{ childId: "paul", parentId: "jean", type: "biological" }] },
+    { id: "union-paul", partnerIds: ["paul", "sophie"], childIds: ["lea"], parentChildLinks: [{ childId: "lea", parentId: "sophie", type: "biological" }] }
+  ];
+  const expected = buildPlan({ families: parentFirstFamilies });
+  const actual = buildPlan({ families: childFirstFamilies });
+  assert.equal(expected.fingerprint, actual.fingerprint, "empreintes identiques après normalisation canonique");
+  assert.deepEqual(compareIndividualTransferPlans(expected, actual), [], "aucune divergence FAMILY_RELATION_DATA");
+  const analysis = analyzePlanDivergence(expected, actual);
+  assert.equal(analysis.classification, TRANSFER_DIAGNOSTIC_CLASSIFICATIONS.IDENTICAL);
+});
+
+test("ordre de propriétés + vrai changement simultané : le vrai conflit reste confirmé", () => {
+  const reference = buildPlan();
+  const realChange = buildPlan({
+    families: [
+      { id: "parents-paul", partnerIds: ["jean", "marie"], childIds: ["paul"], parentChildLinks: [{ childId: "paul", parentId: "jean", type: "adoptive" }] },
+      { id: "union-paul", partnerIds: ["paul", "sophie"], childIds: ["lea"], parentChildLinks: [{ parentId: "sophie", childId: "lea", type: "biological" }] }
+    ]
+  });
+  const analysis = analyzePlanDivergence(reference, realChange);
+  assert.equal(analysis.classification, TRANSFER_DIAGNOSTIC_CLASSIFICATIONS.CONFIRMED_CONFLICT);
+  assert.ok(analysis.reasonCodes.includes(TRANSFER_DIAGNOSTIC_REASON_CODES.FAMILY_RELATION_DATA));
+});
+
 test("différence d'appartenance de la personne : SOURCE_TREE_ID + PERSON_IN_TREE", () => {
   const expected = buildPlan();
   const movedPeople = basePeople.map(p => (p.id === "paul" ? { ...p, treeId: "tree-a" } : p));

@@ -200,3 +200,55 @@ test("fingerprint individuel change si l'appartenance ou les références d'un f
   assert.notEqual(first.fingerprint, changedMembership.fingerprint);
   assert.notEqual(first.fingerprint, changedFamily.fingerprint);
 });
+
+/* ─── Ordre des propriétés des objets relationnels (correctif faux conflit) ─── */
+
+const orderPeople = [
+  { id: "jean", firstName: "Jean", lastName: "Test" },
+  { id: "marie", firstName: "Marie", lastName: "Test" },
+  { id: "paul", firstName: "Paul", lastName: "Test" },
+  { id: "sophie", firstName: "Sophie", lastName: "Giovannoni", treeId: "tree-a" },
+  { id: "lea", firstName: "Léa", lastName: "Giovannoni", treeId: "tree-a" }
+];
+const ORDER_FAMILY_BASE = { id: "f", partnerIds: ["jean", "marie"], childIds: ["paul"], relationType: "marriage" };
+const orderTrees = [{ id: "tree-a", name: "Giovannoni Orino" }];
+
+function orderPlan(parentChildLinks, destinationTreeId = "tree-a") {
+  return prepareIndividualTreeTransferPlan({
+    personId: "paul", people: orderPeople,
+    families: [{ ...ORDER_FAMILY_BASE, parentChildLinks }], trees: orderTrees, destinationTreeId
+  });
+}
+
+test("l'ordre des propriétés d'une même relation parent-enfant ne change pas le fingerprint", () => {
+  const parentFirst = orderPlan([{ parentId: "jean", childId: "paul", type: "biological" }]);
+  const childFirst = orderPlan([{ childId: "paul", parentId: "jean", type: "biological" }]);
+  assert.equal(parentFirst.fingerprint, childFirst.fingerprint,
+    "deux relations identiques à l'ordre de propriétés près doivent produire la même empreinte");
+});
+
+test("l'ordre des propriétés dans les objets `links` ne change pas le fingerprint", () => {
+  const fromFirst = prepareIndividualTreeTransferPlan({
+    personId: "paul", people: orderPeople,
+    families: [{ ...ORDER_FAMILY_BASE, parentChildLinks: [], links: [{ fromId: "jean", toId: "paul" }] }],
+    trees: orderTrees, destinationTreeId: "tree-a"
+  });
+  const toFirst = prepareIndividualTreeTransferPlan({
+    personId: "paul", people: orderPeople,
+    families: [{ ...ORDER_FAMILY_BASE, parentChildLinks: [], links: [{ toId: "paul", fromId: "jean" }] }],
+    trees: orderTrees, destinationTreeId: "tree-a"
+  });
+  assert.equal(fromFirst.fingerprint, toFirst.fingerprint,
+    "deux objets links identiques à l'ordre de propriétés près doivent produire la même empreinte");
+});
+
+test("les vraies différences de filiation restent détectées malgré la normalisation des clés", () => {
+  const reference = orderPlan([{ parentId: "jean", childId: "paul", type: "biological" }]);
+  assert.notEqual(reference.fingerprint, orderPlan([{ parentId: "marie", childId: "paul", type: "biological" }]).fingerprint, "parent remplacé");
+  assert.notEqual(reference.fingerprint, orderPlan([{ parentId: "jean", childId: "paul", type: "adoptive" }]).fingerprint, "type de filiation changé");
+  const added = orderPlan([{ parentId: "jean", childId: "paul", type: "biological" }, { parentId: "marie", childId: "paul", type: "biological" }]);
+  assert.notEqual(reference.fingerprint, added.fingerprint, "relation ajoutée");
+  assert.notEqual(reference.fingerprint, orderPlan([]).fingerprint, "relation supprimée");
+  const swapped = orderPlan([{ parentId: "jean", childId: "marie", type: "biological" }]);
+  assert.notEqual(reference.fingerprint, swapped.fingerprint, "enfant remplacé : les valeurs ne sont pas neutralisées");
+});

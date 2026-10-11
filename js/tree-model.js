@@ -87,6 +87,25 @@ function personDisplayName(person = {}) {
   return [person.firstName, person.middleName, person.lastName].filter(Boolean).join(" ") || "Personne sans nom";
 }
 
+/* Les objets relationnels (parentChildLinks, links) peuvent être reçus avec un
+   ordre de propriétés différent selon la source (cache local, relecture,
+   transaction) alors qu'ils expriment la même relation. JSON.stringify étant
+   sensible à cet ordre d'insertion, une normalisation canonique — clés d'objets
+   triées, appliquée de façon récursive — est réservée au calcul de l'empreinte :
+   une même relation produit ainsi la même empreinte quelle que soit la source,
+   sans masquer une différence de valeurs réelle (parent, enfant, type, nombre
+   de relations). Le tableau lui-même garde son ordre : l'échange de deux
+   relations distinctes reste une modification détectable. */
+function canonicalRelationValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalRelationValue);
+  if (value && typeof value === "object") {
+    const canonical = {};
+    for (const key of Object.keys(value).sort()) canonical[key] = canonicalRelationValue(value[key]);
+    return canonical;
+  }
+  return value;
+}
+
 /* Prépare un aperçu descriptif du transfert global d'un arbre secondaire vers
    main. Ne mute rien et n'effectue aucune écriture. */
 export function prepareTreeTransferPlan({ people = [], families = [], sourceTreeId, destinationTreeId = MAIN_TREE_ID } = {}) {
@@ -202,7 +221,7 @@ export function prepareIndividualTreeTransferPlan({ personId, people = [], famil
       invalidMembershipIds,
       visibilityChange,
       relationData: Object.fromEntries([...FAMILY_PERSON_ARRAY_FIELDS, ...FAMILY_LINK_FIELDS]
-        .map(field => [field, family[field] == null ? null : family[field]]))
+        .map(field => [field, family[field] == null ? null : canonicalRelationValue(family[field])]))
     };
   });
 
