@@ -337,3 +337,38 @@ test("bouton transfert multiple réservé aux administrateurs et dialogue respon
     assert.equal(await page.locator("#multiTreeTransferDialog").evaluate(dialog => dialog.open), false);
   } finally { await context.close(); await browser.close(); await server.close(); }
 });
+
+test("reproduction Lot 4D : Entrée synchronise chips, compteur, aperçu et IDs transmis", async t => {
+  const h = await openHarness(t); if (!h) return;
+  const { page, context, browser, server } = h;
+  try {
+    await page.locator("#multiTreeTransferOpenBtn").click();
+    await selectPerson(page, "Jean", "jean");
+    await page.locator("#multiTreeTransferDestination").selectOption("tree-a");
+
+    const search = page.locator("#multiTreeTransferSearch");
+    await search.fill("Paul");
+    await page.locator('[data-add-tree-transfer-person="paul"]').waitFor({ state: "visible" });
+    await search.press("Enter"); // Ajout clavier : aucun événement click ne doit être requis.
+
+    const selectionBeforeConfirm = await page.evaluate(() => ({
+      chipNames: [...document.querySelectorAll("#multiTreeTransferChips .person-multiselect-chip-label")].map(node => node.textContent.trim()),
+      counter: document.getElementById("multiTreeTransferSelectionCount").textContent.trim(),
+      previewNames: [...(document.querySelector("#multiTreeTransferPreview ul")?.querySelectorAll("strong") || [])].map(node => node.textContent.trim()),
+      confirmEnabled: !document.getElementById("confirmMultiTreeTransferBtn").disabled
+    }));
+    await page.locator("#confirmMultiTreeTransferBtn").click();
+    await page.waitForFunction(() => window.__multiWrites.length > 0 || !document.getElementById("multiTreeTransferDialog").open);
+    const writtenIds = await page.evaluate(() => window.__multiWrites.map(write => write.path.split("/")[1]).sort());
+
+    assert.deepEqual({ selectionBeforeConfirm, writtenIds }, {
+      selectionBeforeConfirm: {
+        chipNames: ["Test Jean", "Test Paul"],
+        counter: "2 personnes sélectionnées sur 20 maximum",
+        previewNames: ["Jean Test", "Paul Test"],
+        confirmEnabled: true
+      },
+      writtenIds: ["jean", "paul"]
+    }, "une sélection ajoutée au clavier doit être cohérente jusqu'aux IDs transmis à la transaction");
+  } finally { await context.close(); await browser.close(); await server.close(); }
+});

@@ -2646,7 +2646,8 @@ const multipleTreeTransferPicker = createPersonMultiSelect({
     const item = person(id);
     return item ? directoryDisplayName(item) : "Personne introuvable";
   },
-  escapeHtml: esc
+  escapeHtml: esc,
+  onChange: updateMultipleTreeTransferSelection
 });
 
 function updateMultipleTreeTransferDestination(sourceTreeId, preserveDestination = true) {
@@ -2882,7 +2883,6 @@ async function confirmMultipleTreeTransfer() {
 $("multiTreeTransferOpenBtn").addEventListener("click", openMultipleTreeTransfer);
 $("multiTreeTransferDestination").addEventListener("change", previewMultipleTreeTransfer);
 $("confirmMultiTreeTransferBtn").addEventListener("click", confirmMultipleTreeTransfer);
-$("multiTreeTransferPickerRoot").addEventListener("click", updateMultipleTreeTransferSelection);
 $("clearMultiTreeTransferSelectionBtn").addEventListener("click", () => {
   multipleTreeTransferPicker.setSelected([]);
   updateMultipleTreeTransferSelection();

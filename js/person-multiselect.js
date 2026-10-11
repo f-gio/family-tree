@@ -9,7 +9,8 @@ export function createPersonMultiSelect({
   findMatches,
   suggestionFor,
   nameFor,
-  escapeHtml
+  escapeHtml,
+  onChange = () => {}
 }) {
   let selectedIds = new Set();
   let matches = [];
@@ -69,11 +70,13 @@ export function createPersonMultiSelect({
     input.value = "";
     closeResults();
     input.focus();
+    onChange([...selectedIds]);
   }
 
   function remove(id) {
-    selectedIds.delete(id);
+    if (!selectedIds.delete(id)) return;
     renderChips();
+    onChange([...selectedIds]);
   }
 
   function activate(delta) {

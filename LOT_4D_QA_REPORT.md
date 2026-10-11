@@ -4,6 +4,10 @@
 
 Une fonction de transfert groupé a été ajoutée à l'Annuaire pour les administrateurs. Elle prolonge le transfert individuel 4C sans le remplacer. L'opération déplace uniquement les fiches choisies, dans une transaction Firestore unique, après aperçu et revalidation.
 
+### Correctif de synchronisation clavier (recette Lot 4D)
+
+Un test Playwright a reproduit le cas silencieux : après avoir choisi Jean par clic puis Paul avec Entrée, les chips affichaient les deux noms, mais le compteur/aperçu et la transaction ne contenaient que Jean. Le picker déclenchait la synchronisation applicative par clic sur le conteneur ; son ajout clavier appelait directement `add()` sans événement click. `createPersonMultiSelect` notifie désormais `onChange` après chaque ajout/retrait effectif ; le transfert multi s'abonne à ce callback. Une sélection entrée au clavier, cliquée ou retirée met à jour les mêmes IDs, compteur, aperçu et payload. Les pickers Documents/Démarches n'ayant pas ce callback optionnel gardent leur comportement.
+
 ## Sélection et destinations
 
 - Recherche multi-personne réutilisant `createPersonMultiSelect` ; sélection, retrait par personne et vidage de la sélection.
@@ -34,7 +38,7 @@ Le bouton de transfert multiple est seulement visible pour les administrateurs l
 ## Tests exécutés
 
 - Modèle + diagnostic + Firebase/environnements + garde + build-environment : **61/61**.
-- Dialogue multi (confirmation, limites, source unique, retrait/vidage, conflit, aperçu obsolète, personne supprimée, arbre cible absent, permissions, 390 px) : **10/10**.
+- Dialogue multi (clic/Entrée, IDs transmis, limites, source unique, retrait/vidage, conflit, aperçu obsolète, personne supprimée, arbre cible absent, permissions, 390 px) : **11/11**.
 - Transfert individuel 4C : **10/10**.
 - Création/affectation 4B + bouton central arbre vide : **14/14**.
 - Annuaire, sauvegarde/restauration, règles de langue, QA final 70 cas, mise à jour, responsive/accessibilité : **121/121**.
@@ -50,7 +54,7 @@ Le build Recette fabrique un résolveur Firebase limité aux projets Recette et 
 ## Recette manuelle proposée
 
 1. Sur Recette, en administrateur, ouvrir Annuaire → « Transférer plusieurs personnes ».
-2. Sélectionner Paul et Sophie dans le même arbre, confirmer que la destination est « Giovannoni Orino », et lire les liens internes et externes.
+2. Sélectionner Paul et Sophie dans le même arbre (tester un ajout par clic et un ajout par Entrée), confirmer que la destination est « Giovannoni Orino », et lire les liens internes et externes.
 3. Annuler ; vérifier qu'aucun `treeId` n'a changé.
 4. Refaire l'opération puis confirmer ; vérifier uniquement les personnes sélectionnées dans l'arbre cible, annuaire partagé sans doublons, relations conservées et visibilité conforme.
 5. Répéter vers l'arbre principal et entre deux arbres secondaires ; tester aussi un groupe contenant une fiche `inTree: false`.
