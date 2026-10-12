@@ -1,11 +1,11 @@
 import { normalizeGenealogyDate } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS } from "./family-relations.js";
-import { MAIN_TREE_ID, getPersonTreeId, isValidTreeId } from "./tree-model.js";
+import { MAIN_TREE_ID, getPersonTreeMembership, isValidTreeId } from "./tree-model.js";
 
 export const FILE_CHUNK_BYTES = 700 * 1024;
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;
 export const BACKUP_FORMAT = "family-tree-backup";
-export const BACKUP_VERSION = 3;
+export const BACKUP_VERSION = 4;
 export const IMPORT_BATCH_SIZE = 400;
 
 export function formatBytes(value = 0) {
@@ -115,9 +115,9 @@ export function validateTreeDataset(personRecords = [], treeRecords = []) {
     }
   }
   for (const person of personRecords) {
-    const treeId = getPersonTreeId(person);
-    if (treeId === MAIN_TREE_ID) continue;
-    if (!treeId || !treeIds.has(treeId)) {
+    const membership = getPersonTreeMembership(person);
+    if (membership.type === "unassigned" || (membership.type === "assigned" && membership.treeId === MAIN_TREE_ID)) continue;
+    if (membership.type !== "assigned" || !treeIds.has(membership.treeId)) {
       throw new Error(`La fiche ${person?.id || "inconnue"} référence un arbre absent ou invalide`);
     }
   }

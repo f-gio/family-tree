@@ -56,21 +56,36 @@ service cloud.firestore {
         && treeId.matches('^[A-Za-z0-9_-]{1,128}$');
     }
 
+    function hasUnassignedMarker() {
+      return 'treeAssignmentState' in request.resource.data
+        && request.resource.data.treeAssignmentState == 'unassigned'
+        && 'treeId' in request.resource.data
+        && request.resource.data.treeId == '';
+    }
+
+    function hasNoUnassignedMarker() {
+      return !('treeAssignmentState' in request.resource.data);
+    }
+
     function validPersonTreeReference() {
-      return !('treeId' in request.resource.data)
-        || request.resource.data.treeId == null
-        || request.resource.data.treeId == 'main'
-        || (validTreeId(request.resource.data.treeId)
-          && existsAfter(/databases/$(database)/documents/trees/$(request.resource.data.treeId)));
+      return hasUnassignedMarker()
+        || (hasNoUnassignedMarker()
+          && (!('treeId' in request.resource.data)
+            || request.resource.data.treeId == null
+            || request.resource.data.treeId == 'main'
+            || (validTreeId(request.resource.data.treeId)
+              && existsAfter(/databases/$(database)/documents/trees/$(request.resource.data.treeId)))));
     }
 
     function validPersonTreeAssignmentOnCreate() {
-      return !('treeId' in request.resource.data)
-        || request.resource.data.treeId == null
-        || request.resource.data.treeId == 'main'
-        || (isApproved()
-          && validTreeId(request.resource.data.treeId)
-          && existsAfter(/databases/$(database)/documents/trees/$(request.resource.data.treeId)));
+      return (hasUnassignedMarker() && isApproved())
+        || (hasNoUnassignedMarker()
+          && (!('treeId' in request.resource.data)
+            || request.resource.data.treeId == null
+            || request.resource.data.treeId == 'main'
+            || (isApproved()
+              && validTreeId(request.resource.data.treeId)
+              && existsAfter(/databases/$(database)/documents/trees/$(request.resource.data.treeId)))));
     }
 
     function validTree(treeId) {
@@ -226,7 +241,7 @@ service cloud.firestore {
         && validPersonTreeReference() && validPersonTreeAssignmentOnCreate();
       allow update: if isApproved() && validPerson() && validUpdatedBy()
         && validPersonTreeReference()
-        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['treeId']) || isAdmin());
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['treeId', 'treeAssignmentState']) || isAdmin());
     }
 
     // Métadonnées des arbres secondaires. L'arbre principal est implicite et

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   MAIN_TREE_ID,
+  UNASSIGNED_TREE_STATE,
+  getPersonTreeMembership,
   getPersonTreeId,
   getTreePeople,
   getTreeMemberIds,
@@ -46,6 +48,23 @@ test("treeId absent ou null identifie l'arbre principal sans changer les personn
   assert.deepEqual(getTreePeople(people, "missing-tree"), []);
   assert.deepEqual(getTreeMemberIds(people, "tree-a"), ["secondary-a", "secondary-b"]);
   assert.deepEqual(getTreeMemberIds([{ treeId: "tree-a" }, { id: "x", treeId: "tree-a" }], "tree-a"), ["x"]);
+});
+
+test("getPersonTreeMembership distingue assigné, désassigné explicite et état indisponible", () => {
+  assert.deepEqual(getPersonTreeMembership({}), { type: "assigned", treeId: MAIN_TREE_ID });
+  assert.deepEqual(getPersonTreeMembership({ treeId: null }), { type: "assigned", treeId: MAIN_TREE_ID });
+  assert.deepEqual(getPersonTreeMembership({ treeId: "main" }), { type: "assigned", treeId: MAIN_TREE_ID });
+  assert.deepEqual(getPersonTreeMembership({ treeId: "tree-a" }), { type: "assigned", treeId: "tree-a" });
+  assert.deepEqual(getPersonTreeMembership({ treeId: "", treeAssignmentState: UNASSIGNED_TREE_STATE }), { type: "unassigned", treeId: null });
+  assert.equal(getPersonTreeId({ treeId: "", treeAssignmentState: UNASSIGNED_TREE_STATE }), null, "getPersonTreeId ne transforme pas la désaffectation en principal");
+  assert.deepEqual(getPersonTreeMembership({ treeId: "" }), { type: "unavailable", treeId: null }, "ID vide sans marqueur reste invalide");
+  assert.deepEqual(getPersonTreeMembership({ treeAssignmentState: UNASSIGNED_TREE_STATE }), { type: "unavailable", treeId: null }, "marqueur seul refusé");
+  assert.deepEqual(getPersonTreeMembership({ treeId: "tree-a", treeAssignmentState: UNASSIGNED_TREE_STATE }), { type: "unavailable", treeId: null }, "marqueur contradictoire refusé");
+  assert.equal(getPersonTreeId({ treeId: "tree-a", treeAssignmentState: UNASSIGNED_TREE_STATE }), null, "un marqueur contradictoire ne passe pas par le lecteur legacy");
+  assert.deepEqual(getPersonTreeMembership({ treeId: "", treeAssignmentState: "future-state" }), { type: "unavailable", treeId: null }, "état inconnu refusé");
+  const records = [{ id: "legacy" }, { id: "none", treeId: "", treeAssignmentState: UNASSIGNED_TREE_STATE }, { id: "broken", treeId: "", treeAssignmentState: "bad" }];
+  assert.deepEqual(getTreePeople(records, MAIN_TREE_ID).map(item => item.id), ["legacy"]);
+  assert.equal(getPersonTreeId(records[1]), null, "getPersonTreeId historique ne reclassifie pas le marqueur en principal");
 });
 
 test("getTreeFamilies garde seulement les familles entièrement contenues", () => {
@@ -145,10 +164,38 @@ test("transfert individuel main → secondaire prévisualise les foyers conserv�
   assert.deepEqual(plan.affectedFamilies[2].unresolvedPersonIds, ["missing"]);
   assert.deepEqual(plan.summary, {
     affectedFamilyCount: 3, remainsVisibleCount: 0, becomesHiddenCount: 1,
-    becomesVisibleCount: 1, unresolvedReferenceCount: 1, invalidMembershipCount: 0
+    becomesVisibleCount: 1, unresolvedReferenceCount: 1, unassignedRelatedCount: 0, invalidMembershipCount: 0
   });
   assert.equal(JSON.stringify(transferPeople), beforePeople);
   assert.equal(JSON.stringify(transferFamilies), beforeFamilies);
+});
+
+test("réaffectation individuelle depuis Aucun arbre vers main/secondaire valide l'état et rend visible par défaut", () => {
+  const source = { id: "unassigned-child", firstName: "Enfant", lastName: "Test", treeId: "", treeAssignmentState: UNASSIGNED_TREE_STATE, inTree: false, notes: "À conserver" };
+  const parent = { id: "main-parent", firstName: "Parent", lastName: "Test" };
+  const family = { id: "unassigned-family", partnerIds: ["main-parent"], childIds: ["unassigned-child"] };
+  const args = { personId: source.id, people: [parent, source], families: [family], trees: [{ id: "tree-a", name: "Branche A" }] };
+  const beforePeople = JSON.stringify(args.people);
+  const beforeFamilies = JSON.stringify(args.families);
+  const toMain = prepareIndividualTreeTransferPlan({ ...args, destinationTreeId: MAIN_TREE_ID });
+  assert.equal(toMain.sourceMembershipType, "unassigned");
+  assert.equal(toMain.sourceTreeId, null);
+  assert.equal(toMain.sourceTreeName, "Aucun arbre");
+  assert.equal(toMain.personInTree, false, "le plan conserve le contexte visibilité source");
+  assert.equal(toMain.destinationTreeId, MAIN_TREE_ID);
+  assert.equal(toMain.summary.becomesVisibleCount, 1, "l'affectation au principal rend le foyer dessinable");
+  const toSecondary = prepareIndividualTreeTransferPlan({ ...args, destinationTreeId: "tree-a" });
+  assert.equal(toSecondary.destinationTreeName, "Branche A");
+  assert.equal(JSON.stringify(args.people), beforePeople, "le plan ne mute pas les personnes");
+  assert.equal(JSON.stringify(args.families), beforeFamilies, "le plan ne mute pas les relations");
+});
+
+test("le transfert multiple refuse explicitement les personnes sans arbre", () => {
+  assert.throws(() => prepareMultipleTreeTransferPlan({
+    personIds: ["none"],
+    people: [{ id: "none", treeId: "", treeAssignmentState: UNASSIGNED_TREE_STATE }],
+    families: [], trees: [], destinationTreeId: MAIN_TREE_ID
+  }), /sans arbre|appartenance invalide/i);
 });
 
 test("transfert individuel secondary → main et secondary → autre secondaire", () => {

@@ -174,6 +174,7 @@ export function compareIndividualTransferPlans(expectedPlan, actualPlan) {
       const memberFields = [
         { field: "name", hash: true },
         { field: "treeId", hash: true },
+        { field: "assignmentState", hash: false },
         { field: "inTree", hash: false },
         { field: "exists", hash: false }
       ];

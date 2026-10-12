@@ -117,8 +117,8 @@ test("le manifeste porte le format et la version de sauvegarde attendus", () => 
   const manifest = buildBackupManifest({ people, families, tasks, documents });
   assert.equal(manifest.format, "family-tree-backup");
   assert.equal(BACKUP_FORMAT, "family-tree-backup");
-  assert.equal(manifest.version, 3);
-  assert.equal(BACKUP_VERSION, 3);
+  assert.equal(manifest.version, 4);
+  assert.equal(BACKUP_VERSION, 4);
   assert.match(manifest.exportedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 });
 
@@ -236,6 +236,15 @@ test("validateTreeDataset accepte treeId absent/main et les arbres secondaires r
   assert.doesNotThrow(() => validateTreeDataset(peopleWithTrees.slice(0, 2), []));
 });
 
+test("validateTreeDataset accepte uniquement la paire explicite Aucun arbre", () => {
+  const unassigned = { id: "sans-arbre", treeId: "", treeAssignmentState: "unassigned" };
+  assert.doesNotThrow(() => validateTreeDataset([unassigned], []));
+  assert.throws(() => validateTreeDataset([{ id: "id-vide", treeId: "" }], []), /arbre absent ou invalide/);
+  assert.throws(() => validateTreeDataset([{ id: "marqueur-seul", treeAssignmentState: "unassigned" }], []), /arbre absent ou invalide/);
+  assert.throws(() => validateTreeDataset([{ id: "marqueur-arbre", treeId: "tree-a", treeAssignmentState: "unassigned" }], [{ id: "tree-a", name: "A" }]), /arbre absent ou invalide/);
+  assert.throws(() => validateTreeDataset([{ id: "marqueur-inconnu", treeId: "", treeAssignmentState: "future" }], []), /arbre absent ou invalide/);
+});
+
 test("validateTreeDataset rejette arbres invalides/dupliqués et treeId sans document", () => {
   assert.throws(() => validateTreeDataset([], [{ id: "main", name: "Arbre principal" }]), /invalide ou réservé/);
   assert.throws(() => validateTreeDataset([], [{ id: "tree/a", name: "Arbre" }]), /invalide ou réservé/);
@@ -268,6 +277,15 @@ test("sauvegarde/restauration conserve treeId, arbres et références documents 
   assert.equal(importedDataFields(parsed.people.find(person => person.id === "person-child-a")).treeId, "tree-secondary");
   assert.equal(parsed.people.length, new Set(parsed.people.map(person => person.id)).size);
   assert.equal(parsed.trees.length, new Set(parsed.trees.map(tree => tree.id)).size);
+});
+
+test("sauvegarde/restauration conserve l'état Aucun arbre sans reclasser en principal", () => {
+  const none = { id: "sans-arbre", firstName: "Personne", lastName: "Test", treeId: "", treeAssignmentState: "unassigned", inTree: false };
+  const manifest = buildBackupManifest({ people: [none], families: [], trees: [], tasks: [], documents: [] });
+  const parsed = parseBackupManifestText(JSON.stringify(manifest));
+  assert.equal(parsed.version, 4);
+  assert.doesNotThrow(() => validateTreeDataset(parsed.people, parsed.trees));
+  assert.deepEqual(importedDataFields(parsed.people[0]), { firstName: "Personne", lastName: "Test", treeId: "", treeAssignmentState: "unassigned", inTree: false });
 });
 
 test("parseBackupManifestText refuse une propriété trees mal formée", () => {

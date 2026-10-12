@@ -137,7 +137,7 @@ test("création depuis l’annuaire propose main par défaut et un choix seconda
     await page.locator("#addDirectoryPersonBtn").click();
     assert.equal(await page.locator("#personTreeSelectWrap").isVisible(), true);
     assert.equal(await page.locator("#personTreeSelect").inputValue(), "main");
-    assert.deepEqual(await page.locator("#personTreeSelect option").allTextContents(), ["Arbre familial", "Ramo Conti"], JSON.stringify(await page.evaluate(() => window.__personTreeHarness.state())));
+    assert.deepEqual(await page.locator("#personTreeSelect option").allTextContents(), ["Aucun arbre", "Arbre familial", "Ramo Conti"], JSON.stringify(await page.evaluate(() => window.__personTreeHarness.state())));
     await fillNewPerson(page, "Annuaire Principal");
     await page.waitForFunction(() => window.__personTreeWrites.length === 1);
     let writes = await page.evaluate(() => window.__personTreeWrites.map(item => ({ ...item })));

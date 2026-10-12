@@ -1,11 +1,14 @@
 import { normalizeGenealogyDate, genealogyDateYears } from "./genealogy-date.js";
-import { MAIN_TREE_ID, getPersonTreeId } from "./tree-model.js";
+import { MAIN_TREE_ID, getPersonTreeMembership } from "./tree-model.js";
+
+export const DIRECTORY_UNASSIGNED_TREE_FILTER = "!sans-arbre!";
 
 export function directoryTreeLabel(person = {}, trees = []) {
-  const treeId = getPersonTreeId(person);
-  if (!treeId) return "Arbre indisponible";
-  if (treeId === MAIN_TREE_ID) return "Arbre familial";
-  return trees.find(tree => tree.id === treeId)?.name || "Arbre indisponible";
+  const membership = getPersonTreeMembership(person);
+  if (membership.type === "unassigned") return "Aucun arbre";
+  if (membership.type !== "assigned") return "Arbre indisponible";
+  if (membership.treeId === MAIN_TREE_ID) return "Arbre familial";
+  return trees.find(tree => tree.id === membership.treeId)?.name || "Arbre indisponible";
 }
 
 export function normalizeDirectoryText(value = "") {
@@ -110,7 +113,11 @@ export function filterAndSortDirectory(people = [], filters = {}) {
     const marriedNameText = normalizeDirectoryText(item.marriedName || "");
     const birthPlaceText = searchablePlace(item, "birth");
     const deathPlaceText = searchablePlace(item, "death");
-    const personTreeId = getPersonTreeId(item);
+    const membership = getPersonTreeMembership(item);
+    const treeMatch = treeId === "all"
+      || (treeId === DIRECTORY_UNASSIGNED_TREE_FILTER
+        ? membership.type === "unassigned"
+        : membership.type === "assigned" && membership.treeId === treeId);
     return (!query || quickSearch.includes(query))
       && (!firstName || nameSearch.includes(firstName))
       && (!marriedName || marriedNameText.includes(marriedName))
@@ -120,7 +127,7 @@ export function filterAndSortDirectory(people = [], filters = {}) {
       && (!deathPlace || textTokenMatch(deathPlaceText, deathPlace))
       && genealogyDateOverlapsRange(item.birthDateInfo, item.birthDate, filters.birthYearFrom, filters.birthYearTo)
       && genealogyDateOverlapsRange(item.deathDateInfo, item.deathDate, filters.deathYearFrom, filters.deathYearTo)
-      && (treeId === "all" || personTreeId === treeId)
+      && treeMatch
       && (!deathInfo || (deathInfo === "yes" ? hasDeathInformation(item) : !hasDeathInformation(item)));
   });
 

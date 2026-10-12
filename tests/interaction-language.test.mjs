@@ -28,7 +28,7 @@ assert.match(app, /Dissocier ce partenaire/);
 assert.match(app, /Dissocier ce lien parent-enfant/);
 assert.match(app, /Supprimer définitivement ce document/);
 assert.match(app, /Supprimer définitivement cette action/);
-assert.match(app, /Sa fiche et ses liens resteront disponibles/);
+assert.match(app, /Elle restera dans l’Annuaire avec ses informations, ses relations et ses documents/);
 assert.match(css, /\.modal-actions > \.btn\.danger/);
 
 // 19 — menus et navigation.

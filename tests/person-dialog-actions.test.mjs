@@ -56,7 +56,7 @@ test("C. colonne d'actions : croix + bouton ⋯ accessible, menu contextuel comp
   assert.match(html, /id="personTreeMembershipLabel"/);
   assert.match(app, /updatePersonTreeMembershipLabel\(item\)/);
   assert.match(app, /async function removePersonFromTree\(id\)/);
-  assert.match(app, /await updateDoc\(doc\(db, "people", id\), \{[\s\S]*?inTree: false/);
+  assert.match(app, /treeId: "",[\s\S]*?treeAssignmentState: UNASSIGNED_TREE_STATE/);
   assert.match(css, /\.person-head-actions,\s*\.modal-head-actions \{[^}]*position: relative;/);
   assert.match(css, /\.person-action-menu,\s*\.modal-action-menu \{[^}]*position: absolute;[^}]*max-height: min\(60dvh, 18rem\);/);
 });
@@ -195,8 +195,8 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     }));
     assert.equal(menuOpen.hidden, false);
     assert.equal(menuOpen.expanded, "true");
-    assert.deepEqual(menuOpen.items, ["printPersonBtn", "viewBranchBtn", "removePersonFromTreeBtn", "deleteBtn"],
-      "ordre visible non-admin conforme, Changer d'arbre réservé à l'admin");
+    assert.deepEqual(menuOpen.items, ["printPersonBtn", "viewBranchBtn", "deleteBtn"],
+      "ordre visible non-admin conforme, actions d'appartenance réservées à l'admin");
 
     // navigation clavier : flèche bas déplace le focus dans le menu
     await page.keyboard.press("ArrowDown");
@@ -211,19 +211,22 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     await page.click('[data-close="personPrintDialog"]');
     await page.waitForTimeout(80);
 
-    // Retirer de l'arbre est distinct de la suppression permanente.
+    // Retirer de l'arbre est distinct de la suppression permanente (admin only).
+    if (!(await page.locator("#removePersonFromTreeBtn").isHidden())) {
+      await page.evaluate(() => { window.__confirmCalled = 0; window.confirm = () => { window.__confirmCalled++; return false; }; });
+      await page.click("#personMenuBtn");
+      await page.waitForTimeout(80);
+      await page.click("#removePersonFromTreeBtn");
+      await page.waitForTimeout(80);
+      assert.equal(await page.evaluate(() => window.__confirmCalled), 1, "confirmation explicite du retrait utilisée");
+      assert.ok(await page.evaluate(() => document.getElementById("personDialog").open), "modale non fermée par le retrait refusé");
+    }
     await page.evaluate(() => { window.__confirmCalled = 0; window.confirm = () => { window.__confirmCalled++; return false; }; });
-    await page.click("#personMenuBtn");
-    await page.waitForTimeout(80);
-    await page.click("#removePersonFromTreeBtn");
-    await page.waitForTimeout(80);
-    assert.equal(await page.evaluate(() => window.__confirmCalled), 1, "confirmation explicite du retrait utilisée");
-    assert.ok(await page.evaluate(() => document.getElementById("personDialog").open), "modale non fermée par le retrait refusé");
     await page.click("#personMenuBtn");
     await page.waitForTimeout(60);
     await page.click("#deleteBtn");
     await page.waitForTimeout(80);
-    assert.equal(await page.evaluate(() => window.__confirmCalled), 2, "suppression définitive garde sa confirmation existante");
+    assert.equal(await page.evaluate(() => window.__confirmCalled), 1, "suppression définitive garde sa confirmation existante");
     assert.ok(await page.evaluate(() => document.getElementById("personDialog").open), "la suppression refusée ne ferme pas la fiche");
 
     // Échap ferme le menu et conserve la modale
@@ -267,7 +270,7 @@ test("H. navigateur réel : titre, méta, menu ⋯, actions, footer, clavier", a
     assert.equal(legacyHead.saveLabel, "Enregistrer");
     assert.ok(legacyHead.meta.includes("astérisque"), "libellé neutre sans updatedAt");
     assert.equal(await page.locator("#personTreeMembershipName").textContent(), "Arbre principal", "inTree=false ne signifie pas aucun arbre");
-    assert.equal(await page.locator("#removePersonFromTreeBtn").isHidden(), true, "retrait masqué pour une fiche déjà masquée");
+    assert.equal(await page.locator("#removePersonFromTreeBtn").isHidden(), true, "inTree=false conserve l’appartenance; le retrait reste visible pour les admins uniquement");
 
     await page.evaluate(() => {
       const item = { id: "PX3", firstName: "Andrea", lastName: "Giovannoni", treeId: "tree-conti" };

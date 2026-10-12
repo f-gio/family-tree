@@ -2,6 +2,8 @@
    Les personnes restent uniques : treeId absent/null signifie l'arbre principal. */
 
 export const MAIN_TREE_ID = "main";
+export const UNASSIGNED_TREE_STATE = "unassigned";
+export const UNASSIGNED_TREE_CHOICE = "!unassigned!";
 
 const FAMILY_PERSON_ARRAY_FIELDS = Object.freeze([
   "partnerIds",
@@ -24,8 +26,23 @@ export function isValidTreeId(treeId) {
 }
 
 export function getPersonTreeId(person = {}) {
+  if (Object.prototype.hasOwnProperty.call(person || {}, "treeAssignmentState")) return null;
   if (person?.treeId == null) return MAIN_TREE_ID;
   return isValidTreeId(person.treeId) ? person.treeId : null;
+}
+
+/* Les valeurs historiques treeId absent/null/main restent affectées au principal.
+   La désaffectation n'est reconnue que si le marqueur et treeId vide concordent. */
+export function getPersonTreeMembership(person = {}) {
+  if (Object.prototype.hasOwnProperty.call(person || {}, "treeAssignmentState")) {
+    return person.treeAssignmentState === UNASSIGNED_TREE_STATE && person.treeId === ""
+      ? { type: "unassigned", treeId: null }
+      : { type: "unavailable", treeId: null };
+  }
+  const treeId = getPersonTreeId(person);
+  return treeId
+    ? { type: "assigned", treeId }
+    : { type: "unavailable", treeId: null };
 }
 
 function normalizeRequestedTreeId(treeId) {
@@ -55,7 +72,10 @@ export function familyPersonIds(family = {}) {
 export function getTreePeople(people = [], treeId = MAIN_TREE_ID) {
   const requested = normalizeRequestedTreeId(treeId);
   if (!requested || !Array.isArray(people)) return [];
-  return people.filter(person => getPersonTreeId(person) === requested);
+  return people.filter(person => {
+    const membership = getPersonTreeMembership(person);
+    return membership.type === "assigned" && membership.treeId === requested;
+  });
 }
 
 export function getTreeMemberIds(people = [], treeId = MAIN_TREE_ID) {
@@ -141,7 +161,9 @@ export function prepareTreeTransferPlan({ people = [], families = [], sourceTree
     const unresolvedPersonIds = outsidePersonIds.filter(id => !peopleById.has(id));
     const otherTreePersonIds = outsidePersonIds.filter(id => {
       const person = peopleById.get(id);
-      return person && getPersonTreeId(person) !== source;
+      if (!person) return false;
+      const membership = getPersonTreeMembership(person);
+      return membership.type !== "assigned" || membership.treeId !== source;
     });
     interTreeLinks.push({
       familyId: typeof family?.id === "string" ? family.id : null,
@@ -162,7 +184,7 @@ export function prepareTreeTransferPlan({ people = [], families = [], sourceTree
 
 function visibleFamilyTreeIds(family, people, treeIds) {
   return [...treeIds].filter(treeId => {
-    const treePeople = people.filter(person => getPersonTreeId(person) === treeId);
+    const treePeople = getTreePeople(people, treeId);
     return familyVisibleInTree(family, treePeople, treeId);
   });
 }
@@ -176,15 +198,16 @@ export function prepareIndividualTreeTransferPlan({ personId, people = [], famil
   const person = people.find(item => item?.id === personId);
   if (!person) throw new Error("La personne à déplacer est introuvable");
 
-  const sourceTreeId = getPersonTreeId(person);
-  if (!sourceTreeId) throw new Error("L'arbre actuel de cette personne est invalide ou indisponible");
+  const sourceMembership = getPersonTreeMembership(person);
+  if (sourceMembership.type === "unavailable") throw new Error("L'appartenance actuelle de cette personne est invalide ou indisponible");
+  const sourceTreeId = sourceMembership.type === "assigned" ? sourceMembership.treeId : null;
   const knownTrees = trees.filter(tree => isValidTreeId(tree?.id) && tree.id !== MAIN_TREE_ID);
-  if (sourceTreeId !== MAIN_TREE_ID && !knownTrees.some(tree => tree.id === sourceTreeId)) {
+  if (sourceMembership.type === "assigned" && sourceTreeId !== MAIN_TREE_ID && !knownTrees.some(tree => tree.id === sourceTreeId)) {
     throw new Error("L'arbre actuel de cette personne est indisponible");
   }
   const destination = normalizeRequestedTreeId(destinationTreeId);
   if (!destination) throw new Error("L'arbre de destination est invalide");
-  if (destination === sourceTreeId) throw new Error("Choisissez un arbre différent de l'arbre actuel");
+  if (sourceMembership.type === "assigned" && destination === sourceTreeId) throw new Error("Choisissez un arbre différent de l'arbre actuel");
   if (destination !== MAIN_TREE_ID && !knownTrees.some(tree => tree.id === destination)) {
     throw new Error("L'arbre de destination est indisponible");
   }
@@ -194,22 +217,32 @@ export function prepareIndividualTreeTransferPlan({ personId, people = [], famil
   const affectedFamilies = families.filter(family => familyPersonIds(family).includes(personId))
     .sort((left, right) => String(left?.id || "").localeCompare(String(right?.id || "")));
   const treeIds = new Set([MAIN_TREE_ID, ...knownTrees.map(tree => tree.id)]);
-  const afterPeople = people.map(item => item.id === personId ? { ...item, treeId: destination } : item);
+  const afterPeople = people.map(item => {
+    if (item.id !== personId) return item;
+    const assigned = { ...item, treeId: destination };
+    delete assigned.treeAssignmentState;
+    if (sourceMembership.type === "unassigned") assigned.inTree = true;
+    return assigned;
+  });
   const plannedFamilies = affectedFamilies.map(family => {
     const memberIds = familyPersonIds(family);
     const members = memberIds.map(id => {
       const member = peopleById.get(id);
+      const membership = member ? getPersonTreeMembership(member) : null;
       return {
         id,
         name: member ? personDisplayName(member) : "Personne introuvable",
-        treeId: member ? getPersonTreeId(member) : null,
+        treeId: membership?.type === "assigned" ? membership.treeId : null,
+        assignmentState: membership?.type || "unresolved",
         inTree: member?.inTree !== false,
         exists: !!member
       };
     });
     const unresolvedPersonIds = members.filter(member => !member.exists).map(member => member.id);
+    const unassignedPersonIds = members.filter(member => member.assignmentState === "unassigned").map(member => member.id);
     const invalidMembershipIds = members.filter(member => member.exists
-      && (!member.treeId || !knownTreeIds.has(member.treeId))).map(member => member.id);
+      && (member.assignmentState === "unavailable"
+        || (member.assignmentState === "assigned" && !knownTreeIds.has(member.treeId)))).map(member => member.id);
     const beforeVisibleTreeIds = visibleFamilyTreeIds(family, people, treeIds);
     const afterVisibleTreeIds = visibleFamilyTreeIds(family, afterPeople, treeIds);
     const wasVisible = beforeVisibleTreeIds.length > 0;
@@ -228,6 +261,7 @@ export function prepareIndividualTreeTransferPlan({ personId, people = [], famil
       beforeVisibleTreeIds,
       afterVisibleTreeIds,
       unresolvedPersonIds,
+      unassignedPersonIds,
       invalidMembershipIds,
       visibilityChange,
       relationData: canonicalFamilyRelationData(family)
@@ -237,15 +271,18 @@ export function prepareIndividualTreeTransferPlan({ personId, people = [], famil
   const familyReferences = plannedFamilies.map(family => ({
     familyId: family.familyId,
     memberIds: family.memberIds,
-    members: family.members.map(member => ({ id: member.id, name: member.name, treeId: member.treeId, inTree: member.inTree, exists: member.exists })),
+    members: family.members.map(member => ({ id: member.id, name: member.name, treeId: member.treeId, assignmentState: member.assignmentState, inTree: member.inTree, exists: member.exists })),
     relations: family.relationData
   }));
-  const sourceTreeName = sourceTreeId === MAIN_TREE_ID ? "Arbre familial" : knownTrees.find(tree => tree.id === sourceTreeId)?.name || "Arbre indisponible";
+  const sourceTreeName = sourceMembership.type === "unassigned"
+    ? "Aucun arbre"
+    : sourceTreeId === MAIN_TREE_ID ? "Arbre familial" : knownTrees.find(tree => tree.id === sourceTreeId)?.name || "Arbre indisponible";
   const destinationTreeName = destination === MAIN_TREE_ID ? "Arbre familial" : knownTrees.find(tree => tree.id === destination)?.name || "Arbre indisponible";
   return {
     personId,
     personName: personDisplayName(person),
     personInTree: person.inTree !== false,
+    sourceMembershipType: sourceMembership.type,
     sourceTreeId,
     destinationTreeId: destination,
     sourceTreeName,
@@ -257,11 +294,13 @@ export function prepareIndividualTreeTransferPlan({ personId, people = [], famil
       becomesHiddenCount: plannedFamilies.filter(family => family.visibilityChange === "becomes-hidden").length,
       becomesVisibleCount: plannedFamilies.filter(family => family.visibilityChange === "becomes-visible").length,
       unresolvedReferenceCount: plannedFamilies.reduce((sum, family) => sum + family.unresolvedPersonIds.length, 0),
+      unassignedRelatedCount: plannedFamilies.reduce((sum, family) => sum + family.unassignedPersonIds.length, 0),
       invalidMembershipCount: plannedFamilies.reduce((sum, family) => sum + family.invalidMembershipIds.length, 0)
     },
     fingerprint: JSON.stringify({
       personId, personName: personDisplayName(person), personInTree: person.inTree !== false,
-      sourceTreeId, destinationTreeId: destination, sourceTreeName, destinationTreeName, familyReferences
+      sourceMembershipType: sourceMembership.type, sourceTreeId, destinationTreeId: destination,
+      sourceTreeName, destinationTreeName, familyReferences
     })
   };
 }
@@ -286,9 +325,13 @@ export function prepareMultipleTreeTransferPlan({ personIds = [], people = [], f
     if (!item) throw new Error("Une personne sélectionnée n'existe plus. Recommencez la sélection.");
     return item;
   });
-  const sourceTreeId = getPersonTreeId(selectedPeople[0]);
-  if (!sourceTreeId) throw new Error("L'arbre source d'une personne sélectionnée est invalide ou indisponible.");
-  if (selectedPeople.some(item => getPersonTreeId(item) !== sourceTreeId)) {
+  const sourceMembership = getPersonTreeMembership(selectedPeople[0]);
+  if (sourceMembership.type !== "assigned") throw new Error("Les personnes sans arbre ou à appartenance invalide ne peuvent pas être incluses dans un transfert multiple.");
+  const sourceTreeId = sourceMembership.treeId;
+  if (selectedPeople.some(item => {
+    const membership = getPersonTreeMembership(item);
+    return membership.type !== "assigned" || membership.treeId !== sourceTreeId;
+  })) {
     throw new Error("Toutes les personnes sélectionnées doivent appartenir au même arbre source.");
   }
 
@@ -324,10 +367,12 @@ export function prepareMultipleTreeTransferPlan({ personIds = [], people = [], f
     const memberIds = familyPersonIds(family);
     const members = memberIds.map(id => {
       const member = peopleById.get(id);
+      const membership = member ? getPersonTreeMembership(member) : null;
       return {
         id,
         name: member ? personDisplayName(member) : "Personne introuvable",
-        treeId: member ? getPersonTreeId(member) : null,
+        treeId: membership?.type === "assigned" ? membership.treeId : null,
+        assignmentState: membership?.type || "unresolved",
         inTree: member?.inTree !== false,
         exists: !!member,
         selected: selectedIds.has(id)
@@ -336,8 +381,10 @@ export function prepareMultipleTreeTransferPlan({ personIds = [], people = [], f
     const beforeVisibleTreeIds = visibleFamilyTreeIds(family, people, treeIds);
     const afterVisibleTreeIds = visibleFamilyTreeIds(family, afterPeople, treeIds);
     const selectedMemberIds = memberIds.filter(id => selectedIds.has(id));
-    const otherTreeMemberIds = members.filter(member => member.exists
+    const otherTreeMemberIds = members.filter(member => member.exists && member.assignmentState === "assigned"
       && member.treeId !== sourceTreeId && member.treeId !== destination).map(member => member.id);
+    const unassignedMemberIds = members.filter(member => member.assignmentState === "unassigned").map(member => member.id);
+    const invalidMembershipIds = members.filter(member => member.exists && member.assignmentState === "unavailable").map(member => member.id);
     return {
       familyId: family.id,
       memberIds,
@@ -345,6 +392,8 @@ export function prepareMultipleTreeTransferPlan({ personIds = [], people = [], f
       selectedMemberIds,
       unselectedMemberIds: memberIds.filter(id => !selectedIds.has(id)),
       otherTreeMemberIds,
+      unassignedMemberIds,
+      invalidMembershipIds,
       internalToSelection: memberIds.length > 0 && memberIds.every(id => selectedIds.has(id)),
       beforeVisibleTreeIds,
       afterVisibleTreeIds,
@@ -354,14 +403,14 @@ export function prepareMultipleTreeTransferPlan({ personIds = [], people = [], f
 
   const canonicalSelectedPeople = canonicalIds.map(id => {
     const item = peopleById.get(id);
-    return { id, name: personDisplayName(item), treeId: getPersonTreeId(item), inTree: item.inTree !== false, exists: true };
+    return { id, name: personDisplayName(item), treeId: getPersonTreeId(item), assignmentState: "assigned", inTree: item.inTree !== false, exists: true };
   });
   const sourceTreeName = sourceTreeId === MAIN_TREE_ID ? "Arbre familial" : knownTrees.find(tree => tree.id === sourceTreeId)?.name || "Arbre indisponible";
   const destinationTreeName = destination === MAIN_TREE_ID ? "Arbre familial" : knownTrees.find(tree => tree.id === destination)?.name || "Arbre indisponible";
   const familyReferences = plannedFamilies.map(family => ({
     familyId: family.familyId,
     memberIds: family.memberIds,
-    members: family.members.map(({ id, name, treeId, inTree, exists }) => ({ id, name, treeId, inTree, exists })),
+    members: family.members.map(({ id, name, treeId, assignmentState, inTree, exists }) => ({ id, name, treeId, assignmentState, inTree, exists })),
     relations: family.relationData
   }));
   const fingerprint = JSON.stringify({
@@ -389,6 +438,7 @@ export function prepareMultipleTreeTransferPlan({ personIds = [], people = [], f
       internalFamilyCount: plannedFamilies.filter(family => family.internalToSelection).length,
       boundaryFamilyCount: plannedFamilies.filter(family => !family.internalToSelection).length,
       otherTreeLinkCount: plannedFamilies.filter(family => family.otherTreeMemberIds.length).length,
+      unassignedRelatedCount: plannedFamilies.reduce((sum, family) => sum + family.unassignedMemberIds.length, 0),
       hiddenSelectionCount: canonicalSelectedPeople.filter(item => !item.inTree).length
     },
     fingerprint

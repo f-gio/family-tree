@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { filterAndSortDirectory, countActiveDirectoryFilters, hasDeathInformation, genealogyDateOverlapsRange, directoryTreeLabel } from "../js/directory-advanced.js";
+import { filterAndSortDirectory, countActiveDirectoryFilters, hasDeathInformation, genealogyDateOverlapsRange, directoryTreeLabel, DIRECTORY_UNASSIGNED_TREE_FILTER } from "../js/directory-advanced.js";
 
 const people = [
   { id: "a", firstName: "Anna", middleName: "Maria", lastName: "Alberti", gender: "F", branch: "Giovannoni", place: "Orino", birthDate: "1869-03-14", deathDateInfo: { type: "year", year: 1932 }, deathPlace: "Varese" },
@@ -183,14 +183,19 @@ test("AN. filtre arbre conserve le périmètre global par défaut et combine rec
     { id: "legacy", firstName: "Anna", lastName: "Rossi" },
     { id: "explicit-main", firstName: "Bruno", lastName: "Rossi", treeId: "main" },
     { id: "secondary", firstName: "Carlo", lastName: "Rossi", treeId: "tree-a" },
+    { id: "unassigned", firstName: "Luca", lastName: "Rossi", treeId: "", treeAssignmentState: "unassigned" },
+    { id: "hidden-assigned", firstName: "Marco", lastName: "Rossi", treeId: "tree-a", inTree: false },
     { id: "unknown", firstName: "Dario", lastName: "Rossi", treeId: "tree-missing" },
     { id: "invalid", firstName: "Enzo", lastName: "Rossi", treeId: "tree/bad" }
   ];
-  assert.equal(filterAndSortDirectory(records, { treeId: "all" }).length, 5);
+  assert.equal(filterAndSortDirectory(records, { treeId: "all" }).length, 7, "Tous les arbres inclut les désaffectées et les masquées");
   assert.deepEqual(filterAndSortDirectory(records, { treeId: "main" }).map(item => item.id), ["legacy", "explicit-main"]);
   assert.deepEqual(filterAndSortDirectory(records, { treeId: "tree-a", query: "carlo" }).map(item => item.id), ["secondary"]);
+  assert.deepEqual(filterAndSortDirectory(records, { treeId: "tree-a" }).map(item => item.id), ["secondary", "hidden-assigned"], "la personne masquée reste membre du secondaire");
+  assert.deepEqual(filterAndSortDirectory(records, { treeId: DIRECTORY_UNASSIGNED_TREE_FILTER }).map(item => item.id), ["unassigned"], "Sans arbre ne contient que la paire explicite");
   assert.deepEqual(filterAndSortDirectory(records, { treeId: "tree-a", query: "dario" }), []);
   assert.equal(countActiveDirectoryFilters({ treeId: "tree-a" }), 1);
+  assert.equal(countActiveDirectoryFilters({ treeId: DIRECTORY_UNASSIGNED_TREE_FILTER }), 1);
 });
 
 test("AO. libellé d’arbre sans classement silencieux des memberships invalides", () => {
@@ -199,6 +204,9 @@ test("AO. libellé d’arbre sans classement silencieux des memberships invalide
   assert.equal(directoryTreeLabel({ treeId: null }, trees), "Arbre familial");
   assert.equal(directoryTreeLabel({ treeId: "main" }, trees), "Arbre familial");
   assert.equal(directoryTreeLabel({ treeId: "tree-a" }, trees), "Branche A");
+  assert.equal(directoryTreeLabel({ treeId: "", treeAssignmentState: "unassigned" }, trees), "Aucun arbre");
+  assert.equal(directoryTreeLabel({ treeId: "" }, trees), "Arbre indisponible", "un ID vide sans marqueur reste indisponible");
+  assert.equal(directoryTreeLabel({ treeId: "tree-a", treeAssignmentState: "unassigned" }, trees), "Arbre indisponible", "la paire incohérente reste indisponible");
   assert.equal(directoryTreeLabel({ treeId: "tree-missing" }, trees), "Arbre indisponible");
   assert.equal(directoryTreeLabel({ treeId: "tree/bad" }, trees), "Arbre indisponible");
 });

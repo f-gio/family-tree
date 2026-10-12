@@ -67,7 +67,7 @@ for (const id of [
 assert.match(app, /data-mode="list"|setContentMode/);
 assert.match(app, /data-mode="cards"|setContentMode/);
 assert.match(app, /confirm\("Supprimer définitivement/);
-assert.match(app, /confirm\("Retirer cette personne de l’arbre/);
+assert.match(app, /confirm\("Retirer cette personne de son arbre/);
 assert.match(app, /emptyState\(\{ iconName: "people"/);
 assert.match(app, /emptyState\(\{ iconName: "document"/);
 assert.match(app, /emptyState\(\{ iconName: "tasks"/);

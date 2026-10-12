@@ -148,14 +148,14 @@ async function openTransferHarness(t, seed = { people, families, trees }) {
   }
 }
 
-async function openPaulTransfer(page, { personVisible = true } = {}) {
+async function openPaulTransfer(page) {
   await page.evaluate(() => window.__transferHarness.showDirectory());
   const entry = page.locator('#directoryList [data-directory-person="paul"]');
   await entry.waitFor({ state: "visible", timeout: 10000 });
   await entry.click();
   await page.locator("#personMenuBtn").click();
   const actionOrder = await page.locator("#personMenu button:not([hidden])").evaluateAll(buttons => buttons.map(button => button.id));
-  assert.deepEqual(actionOrder, ["printPersonBtn", "viewBranchBtn", "changePersonTreeBtn", ...(personVisible ? ["removePersonFromTreeBtn"] : []), "deleteBtn"], "ordre complet des actions administrateur");
+  assert.deepEqual(actionOrder, ["printPersonBtn", "viewBranchBtn", "changePersonTreeBtn", "removePersonFromTreeBtn", "deleteBtn"], "ordre complet des actions administrateur");
   await page.locator("#changePersonTreeBtn").click();
 }
 
@@ -219,7 +219,7 @@ test("retour vers main écrit treeId main et préserve inTree false", async t =>
   if (!harness) return;
   const { page, context, browser, server } = harness;
   try {
-    await openPaulTransfer(page, { personVisible: false });
+    await openPaulTransfer(page);
     assert.deepEqual(await page.locator("#personTreeTransferDestination option").allTextContents(), ["Sélectionner un arbre…", "Arbre familial", "Branche B"]);
     await page.locator("#personTreeTransferDestination").selectOption("main");
     assert.match(await page.locator("#personTreeTransferNote").textContent(), /masquée/);

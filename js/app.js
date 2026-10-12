@@ -10,10 +10,10 @@ import { lifeTimelineEvents } from "./life-timeline.js";
 import { createTreeCamera } from "./tree-camera.js";
 import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree-branch-view.js";
 import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
-import { MAIN_TREE_ID, MAX_MULTI_TREE_TRANSFER_PEOPLE, MAX_MULTI_TREE_TRANSFER_READS, getPersonTreeId, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan, prepareMultipleTreeTransferPlan } from "./tree-model.js";
+import { MAIN_TREE_ID, UNASSIGNED_TREE_STATE, UNASSIGNED_TREE_CHOICE, MAX_MULTI_TREE_TRANSFER_PEOPLE, MAX_MULTI_TREE_TRANSFER_READS, getPersonTreeId, getPersonTreeMembership, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan, prepareMultipleTreeTransferPlan } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
-import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel } from "./directory-advanced.js";
+import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel, DIRECTORY_UNASSIGNED_TREE_FILTER } from "./directory-advanced.js";
 import { filterAndSortProcedures, sortProcedureActions, procedureTypeLabel, procedureStatusLabel, procedureActionTypeLabel, isProcedureClosed, DOSSIER_MIN_QUERY_LENGTH } from "./procedures.js";
 import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText, genealogyDateYears } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
@@ -595,9 +595,9 @@ function treeCatalogStatusText() {
   if (treeCatalogMessage) return treeCatalogMessage;
   const knownIds = new Set(treeMetadata.map(item => item.id));
   const unresolved = people.some(item => {
-    if (item.treeId == null || item.treeId === MAIN_TREE_ID) return false;
-    const id = getPersonTreeId(item);
-    return !id || !knownIds.has(id);
+    const membership = getPersonTreeMembership(item);
+    return membership.type === "unavailable"
+      || (membership.type === "assigned" && membership.treeId !== MAIN_TREE_ID && !knownIds.has(membership.treeId));
   });
   return unresolved
     ? "Certaines fiches référencent un arbre indisponible et ne sont pas affichées dans cet arbre."
@@ -633,13 +633,14 @@ function updateDirectoryTreeOptions() {
   const select = $("directoryTreeFilter");
   if (!select) return;
   const previous = select.value || "all";
-  const available = previous === "all" || previous === MAIN_TREE_ID || treeMetadata.some(item => item.id === previous);
+  const available = previous === "all" || previous === MAIN_TREE_ID || previous === DIRECTORY_UNASSIGNED_TREE_FILTER || treeMetadata.some(item => item.id === previous);
   const options = [
     '<option value="all">Tous les arbres</option>',
+    `<option value="${DIRECTORY_UNASSIGNED_TREE_FILTER}">Sans arbre</option>`,
     `<option value="${MAIN_TREE_ID}">Arbre familial</option>`,
     ...treeMetadata.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`)
   ];
-  if (!available) options.push(`<option value="${esc(previous)}">Arbre indisponible</option>`);
+  if (!available && previous !== DIRECTORY_UNASSIGNED_TREE_FILTER) options.push(`<option value="${esc(previous)}">Arbre indisponible</option>`);
   select.innerHTML = options.join("");
   select.value = previous;
 }
@@ -648,8 +649,9 @@ function updatePersonTreeOptions() {
   const select = $("personTreeSelect");
   if (!select) return;
   const previous = select.value || MAIN_TREE_ID;
-  const available = previous === MAIN_TREE_ID || treeMetadata.some(item => item.id === previous);
+  const available = previous === UNASSIGNED_TREE_CHOICE || previous === MAIN_TREE_ID || treeMetadata.some(item => item.id === previous);
   const options = [
+    `<option value="${UNASSIGNED_TREE_CHOICE}">Aucun arbre</option>`,
     `<option value="${MAIN_TREE_ID}">Arbre familial</option>`,
     ...treeMetadata.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`)
   ];
@@ -1508,8 +1510,9 @@ async function compressPersonPhoto(file) {
 
 function canChangePersonTree(item) {
   if (!item || !isAdminUser() || treeCatalogState !== "ready") return false;
-  const treeId = getPersonTreeId(item);
-  return !!treeId && (treeId === MAIN_TREE_ID || treeMetadata.some(tree => tree.id === treeId));
+  const membership = getPersonTreeMembership(item);
+  return membership.type === "unassigned"
+    || (membership.type === "assigned" && (membership.treeId === MAIN_TREE_ID || treeMetadata.some(tree => tree.id === membership.treeId)));
 }
 
 function updatePersonTreeMembershipLabel(item) {
@@ -1520,21 +1523,28 @@ function updatePersonTreeMembershipLabel(item) {
     value.textContent = "";
     return;
   }
-  const treeId = getPersonTreeId(item);
-  value.textContent = !treeId
-    ? "Arbre indisponible"
-    : treeId === MAIN_TREE_ID
-      ? "Arbre principal"
-      : treeMetadata.find(tree => tree.id === treeId)?.name || "Arbre indisponible";
+  const membership = getPersonTreeMembership(item);
+  value.textContent = membership.type === "unassigned"
+    ? "Aucun arbre"
+    : membership.type === "unavailable"
+      ? "Arbre indisponible"
+      : membership.treeId === MAIN_TREE_ID
+        ? "Arbre principal"
+        : treeMetadata.find(tree => tree.id === membership.treeId)?.name || "Arbre indisponible";
   label.hidden = false;
 }
 
 function updatePersonMenuActions(item) {
+  const membership = item ? getPersonTreeMembership(item) : null;
+  const isAssigned = membership?.type === "assigned";
+  const isUnassigned = membership?.type === "unassigned";
+  const adminActionsAvailable = !!item && isAdminUser() && treeCatalogState === "ready";
   $("personMenuBtn").hidden = !item;
   $("printPersonBtn").hidden = !item;
-  $("viewBranchBtn").hidden = !item;
-  $("changePersonTreeBtn").hidden = !canChangePersonTree(item);
-  $("removePersonFromTreeBtn").hidden = !item || item.inTree === false;
+  $("viewBranchBtn").hidden = !item || !isAssigned;
+  $("changePersonTreeBtn").hidden = !adminActionsAvailable || (!isAssigned && !isUnassigned);
+  $("changePersonTreeLabel").textContent = isUnassigned ? "Affecter à un arbre" : "Changer d’arbre";
+  $("removePersonFromTreeBtn").hidden = !adminActionsAvailable || !isAssigned;
   $("deleteBtn").hidden = !item;
   updatePersonTreeMembershipLabel(item);
 }
@@ -1558,7 +1568,8 @@ function openPerson(item = null, source = "tree") {
     ? `<span class="meta-long">${esc(modMeta.long)}</span><span class="meta-short">${esc(modMeta.short)}</span>`
     : "Les champs marqués d’un astérisque sont obligatoires.";
   $("savePersonBtn").textContent = item ? "Enregistrer" : "Continuer";
-  $("restoreTreeBtn").hidden = !item || item.inTree !== false || source !== "directory";
+  $("restoreTreeBtn").hidden = !item || item.inTree !== false || source !== "directory"
+    || getPersonTreeMembership(item).type !== "assigned";
   $("personId").value = item?.id || "";
   const isCreating = !item;
   $("personTreeAssignment").hidden = !isCreating || source !== "tree";
@@ -1988,7 +1999,10 @@ function renderDirectory() {
   renderDirectoryChips(filters);
   $("directoryList").innerHTML = filtered.length ? filtered.map(item => {
     const avatar = item.photoUrl ? `<img src="${esc(item.photoUrl)}" alt="">` : personInitials(item);
-    const presence = item.inTree === false ? '<span class="badge muted directory-presence">Masquée de l’arbre</span>' : "";
+    const membership = getPersonTreeMembership(item);
+    const presence = membership.type === "assigned" && item.inTree === false
+      ? '<span class="badge muted directory-presence">Masquée de l’arbre</span>'
+      : "";
     const documentCount = documents.filter(documentItem => (documentItem.personIds || []).includes(item.id)).length;
     const documentAction = documentCount
       ? `<button class="directory-action directory-doc-action" type="button" data-directory-documents="${item.id}" aria-label="Afficher ${documentCount} document${documentCount > 1 ? "s" : ""} associé${documentCount > 1 ? "s" : ""} à ${esc(directoryDisplayName(item))}">${icon("document")}<span class="directory-doc-count-value">${documentCount}</span><span class="directory-doc-count-label"> document${documentCount > 1 ? "s" : ""}</span></button>`
@@ -2042,9 +2056,11 @@ function renderDirectoryChips(filters) {
   }
   pushChip("deathInfo", "Décès", directoryDeathInfoLabels[filters.deathInfo] || "", () => { $("directoryDeathInfoFilter").value = ""; renderDirectory(); });
   if (filters.treeId && filters.treeId !== "all") {
-    const label = filters.treeId === MAIN_TREE_ID
-      ? "Arbre familial"
-      : treeMetadata.find(tree => tree.id === filters.treeId)?.name || "Arbre indisponible";
+    const label = filters.treeId === DIRECTORY_UNASSIGNED_TREE_FILTER
+      ? "Sans arbre"
+      : filters.treeId === MAIN_TREE_ID
+        ? "Arbre familial"
+        : treeMetadata.find(tree => tree.id === filters.treeId)?.name || "Arbre indisponible";
     chips.push({ key: "treeId", label: "Arbre", value: label, clear: () => { $("directoryTreeFilter").value = "all"; renderDirectory(); } });
   }
   const container = $("directoryFilterChips");
@@ -2425,6 +2441,7 @@ $("personDialog").addEventListener("keydown", event => {
 });
 
 function transferTreeName(treeId) {
+  if (treeId == null) return "Aucun arbre";
   if (treeId === MAIN_TREE_ID) return "Arbre familial";
   return treeMetadata.find(tree => tree.id === treeId)?.name || "Arbre indisponible";
 }
@@ -2450,13 +2467,16 @@ function renderPersonTreeTransferPreview(plan) {
       : "";
     return `<li><strong>${esc(names)}</strong><span>Avant : ${esc(before)} · Après : ${esc(after)}${esc(missing + invalid)}</span></li>`;
   }).join("");
-  const hiddenNote = plan.personInTree
+  const hiddenNote = plan.sourceMembershipType === "unassigned" || plan.personInTree
     ? ""
     : "Cette fiche est actuellement masquée de l'arbre (inTree désactivé) ; le transfert ne la rendra pas visible.";
   const unresolvedNote = summary.unresolvedReferenceCount || summary.invalidMembershipCount
     ? `<p>Des références ou appartenances sont incohérentes. Elles seront conservées telles quelles et rendent l'aperçu incomplet.</p>`
     : "";
-  $("personTreeTransferPreview").innerHTML = `<h4>Conséquences sur les relations</h4><p>${esc(summaryText)}</p><p>Les liens familiaux ne sont pas supprimés. Aucun lien graphique inter-arbres n'est créé; un foyer réparti entre plusieurs arbres ne sera plus dessiné comme un ensemble complet.</p>${hiddenNote ? `<p>${esc(hiddenNote)}</p>` : ""}${unresolvedNote}${rows ? `<ul class="person-tree-transfer-list">${rows}</ul>` : ""}`;
+  const unassignedNote = summary.unassignedRelatedCount
+    ? "Des personnes liées sont sans arbre. Les relations restent enregistrées et ne seront dessinées qu'après affectation des personnes requises au même arbre."
+    : "";
+  $("personTreeTransferPreview").innerHTML = `<h4>Conséquences sur les relations</h4><p>${esc(summaryText)}</p><p>Les liens familiaux ne sont pas supprimés. Aucun lien graphique inter-arbres n'est créé; un foyer réparti entre plusieurs arbres ne sera plus dessiné comme un ensemble complet.</p>${hiddenNote ? `<p>${esc(hiddenNote)}</p>` : ""}${unassignedNote ? `<p>${esc(unassignedNote)}</p>` : ""}${unresolvedNote}${rows ? `<ul class="person-tree-transfer-list">${rows}</ul>` : ""}`;
 }
 
 function showPersonTreeTransferError(message) {
@@ -2490,11 +2510,17 @@ function openPersonTreeTransfer(personId) {
   if (!isAdminUser()) return toast("Accès réservé aux administrateurs", "error");
   if (treeCatalogState !== "ready") return toast("Le catalogue des arbres est indisponible", "error");
   const item = person(personId);
-  if (!canChangePersonTree(item)) return toast("L'arbre actuel de cette personne est indisponible", "error");
-  const sourceTreeId = getPersonTreeId(item);
-  personTreeTransferState = { personId, sourceTreeId, plan: null };
+  const sourceMembership = item ? getPersonTreeMembership(item) : null;
+  if (!item || sourceMembership?.type === "unavailable") return toast("L'appartenance actuelle de cette personne est indisponible", "error");
+  if (!canChangePersonTree(item)) return toast("Accès réservé aux administrateurs", "error");
+  const sourceTreeId = sourceMembership.type === "assigned" ? sourceMembership.treeId : null;
+  const isAssignment = sourceMembership.type === "unassigned";
+  personTreeTransferState = { personId, sourceTreeId, sourceMembershipType: sourceMembership.type, plan: null };
+  $("personTreeTransferTitle").textContent = isAssignment ? "Affecter à un arbre" : "Changer d'arbre";
   $("personTreeTransferPerson").textContent = [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ") || "Personne sans nom";
   $("personTreeTransferSource").textContent = transferTreeName(sourceTreeId);
+  $("personTreeTransferDestinationVerb").textContent = isAssignment ? "Affecter à" : "Déplacer vers";
+  $("personTreeTransferDestination").setAttribute("aria-label", isAssignment ? "Affecter à un arbre" : "Déplacer vers");
   const destinations = [
     ...(sourceTreeId === MAIN_TREE_ID ? [] : [{ id: MAIN_TREE_ID, name: "Arbre familial" }]),
     ...treeMetadata.filter(tree => tree.id !== sourceTreeId).map(tree => ({ id: tree.id, name: tree.name }))
@@ -2507,9 +2533,12 @@ function openPersonTreeTransfer(personId) {
   $("personTreeTransferPreview").innerHTML = destinations.length
     ? "<p>Choisissez un arbre de destination pour afficher les conséquences sur les foyers.</p>"
     : "<p>Aucun autre arbre n'est disponible comme destination.</p>";
-  $("personTreeTransferNote").textContent = item.inTree === false
-    ? "Seule l'appartenance de cette personne changera. Ses proches et toutes ses données seront conservés. Cette fiche est masquée de l'arbre; le transfert ne la rendra pas visible."
-    : "Seule l'appartenance de cette personne changera. Ses proches ne seront pas déplacés; tous les liens familiaux et documents resteront enregistrés.";
+  $("confirmPersonTreeTransferBtn").textContent = isAssignment ? "Confirmer l’affectation" : "Confirmer le déplacement";
+  $("personTreeTransferNote").textContent = isAssignment
+    ? "Cette personne sera affectée et affichée dans l'arbre choisi. Ses proches ne seront pas déplacés; les liens familiaux et documents resteront enregistrés."
+    : item.inTree === false
+      ? "Seule l'appartenance de cette personne changera. Ses proches et toutes ses données seront conservés. Cette fiche est masquée de l'arbre; le transfert ne la rendra pas visible."
+      : "Seule l'appartenance de cette personne changera. Ses proches ne seront pas déplacés; tous les liens familiaux et documents resteront enregistrés.";
   showPersonTreeTransferError("");
   $("personTreeTransferDialog").showModal();
   setTimeout(() => $("personTreeTransferDestination").focus(), 30);
@@ -2599,12 +2628,14 @@ async function confirmPersonTreeTransfer() {
       const personSnapshot = await transaction.get(personRef);
       if (!personSnapshot.exists()) throw new Error("La fiche a été supprimée ou n'est plus accessible.");
       const livePerson = { id: personSnapshot.id, ...personSnapshot.data() };
-      if (getPersonTreeId(livePerson) !== expectedPlan.sourceTreeId) {
+      const liveMembership = getPersonTreeMembership(livePerson);
+      if (liveMembership.type !== expectedPlan.sourceMembershipType
+        || (liveMembership.type === "assigned" && liveMembership.treeId !== expectedPlan.sourceTreeId)) {
         const error = new Error("L'appartenance de cette personne a changé depuis l'aperçu. Fermez-le et recommencez.");
         error.code = "tree-transfer-stale";
         throw error;
       }
-      const sourceTreeSnapshot = expectedPlan.sourceTreeId === MAIN_TREE_ID
+      const sourceTreeSnapshot = expectedPlan.sourceMembershipType !== "assigned" || expectedPlan.sourceTreeId === MAIN_TREE_ID
         ? null
         : await transaction.get(doc(db, "trees", expectedPlan.sourceTreeId));
       const destinationTreeSnapshot = expectedPlan.destinationTreeId === MAIN_TREE_ID
@@ -2643,6 +2674,10 @@ async function confirmPersonTreeTransfer() {
       }
 
       const changes = { treeId: expectedPlan.destinationTreeId };
+      if (expectedPlan.sourceMembershipType === "unassigned") {
+        changes.treeAssignmentState = deleteField();
+        changes.inTree = true;
+      }
       const uid = auth.currentUser?.uid || "";
       if (!uid) throw new Error("Votre session a expiré; reconnectez-vous avant le transfert.");
       // La règle validUpdatedBy exige que cet auteur corresponde à l'utilisateur
@@ -2658,7 +2693,9 @@ async function confirmPersonTreeTransfer() {
     close("personTreeTransferDialog");
     personTreeTransferState = null;
     close("personDialog");
-    toast(`${expectedPlan.personName} a été déplacé vers ${expectedPlan.destinationTreeName}.`);
+    toast(expectedPlan.sourceMembershipType === "unassigned"
+      ? `${expectedPlan.personName} a été affecté à ${expectedPlan.destinationTreeName}.`
+      : `${expectedPlan.personName} a été déplacé vers ${expectedPlan.destinationTreeName}.`);
   } catch (error) {
     console.error("Transfert individuel impossible", error);
     if (!transferDiagnosticRecorded) {
@@ -2707,7 +2744,8 @@ async function readFreshMultipleTreeTransferData(personIds, destinationTreeId) {
   const selected = new Set(personIds);
   const cachedFamilies = families.filter(family => familyPersonIds(family).some(id => selected.has(id))
     && typeof family.id === "string" && !familySnapshots.has(family.id));
-  const sourceTreeId = getPersonTreeId(person(personIds[0]));
+  const sourceMembership = getPersonTreeMembership(person(personIds[0]));
+  const sourceTreeId = sourceMembership.type === "assigned" ? sourceMembership.treeId : null;
   const treesToRead = new Set([sourceTreeId, destinationTreeId].filter(id => id && id !== MAIN_TREE_ID));
   const candidateFamilies = [
     ...[...familySnapshots.values()].map(snapshot => ({ id: snapshot.id, ...snapshot.data() })),
@@ -2744,9 +2782,10 @@ const multipleTreeTransferPicker = createPersonMultiSelect({
     const text = searchable(queryText);
     if (text.length < DOSSIER_MIN_QUERY_LENGTH || selectedIds.size >= MAX_MULTI_TREE_TRANSFER_PEOPLE) return [];
     const firstSelected = selectedIds.values().next().value;
-    const selectedSource = firstSelected ? getPersonTreeId(person(firstSelected)) : null;
-    return people.filter(item => canChangePersonTree(item)
-      && (!selectedSource || getPersonTreeId(item) === selectedSource)
+    const selectedSource = firstSelected ? getPersonTreeMembership(person(firstSelected)) : null;
+    return people.filter(item => getPersonTreeMembership(item).type === "assigned"
+      && canChangePersonTree(item)
+      && (!selectedSource || (selectedSource.type === "assigned" && getPersonTreeMembership(item).treeId === selectedSource.treeId))
       && !selectedIds.has(item.id)
       && searchable(`${item.firstName || ""} ${item.middleName || ""} ${item.lastName || ""} ${item.marriedName || ""}`).includes(text))
       .sort(comparePeopleBySurname)
@@ -2803,6 +2842,8 @@ function renderMultipleTreeTransferPreview(plan) {
       `Restent dans leur arbre : ${remainingNames.join(" · ") || "aucune"}`,
       `Visibilité du foyer : ${before} → ${after}`,
       outsideTrees.length ? `Liens déjà situés dans d’autres arbres : ${outsideTrees.join(" · ")}` : "",
+      family.unassignedMemberIds.length ? `Sans arbre : ${family.unassignedMemberIds.map(id => family.members.find(member => member.id === id)?.name).filter(Boolean).join(" · ")}` : "",
+      family.invalidMembershipIds.length ? `${family.invalidMembershipIds.length} appartenance${family.invalidMembershipIds.length > 1 ? "s" : ""} indisponible${family.invalidMembershipIds.length > 1 ? "s" : ""}` : "",
       missing ? `${missing} référence${missing > 1 ? "s" : ""} de personne introuvable${missing > 1 ? "s" : ""} (conservée${missing > 1 ? "s" : ""})` : ""
     ].filter(Boolean);
     return `<li><strong>${esc(category)}</strong><span>${details.map(esc).join(" · ")}</span></li>`;
@@ -2811,6 +2852,7 @@ function renderMultipleTreeTransferPreview(plan) {
   if (plan.summary.hiddenSelectionCount) warnings.push(`${plan.summary.hiddenSelectionCount} fiche${plan.summary.hiddenSelectionCount > 1 ? "s" : ""} masquée${plan.summary.hiddenSelectionCount > 1 ? "s" : ""} restera${plan.summary.hiddenSelectionCount > 1 ? "ont" : "a"} masquée${plan.summary.hiddenSelectionCount > 1 ? "s" : ""}.`);
   if (plan.summary.boundaryFamilyCount) warnings.push("Les liens avec les personnes non transférées resteront enregistrés ; leur affichage dépendra des règles actuelles de visibilité par arbre.");
   if (plan.summary.otherTreeLinkCount) warnings.push("Certains foyers concernés comportent déjà des liens avec d’autres arbres ; aucune relation ne sera supprimée.");
+  if (plan.summary.unassignedRelatedCount) warnings.push("Les personnes sans arbre liées aux foyers sélectionnés ne seront ni déplacées ni affectées automatiquement.");
   const warningHtml = warnings.length ? `<div class="multi-tree-transfer-warning">${warnings.map(text => `<p>${esc(text)}</p>`).join("")}</div>` : "";
   $("multiTreeTransferPreview").innerHTML = `<h4>Aperçu du transfert</h4><p><strong>${plan.summary.selectedCount} personne${plan.summary.selectedCount > 1 ? "s" : ""}</strong> : ${esc(plan.sourceTreeName)} → ${esc(plan.destinationTreeName)}.</p><p>${plan.summary.affectedFamilyCount} foyer${plan.summary.affectedFamilyCount > 1 ? "s" : ""} concerné${plan.summary.affectedFamilyCount > 1 ? "s" : ""} · ${plan.summary.internalFamilyCount} relation${plan.summary.internalFamilyCount > 1 ? "s" : ""} interne${plan.summary.internalFamilyCount > 1 ? "s" : ""} · ${plan.summary.boundaryFamilyCount} foyer${plan.summary.boundaryFamilyCount > 1 ? "s" : ""} avec des personnes non transférées.</p><h4>Personnes sélectionnées</h4><ul class="person-tree-transfer-list">${selectedRows}</ul>${familyRows ? `<h4>Relations concernées</h4><ul class="person-tree-transfer-list">${familyRows}</ul>` : "<p>Aucun foyer ne référence ces personnes.</p>"}${warningHtml}`;
 }
@@ -2847,7 +2889,7 @@ function updateMultipleTreeTransferSelection() {
   const ids = multipleTreeTransferPicker.getSelected();
   const previousSource = state.sourceTreeId;
   state.personIds = ids;
-  state.sourceTreeId = ids.length ? getPersonTreeId(person(ids[0])) : null;
+  state.sourceTreeId = ids.length ? getPersonTreeMembership(person(ids[0])).treeId : null;
   $("multiTreeTransferSelectionCount").textContent = `${ids.length} personne${ids.length > 1 ? "s" : ""} sélectionnée${ids.length > 1 ? "s" : ""} sur ${MAX_MULTI_TREE_TRANSFER_PEOPLE} maximum`;
   $("clearMultiTreeTransferSelectionBtn").disabled = !ids.length || multipleTreeTransferSaving;
   $("multiTreeTransferSource").textContent = state.sourceTreeId ? transferTreeName(state.sourceTreeId) : "Sélectionnez des personnes";
@@ -2935,7 +2977,10 @@ async function confirmMultipleTreeTransfer() {
       if (destinationTreeSnapshot && !destinationTreeSnapshot.exists()) throw new Error("L’arbre de destination n’existe plus.");
       if (sourceTreeSnapshot && sourceTreeSnapshot.data().name !== expectedPlan.sourceTreeName) throw new Error("Le nom de l’arbre source a changé depuis l’aperçu. Recommencez.");
       if (destinationTreeSnapshot && destinationTreeSnapshot.data().name !== expectedPlan.destinationTreeName) throw new Error("Le nom de l’arbre de destination a changé depuis l’aperçu. Recommencez.");
-      if (selectedIds.some(id => getPersonTreeId(peopleById.get(id)) !== expectedPlan.sourceTreeId)) {
+      if (selectedIds.some(id => {
+        const membership = getPersonTreeMembership(peopleById.get(id));
+        return membership.type !== "assigned" || membership.treeId !== expectedPlan.sourceTreeId;
+      })) {
         throw new Error("L’appartenance d’une personne sélectionnée a changé depuis l’aperçu. Fermez le dialogue et recommencez.");
       }
 
@@ -4485,10 +4530,14 @@ $("personForm").addEventListener("submit", async event => {
     } else {
       const createData = { ...data };
       const destinationTreeId = personDialogSource === "directory" ? $("personTreeSelect").value : personCreationTreeId;
-      if (!destinationTreeId || (destinationTreeId !== MAIN_TREE_ID && !isValidTreeId(destinationTreeId))) {
+      const createUnassigned = personDialogSource === "directory" && destinationTreeId === UNASSIGNED_TREE_CHOICE;
+      if (!destinationTreeId || (!createUnassigned && destinationTreeId !== MAIN_TREE_ID && !isValidTreeId(destinationTreeId))) {
         throw new Error("L’arbre de destination est invalide. Aucune fiche n’a été créée.");
       }
-      if (destinationTreeId !== MAIN_TREE_ID) {
+      if (createUnassigned) {
+        createData.treeId = "";
+        createData.treeAssignmentState = UNASSIGNED_TREE_STATE;
+      } else if (destinationTreeId !== MAIN_TREE_ID) {
         if (treeCatalogState !== "ready" || !treeMetadata.some(tree => tree.id === destinationTreeId)) {
           throw new Error("L’arbre choisi n’est plus disponible. Aucune fiche n’a été créée.");
         }
@@ -4566,21 +4615,42 @@ async function removeDirectoryPersonPermanently(id) {
 }
 
 async function removePersonFromTree(id) {
+  if (!isAdminUser()) return toast("Seuls les administrateurs peuvent retirer une personne de son arbre", "error");
   const item = person(id);
   if (!item) return toast("Cette personne est introuvable", "error");
-  if (item.inTree === false) return toast("Cette personne est déjà masquée de l’arbre", "error");
-  if (!confirm("Retirer cette personne de l’arbre ? Sa fiche et ses liens resteront disponibles dans l’annuaire.")) return false;
-  await updateDoc(doc(db, "people", id), {
-    inTree: false,
-    updatedAt: serverTimestamp(),
-    updatedBy: auth.currentUser?.uid || "",
-    updatedByName: currentUserProfile?.displayName || ""
+  const expectedMembership = getPersonTreeMembership(item);
+  if (expectedMembership.type === "unassigned") return toast("Cette personne n’appartient déjà à aucun arbre", "info");
+  if (expectedMembership.type !== "assigned") return toast("L’appartenance de cette personne est indisponible", "error");
+  if (!confirm("Retirer cette personne de son arbre ? Elle restera dans l’Annuaire avec ses informations, ses relations et ses documents.")) return false;
+  const uid = auth.currentUser?.uid || "";
+  if (!uid) throw new Error("Votre session a expiré; reconnectez-vous avant le retrait.");
+  await runTransaction(db, async transaction => {
+    const ref = doc(db, "people", id);
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists()) throw new Error("Cette personne n’existe plus ou n’est plus accessible.");
+    const livePerson = { id: snapshot.id, ...snapshot.data() };
+    const liveMembership = getPersonTreeMembership(livePerson);
+    if (liveMembership.type !== "assigned" || liveMembership.treeId !== expectedMembership.treeId) {
+      throw new Error("L’appartenance a changé depuis l’ouverture de la fiche. Fermez-la et recommencez.");
+    }
+    transaction.update(ref, {
+      treeId: "",
+      treeAssignmentState: UNASSIGNED_TREE_STATE,
+      updatedAt: serverTimestamp(),
+      updatedBy: uid,
+      updatedByName: currentUserProfile?.displayName || ""
+    });
   });
   delete manualOffsets[id];
   saveOffsets();
+  people = people.map(value => value.id === id
+    ? { ...value, treeId: "", treeAssignmentState: UNASSIGNED_TREE_STATE }
+    : value);
   if ($("personDialog").open && $("personId").value === id) close("personDialog");
   else if (activeId === id) { activeId = null; renderer.setActive(null); }
-  toast("Personne retirée de l’arbre, fiche conservée dans l’annuaire");
+  if (!$(("directoryView")).hidden) renderDirectory();
+  else if (!$(("appMain")).hidden) { updateTreeBranchOptions(); renderTree(); }
+  toast("Personne retirée de son arbre, fiche conservée dans l’Annuaire sans arbre");
   return true;
 }
 
