@@ -5,9 +5,9 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { initializeApp } from "firebase/app";
+import { deleteApp, initializeApp } from "firebase/app";
 import { getAuth, connectAuthEmulator, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { initializeFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, runTransaction, query, where, Bytes } from "firebase/firestore";
+import { initializeFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, deleteField, writeBatch, runTransaction, query, where, Bytes } from "firebase/firestore";
 import { FILE_CHUNK_BYTES, splitBytesIntoChunks, concatByteArrays, documentChunkId, sliceIntoBatches, importedDataFields } from "../js/backup-utils.js";
 import { prepareMultipleTreeTransferPlan } from "../js/tree-model.js";
 import { assertLocalEmulator, assertFictiveProject, EMULATOR_PROJECT_ID } from "./emulator-guard.mjs";
@@ -689,11 +689,60 @@ function validTreeRecord(name = "Arbre fictif") {
   return {
     name,
     description: "Fixture émulateur uniquement",
+    lifecycleState: "active",
     createdAt: new Date(),
     createdBy: adminUid,
     updatedAt: new Date(),
     updatedBy: adminUid
   };
+}
+
+async function lockTree(treeRef, token = "emulator-deletion-token-0001") {
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(treeRef);
+    if (!snapshot.exists()) throw new Error("arbre absent");
+    const data = snapshot.data();
+    if (data.lifecycleState !== "active" && data.lifecycleState != null) throw new Error("arbre déjà verrouillé");
+    transaction.update(treeRef, {
+      lifecycleState: "deleting", deletionToken: token,
+      deletionStartedAt: new Date(), deletionStartedBy: adminUid,
+      updatedAt: new Date(), updatedBy: adminUid
+    });
+  });
+  return token;
+}
+
+async function recoverTree(treeRef, expectedToken) {
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(treeRef);
+    if (!snapshot.exists()) throw new Error("arbre absent");
+    const data = snapshot.data();
+    if (data.lifecycleState !== "deleting" || data.deletionToken !== expectedToken) throw new Error("jeton modifié");
+    transaction.update(treeRef, {
+      lifecycleState: "active", deletionToken: deleteField(),
+      deletionStartedAt: deleteField(), deletionStartedBy: deleteField(),
+      updatedAt: new Date(), updatedBy: adminUid
+    });
+  });
+}
+
+async function seedLegacyTreeWithoutLifecycle(treeId, name) {
+  const timestamp = new Date().toISOString();
+  const fields = {
+    name: { stringValue: name },
+    description: { stringValue: "Document historique de l’émulateur" },
+    createdAt: { timestampValue: timestamp },
+    createdBy: { stringValue: adminUid },
+    updatedAt: { timestampValue: timestamp },
+    updatedBy: { stringValue: adminUid }
+  };
+  const url = `http://${HOST}:${EMULATOR_PORT}/v1/projects/${EMULATOR_PROJECT_ID}/databases/(default)/documents/trees/${treeId}`;
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: { Authorization: "Bearer owner", "Content-Type": "application/json" },
+    body: JSON.stringify({ fields })
+  });
+  if (!response.ok) throw new Error(`Initialisation locale de l’arbre historique refusée : HTTP ${response.status} ${await response.text()}`);
 }
 
 test("trees : admin crée/modifie un arbre secondaire valide; main et champs invalides refusés", async () => {
@@ -706,6 +755,10 @@ test("trees : admin crée/modifie un arbre secondaire valide; main et champs inv
   await expectDenied(setDoc(doc(db, "trees", "tree-long-name"), validTreeRecord("A".repeat(81))));
   await expectDenied(setDoc(doc(db, "trees", "tree-long-description"), { ...validTreeRecord(), description: "x".repeat(201) }));
   await expectDenied(setDoc(doc(db, "trees", "tree-extra-field"), { ...validTreeRecord(), unexpected: true }));
+  await expectDenied(setDoc(doc(db, "trees", "tree-invalid-lifecycle"), { ...validTreeRecord(), lifecycleState: "paused" }));
+  const missingLifecycle = { ...validTreeRecord() };
+  delete missingLifecycle.lifecycleState;
+  await expectDenied(setDoc(doc(db, "trees", "tree-new-missing-lifecycle"), missingLifecycle));
 });
 
 test("trees : lecture réservée aux comptes approuvés; membre et comptes pending/suspended refusés", async () => {
@@ -746,6 +799,239 @@ test("trees : seuls les admins peuvent créer/modifier et aucune suppression n'e
   // n'a treeId=tree-empty-fixture. Une future suppression nécessite un protocole sûr.
   await expectDenied(deleteDoc(doc(db, "trees", TREE_EMPTY_ID)));
   await expectDenied(deleteDoc(doc(db, "trees", TREE_FIXTURE_ID)));
+});
+
+test("cycle de vie : arbre vide supprimé après verrou, relecture du jeton et requête serveur exhaustive", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const treeRef = doc(db, "trees", "tree-lifecycle-empty");
+  await setDoc(treeRef, validTreeRecord("Arbre vide lifecycle"));
+  const token = await lockTree(treeRef, "emulator-empty-delete-token-001");
+  const members = await getDocs(query(collection(db, "people"), where("treeId", "==", treeRef.id)));
+  assert.equal(members.empty, true);
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(treeRef);
+    assert.equal(snapshot.data().lifecycleState, "deleting");
+    assert.equal(snapshot.data().deletionToken, token);
+    transaction.delete(treeRef);
+  });
+  assert.equal((await getDoc(treeRef)).exists(), false);
+});
+
+test("compatibilité Firestore : un arbre historique sans lifecycleState reste actif et verrouillable", async () => {
+  const treeId = "tree-lifecycle-legacy";
+  const treeRef = doc(db, "trees", treeId);
+  const personRef = doc(db, "people", "tree-lifecycle-legacy-member");
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await seedLegacyTreeWithoutLifecycle(treeId, "Arbre historique sans état");
+  assert.equal((await getDoc(treeRef)).data().lifecycleState, undefined);
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await setDoc(personRef, { firstName: "Historique", lastName: "Compatible", treeId });
+  assert.equal((await getDoc(personRef)).data().treeId, treeId, "création historique compatible dans l’arbre sans état");
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const token = await lockTree(treeRef, "emulator-legacy-lock-token-001");
+  assert.equal((await getDoc(treeRef)).data().lifecycleState, "deleting");
+  await recoverTree(treeRef, token);
+  assert.equal((await getDoc(treeRef)).data().lifecycleState, "active");
+});
+
+test("barrière lifecycle : bloque toute nouvelle destination, conserve les éditions ordinaires et autorise les sorties", async () => {
+  const treeRef = doc(db, "trees", "tree-lifecycle-barrier");
+  const memberRef = doc(db, "people", "tree-lifecycle-existing-member");
+  const hiddenRef = doc(db, "people", "tree-lifecycle-hidden-member");
+  const unassignedRef = doc(db, "people", "tree-lifecycle-unassigned");
+  const individualTransferRef = doc(db, "people", "tree-lifecycle-individual-transfer");
+  const incomingRef = doc(db, "people", "tree-lifecycle-incoming");
+  const multiARef = doc(db, "people", "tree-lifecycle-multi-a");
+  const multiBRef = doc(db, "people", "tree-lifecycle-multi-b");
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await setDoc(treeRef, validTreeRecord("Arbre barrière"));
+  await setDoc(memberRef, { firstName: "Déjà", lastName: "Affecté", treeId: treeRef.id });
+  await setDoc(hiddenRef, { firstName: "Masquée", lastName: "Affectée", treeId: treeRef.id, inTree: false });
+  await setDoc(unassignedRef, { firstName: "Sans", lastName: "Arbre", treeId: "", treeAssignmentState: "unassigned" });
+  await setDoc(individualTransferRef, { firstName: "Transfert", lastName: "Individuel" });
+  await setDoc(multiARef, { firstName: "Multi A", lastName: "Fictif" });
+  await setDoc(multiBRef, { firstName: "Multi B", lastName: "Fictif" });
+  const beforeLock = await getDocs(query(collection(db, "people"), where("treeId", "==", treeRef.id)));
+  assert.equal(beforeLock.size, 2, "la fiche masquée compte, la personne sans arbre ne compte pas");
+
+  const token = await lockTree(treeRef, "emulator-barrier-token-001");
+  await expectDenied(updateDoc(treeRef, { name: "Renommage interdit pendant le verrou", updatedAt: new Date(), updatedBy: adminUid }));
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(setDoc(incomingRef, { firstName: "Arrivée", lastName: "Refusée", treeId: treeRef.id }));
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  // 4C : main → destination verrouillée refusé avant toute écriture.
+  await expectDenied(updateDoc(individualTransferRef, { treeId: treeRef.id }));
+  assert.equal((await getDoc(individualTransferRef)).data().treeId, undefined);
+  await updateDoc(memberRef, { firstName: "Édition permise" });
+  assert.equal((await getDoc(memberRef)).data().treeId, treeRef.id, "édition métier autorisée sans changement d’appartenance");
+  // Une fiche réellement dans l'arbre peut en sortir vers main ou Aucun arbre.
+  await updateDoc(memberRef, { treeId: "main" });
+  await updateDoc(hiddenRef, { treeId: "", treeAssignmentState: "unassigned" });
+  assert.equal((await getDoc(memberRef)).data().treeId, "main");
+  assert.equal((await getDoc(hiddenRef)).data().treeAssignmentState, "unassigned");
+
+  // 4F : unassigned → arbre verrouillé refusé.
+  await expectDenied(updateDoc(unassignedRef, { treeId: treeRef.id, treeAssignmentState: deleteField() }));
+  // 4D : transaction multi-document entièrement refusée, aucune écriture partielle.
+  await expectDenied(runTransaction(db, async transaction => {
+    await Promise.all([transaction.get(multiARef), transaction.get(multiBRef)]);
+    transaction.update(multiARef, { treeId: treeRef.id });
+    transaction.update(multiBRef, { treeId: treeRef.id });
+  }));
+  assert.equal((await getDoc(multiARef)).data().treeId, undefined);
+  assert.equal((await getDoc(multiBRef)).data().treeId, undefined);
+
+  // La tentative ayant vu les deux membres réactive l'arbre uniquement avec son jeton.
+  await recoverTree(treeRef, token);
+  assert.equal((await getDoc(treeRef)).data().lifecycleState, "active");
+  assert.equal("deletionToken" in (await getDoc(treeRef)).data(), false);
+});
+
+test("transition lifecycle : admin seulement, jeton, récupération conditionnelle et suppression finale", async () => {
+  const treeRef = doc(db, "trees", "tree-lifecycle-recovery");
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await setDoc(treeRef, validTreeRecord("Arbre secondaire"));
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(updateDoc(treeRef, {
+    lifecycleState: "deleting", deletionToken: "member-forbidden-token",
+    deletionStartedAt: new Date(), deletionStartedBy: memberUid,
+    updatedAt: new Date(), updatedBy: memberUid
+  }));
+
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const token = await lockTree(treeRef, "emulator-recovery-token-001");
+  await assert.rejects(lockTree(treeRef, "emulator-recovery-token-duplicate"), /arbre déjà verrouillé/);
+  await assert.rejects(recoverTree(treeRef, "jeton-perime-invalide"), /jeton modifié/);
+  assert.equal((await getDoc(treeRef)).data().deletionToken, token, "un jeton incorrect ne lève pas le verrou");
+  await recoverTree(treeRef, token);
+  assert.equal((await getDoc(treeRef)).data().lifecycleState, "active");
+  await assert.rejects(runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(treeRef);
+    if (!snapshot.exists() || snapshot.data().lifecycleState !== "deleting" || snapshot.data().deletionToken !== token) {
+      throw new Error("jeton périmé");
+    }
+    transaction.delete(treeRef);
+  }), /jeton périmé/);
+
+  const currentToken = await lockTree(treeRef, "emulator-recovery-token-002");
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(treeRef);
+    assert.equal(snapshot.data().deletionToken, currentToken);
+    transaction.delete(treeRef);
+  });
+  assert.equal((await getDoc(treeRef)).exists(), false);
+  await assert.rejects(runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(treeRef);
+    if (!snapshot.exists()) throw new Error("arbre absent");
+    transaction.delete(treeRef);
+  }), /arbre absent/);
+});
+
+test("concurrence : une création avant le verrou bloque, une affectation lue avant le verrou est réévaluée", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const treeRef = doc(db, "trees", "tree-lifecycle-concurrent");
+  const targetRef = doc(db, "people", "tree-lifecycle-concurrent-target");
+  const arrivingRef = doc(db, "people", "tree-lifecycle-concurrent-arriving");
+  await setDoc(treeRef, validTreeRecord("Arbre concurrent"));
+  await setDoc(targetRef, { firstName: "Cible", lastName: "Fictive" });
+
+  let signalRead;
+  let releaseTransaction;
+  const readFinished = new Promise(resolve => { signalRead = resolve; });
+  const continueTransaction = new Promise(resolve => { releaseTransaction = resolve; });
+  let attempts = 0;
+  const assigning = runTransaction(db, async transaction => {
+    attempts++;
+    const treeSnapshot = await transaction.get(treeRef);
+    if (attempts === 1) { signalRead(); await continueTransaction; }
+    if (treeSnapshot.data().lifecycleState !== "active") throw new Error("destination locked");
+    transaction.update(targetRef, { treeId: treeRef.id });
+  });
+  await readFinished;
+  const token = await lockTree(treeRef, "emulator-concurrent-token-001");
+  releaseTransaction();
+  await assert.rejects(assigning, /destination locked|permission-denied/i);
+  assert.ok(attempts >= 1, "la tentative a lu la destination avant son refus conditionnel");
+  assert.equal((await getDoc(targetRef)).data().treeId, undefined, "pas d’affectation après le verrou");
+  await expectDenied(setDoc(arrivingRef, { firstName: "Création", lastName: "Refusée", treeId: treeRef.id }));
+
+  // Une création déjà validée avant le verrou apparaît dans la requête serveur.
+  await recoverTree(treeRef, token);
+  await setDoc(arrivingRef, { firstName: "Créée avant", lastName: "Verrou", treeId: treeRef.id, inTree: false });
+  const secondToken = await lockTree(treeRef, "emulator-concurrent-token-002");
+  const completeRead = await getDocs(query(collection(db, "people"), where("treeId", "==", treeRef.id)));
+  assert.deepEqual(completeRead.docs.map(snapshot => snapshot.id), [arrivingRef.id]);
+  await recoverTree(treeRef, secondToken);
+});
+
+test("deux sessions administrateur concurrentes : une seule obtient le verrou du même arbre", async () => {
+  const secondEmail = "second-admin-emulator@test-fictif.fr";
+  const secondPassword = "second-admin-fictif-123";
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const secondCredential = await createUserWithEmailAndPassword(auth, secondEmail, secondPassword);
+  const secondUid = secondCredential.user.uid;
+  await setDoc(doc(db, "users", secondUid), {
+    email: secondEmail, displayName: "Second administrateur", photo: "", role: "member", status: "pending"
+  });
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await updateDoc(doc(db, "users", secondUid), {
+    email: secondEmail, displayName: "Second administrateur", photo: "", role: "admin", status: "approved"
+  });
+
+  const secondApp = initializeApp({ apiKey: "test-only-fake-api-key", projectId: EMULATOR_PROJECT_ID }, "second-admin-session");
+  const secondAuth = getAuth(secondApp);
+  connectAuthEmulator(secondAuth, `http://${HOST}:${AUTH_PORT}`, { disableWarnings: true });
+  const secondDb = initializeFirestore(secondApp, { experimentalForceLongPolling: true });
+  connectFirestoreEmulator(secondDb, HOST, EMULATOR_PORT);
+  try {
+    await signInWithEmailAndPassword(secondAuth, secondEmail, secondPassword);
+    await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+    const treeId = "tree-lifecycle-two-admins";
+    const firstTreeRef = doc(db, "trees", treeId);
+    const secondTreeRef = doc(secondDb, "trees", treeId);
+    await setDoc(firstTreeRef, validTreeRecord("Arbre à verrouiller deux fois"));
+
+    let readCount = 0;
+    let signalBothReads;
+    let releaseBoth;
+    const bothRead = new Promise(resolve => { signalBothReads = resolve; });
+    const gate = new Promise(resolve => { releaseBoth = resolve; });
+    const beginLock = (clientDb, treeRef, uid, token) => {
+      let firstAttempt = true;
+      return runTransaction(clientDb, async transaction => {
+        const snapshot = await transaction.get(treeRef);
+        if (firstAttempt) {
+          firstAttempt = false;
+          readCount++;
+          if (readCount === 2) signalBothReads();
+          await gate;
+        }
+        if (!snapshot.exists() || (snapshot.data().lifecycleState !== "active" && snapshot.data().lifecycleState != null)) {
+          throw new Error("un autre administrateur a verrouillé l’arbre");
+        }
+        transaction.update(treeRef, {
+          lifecycleState: "deleting", deletionToken: token,
+          deletionStartedAt: new Date(), deletionStartedBy: uid,
+          updatedAt: new Date(), updatedBy: uid
+        });
+      });
+    };
+
+    const first = beginLock(db, firstTreeRef, adminUid, "first-admin-lock-token-001");
+    const second = beginLock(secondDb, secondTreeRef, secondUid, "second-admin-lock-token-01");
+    await bothRead;
+    releaseBoth();
+    const outcomes = await Promise.allSettled([first, second]);
+    assert.equal(outcomes.filter(result => result.status === "fulfilled").length, 1);
+    assert.equal(outcomes.filter(result => result.status === "rejected").length, 1);
+    const locked = (await getDoc(firstTreeRef)).data();
+    assert.equal(locked.lifecycleState, "deleting");
+    assert.ok(["first-admin-lock-token-001", "second-admin-lock-token-01"].includes(locked.deletionToken));
+    await recoverTree(firstTreeRef, locked.deletionToken);
+  } finally {
+    await signOut(secondAuth);
+    await deleteApp(secondApp);
+  }
 });
 
 test("people.treeId : membre approuvé crée dans un arbre existant; seul admin déplace une fiche", async () => {

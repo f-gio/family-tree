@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
 import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-auth.js";
-import { getFirestore, connectFirestoreEmulator, collection, addDoc, updateDoc, deleteDoc, deleteField, doc, getDoc, getDocs, query, where, setDoc, onSnapshot, serverTimestamp, writeBatch, runTransaction, Bytes } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+import { getFirestore, connectFirestoreEmulator, collection, addDoc, updateDoc, deleteDoc, deleteField, doc, getDoc, getDocFromServer, getDocs, getDocsFromServer, query, where, setDoc, onSnapshot, serverTimestamp, writeBatch, runTransaction, Bytes } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 import { calculateTreeLayout } from "./tree-layout.js";
 import { calculateTreeLayout as calculateHybridTreeLayout, validateLayout as validateHybridLayout } from "./tree-layout-engine.js";
 import { createTreeRenderer } from "./tree-renderer.js";
@@ -10,7 +10,7 @@ import { lifeTimelineEvents } from "./life-timeline.js";
 import { createTreeCamera } from "./tree-camera.js";
 import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree-branch-view.js";
 import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
-import { MAIN_TREE_ID, UNASSIGNED_TREE_STATE, UNASSIGNED_TREE_CHOICE, MAX_MULTI_TREE_TRANSFER_PEOPLE, MAX_MULTI_TREE_TRANSFER_READS, getPersonTreeId, getPersonTreeMembership, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan, prepareMultipleTreeTransferPlan } from "./tree-model.js";
+import { MAIN_TREE_ID, UNASSIGNED_TREE_STATE, UNASSIGNED_TREE_CHOICE, TREE_LIFECYCLE_ACTIVE, TREE_LIFECYCLE_DELETING, MAX_MULTI_TREE_TRANSFER_PEOPLE, MAX_MULTI_TREE_TRANSFER_READS, getTreeLifecycleState, getTreeDeletionMemberReport, getPersonTreeId, getPersonTreeMembership, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan, prepareMultipleTreeTransferPlan } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
 import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel, DIRECTORY_UNASSIGNED_TREE_FILTER } from "./directory-advanced.js";
@@ -22,7 +22,7 @@ import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsern
 import { formatCompactPlace } from "./place-format.js";
 import { createPersonMultiSelect } from "./person-multiselect.js";
 import { analyzeTreeQuality } from "./tree-quality.js";
-import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, validateFamilyDataset, validateTreeDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, buildBackupManifest, parseBackupManifestText } from "./backup-utils.js";
+import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, importedTreeData, validateFamilyDataset, validateTreeDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, buildBackupManifest, parseBackupManifestText } from "./backup-utils.js";
 import { firebaseConfigurationMatchesEnvironment, resolveFirebaseEnvironment, environmentFeatureFlags } from "./firebase-environment.js";
 import { TRANSFER_DIAGNOSTIC_STAGES, resolveTransferDiagnosticEnabled, buildTransferDiagnosticReport } from "./transfer-diagnostic.js";
 
@@ -86,6 +86,8 @@ let activeTreeId = MAIN_TREE_ID;
 let treeCatalogState = "idle";
 let treeCatalogMessage = "";
 let invalidTreeMetadataCount = 0;
+const treeDeletionInProgress = new Set();
+const treeRecoveryInProgress = new Set();
 let activeId = null, currentLayout = null, automaticPositions = new Map();
 let personDialogSource = "tree";
 let personCreationTreeId = MAIN_TREE_ID;
@@ -592,16 +594,16 @@ function clearTreeScopedFilters() {
 function treeCatalogStatusText() {
   if (treeCatalogState === "error") return treeCatalogMessage || "Les arbres secondaires sont indisponibles. L’arbre familial principal reste affiché.";
   if (treeCatalogState !== "ready") return "";
-  if (treeCatalogMessage) return treeCatalogMessage;
   const knownIds = new Set(treeMetadata.map(item => item.id));
-  const unresolved = people.some(item => {
+  const unresolved = people.filter(item => {
     const membership = getPersonTreeMembership(item);
     return membership.type === "unavailable"
       || (membership.type === "assigned" && membership.treeId !== MAIN_TREE_ID && !knownIds.has(membership.treeId));
   });
-  return unresolved
-    ? "Certaines fiches référencent un arbre indisponible et ne sont pas affichées dans cet arbre."
-    : "";
+  const messages = [];
+  if (treeCatalogMessage) messages.push(treeCatalogMessage);
+  if (unresolved.length) messages.push(`${unresolved.length} fiche${unresolved.length > 1 ? "s" : ""} présente${unresolved.length > 1 ? "nt" : ""} une appartenance indéterminée ou une référence vers un arbre absent. Ces anomalies sont signalées séparément et ne sont attribuées à aucun arbre sans référence explicite.`);
+  return messages.join(" ");
 }
 
 function updateTreeSelectorOptions() {
@@ -616,7 +618,10 @@ function updateTreeSelectorOptions() {
     clearTreeScopedFilters();
     if (treeCatalogState === "ready") treeCatalogMessage = "L’arbre sélectionné n’est plus disponible. L’arbre familial principal est affiché.";
   }
-  select.innerHTML = `<option value="${MAIN_TREE_ID}">Arbre familial</option>${treeMetadata.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("")}`;
+  select.innerHTML = `<option value="${MAIN_TREE_ID}">Arbre familial</option>${treeMetadata.map(item => {
+    const deleting = getTreeLifecycleState(item) === TREE_LIFECYCLE_DELETING;
+    return `<option value="${esc(item.id)}">${esc(item.name)}${deleting ? " · Suppression en cours" : ""}</option>`;
+  }).join("")}`;
   select.value = activeTreeId;
   updateDirectoryTreeOptions();
   updatePersonTreeOptions();
@@ -638,7 +643,7 @@ function updateDirectoryTreeOptions() {
     '<option value="all">Tous les arbres</option>',
     `<option value="${DIRECTORY_UNASSIGNED_TREE_FILTER}">Sans arbre</option>`,
     `<option value="${MAIN_TREE_ID}">Arbre familial</option>`,
-    ...treeMetadata.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`)
+    ...treeMetadata.map(item => `<option value="${esc(item.id)}"${getTreeLifecycleState(item) !== TREE_LIFECYCLE_ACTIVE ? " disabled" : ""}>${esc(item.name)}${getTreeLifecycleState(item) === TREE_LIFECYCLE_DELETING ? " · Suppression en cours" : ""}</option>`)
   ];
   if (!available && previous !== DIRECTORY_UNASSIGNED_TREE_FILTER) options.push(`<option value="${esc(previous)}">Arbre indisponible</option>`);
   select.innerHTML = options.join("");
@@ -710,6 +715,7 @@ function updateTreeActionButtons() {
   const createBtn = $("manageTreeCreateBtn");
   const renameBtn = $("manageTreeRenameBtn");
   const deleteBtn = $("manageTreeDeleteBtn");
+  const recoverBtn = $("manageTreeRecoverBtn");
   const deleteNotice = $("manageTreeDeleteNotice");
   const manager = $("treeManagement");
   if (!trigger) return;
@@ -719,14 +725,31 @@ function updateTreeActionButtons() {
   trigger.disabled = treeCatalogState !== "ready";
   createBtn.disabled = treeCatalogState !== "ready";
   createBtn.title = treeCatalogState === "ready" ? "Créer un arbre" : "Catalogue des arbres indisponible";
-  const isSecondary = activeTreeId !== MAIN_TREE_ID && treeMetadata.some(item => item.id === activeTreeId);
-  renameBtn.disabled = treeCatalogState !== "ready" || !isSecondary;
+  const activeTree = treeMetadata.find(item => item.id === activeTreeId);
+  const lifecycleState = activeTree ? getTreeLifecycleState(activeTree) : "invalid";
+  const isSecondary = activeTreeId !== MAIN_TREE_ID && !!activeTree;
+  const deleting = isSecondary && lifecycleState === TREE_LIFECYCLE_DELETING;
+  const busy = treeDeletionInProgress.has(activeTreeId) || treeRecoveryInProgress.has(activeTreeId);
+  renameBtn.disabled = treeCatalogState !== "ready" || !isSecondary || lifecycleState !== TREE_LIFECYCLE_ACTIVE || busy;
   renameBtn.title = isSecondary ? "Renommer l’arbre actuel" : "L’arbre principal ne peut pas être renommé";
-  deleteBtn.disabled = true;
-  const deleteReason = activeTreeId === MAIN_TREE_ID
+  deleteBtn.hidden = deleting;
+  deleteBtn.disabled = treeCatalogState !== "ready" || !isSecondary || lifecycleState !== TREE_LIFECYCLE_ACTIVE || busy;
+  deleteBtn.title = activeTreeId === MAIN_TREE_ID
     ? "L’arbre principal ne peut pas être supprimé."
-    : "Suppression indisponible : les règles Firestore l’interdisent et une simple vérification de vacuité ne protège pas contre les créations simultanées.";
-  deleteBtn.title = deleteReason;
+    : lifecycleState === "invalid" ? "État de l’arbre invalide : action indisponible."
+      : "Supprimer l’arbre secondaire actuel";
+  recoverBtn.hidden = !deleting;
+  recoverBtn.disabled = treeCatalogState !== "ready" || !deleting || busy;
+  recoverBtn.title = deleting ? "Récupérer l’arbre verrouillé" : "Aucun verrou à récupérer";
+  const deleteReason = activeTreeId === MAIN_TREE_ID
+    ? "L’arbre familial principal ne peut pas être supprimé."
+    : !isSecondary ? "Sélectionnez un arbre secondaire disponible."
+        : busy ? "Opération sur l’arbre en cours…"
+        : lifecycleState === TREE_LIFECYCLE_DELETING
+        ? "Suppression en cours ou interrompue. Si elle est bloquée, un administrateur peut récupérer cet arbre."
+        : lifecycleState !== TREE_LIFECYCLE_ACTIVE
+          ? "L’état de cet arbre est invalide ; aucune action de gestion n’est autorisée."
+          : "La suppression sera vérifiée sur les données Firestore après verrouillage de l’arbre.";
   deleteNotice.textContent = deleteReason;
   if (!admin) setTreeManagementMenu(false);
 }
@@ -776,6 +799,253 @@ function setTreeManagementMenu(open, restoreFocus = false) {
   }
 }
 
+function newTreeDeletionToken() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  if (globalThis.crypto?.getRandomValues) {
+    const bytes = new Uint8Array(24);
+    globalThis.crypto.getRandomValues(bytes);
+    return [...bytes].map(value => value.toString(16).padStart(2, "0")).join("");
+  }
+  throw new Error("Impossible de générer un jeton de verrouillage sécurisé dans ce navigateur.");
+}
+
+function runTreeLifecycleTransaction(treeRef, operation) {
+  return runTransaction(db, operation);
+}
+
+function readTreeLifecycleDocument(treeRef) {
+  return getDocFromServer(treeRef);
+}
+
+function readTreeDeletionMembers(treeId) {
+  return getDocsFromServer(query(refs.people, where("treeId", "==", treeId)));
+}
+
+function refreshAfterTreeRemoval(treeId) {
+  const focusWasInManager = $("treeManagementPopover").contains(document.activeElement);
+  treeMetadata = treeMetadata.filter(tree => tree.id !== treeId);
+  if (activeTreeId === treeId) {
+    activeTreeId = MAIN_TREE_ID;
+    clearTreeScopedFilters();
+    activeId = null;
+  }
+  updateTreeSelectorOptions();
+  updateTreeBranchOptions();
+  if (loadedPeople && loadedFamilies) {
+    cameraPositioned = true;
+    renderTree();
+    camera.fit();
+  }
+  if (loadedPeople && !$('directoryView').hidden) renderDirectory();
+  if (focusWasInManager && !$("manageTreesBtn").hidden) $("manageTreesBtn").focus({ preventScroll: true });
+}
+
+function updateCachedTreeLifecycle(treeId, lifecycleState, token = null) {
+  const tree = treeMetadata.find(item => item.id === treeId);
+  if (!tree) return;
+  tree.lifecycleState = lifecycleState;
+  if (lifecycleState === TREE_LIFECYCLE_DELETING) tree.deletionToken = token;
+  else {
+    delete tree.deletionToken;
+    delete tree.deletionStartedAt;
+    delete tree.deletionStartedBy;
+  }
+  updateTreeSelectorOptions();
+}
+
+function restoreTreeManagementFocusIfNeeded() {
+  const focused = document.activeElement;
+  if (!focused || !["manageTreeDeleteBtn", "manageTreeRecoverBtn"].includes(focused.id)) return;
+  if (!focused.hidden && !focused.disabled) return;
+  const recovery = $("manageTreeRecoverBtn");
+  if (!recovery.hidden && !recovery.disabled) recovery.focus({ preventScroll: true });
+  else if (!$("manageTreesBtn").hidden) $("manageTreesBtn").focus({ preventScroll: true });
+}
+
+async function restoreTreeDeletionLock(treeId, token, uid) {
+  const treeRef = doc(db, "trees", treeId);
+  await runTreeLifecycleTransaction(treeRef, async transaction => {
+    const snapshot = await transaction.get(treeRef);
+    if (!snapshot.exists()) throw new Error("L'arbre a déjà été supprimé ou n'est plus disponible.");
+    const current = snapshot.data();
+    if (current.lifecycleState !== TREE_LIFECYCLE_DELETING || current.deletionToken !== token) {
+      throw new Error("Le verrou a changé depuis cette tentative. Actualisez le catalogue avant de continuer.");
+    }
+    transaction.update(treeRef, {
+      lifecycleState: TREE_LIFECYCLE_ACTIVE,
+      deletionToken: deleteField(),
+      deletionStartedAt: deleteField(),
+      deletionStartedBy: deleteField(),
+      updatedAt: serverTimestamp(),
+      updatedBy: uid
+    });
+  });
+  updateCachedTreeLifecycle(treeId, TREE_LIFECYCLE_ACTIVE);
+}
+
+function unrelatedTreeMembershipAnomalies(treeId) {
+  const knownIds = new Set(treeMetadata.map(item => item.id));
+  return people.filter(item => {
+    if (item.treeId === treeId) return false;
+    const membership = getPersonTreeMembership(item);
+    return membership.type === "unavailable"
+      || (membership.type === "assigned" && membership.treeId !== MAIN_TREE_ID && !knownIds.has(membership.treeId));
+  }).length;
+}
+
+async function deleteManagedTree(treeId) {
+  if (!isAdminUser()) return toast("Accès réservé aux administrateurs", "error");
+  if (treeCatalogState !== "ready") return toast("Le catalogue des arbres est indisponible", "error");
+  if (!treeId || treeId === MAIN_TREE_ID) return toast("L’arbre familial principal ne peut pas être supprimé.", "error");
+  const tree = treeMetadata.find(item => item.id === treeId);
+  if (!tree) return toast("Cet arbre n’est plus disponible. Actualisez le catalogue.", "error");
+  if (getTreeLifecycleState(tree) === TREE_LIFECYCLE_DELETING) return toast("Une suppression est déjà interrompue ou en cours. Utilisez « Débloquer l’arbre » après vérification.", "error");
+  if (getTreeLifecycleState(tree) !== TREE_LIFECYCLE_ACTIVE) return toast("L’état de cet arbre est invalide. Aucune suppression n’a été lancée.", "error");
+  if (!confirm(`Supprimer définitivement l’arbre « ${tree.name} » ? Cette action est irréversible.`)) return false;
+  if (treeDeletionInProgress.has(treeId) || treeRecoveryInProgress.has(treeId)) return toast("Une opération sur cet arbre est déjà en cours.", "info");
+
+  const uid = auth.currentUser?.uid || "";
+  if (!uid) return toast("Votre session a expiré ; reconnectez-vous avant la suppression.", "error");
+  let token;
+  try { token = newTreeDeletionToken(); }
+  catch (error) { return toast(error.message, "error"); }
+  const treeRef = doc(db, "trees", treeId);
+  treeDeletionInProgress.add(treeId);
+  updateTreeActionButtons();
+  let lockCreated = false;
+  let finalDeleteStarted = false;
+  try {
+    await runTreeLifecycleTransaction(treeRef, async transaction => {
+      const snapshot = await transaction.get(treeRef);
+      if (!snapshot.exists()) throw new Error("Cet arbre n’existe plus.");
+      if (treeId === MAIN_TREE_ID) throw new Error("L’arbre familial principal ne peut pas être supprimé.");
+      const current = snapshot.data();
+      if (current.lifecycleState === TREE_LIFECYCLE_DELETING) throw new Error("Un autre administrateur a déjà verrouillé cet arbre.");
+      if (getTreeLifecycleState(current) !== TREE_LIFECYCLE_ACTIVE) throw new Error("L’état de cet arbre est invalide.");
+      transaction.update(treeRef, {
+        lifecycleState: TREE_LIFECYCLE_DELETING,
+        deletionToken: token,
+        deletionStartedAt: serverTimestamp(),
+        deletionStartedBy: uid,
+        updatedAt: serverTimestamp(),
+        updatedBy: uid
+      });
+    });
+    lockCreated = true;
+    updateCachedTreeLifecycle(treeId, TREE_LIFECYCLE_DELETING, token);
+
+    // Lecture serveur complète du résultat de la requête, jamais le cache local.
+    const memberSnapshot = await readTreeDeletionMembers(treeId);
+    if (memberSnapshot.metadata.fromCache) throw new Error("La vérification des personnes n’a pas confirmé une lecture serveur complète.");
+    if (!memberSnapshot.empty) {
+      const memberReport = getTreeDeletionMemberReport(memberSnapshot.docs.map(snapshot => ({ id: snapshot.id, ...snapshot.data() })), treeId);
+      await restoreTreeDeletionLock(treeId, token, uid);
+      const invalidCount = memberReport.invalidMembershipIds.length;
+      const anomalyText = invalidCount ? ` ${invalidCount} fiche${invalidCount > 1 ? "s" : ""} avec une appartenance incohérente référence${invalidCount > 1 ? "nt" : ""} aussi cet arbre.` : "";
+      toast(`Cet arbre contient encore des personnes, y compris éventuellement des fiches masquées. Retirez-les ou transférez-les avant de le supprimer.${anomalyText}`, "error");
+      return false;
+    }
+
+    finalDeleteStarted = true;
+    await runTreeLifecycleTransaction(treeRef, async transaction => {
+      const snapshot = await transaction.get(treeRef);
+      if (!snapshot.exists()) throw new Error("L’arbre a déjà été supprimé.");
+      const current = snapshot.data();
+      if (current.lifecycleState !== TREE_LIFECYCLE_DELETING || current.deletionToken !== token) {
+        throw new Error("Le jeton de suppression a changé. L’arbre n’a pas été supprimé par cette tentative.");
+      }
+      transaction.delete(treeRef);
+    });
+    refreshAfterTreeRemoval(treeId);
+    const unrelated = unrelatedTreeMembershipAnomalies(treeId);
+    toast(`L’arbre « ${tree.name} » a été supprimé.${unrelated ? ` ${unrelated} autre${unrelated > 1 ? "s" : ""} fiche${unrelated > 1 ? "s" : ""} présente${unrelated > 1 ? "nt" : ""} une appartenance indéterminée sans référence explicite à cet arbre.` : ""}`);
+    return true;
+  } catch (error) {
+    console.error("Suppression d’arbre impossible", error);
+    let serverSnapshot = null;
+    try { serverSnapshot = await readTreeLifecycleDocument(treeRef); } catch { /* état réseau indéterminé : ne jamais annoncer le succès */ }
+    if (finalDeleteStarted && serverSnapshot && !serverSnapshot.exists()) {
+      refreshAfterTreeRemoval(treeId);
+      toast(`L’arbre « ${tree.name} » a été supprimé et l’absence du document a été confirmée par Firestore.`);
+      return true;
+    }
+    if (!lockCreated && serverSnapshot?.exists()) {
+      const serverTree = serverSnapshot.data();
+      lockCreated = serverTree.lifecycleState === TREE_LIFECYCLE_DELETING && serverTree.deletionToken === token;
+    }
+    if (lockCreated) {
+      toast(`Suppression non confirmée. L’arbre est conservé${error.message ? ` : ${error.message}` : "."} Si son état reste « suppression en cours », un administrateur peut utiliser « Débloquer l’arbre ».`, "error");
+    } else {
+      const text = `${error.code || ""} ${error.message || ""}`;
+      const message = /permission-denied|insufficient permissions/i.test(text)
+        ? "Suppression refusée par les règles Firestore. Vérifiez votre rôle et l’état de l’arbre."
+        : /unavailable|network|offline|failed to fetch|deadline-exceeded/i.test(text)
+          ? "Connexion impossible ; l’arbre n’a pas été supprimé. Vérifiez son état avant de réessayer."
+          : error.message || "Suppression impossible ; aucune donnée généalogique n’a été supprimée.";
+      toast(message, "error");
+    }
+    return false;
+  } finally {
+    treeDeletionInProgress.delete(treeId);
+    updateTreeActionButtons();
+    restoreTreeManagementFocusIfNeeded();
+  }
+}
+
+async function recoverManagedTree(treeId) {
+  if (!isAdminUser()) return toast("Accès réservé aux administrateurs", "error");
+  if (!treeId || treeId === MAIN_TREE_ID) return toast("L’arbre familial principal ne peut pas être récupéré.", "error");
+  if (treeDeletionInProgress.has(treeId) || treeRecoveryInProgress.has(treeId)) return toast("Une opération sur cet arbre est déjà en cours.", "info");
+  const treeRef = doc(db, "trees", treeId);
+  let snapshot;
+  try { snapshot = await readTreeLifecycleDocument(treeRef); }
+  catch (error) {
+    console.error("Lecture serveur du verrou impossible", error);
+    return toast("Impossible de vérifier le verrou auprès de Firestore. Aucune récupération n’a été effectuée.", "error");
+  }
+  if (!snapshot.exists()) return toast("Cet arbre n’existe plus. Actualisez le catalogue.", "error");
+  const current = snapshot.data();
+  if (current.lifecycleState !== TREE_LIFECYCLE_DELETING || typeof current.deletionToken !== "string") {
+    return toast("L’état de l’arbre a changé. Actualisez le catalogue avant de continuer.", "error");
+  }
+  const token = current.deletionToken;
+  const treeName = current.name || "Arbre secondaire";
+  if (!confirm(`L’arbre « ${treeName} » est verrouillé pour suppression. Le réactiver invalidera le jeton actuel et arrêtera cette tentative. Si une autre session la traite encore, elle ne pourra plus supprimer l’arbre. Continuer ?`)) return false;
+  const uid = auth.currentUser?.uid || "";
+  if (!uid) return toast("Votre session a expiré ; reconnectez-vous avant la récupération.", "error");
+  treeRecoveryInProgress.add(treeId);
+  updateTreeActionButtons();
+  try {
+    await runTreeLifecycleTransaction(treeRef, async transaction => {
+      const liveSnapshot = await transaction.get(treeRef);
+      if (!liveSnapshot.exists()) throw new Error("L’arbre n’existe plus.");
+      const live = liveSnapshot.data();
+      if (live.lifecycleState !== TREE_LIFECYCLE_DELETING || live.deletionToken !== token) {
+        throw new Error("Le verrou a changé depuis la confirmation. Actualisez le catalogue et recommencez.");
+      }
+      transaction.update(treeRef, {
+        lifecycleState: TREE_LIFECYCLE_ACTIVE,
+        deletionToken: deleteField(),
+        deletionStartedAt: deleteField(),
+        deletionStartedBy: deleteField(),
+        updatedAt: serverTimestamp(),
+        updatedBy: uid
+      });
+    });
+    updateCachedTreeLifecycle(treeId, TREE_LIFECYCLE_ACTIVE);
+    toast(`L’arbre « ${treeName} » a été réactivé. L’ancienne tentative ne peut plus le supprimer.`);
+    return true;
+  } catch (error) {
+    console.error("Récupération de l’arbre impossible", error);
+    toast(error.message || "Récupération impossible ; actualisez le catalogue.", "error");
+    return false;
+  } finally {
+    treeRecoveryInProgress.delete(treeId);
+    updateTreeActionButtons();
+    restoreTreeManagementFocusIfNeeded();
+  }
+}
+
 function openTreeManagementAction(action) {
   if (!isAdminUser()) return toast("Accès réservé aux administrateurs", "error");
   if (treeCatalogState !== "ready") return toast("Le catalogue des arbres est indisponible", "error");
@@ -785,6 +1055,8 @@ function openTreeManagementAction(action) {
     if (activeTreeId === MAIN_TREE_ID) return toast("L’arbre familial principal ne peut pas être renommé", "error");
     return openTreeDialog("rename", activeTreeId);
   }
+  if (action === "delete") return deleteManagedTree(activeTreeId);
+  if (action === "recover") return recoverManagedTree(activeTreeId);
 }
 
 $("manageTreesBtn").addEventListener("click", event => {
@@ -824,6 +1096,8 @@ document.addEventListener("click", event => {
 });
 $("manageTreeCreateBtn").addEventListener("click", () => openTreeManagementAction("create"));
 $("manageTreeRenameBtn").addEventListener("click", () => openTreeManagementAction("rename"));
+$("manageTreeDeleteBtn").addEventListener("click", () => openTreeManagementAction("delete"));
+$("manageTreeRecoverBtn").addEventListener("click", () => openTreeManagementAction("recover"));
 
 $("treeForm").addEventListener("submit", async event => {
   event.preventDefault();
@@ -846,7 +1120,7 @@ $("treeForm").addEventListener("submit", async event => {
       updateTreeSelectorOptions();
       toast("Arbre renommé");
     } else {
-      const created = await addDoc(refs.trees, { ...data, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });
+      const created = await addDoc(refs.trees, { ...data, lifecycleState: TREE_LIFECYCLE_ACTIVE, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });
       const treeId = created.id;
       const cachedTree = treeMetadata.find(item => item.id === treeId);
       if (cachedTree) Object.assign(cachedTree, { name, description: description || "" });
@@ -2523,7 +2797,7 @@ function openPersonTreeTransfer(personId) {
   $("personTreeTransferDestination").setAttribute("aria-label", isAssignment ? "Affecter à un arbre" : "Déplacer vers");
   const destinations = [
     ...(sourceTreeId === MAIN_TREE_ID ? [] : [{ id: MAIN_TREE_ID, name: "Arbre familial" }]),
-    ...treeMetadata.filter(tree => tree.id !== sourceTreeId).map(tree => ({ id: tree.id, name: tree.name }))
+    ...treeMetadata.filter(tree => tree.id !== sourceTreeId && getTreeLifecycleState(tree) === TREE_LIFECYCLE_ACTIVE).map(tree => ({ id: tree.id, name: tree.name }))
   ];
   $("personTreeTransferDestination").innerHTML = '<option value="">Sélectionner un arbre…</option>'
     + destinations.map(tree => `<option value="${esc(tree.id)}">${esc(tree.name)}</option>`).join("");
@@ -2645,6 +2919,9 @@ async function confirmPersonTreeTransfer() {
       const memberSnapshots = await Promise.all(familyMemberIds.map(id => transaction.get(doc(db, "people", id))));
       if (sourceTreeSnapshot && !sourceTreeSnapshot.exists()) throw new Error("L'arbre source n'est plus disponible; transfert annulé.");
       if (destinationTreeSnapshot && !destinationTreeSnapshot.exists()) throw new Error("L'arbre de destination n'existe plus; transfert annulé.");
+      if (destinationTreeSnapshot && getTreeLifecycleState(destinationTreeSnapshot.data()) !== TREE_LIFECYCLE_ACTIVE) {
+        throw new Error("L’arbre de destination est en cours de suppression. Aucune personne n’a été transférée.");
+      }
       if (sourceTreeSnapshot && sourceTreeSnapshot.data().name !== expectedPlan.sourceTreeName) {
         const error = new Error("Le nom de l'arbre source a changé depuis l'aperçu. Fermez-le et recommencez.");
         error.code = "tree-transfer-stale";
@@ -2808,7 +3085,7 @@ function updateMultipleTreeTransferDestination(sourceTreeId, preserveDestination
   const previous = preserveDestination ? select.value : "";
   const destinations = [
     ...(sourceTreeId !== MAIN_TREE_ID ? [{ id: MAIN_TREE_ID, name: "Arbre familial" }] : []),
-    ...treeMetadata.filter(tree => tree.id !== sourceTreeId).map(tree => ({ id: tree.id, name: tree.name }))
+    ...treeMetadata.filter(tree => tree.id !== sourceTreeId && getTreeLifecycleState(tree) === TREE_LIFECYCLE_ACTIVE).map(tree => ({ id: tree.id, name: tree.name }))
   ];
   select.innerHTML = '<option value="">Choisir une destination…</option>'
     + destinations.map(tree => `<option value="${esc(tree.id)}">${esc(tree.name)}</option>`).join("");
@@ -2975,6 +3252,9 @@ async function confirmMultipleTreeTransfer() {
 
       if (sourceTreeSnapshot && !sourceTreeSnapshot.exists()) throw new Error("L’arbre source n’existe plus.");
       if (destinationTreeSnapshot && !destinationTreeSnapshot.exists()) throw new Error("L’arbre de destination n’existe plus.");
+      if (destinationTreeSnapshot && getTreeLifecycleState(destinationTreeSnapshot.data()) !== TREE_LIFECYCLE_ACTIVE) {
+        throw new Error("L’arbre de destination est en cours de suppression. Aucune personne n’a été transférée.");
+      }
       if (sourceTreeSnapshot && sourceTreeSnapshot.data().name !== expectedPlan.sourceTreeName) throw new Error("Le nom de l’arbre source a changé depuis l’aperçu. Recommencez.");
       if (destinationTreeSnapshot && destinationTreeSnapshot.data().name !== expectedPlan.destinationTreeName) throw new Error("Le nom de l’arbre de destination a changé depuis l’aperçu. Recommencez.");
       if (selectedIds.some(id => {
@@ -3391,6 +3671,56 @@ async function writeImportedRecords(collectionName, records = []) {
   }
 }
 
+async function writeImportedTreeRecords(records = [], existingIdsAtPreflight = new Set()) {
+  const uid = auth.currentUser?.uid || "";
+  if (!uid) throw new Error("Votre session a expiré ; reconnectez-vous avant la restauration.");
+  let completed = 0;
+  try {
+    for (const item of records) {
+      if (!item?.id || item.id.includes("/")) throw new Error("Identifiant d’arbre invalide dans la sauvegarde");
+      const treeRef = doc(db, "trees", item.id);
+      await runTransaction(db, async transaction => {
+        const snapshot = await transaction.get(treeRef);
+        const expectedToExist = existingIdsAtPreflight.has(item.id);
+        if (snapshot.exists() !== expectedToExist) {
+          throw new Error(`L’arbre « ${item.name} » a changé depuis la vérification. Actualisez puis recommencez la restauration.`);
+        }
+        let lifecycleState = TREE_LIFECYCLE_ACTIVE;
+        if (snapshot.exists()) {
+          const current = snapshot.data();
+          lifecycleState = getTreeLifecycleState(current);
+          if (lifecycleState !== TREE_LIFECYCLE_ACTIVE) {
+            throw new Error(`L’arbre « ${item.name} » est verrouillé ou son état est invalide. Il n’a pas été restauré.`);
+          }
+          // Merge ne peut ni effacer un état historique absent, ni réécrire un
+          // état transient fourni par une archive antérieure.
+          const restored = importedTreeData(item, { lifecycleState });
+          if (!Object.prototype.hasOwnProperty.call(current, "lifecycleState")) delete restored.lifecycleState;
+          transaction.set(treeRef, {
+            ...restored,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            updatedBy: uid
+          }, { merge: true });
+        } else {
+          transaction.set(treeRef, {
+            ...importedTreeData(item, { lifecycleState: TREE_LIFECYCLE_ACTIVE }),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            updatedBy: uid
+          });
+        }
+      });
+      completed++;
+    }
+  } catch (error) {
+    if (completed) {
+      throw new Error(`Restauration des arbres interrompue après ${completed}/${records.length} métadonnée(s) traitée(s). Les arbres déjà écrits sont conservés ; les personnes n’ont pas encore été restaurées. ${error.message || ""}`);
+    }
+    throw error;
+  }
+}
+
 async function restoreCompleteBackup(file) {
   const button = $("importBtn");
   button.disabled = true;
@@ -3404,9 +3734,24 @@ async function restoreCompleteBackup(file) {
     const manifest = parseBackupManifestText(await manifestEntry.async("string"));
     validateFamilyDataset(manifest.people, manifest.families);
     validateTreeDataset(manifest.people, manifest.trees || []);
-    if (!confirm(`Fusionner cette sauvegarde avec les données actuelles ?\n\n${manifest.people.length} personnes · ${manifest.documents?.length || 0} documents · ${manifest.tasks?.length || 0} tâches\n\nLes éléments de même identifiant seront mis à jour. Les autres données actuelles seront conservées.`)) return;
+    const liveTreesSnapshot = await getDocsFromServer(refs.trees);
+    if (liveTreesSnapshot.metadata.fromCache) throw new Error("Impossible de vérifier les arbres auprès du serveur. La restauration n’a pas commencé.");
+    const liveTreesById = new Map(liveTreesSnapshot.docs.map(snapshot => [snapshot.id, snapshot.data()]));
+    const lockedBackupTrees = (manifest.trees || []).filter(item => liveTreesById.get(item.id)?.lifecycleState === TREE_LIFECYCLE_DELETING);
+    if (lockedBackupTrees.length) throw new Error(`Restauration suspendue : ${lockedBackupTrees.map(tree => tree.name).join(", ")} est en cours de suppression. Récupérez cet arbre avant de restaurer.`);
+    const invalidLifecycleTrees = (manifest.trees || []).filter(item => {
+      const current = liveTreesById.get(item.id);
+      return current && getTreeLifecycleState(current) !== TREE_LIFECYCLE_ACTIVE;
+    });
+    if (invalidLifecycleTrees.length) throw new Error(`Restauration suspendue : état de cycle de vie invalide pour ${invalidLifecycleTrees.map(tree => tree.name).join(", ")}. Aucun arbre n’a été modifié.`);
+    const existingTreeIdsAtPreflight = new Set(liveTreesById.keys());
+    const treesToRecreate = (manifest.trees || []).filter(item => !existingTreeIdsAtPreflight.has(item.id));
+    const recreateWarning = treesToRecreate.length
+      ? `\n\nArbres absents qui seront recréés :\n${treesToRecreate.map(tree => `• ${tree.name}`).join("\n")}`
+      : "";
+    if (!confirm(`Fusionner cette sauvegarde avec les données actuelles ?\n\n${manifest.people.length} personnes · ${manifest.documents?.length || 0} documents · ${manifest.tasks?.length || 0} tâches${recreateWarning}\n\nLes éléments de même identifiant seront mis à jour. Les autres données actuelles seront conservées.`)) return;
 
-    await writeImportedRecords("trees", manifest.trees || []);
+    await writeImportedTreeRecords(manifest.trees || [], existingTreeIdsAtPreflight);
     button.innerHTML = '… <span class="label">Personnes</span>';
     await writeImportedRecords("people", manifest.people);
     await writeImportedRecords("families", manifest.families);
@@ -4543,12 +4888,15 @@ $("personForm").addEventListener("submit", async event => {
         }
         let destinationSnapshot;
         try {
-          destinationSnapshot = await getDoc(doc(db, "trees", destinationTreeId));
+          destinationSnapshot = await getDocFromServer(doc(db, "trees", destinationTreeId));
         } catch (error) {
           console.error("Vérification de l’arbre de destination impossible", error);
           throw new Error("Impossible de vérifier l’arbre choisi. Vérifiez votre connexion puis réessayez.");
         }
         if (!destinationSnapshot.exists()) throw new Error("L’arbre choisi n’existe plus. Aucune fiche n’a été créée.");
+        if (getTreeLifecycleState(destinationSnapshot.data()) !== TREE_LIFECYCLE_ACTIVE) {
+          throw new Error("L’arbre choisi est en cours de suppression ou son état est invalide. Aucune fiche n’a été créée.");
+        }
         createData.treeId = destinationTreeId;
       }
       if (birthDateInfo.type !== "exact") delete createData.birthDate;
@@ -4576,7 +4924,7 @@ $("personForm").addEventListener("submit", async event => {
     console.error(error);
     const errorText = `${error.code || ""} ${error.message || ""}`;
     const message = /permission-denied|insufficient permissions/i.test(errorText)
-      ? "Création refusée par les règles Firestore. Vérifiez votre accès à l’arbre choisi."
+      ? "Création refusée par les règles Firestore. L’arbre choisi est peut-être en cours de suppression ou votre accès est insuffisant. Aucune fiche n’a été créée."
       : /unavailable|network|offline|failed to fetch|deadline-exceeded/i.test(errorText)
         ? "Connexion impossible : la fiche n’a pas pu être enregistrée. Réessayez sans fermer ce formulaire."
         : error.message || "Enregistrement impossible";

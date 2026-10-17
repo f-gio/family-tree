@@ -25,6 +25,21 @@ export function exportableRecord(item) {
   return JSON.parse(JSON.stringify(item));
 }
 
+export function exportableTreeRecord(item) {
+  const record = exportableRecord(item);
+  delete record.lifecycleState;
+  delete record.deletionToken;
+  delete record.deletionStartedAt;
+  delete record.deletionStartedBy;
+  return record;
+}
+
+export function importedTreeData(item, { lifecycleState = "active" } = {}) {
+  const { lifecycleState: _lifecycleState, deletionToken: _deletionToken,
+    deletionStartedAt: _deletionStartedAt, deletionStartedBy: _deletionStartedBy, ...data } = item || {};
+  return { ...importedDataFields(data), lifecycleState };
+}
+
 export function importedDataFields(item) {
   const { id, createdAt, updatedAt, backupFile, updatedBy, updatedByName, ...data } = item || {};
   return data;
@@ -173,7 +188,7 @@ export function buildBackupManifest({ people = [], families = [], trees = [], ta
     exportedAt,
     people: people.map(exportableRecord),
     families: families.map(exportableRecord),
-    trees: trees.map(exportableRecord),
+    trees: trees.map(exportableTreeRecord),
     tasks: tasks.map(exportableRecord),
     documents: []
   };

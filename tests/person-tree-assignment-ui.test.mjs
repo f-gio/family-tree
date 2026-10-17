@@ -39,7 +39,7 @@ window.__personTreeWriteMode = "success";
 window.__personTreeTargetMock = async id => {
   window.__personTreeTargetId = id;
   if (window.__personTreeTargetMode === "network") throw new Error("network");
-  return { exists: () => window.__personTreeTargetMode !== "missing" };
+  return { exists: () => window.__personTreeTargetMode !== "missing", data: () => ({ lifecycleState: window.__personTreeTargetMode === "deleting" ? "deleting" : "active" }) };
 };
 window.__personCreateMock = async (id, data) => {
   window.__personTreeWrites.push({ id, treeId: data.treeId, firstName: data.firstName });
@@ -71,7 +71,7 @@ async function openHarness(t, width = 1024) {
     if (url.endsWith("/js/app.js")) {
       const response = await route.fetch();
       let source = await response.text();
-      const lookup = 'await getDoc(doc(db, "trees", destinationTreeId))';
+      const lookup = 'await getDocFromServer(doc(db, "trees", destinationTreeId))';
       const write = 'await setDoc(doc(db, "people", createdId), { ...createData, inTree: true, createdAt: serverTimestamp() });';
       assert.ok(source.includes(lookup), "la vérification en ligne de l’arbre doit être présente");
       assert.ok(source.includes(write), "la création doit être vérifiable sans Firestore distant");
@@ -172,6 +172,11 @@ test("l’arbre secondaire est revérifié avant écriture et aucun échec ne cr
     await page.locator("#savePersonBtn").click();
     assert.match(await page.locator("#toastMessage").textContent(), /vérifier l’arbre choisi/i);
     assert.equal(await page.evaluate(() => window.__personTreeWrites.length), 0);
+
+    await page.evaluate(() => { window.__personTreeTargetMode = "deleting"; });
+    await page.locator("#savePersonBtn").click();
+    assert.match(await page.locator("#toastMessage").textContent(), /en cours de suppression/);
+    assert.equal(await page.evaluate(() => window.__personTreeWrites.length), 0, "aucune fiche partielle pour une destination verrouillée");
 
     await page.locator('#personDialog button.icon-btn[data-close="personDialog"]').click();
     await page.evaluate(data => window.__personTreeHarness.setData(data), { people, trees });

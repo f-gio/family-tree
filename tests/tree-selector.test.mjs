@@ -44,6 +44,8 @@ window.__treeSelectorHarness = {
     renderTree();
   },
   setCatalogError() { rejectTreeCatalog({ code: "permission-denied" }); },
+  deleteCurrentTree() { return deleteManagedTree(activeTreeId); },
+  recoverCurrentTree() { return recoverManagedTree(activeTreeId); },
   exportCurrentSvg() {
     return treeExportSvg({ people: currentScope?.people || [], layout: currentLayout, markers: treeContextMarkers(currentScope || {}) });
   },
@@ -73,6 +75,9 @@ window.__treeSelectorHarness = {
   managerContainerHidden() { return document.getElementById("treeManagement").hidden; },
   managerMenuOpen() { return !document.getElementById("treeManagementPopover").hidden; },
   deleteActionDisabled() { return document.getElementById("manageTreeDeleteBtn").disabled; },
+  deleteActionHidden() { return document.getElementById("manageTreeDeleteBtn").hidden; },
+  recoverActionHidden() { return document.getElementById("manageTreeRecoverBtn").hidden; },
+  recoverActionDisabled() { return document.getElementById("manageTreeRecoverBtn").disabled; },
   deleteNotice() { return document.getElementById("manageTreeDeleteNotice").textContent; },
   openTreeDialog(mode, treeId) { openTreeDialog(mode, treeId); },
   submitTreeForm() {
@@ -280,20 +285,24 @@ async function createHarnessPage(browser, server, viewport, forcedEnv = "recette
     if (url.endsWith("/js/app.js")) {
       const response = await route.fetch();
       let source = await response.text();
-      const createCall = 'const created = await addDoc(refs.trees, { ...data, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });';
+      const createCall = 'const created = await addDoc(refs.trees, { ...data, lifecycleState: TREE_LIFECYCLE_ACTIVE, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });';
       const renameCall = 'await updateDoc(doc(db, "trees", id), data);';
       assert.ok(source.includes(createCall), "appel Firestore de création d'arbre attendu");
       assert.ok(source.includes(renameCall), "appel Firestore de renommage attendu");
+      assert.ok(source.includes("return runTransaction(db, operation);"), "transaction du cycle de vie isolée pour les tests UI");
       source = source
-        .replace(createCall, 'const created = await window.__treeWriteMock("create", null, { ...data, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });')
-        .replace(renameCall, 'await window.__treeWriteMock("rename", id, data);');
+        .replace(createCall, 'const created = await window.__treeWriteMock("create", null, { ...data, lifecycleState: TREE_LIFECYCLE_ACTIVE, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });')
+        .replace(renameCall, 'await window.__treeWriteMock("rename", id, data);')
+        .replace("return runTransaction(db, operation);", "return window.__treeLifecycleTestMocks.runTransaction(treeRef, operation);")
+        .replace("return getDocFromServer(treeRef);", "return window.__treeLifecycleTestMocks.readTree(treeRef);")
+        .replace('return getDocsFromServer(query(refs.people, where("treeId", "==", treeId)));', "return window.__treeLifecycleTestMocks.readMembers(treeId);");
       const mockWrites = `
 window.__treeWriteLog = [];
 window.__treeWriteMock = async (mode, id, data) => {
   const treeId = id || "tree-test-" + (window.__treeWriteLog.length + 1);
   window.__treeWriteLog.push({ mode, id: treeId, name: data.name, description: data.description || "", createdBy: data.createdBy || "", hasCreatedAt: !!data.createdAt });
   const tree = treeMetadata.find(item => item.id === treeId);
-  if (mode === "create" && !tree) treeMetadata.push({ id: treeId, name: data.name, description: data.description || "" });
+  if (mode === "create" && !tree) treeMetadata.push({ id: treeId, name: data.name, description: data.description || "", lifecycleState: "active" });
   if (mode === "rename" && tree) {
     Object.assign(tree, { name: data.name, description: data.description || "" });
     updateTreeSelectorOptions();
@@ -301,6 +310,51 @@ window.__treeWriteMock = async (mode, id, data) => {
     renderTree();
   }
   return { id: treeId };
+};
+window.__treeLifecycleTestMocks = {
+  records: new Map(), members: [], transactionLog: [], readLog: [], failMemberRead: false,
+  async runTransaction(ref, operation) {
+    const staged = [];
+    const transaction = {
+      get: async target => {
+        const record = this.records.get(target.id);
+        return { exists: () => !!record, data: () => record ? { ...record } : undefined };
+      },
+      update: (target, changes) => staged.push({ kind: "update", id: target.id, changes }),
+      delete: target => staged.push({ kind: "delete", id: target.id })
+    };
+    await operation(transaction);
+    for (const write of staged) {
+      this.transactionLog.push(write.kind);
+      if (write.kind === "delete") this.records.delete(write.id);
+      else {
+        const record = { ...(this.records.get(write.id) || {}) };
+        for (const [key, value] of Object.entries(write.changes)) {
+          if (write.changes.lifecycleState === "active" && ["deletionToken", "deletionStartedAt", "deletionStartedBy"].includes(key)) delete record[key];
+          else if (value?._methodName === "deleteField") delete record[key];
+          else record[key] = value;
+        }
+        this.records.set(write.id, record);
+        const cached = treeMetadata.find(tree => tree.id === write.id);
+        if (cached) {
+          Object.assign(cached, record);
+          for (const key of ["deletionToken", "deletionStartedAt", "deletionStartedBy"]) if (!(key in record)) delete cached[key];
+          updateTreeActionButtons();
+        }
+      }
+    }
+  },
+  async readTree(ref) {
+    this.readLog.push("tree");
+    const record = this.records.get(ref.id);
+    return { exists: () => !!record, data: () => record ? { ...record } : undefined };
+  },
+  async readMembers(treeId) {
+    this.readLog.push("members");
+    if (this.failMemberRead) throw new Error("unavailable local mock");
+    const docs = this.members.filter(item => item.treeId === treeId).map(item => ({ id: item.id, data: () => ({ ...item }) }));
+    return { docs, empty: docs.length === 0, metadata: { fromCache: false } };
+  }
 };`;
       return route.fulfill({ response, body: `${source}\n${testHooks}\n${mockWrites}` });
     }
@@ -487,18 +541,19 @@ test("mobile 390px : menu Gérer les arbres accessible et actions tactiles", asy
         assert.equal(await page.locator("#treeDialog").evaluate(dialog => dialog.open), true, "clic Créer ouvre le dialogue réel");
         assert.equal(await page.locator("#treeDialogTitle").textContent(), "Créer un arbre");
         await page.locator("#treeDialog .modal-actions [data-close=treeDialog]").click();
-        /* renommage principal indisponible et suppression bloquée par sécurité */
+        /* renommage et suppression du principal restent interdites */
         assert.equal(await page.evaluate(() => window.__treeSelectorHarness.renameBtnVisible()), false);
         assert.equal(await page.evaluate(() => window.__treeSelectorHarness.deleteActionDisabled()), true);
-        assert.match(await page.evaluate(() => window.__treeSelectorHarness.deleteNotice()), /arbre principal ne peut pas être supprimé/i);
+        assert.match(await page.evaluate(() => window.__treeSelectorHarness.deleteNotice()), /arbre familial principal ne peut pas être supprimé/i);
         await page.evaluate(() => window.__treeSelectorHarness.chooseTree("tree-conti"));
         await page.locator("#manageTreesBtn").click();
         const rename = page.locator("#manageTreeRenameBtn");
         const renameBox = await rename.evaluate(button => button.getBoundingClientRect());
         assert.equal(await rename.isEnabled(), true, "Renommer activé sur arbre secondaire");
         assert.ok(renameBox.height >= 43 && renameBox.width >= 43, "action Renommer tactile");
-        assert.equal(await page.evaluate(() => window.__treeSelectorHarness.deleteActionDisabled()), true, "suppression bloquée sans protocole Firestore sûr");
-        assert.match(await page.evaluate(() => window.__treeSelectorHarness.deleteNotice()), /règles Firestore l’interdisent/i);
+        assert.equal(await page.evaluate(() => window.__treeSelectorHarness.deleteActionDisabled()), false, "suppression activée pour l’arbre secondaire actif");
+        assert.equal(await page.evaluate(() => window.__treeSelectorHarness.recoverActionHidden()), true, "aucune récupération proposée sans verrou");
+        assert.equal(await page.locator("#manageTreeDeleteBtn").textContent(), "Supprimer l'arbre");
         await rename.click();
         const dialogOpen = await page.evaluate(() => document.getElementById("treeDialog").open);
         assert.ok(dialogOpen, "dialogue de renommage ouvert");
@@ -538,4 +593,151 @@ test("arbre principal protégé : pas de renommage, pas de treeId main dans le c
       } finally { await context.close(); }
     } finally { await browser.close(); }
   } finally { await server.close(); }
+});
+
+test("un arbre verrouillé expose uniquement l’action de récupération avec une cible tactile", async t => {
+  const server = await startStaticServer(ROOT);
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  try {
+    const { context, page } = await createHarnessPage(browser, server, { width: 390, height: 844 });
+    try {
+      const lockedFixture = structuredClone(fixture);
+      lockedFixture.trees[0].lifecycleState = "deleting";
+      lockedFixture.trees[0].deletionToken = "emulator-token-locked-tree";
+      await page.evaluate(data => window.__treeSelectorHarness.setData(data), lockedFixture);
+      await page.evaluate(() => window.__treeSelectorHarness.setAdminMode(true));
+      await page.evaluate(() => window.__treeSelectorHarness.chooseTree("tree-conti"));
+
+      for (const width of [320, 390, 760, 1024]) {
+        await page.setViewportSize({ width, height: 844 });
+        await page.locator("#manageTreesBtn").click();
+        const state = await page.evaluate(() => ({
+          deleteHidden: window.__treeSelectorHarness.deleteActionHidden(),
+          recoverHidden: window.__treeSelectorHarness.recoverActionHidden(),
+          recoverDisabled: window.__treeSelectorHarness.recoverActionDisabled(),
+          label: document.getElementById("treeSelect").selectedOptions[0]?.textContent,
+          button: document.getElementById("manageTreeRecoverBtn").getBoundingClientRect().toJSON(),
+          notice: window.__treeSelectorHarness.deleteNotice()
+        }));
+        assert.equal(state.deleteHidden, true, `pas de seconde suppression à ${width}px`);
+        assert.equal(state.recoverHidden, false, `récupération visible à ${width}px`);
+        assert.equal(state.recoverDisabled, false);
+        assert.match(state.label, /Suppression en cours/);
+        assert.match(state.notice, /en cours ou interrompue/i);
+        assert.ok(state.button.height >= 43 && state.button.width >= 43, `cible tactile à ${width}px`);
+        await page.keyboard.press("Escape");
+        assert.equal(await page.evaluate(() => document.activeElement.id), "manageTreesBtn", "le focus revient au déclencheur");
+      }
+    } finally { await context.close(); }
+  } finally { await browser.close(); await server.close(); }
+});
+
+test("suppression UI : annulation sans verrou puis suppression vide via requête serveur et transaction finale", async t => {
+  const server = await startStaticServer(ROOT);
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  try {
+    const { context, page } = await createHarnessPage(browser, server, { width: 390, height: 844 });
+    try {
+      await page.evaluate(data => window.__treeSelectorHarness.setData(data), fixture);
+      await page.evaluate(() => {
+        window.__treeSelectorHarness.setAdminMode(true);
+        window.__treeSelectorHarness.chooseTree("tree-empty");
+        window.__confirmMessages = [];
+        window.__confirmResult = false;
+        window.confirm = message => { window.__confirmMessages.push(message); return window.__confirmResult; };
+        window.__treeLifecycleTestMocks.records.set("tree-empty", { name: "Ramo isolato", lifecycleState: "active" });
+      });
+      await page.locator("#manageTreesBtn").click();
+      await page.locator("#manageTreeDeleteBtn").click();
+      assert.equal(await page.evaluate(() => window.__treeLifecycleTestMocks.transactionLog.length), 0, "annulation sans verrou ni écriture");
+      assert.match(await page.evaluate(() => window.__confirmMessages[0]), /Ramo isolato/);
+
+      await page.evaluate(() => { window.__confirmResult = true; });
+      await page.locator("#manageTreesBtn").click();
+      await page.locator("#manageTreeDeleteBtn").click();
+      await page.waitForFunction(() => !window.__treeLifecycleTestMocks.records.has("tree-empty"));
+      const result = await page.evaluate(() => ({
+        activeTreeId: window.__treeSelectorHarness.state().activeTreeId,
+        treeIds: [...document.getElementById("treeSelect").options].map(option => option.value),
+        reads: window.__treeLifecycleTestMocks.readLog,
+        writes: window.__treeLifecycleTestMocks.transactionLog,
+        toast: document.getElementById("toastMessage").textContent
+      }));
+      assert.equal(result.activeTreeId, "main", "l’arbre sélectionné est remplacé par le principal");
+      assert.ok(!result.treeIds.includes("tree-empty"), "catalogue et sélecteur actualisés");
+      assert.deepEqual(result.reads, ["members"], "vacuité vérifiée par lecture serveur, pas par cache UI");
+      assert.deepEqual(result.writes, ["update", "delete"], "verrou puis suppression transactionnelle");
+      assert.match(result.toast, /a été supprimé/);
+      assert.equal(await page.evaluate(() => window.__treeSelectorHarness.mainTreeCount()), 2, "les personnes du principal restent intactes");
+    } finally { await context.close(); }
+  } finally { await browser.close(); await server.close(); }
+});
+
+test("suppression UI : une fiche masquée bloque et l’échec de lecture laisse un verrou récupérable", async t => {
+  const server = await startStaticServer(ROOT);
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  try {
+    const { context, page } = await createHarnessPage(browser, server, { width: 390, height: 844 });
+    try {
+      await page.evaluate(data => window.__treeSelectorHarness.setData(data), fixture);
+      await page.evaluate(() => {
+        window.__treeSelectorHarness.setAdminMode(true);
+        window.__treeSelectorHarness.chooseTree("tree-empty");
+        window.__confirmMessages = [];
+        window.confirm = message => { window.__confirmMessages.push(message); return true; };
+        const mocks = window.__treeLifecycleTestMocks;
+        mocks.records.set("tree-empty", { name: "Ramo isolato", lifecycleState: "active" });
+        mocks.members = [
+          { id: "hidden-member", treeId: "tree-empty", inTree: false },
+          { id: "invalid-member", treeId: "tree-empty", treeAssignmentState: "unassigned" }
+        ];
+      });
+      await page.locator("#manageTreesBtn").click();
+      await page.locator("#manageTreeDeleteBtn").click();
+      await page.waitForFunction(() => window.__treeLifecycleTestMocks.transactionLog.length >= 2);
+      let state = await page.evaluate(() => ({
+        tree: window.__treeLifecycleTestMocks.records.get("tree-empty"),
+        writes: window.__treeLifecycleTestMocks.transactionLog,
+        toast: document.getElementById("toastMessage").textContent
+      }));
+      assert.equal(state.tree.lifecycleState, "active", "arbre non supprimé et verrou réactivé");
+      assert.deepEqual(state.writes, ["update", "update"]);
+      assert.match(state.toast, /contient encore des personnes/);
+      assert.match(state.toast, /appartenance incohérente référence aussi cet arbre/);
+      assert.equal(state.tree.name, "Ramo isolato");
+
+      await page.evaluate(() => {
+        const mocks = window.__treeLifecycleTestMocks;
+        mocks.members = [];
+        mocks.failMemberRead = true;
+        mocks.transactionLog = [];
+      });
+      await page.locator("#manageTreesBtn").click();
+      await page.locator("#manageTreeDeleteBtn").click();
+      await page.waitForFunction(() => window.__treeLifecycleTestMocks.records.get("tree-empty")?.lifecycleState === "deleting");
+      state = await page.evaluate(() => ({
+        tree: window.__treeLifecycleTestMocks.records.get("tree-empty"),
+        recoverHidden: window.__treeSelectorHarness.recoverActionHidden(),
+        recoverDisabled: window.__treeSelectorHarness.recoverActionDisabled(),
+        toast: document.getElementById("toastMessage").textContent
+      }));
+      assert.equal(state.recoverHidden, false);
+      assert.equal(state.recoverDisabled, false);
+      assert.match(state.toast, /Débloquer l’arbre/);
+      const staleToken = state.tree.deletionToken;
+      await page.locator("#manageTreesBtn").click();
+      await page.locator("#manageTreeRecoverBtn").click();
+      assert.match(await page.evaluate(() => window.__confirmMessages.at(-1)), /invalidera le jeton actuel/);
+      await page.waitForFunction(() => window.__treeLifecycleTestMocks.records.get("tree-empty")?.lifecycleState === "active");
+      state = await page.evaluate(() => window.__treeLifecycleTestMocks.records.get("tree-empty"));
+      assert.notEqual(state.deletionToken, staleToken, "le jeton périmé est invalidé par la récupération");
+      assert.equal(state.deletionToken, undefined);
+    } finally { await context.close(); }
+  } finally { await browser.close(); await server.close(); }
 });

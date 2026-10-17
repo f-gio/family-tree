@@ -10,6 +10,8 @@ import {
   formatBytes,
   base64ToBytes,
   exportableRecord,
+  exportableTreeRecord,
+  importedTreeData,
   importedDataFields,
   safeBackupName,
   backupFileEntryPath,
@@ -111,6 +113,17 @@ test("buildBackupManifest inclut arbres en plus des collections sauvegardées ex
   assert.equal(manifest.people[0].id, "person-grandpa-a");
   assert.equal(manifest.families[0].id, "union-grandparents");
   assert.equal(manifest.tasks[0].id, "task-a");
+});
+
+test("la sauvegarde exclut l’état transitoire des arbres et l’import normalise leur cycle de vie", () => {
+  const locked = { id: "tree-locked", name: "Arbre verrouillé", lifecycleState: "deleting", deletionToken: "secret-lock-token", deletionStartedAt: "date", deletionStartedBy: "uid" };
+  const exported = exportableTreeRecord(locked);
+  assert.deepEqual(exported, { id: "tree-locked", name: "Arbre verrouillé" });
+  assert.equal(locked.lifecycleState, "deleting", "l’export ne mute pas l’entrée");
+  assert.deepEqual(importedTreeData(locked), { name: "Arbre verrouillé", lifecycleState: "active" });
+  const manifest = buildBackupManifest({ trees: [locked] });
+  assert.equal("deletionToken" in manifest.trees[0], false);
+  assert.equal("lifecycleState" in manifest.trees[0], false);
 });
 
 test("le manifeste porte le format et la version de sauvegarde attendus", () => {
@@ -581,8 +594,10 @@ test("app.js est réellement câblé sur backup-utils et ne redéfinit plus les 
   assert.match(source, /buildBackupManifest\(\{ people, families, trees, tasks, documents, blobs \}\)/);
   assert.match(source, /validateTreeDataset\(manifest\.people, manifest\.trees \|\| \[\]\)/);
   const restoreBlock = source.slice(source.indexOf("async function restoreCompleteBackup("), source.indexOf("async function openStoredDocument("));
-  assert.match(restoreBlock, /await writeImportedRecords\("trees", manifest\.trees \|\| \[\]\)/);
-  const treesRestoreIndex = restoreBlock.indexOf('await writeImportedRecords("trees", manifest.trees || [])');
+  assert.match(restoreBlock, /await writeImportedTreeRecords\(manifest\.trees \|\| \[\], existingTreeIdsAtPreflight\)/);
+  assert.match(restoreBlock, /Arbres absents qui seront recréés/);
+  assert.match(restoreBlock, /lifecycleState === TREE_LIFECYCLE_DELETING/);
+  const treesRestoreIndex = restoreBlock.indexOf('await writeImportedTreeRecords(manifest.trees || [], existingTreeIdsAtPreflight)');
   const peopleRestoreIndex = restoreBlock.indexOf('await writeImportedRecords("people", manifest.people)');
   assert.ok(treesRestoreIndex >= 0 && peopleRestoreIndex > treesRestoreIndex, "les arbres sont restaurés avant les personnes qui les référencent");
   assert.match(source, /parseBackupManifestText\(await manifestEntry\.async\("string"\)\)/);

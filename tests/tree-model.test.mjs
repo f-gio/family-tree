@@ -3,6 +3,10 @@ import test from "node:test";
 import {
   MAIN_TREE_ID,
   UNASSIGNED_TREE_STATE,
+  TREE_LIFECYCLE_ACTIVE,
+  TREE_LIFECYCLE_DELETING,
+  getTreeLifecycleState,
+  getTreeDeletionMemberReport,
   getPersonTreeMembership,
   getPersonTreeId,
   getTreePeople,
@@ -14,6 +18,39 @@ import {
   MAX_MULTI_TREE_TRANSFER_READS,
   prepareMultipleTreeTransferPlan
 } from "../js/tree-model.js";
+
+test("cycle de vie historique et rapport de suppression comptent les fiches masquées et incohérentes", () => {
+  assert.equal(getTreeLifecycleState({ id: "tree-a" }), TREE_LIFECYCLE_ACTIVE);
+  assert.equal(getTreeLifecycleState({ lifecycleState: "active" }), TREE_LIFECYCLE_ACTIVE);
+  assert.equal(getTreeLifecycleState({ lifecycleState: "deleting" }), TREE_LIFECYCLE_DELETING);
+  assert.equal(getTreeLifecycleState({ lifecycleState: "unknown" }), "invalid");
+  const report = getTreeDeletionMemberReport([
+    { id: "visible", treeId: "tree-a" },
+    { id: "hidden", treeId: "tree-a", inTree: false },
+    { id: "bad-marker", treeId: "tree-a", treeAssignmentState: "unassigned" },
+    { id: "unassigned", treeId: "", treeAssignmentState: "unassigned" },
+    { id: "other", treeId: "tree-b" }
+  ], "tree-a");
+  assert.equal(report.count, 3);
+  assert.deepEqual(report.memberIds, ["visible", "hidden", "bad-marker"]);
+  assert.deepEqual(report.invalidMembershipIds, ["bad-marker"]);
+});
+
+test("les plans 4C/4D refusent une destination verrouillée mais permettent le départ", () => {
+  const trees = [
+    { id: "tree-a", name: "A", lifecycleState: "deleting" },
+    { id: "tree-b", name: "B", lifecycleState: "active" }
+  ];
+  assert.throws(() => prepareIndividualTreeTransferPlan({
+    personId: "legacy-person", people: [{ id: "legacy-person" }], trees, destinationTreeId: "tree-a"
+  }), /en cours de suppression/);
+  assert.throws(() => prepareMultipleTreeTransferPlan({
+    personIds: ["member"], people: [{ id: "member", treeId: "tree-b" }], trees, destinationTreeId: "tree-a"
+  }), /en cours de suppression/);
+  assert.doesNotThrow(() => prepareIndividualTreeTransferPlan({
+    personId: "leaving", people: [{ id: "leaving", treeId: "tree-a" }], trees, destinationTreeId: "main"
+  }));
+});
 
 const people = Object.freeze([
   Object.freeze({ id: "legacy", firstName: "Léa" }),

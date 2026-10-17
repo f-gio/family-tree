@@ -77,6 +77,22 @@ service cloud.firestore {
               && existsAfter(/databases/$(database)/documents/trees/$(request.resource.data.treeId)))));
     }
 
+    function activeTreeAfter(treeId) {
+      return existsAfter(/databases/$(database)/documents/trees/$(treeId))
+        && (!('lifecycleState' in getAfter(/databases/$(database)/documents/trees/$(treeId)).data)
+          || getAfter(/databases/$(database)/documents/trees/$(treeId)).data.lifecycleState == 'active');
+    }
+
+    function validActivePersonTreeReference() {
+      return hasUnassignedMarker()
+        || (hasNoUnassignedMarker()
+          && (!('treeId' in request.resource.data)
+            || request.resource.data.treeId == null
+            || request.resource.data.treeId == 'main'
+            || (validTreeId(request.resource.data.treeId)
+              && activeTreeAfter(request.resource.data.treeId))));
+    }
+
     function validPersonTreeAssignmentOnCreate() {
       return (hasUnassignedMarker() && isApproved())
         || (hasNoUnassignedMarker()
@@ -85,14 +101,14 @@ service cloud.firestore {
             || request.resource.data.treeId == 'main'
             || (isApproved()
               && validTreeId(request.resource.data.treeId)
-              && existsAfter(/databases/$(database)/documents/trees/$(request.resource.data.treeId)))));
+              && activeTreeAfter(request.resource.data.treeId))));
     }
 
     function validTree(treeId) {
       return treeId != 'main'
         && validTreeId(treeId)
         && request.resource.data.keys().hasAll(['name', 'createdAt', 'createdBy', 'updatedAt'])
-        && request.resource.data.keys().hasOnly(['name', 'description', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+        && request.resource.data.keys().hasOnly(['name', 'description', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'lifecycleState', 'deletionToken', 'deletionStartedAt', 'deletionStartedBy'])
         && request.resource.data.name is string
         && request.resource.data.name.size() >= 1
         && request.resource.data.name.size() <= 80
@@ -102,7 +118,79 @@ service cloud.firestore {
         && request.resource.data.createdBy is string
         && request.resource.data.createdBy.size() > 0
         && request.resource.data.updatedAt is timestamp
+        && ((!('lifecycleState' in request.resource.data)
+            && !('deletionToken' in request.resource.data)
+            && !('deletionStartedAt' in request.resource.data)
+            && !('deletionStartedBy' in request.resource.data))
+          || ('lifecycleState' in request.resource.data
+            && request.resource.data.lifecycleState == 'active'
+            && !('deletionToken' in request.resource.data)
+            && !('deletionStartedAt' in request.resource.data)
+            && !('deletionStartedBy' in request.resource.data))
+          || ('lifecycleState' in request.resource.data
+            && request.resource.data.lifecycleState == 'deleting'
+            && 'deletionToken' in request.resource.data
+            && request.resource.data.deletionToken is string
+            && request.resource.data.deletionToken.size() >= 16
+            && request.resource.data.deletionToken.size() <= 128
+            && 'deletionStartedAt' in request.resource.data
+            && request.resource.data.deletionStartedAt is timestamp
+            && 'deletionStartedBy' in request.resource.data
+            && request.resource.data.deletionStartedBy == request.auth.uid))
         && validUpdatedBy();
+    }
+
+    function validNewTree(treeId) {
+      return validTree(treeId)
+        && 'lifecycleState' in request.resource.data
+        && request.resource.data.lifecycleState == 'active'
+        && !('deletionToken' in request.resource.data)
+        && !('deletionStartedAt' in request.resource.data)
+        && !('deletionStartedBy' in request.resource.data);
+    }
+
+    function treeLifecycleUnchanged() {
+      return ((!('lifecycleState' in resource.data) && !('lifecycleState' in request.resource.data))
+        || ('lifecycleState' in resource.data && 'lifecycleState' in request.resource.data
+          && resource.data.lifecycleState == request.resource.data.lifecycleState))
+        && (!('deletionToken' in resource.data) && !('deletionToken' in request.resource.data)
+          || ('deletionToken' in resource.data && 'deletionToken' in request.resource.data
+            && resource.data.deletionToken == request.resource.data.deletionToken))
+        && (!('deletionStartedAt' in resource.data) && !('deletionStartedAt' in request.resource.data)
+          || ('deletionStartedAt' in resource.data && 'deletionStartedAt' in request.resource.data
+            && resource.data.deletionStartedAt == request.resource.data.deletionStartedAt))
+        && (!('deletionStartedBy' in resource.data) && !('deletionStartedBy' in request.resource.data)
+          || ('deletionStartedBy' in resource.data && 'deletionStartedBy' in request.resource.data
+            && resource.data.deletionStartedBy == request.resource.data.deletionStartedBy));
+    }
+
+    function validTreeMetadataUpdate(treeId) {
+      return (!('lifecycleState' in resource.data) || resource.data.lifecycleState != 'deleting')
+        && (!('lifecycleState' in request.resource.data) || request.resource.data.lifecycleState != 'deleting')
+        && treeLifecycleUnchanged()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['lifecycleState', 'deletionToken', 'deletionStartedAt', 'deletionStartedBy']);
+    }
+
+    function validTreeDeletionLock(treeId) {
+      return (!('lifecycleState' in resource.data) || resource.data.lifecycleState == 'active')
+        && 'lifecycleState' in request.resource.data
+        && request.resource.data.lifecycleState == 'deleting'
+        && request.resource.data.deletionToken is string
+        && request.resource.data.deletionToken.size() >= 16
+        && request.resource.data.deletionToken.size() <= 128
+        && request.resource.data.deletionStartedAt is timestamp
+        && request.resource.data.deletionStartedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lifecycleState', 'deletionToken', 'deletionStartedAt', 'deletionStartedBy', 'updatedAt', 'updatedBy']);
+    }
+
+    function validTreeDeletionRecovery(treeId) {
+      return resource.data.lifecycleState == 'deleting'
+        && 'lifecycleState' in request.resource.data
+        && request.resource.data.lifecycleState == 'active'
+        && !('deletionToken' in request.resource.data)
+        && !('deletionStartedAt' in request.resource.data)
+        && !('deletionStartedBy' in request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lifecycleState', 'deletionToken', 'deletionStartedAt', 'deletionStartedBy', 'updatedAt', 'updatedBy']);
     }
 
     function validUpdatedBy() {
@@ -241,18 +329,24 @@ service cloud.firestore {
         && validPersonTreeReference() && validPersonTreeAssignmentOnCreate();
       allow update: if isApproved() && validPerson() && validUpdatedBy()
         && validPersonTreeReference()
-        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['treeId', 'treeAssignmentState']) || isAdmin());
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['treeId', 'treeAssignmentState'])
+          || (isAdmin() && validActivePersonTreeReference()));
     }
 
     // Métadonnées des arbres secondaires. L'arbre principal est implicite et
-    // ne doit pas avoir de document trees/main. La suppression reste interdite
-    // tant qu'un protocole de transfert avec garantie d'appartenance atomique
-    // n'existe pas : les règles Firestore ne peuvent pas vérifier une requête
-    // portant sur toute la collection people.
+    // ne doit pas avoir de document trees/main. Les Rules bloquent les nouvelles
+    // affectations vers un arbre verrouillé, mais ne peuvent pas compter people.
     match /trees/{treeId} {
       allow read: if isApproved();
-      allow create, update: if isAdmin() && validTree(treeId);
-      allow delete: if false;
+      allow create: if isAdmin() && validNewTree(treeId);
+      allow update: if isAdmin() && validTree(treeId)
+        && (validTreeMetadataUpdate(treeId)
+        || validTreeDeletionLock(treeId)
+        || validTreeDeletionRecovery(treeId));
+      allow delete: if isAdmin() && treeId != 'main'
+        && resource.data.lifecycleState == 'deleting'
+        && resource.data.deletionToken is string
+        && resource.data.deletionToken.size() >= 16;
     }
 
     // Une famille relie un ou deux partenaires à leurs enfants.

@@ -20,7 +20,7 @@ export function assertFirestoreRulesSafety(rules) {
   assert.ok(treeValidationStart >= 0, "validation d'arbre présente");
   const treeValidation = rules.slice(treeValidationStart, userValidationStart);
   assert.match(treeValidation, /treeId != 'main'/, "aucun document trees/main");
-  assert.match(treeValidation, /hasOnly\(\['name', 'description', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'\]\)/);
+  assert.match(treeValidation, /hasOnly\(\['name', 'description', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'lifecycleState', 'deletionToken', 'deletionStartedAt', 'deletionStartedBy'\]\)/);
 
   const settingsStart = rules.indexOf("match /settings/access {");
   const usersStart = rules.indexOf("match /users/{userId}");
@@ -52,7 +52,7 @@ export function assertFirestoreRulesSafety(rules) {
   assert.match(people, /allow create: if isApproved\(\).*validPerson\(\).*validUpdatedBy\(\)/s);
   assert.match(people, /allow update: if isApproved\(\).*validPerson\(\).*validUpdatedBy\(\)/s);
   assert.match(people, /validPersonTreeReference\(\)/, "les références treeId sont contrôlées");
-  assert.match(people, /hasAny\(\['treeId', 'treeAssignmentState'\]\).*isAdmin\(\)/, "toute transition d'appartenance est réservée aux admins");
+  assert.match(people, /hasAny\(\['treeId', 'treeAssignmentState'\]\)[\s\S]*isAdmin\(\) && validActivePersonTreeReference\(\)/, "toute transition d'appartenance est admin-only et cible un arbre actif");
   assert.match(rules, /function hasUnassignedMarker\(\)[\s\S]*?treeAssignmentState == 'unassigned'[\s\S]*?treeId == ''/, "la désaffectation exige le marqueur et l'ID vide");
   assert.ok(rules.includes("function hasNoUnassignedMarker()"), "helper de compatibilité historique présent");
   assert.ok(rules.includes("!('treeAssignmentState' in request.resource.data)"), "la compatibilité historique vérifie l'absence de marqueur");
@@ -60,8 +60,8 @@ export function assertFirestoreRulesSafety(rules) {
   const createAssignmentEnd = rules.indexOf("function validTree(treeId)");
   const createAssignment = rules.slice(createAssignmentStart, createAssignmentEnd);
   assert.match(createAssignment, /isApproved\(\)/, "un membre approuvé peut créer dans un arbre secondaire");
-  assert.match(createAssignment, /existsAfter\([\s\S]*trees/,
-    "la création secondaire exige un arbre cible existant");
+  assert.match(createAssignment, /activeTreeAfter\([\s\S]*treeId/,
+    "la création secondaire exige un arbre cible actif");
   assert.match(createAssignment, /request\.resource\.data\.treeId == null/,
     "treeId null reste rétrocompatible");
   assert.match(createAssignment, /hasUnassignedMarker\(\)[\s\S]*?isApproved\(\)/,
@@ -82,8 +82,13 @@ export function assertFirestoreRulesSafety(rules) {
 
   const trees = rules.slice(treesStart, familiesStart);
   assert.match(trees, /allow read: if isApproved\(\);/);
-  assert.match(trees, /allow create, update: if isAdmin\(\) && validTree\(treeId\)/);
-  assert.match(trees, /allow delete: if false;/, "suppression différée jusqu'à l'existence d'un protocole sûr");
+  assert.match(trees, /allow create: if isAdmin\(\) && validNewTree\(treeId\)/);
+  assert.match(trees, /validTreeDeletionLock\(treeId\)/);
+  assert.match(trees, /validTreeDeletionRecovery\(treeId\)/);
+  assert.match(trees, /allow delete: if isAdmin\(\) && treeId != 'main'/);
+  assert.match(trees, /resource\.data\.lifecycleState == 'deleting'/);
+  assert.match(rules, /function activeTreeAfter\(treeId\)[\s\S]*?lifecycleState == 'active'/,
+    "les nouvelles destinations secondaires doivent rester actives");
 
   const procedures = rules.slice(proceduresStart, catchAllStart);
   assert.match(procedures, /allow read: if isApproved\(\);/);

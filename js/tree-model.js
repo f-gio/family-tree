@@ -4,6 +4,8 @@
 export const MAIN_TREE_ID = "main";
 export const UNASSIGNED_TREE_STATE = "unassigned";
 export const UNASSIGNED_TREE_CHOICE = "!unassigned!";
+export const TREE_LIFECYCLE_ACTIVE = "active";
+export const TREE_LIFECYCLE_DELETING = "deleting";
 
 const FAMILY_PERSON_ARRAY_FIELDS = Object.freeze([
   "partnerIds",
@@ -23,6 +25,29 @@ export const MAX_MULTI_TREE_TRANSFER_READS = 100;
 
 export function isValidTreeId(treeId) {
   return typeof treeId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(treeId);
+}
+
+export function getTreeLifecycleState(tree = {}) {
+  if (!Object.prototype.hasOwnProperty.call(tree || {}, "lifecycleState")) return TREE_LIFECYCLE_ACTIVE;
+  return tree.lifecycleState === TREE_LIFECYCLE_ACTIVE || tree.lifecycleState === TREE_LIFECYCLE_DELETING
+    ? tree.lifecycleState
+    : "invalid";
+}
+
+/* Le contrôle de suppression porte sur la référence explicite, pas sur
+   l'appartenance normalisée ni la visibilité. Une paire incohérente qui pointe
+   encore vers l'arbre est donc toujours un bloqueur. */
+export function getTreeDeletionMemberReport(people = [], treeId) {
+  if (!isValidTreeId(treeId) || treeId === MAIN_TREE_ID || !Array.isArray(people)) {
+    throw new Error("L'arbre à vérifier est invalide");
+  }
+  const members = people.filter(item => item?.treeId === treeId);
+  return {
+    memberIds: members.map(item => item.id).filter(id => typeof id === "string" && id.length > 0),
+    count: members.length,
+    invalidMembershipIds: members.filter(item => getPersonTreeMembership(item).type !== "assigned")
+      .map(item => item.id).filter(id => typeof id === "string" && id.length > 0)
+  };
 }
 
 export function getPersonTreeId(person = {}) {
@@ -208,8 +233,12 @@ export function prepareIndividualTreeTransferPlan({ personId, people = [], famil
   const destination = normalizeRequestedTreeId(destinationTreeId);
   if (!destination) throw new Error("L'arbre de destination est invalide");
   if (sourceMembership.type === "assigned" && destination === sourceTreeId) throw new Error("Choisissez un arbre différent de l'arbre actuel");
-  if (destination !== MAIN_TREE_ID && !knownTrees.some(tree => tree.id === destination)) {
+  const destinationTree = destination === MAIN_TREE_ID ? null : knownTrees.find(tree => tree.id === destination);
+  if (destination !== MAIN_TREE_ID && !destinationTree) {
     throw new Error("L'arbre de destination est indisponible");
+  }
+  if (destinationTree && getTreeLifecycleState(destinationTree) !== TREE_LIFECYCLE_ACTIVE) {
+    throw new Error("L'arbre de destination est en cours de suppression ou indisponible.");
   }
 
   const peopleById = new Map(people.filter(item => typeof item?.id === "string").map(item => [item.id, item]));
@@ -342,8 +371,12 @@ export function prepareMultipleTreeTransferPlan({ personIds = [], people = [], f
   const destination = normalizeRequestedTreeId(destinationTreeId);
   if (!destination) throw new Error("L'arbre de destination est invalide.");
   if (destination === sourceTreeId) throw new Error("Choisissez un arbre différent de l'arbre source.");
-  if (destination !== MAIN_TREE_ID && !knownTrees.some(tree => tree.id === destination)) {
+  const destinationTree = destination === MAIN_TREE_ID ? null : knownTrees.find(tree => tree.id === destination);
+  if (destination !== MAIN_TREE_ID && !destinationTree) {
     throw new Error("L'arbre de destination est indisponible.");
+  }
+  if (destinationTree && getTreeLifecycleState(destinationTree) !== TREE_LIFECYCLE_ACTIVE) {
+    throw new Error("L'arbre de destination est en cours de suppression ou indisponible.");
   }
 
   const selectedIds = new Set(personIds);
