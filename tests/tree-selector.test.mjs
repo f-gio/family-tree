@@ -162,7 +162,7 @@ test("sélecteur d'arbre : options, scope indépendant, filtres réinitialisés 
             const context = await browser.newContext({ viewport: { width, height }, locale: "fr-FR", isMobile: width <= 760, hasTouch: width <= 760, reducedMotion: "reduce" });
             await context.route("**/*", async route => {
               const url = route.request().url();
-              if (url.endsWith("/js/app.js")) {
+              if (new URL(url).pathname.endsWith("/js/app.js")) {
                 const response = await route.fetch();
                 return route.fulfill({ response, body: `${await response.text()}\n${testHooks}` });
               }
@@ -245,7 +245,7 @@ test("catalogue Firestore refusé ou arbre supprimé : principal affiché et err
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "fr-FR", isMobile: true, hasTouch: true });
   await context.route("**/*", async route => {
     const url = route.request().url();
-    if (url.endsWith("/js/app.js")) {
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
       const response = await route.fetch();
       return route.fulfill({ response, body: `${await response.text()}\n${testHooks}` });
     }
@@ -282,7 +282,7 @@ async function createHarnessPage(browser, server, viewport, forcedEnv = "recette
   await context.addInitScript(env => { window.__forcedEnv = env; }, forcedEnv);
   await context.route("**/*", async route => {
     const url = route.request().url();
-    if (url.endsWith("/js/app.js")) {
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
       const response = await route.fetch();
       let source = await response.text();
       const createCall = 'const created = await addDoc(refs.trees, { ...data, lifecycleState: TREE_LIFECYCLE_ACTIVE, createdAt: serverTimestamp(), createdBy: auth.currentUser?.uid || "" });';

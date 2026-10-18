@@ -14,9 +14,12 @@ test("Annuaire en cartes : menu près de l’identité et documents en pied, san
   const context = await browser.newContext({ locale: "fr-FR", viewport: { width: 390, height: 844 } });
   await context.route("**/*", async route => {
     const url = route.request().url();
-    if (url.endsWith("/js/app.js")) {
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
       const response = await route.fetch();
-      const source = await response.text();
+      let source = (await response.text()).replace(/\r\n/g, "\n");
+      const authReadyMarker = 'showAuthPanel("login");\n    refreshSignupAvailability();';
+      assert.ok(source.includes(authReadyMarker), "le point de stabilisation de l’état d’authentification est présent");
+      source = source.replace(authReadyMarker, `${authReadyMarker}\n    window.__directoryCardsAuthReady = true;`);
       return route.fulfill({
         response,
         body: `${source}\nwindow.__renderDirectoryCardsFixture = mode => { people = [{ id: "botton", firstName: "Marie-Joséphine", lastName: "Botton", photoUrl: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", birthDateInfo: { type: "between", from: 1901, to: 1902 }, deathDateInfo: { type: "unknown" } }, { id: "conti", firstName: "Robert", middleName: "Louis Albert", lastName: "Conti", birthDateInfo: { type: "exact", value: "1939-04-13" }, deathDateInfo: { type: "exact", value: "2016-02-17" } }, { id: "giovannoni", firstName: "Carlo", middleName: "Andrea Rolando", lastName: "Giovannoni", birthDateInfo: { type: "about", year: 1898 }, deathDateInfo: { type: "unknown" } }, { id: "unknown", firstName: "Ada", lastName: "Rossi", birthDateInfo: { type: "unknown" }, deathDateInfo: { type: "unknown" } }]; documents = [{ id: "d1", personIds: ["conti"] }, { id: "d2", personIds: ["giovannoni"] }, { id: "d3", personIds: ["giovannoni"] }]; viewModes.directory = mode || "cards"; renderDirectory(); };`
@@ -30,6 +33,7 @@ test("Annuaire en cartes : menu près de l’identité et documents en pied, san
   try {
     await page.goto(server.baseURL, { waitUntil: "load" });
     await page.waitForFunction(() => typeof window.__renderDirectoryCardsFixture === "function");
+    await page.waitForFunction(() => window.__directoryCardsAuthReady === true);
     await page.evaluate(() => {
       document.getElementById("authScreen").hidden = true;
       document.getElementById("topbar").hidden = false;

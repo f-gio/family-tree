@@ -81,7 +81,7 @@ async function createPage(browser, server, { forcedEnv, viewport }) {
   const envBody = await patchedEnvSource(forcedEnv);
   await context.route("**/*", async route => {
     const url = route.request().url();
-    if (url.endsWith("/js/firebase-environment.js")) {
+    if (new URL(url).pathname.endsWith("/js/firebase-environment.js")) {
       const response = await route.fetch();
       return route.fulfill({ response, body: envBody });
     }

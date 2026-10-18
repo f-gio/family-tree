@@ -36,7 +36,7 @@ test("Annuaire : défaut adaptatif et préférences Liste/Cartes indépendantes"
     }, { initialValues: seed, storageUnavailable: unavailableStorage });
     await context.route("**/*", async route => {
       const url = route.request().url();
-      if (url.endsWith("/js/app.js")) {
+      if (new URL(url).pathname.endsWith("/js/app.js")) {
         const response = await route.fetch();
         const source = await response.text();
         return route.fulfill({

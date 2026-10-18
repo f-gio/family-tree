@@ -48,7 +48,7 @@ const originalOpenPerson = openPerson;
 openPerson = (...args) => { window.__openPersonCalls++; return originalOpenPerson(...args); };
 window.__personWrites = [];
 window.__personUpdates = [];
-window.__personTargetMock = async id => ({ exists: () => true });
+window.__personTargetMock = async id => ({ exists: () => true, data: () => ({ lifecycleState: "active" }) });
 window.__personWriteMock = async (id, data) => {
   window.__personWrites.push({ id, treeId: data.treeId, firstName: data.firstName });
 };
@@ -69,10 +69,10 @@ async function openHarness(t, width = 1024) {
   await context.addInitScript(() => { window.__forcedEnv = "recette"; });
   await context.route("**/*", async route => {
     const url = route.request().url();
-    if (url.endsWith("/js/app.js")) {
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
       const response = await route.fetch();
       let source = await response.text();
-      const lookup = 'await getDoc(doc(db, "trees", destinationTreeId))';
+      const lookup = 'await getDocFromServer(doc(db, "trees", destinationTreeId))';
       const write = 'await setDoc(doc(db, "people", createdId), { ...createData, inTree: true, createdAt: serverTimestamp() });';
       const update = 'await updateDoc(doc(db, "people", id), data);';
       assert.ok(source.includes(lookup), "la vérification de l'arbre cible doit être présente");

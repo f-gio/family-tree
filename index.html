@@ -1,15 +1,47 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#284b3f">
+<meta name="asset-release" content="4g-preproduction-1">
 <!-- Renseignez ici le nom d’utilisateur gratuit activé pour les services web GeoNames. -->
 <meta name="geonames-username" content="giovannoni.f">
 <meta name="geonames-endpoint" content="https://family-tree-geonames.giovannoni-f.workers.dev/">
-<link rel="icon" type="image/png" sizes="32x32" href="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-16.png">
-<link rel="apple-touch-icon" sizes="180x180" href="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-180.png">
+<!-- Bumper asset-release à chaque publication pour isoler les clés de cache des versions de ressources. -->
+<script type="importmap">
+{"imports":{
+"./js/app.js":"./js/app.js?v=4g-preproduction-1",
+"./js/backup-utils.js":"./js/backup-utils.js?v=4g-preproduction-1",
+"./js/directory-advanced.js":"./js/directory-advanced.js?v=4g-preproduction-1",
+"./js/directory-utils.js":"./js/directory-utils.js?v=4g-preproduction-1",
+"./js/document-utils.js":"./js/document-utils.js?v=4g-preproduction-1",
+"./js/family-lineage.js":"./js/family-lineage.js?v=4g-preproduction-1",
+"./js/family-relations.js":"./js/family-relations.js?v=4g-preproduction-1",
+"./js/firebase-environment.js":"./js/firebase-environment.js?v=4g-preproduction-1",
+"./js/form-ui.js":"./js/form-ui.js?v=4g-preproduction-1",
+"./js/genealogy-date.js":"./js/genealogy-date.js?v=4g-preproduction-1",
+"./js/life-timeline.js":"./js/life-timeline.js?v=4g-preproduction-1",
+"./js/location-autocomplete.js":"./js/location-autocomplete.js?v=4g-preproduction-1",
+"./js/person-multiselect.js":"./js/person-multiselect.js?v=4g-preproduction-1",
+"./js/place-format.js":"./js/place-format.js?v=4g-preproduction-1",
+"./js/procedures.js":"./js/procedures.js?v=4g-preproduction-1",
+"./js/transfer-diagnostic.js":"./js/transfer-diagnostic.js?v=4g-preproduction-1",
+"./js/tree-branch-view.js":"./js/tree-branch-view.js?v=4g-preproduction-1",
+"./js/tree-camera.js":"./js/tree-camera.js?v=4g-preproduction-1",
+"./js/tree-export-cards.js":"./js/tree-export-cards.js?v=4g-preproduction-1",
+"./js/tree-export.js":"./js/tree-export.js?v=4g-preproduction-1",
+"./js/tree-layout-engine.js":"./js/tree-layout-engine.js?v=4g-preproduction-1",
+"./js/tree-layout.js":"./js/tree-layout.js?v=4g-preproduction-1",
+"./js/tree-model.js":"./js/tree-model.js?v=4g-preproduction-1",
+"./js/tree-quality.js":"./js/tree-quality.js?v=4g-preproduction-1",
+"./js/tree-renderer.js":"./js/tree-renderer.js?v=4g-preproduction-1",
+"./js/ui-components.js":"./js/ui-components.js?v=4g-preproduction-1"
+}}
+</script>
+<link rel="icon" type="image/png" sizes="32x32" href="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-32.png?v=4g-preproduction-1">
+<link rel="icon" type="image/png" sizes="16x16" href="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-16.png?v=4g-preproduction-1">
+<link rel="apple-touch-icon" sizes="180x180" href="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-180.png?v=4g-preproduction-1">
   <title>La Nostra Storia — Arbre généalogique</title>
   <style>
     :root{--ink:#26332e;--muted:#68746f;--paper:#f7f3ea;--card:#fffdf8;--line:#ae9878;--brand:#284b3f;--accent:#b77745;--soft:#e8efe9;--danger:#a64238;--shadow:0 18px 45px #2837301f}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}button,input,select,textarea{font:inherit}button{cursor:pointer}[hidden]{display:none!important}
@@ -48,7 +80,7 @@
     @media(max-height:560px) and (orientation:landscape){.auth-card .btn,.account-menu .account-menu-btn{min-height:var(--control-touch)}}
     @media(max-height:520px) and (orientation:landscape){.tree-controls button{min-width:44px;height:44px}}
   </style>
-  <link rel="stylesheet" href="./css/design-system.css">
+  <link rel="stylesheet" href="./css/design-system.css?v=4g-preproduction-1">
 </head>
 <body>
   <svg class="svg-sprite" aria-hidden="true" focusable="false">
@@ -95,7 +127,7 @@
   <section class="auth-screen" id="authScreen">
 <span id="environmentBadgeAuth" class="environment-badge" role="status" aria-label="Environnement de recette" hidden>RECETTE</span>
 <form class="auth-card" id="loginForm">
-<img class="brand-mark" src="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-48.png" alt="">
+<img class="brand-mark" src="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-48.png?v=4g-preproduction-1" alt="">
 <h2>La Nostra Storia</h2>
 <p>Connectez-vous pour consulter et compléter votre arbre familial.</p>
 <label>Adresse e-mail<input class="field" id="loginEmail" type="email" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" required>
@@ -108,7 +140,7 @@
 <div class="auth-switch" id="signupSwitch" hidden><p>Vous n’avez pas encore de compte ?</p><button class="btn" type="button" id="showSignupBtn">Créer un compte</button></div>
 </form>
 <form class="auth-card" id="signupForm" hidden>
-<img class="brand-mark" src="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-48.png" alt=""><h2>Créer un compte</h2><p>Votre demande devra être validée par un administrateur.</p>
+<img class="brand-mark" src="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-48.png?v=4g-preproduction-1" alt=""><h2>Créer un compte</h2><p>Votre demande devra être validée par un administrateur.</p>
 <label>Adresse e-mail<input class="field" id="signupEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" required></label>
 <label>Mot de passe<input class="field" id="signupPassword" type="password" autocomplete="new-password" required minlength="6"></label>
 <label>Confirmer le mot de passe<input class="field" id="signupPasswordConfirm" type="password" autocomplete="new-password" required minlength="6"></label>
@@ -116,11 +148,11 @@
 <button class="btn primary" type="submit" id="signupSubmitBtn">Envoyer la demande</button>
 <button class="btn" type="button" id="backToLoginBtn">Retour à la connexion</button>
 </form>
-<div class="auth-card" id="accessStatus" hidden><img class="brand-mark" src="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-48.png" alt=""><h2>Accès à La Nostra Storia</h2><div class="auth-status"><strong id="accessStatusTitle">Demande en attente</strong><span id="accessStatusMessage">Un administrateur doit valider votre compte.</span></div><button class="btn" type="button" id="statusLogoutBtn">Se déconnecter</button></div>
+<div class="auth-card" id="accessStatus" hidden><img class="brand-mark" src="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-48.png?v=4g-preproduction-1" alt=""><h2>Accès à La Nostra Storia</h2><div class="auth-status"><strong id="accessStatusTitle">Demande en attente</strong><span id="accessStatusMessage">Un administrateur doit valider votre compte.</span></div><button class="btn" type="button" id="statusLogoutBtn">Se déconnecter</button></div>
 </section>
   <header class="topbar" id="topbar" hidden>
 <a class="brand" href="#appMain" aria-label="Accueil — La Nostra Storia">
-<img class="brand-mark" src="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-48.png" alt="">
+<img class="brand-mark" src="./La_Nostra_Storia_icons/la-nostra-storia-sans-texte-48.png?v=4g-preproduction-1" alt="">
 <div>
 <h1>La Nostra Storia <span id="environmentBadgeApp" class="environment-badge" role="status" aria-label="Environnement de recette" hidden>RECETTE</span></h1>
 <p>Arbre généalogique familial</p>
@@ -671,8 +703,8 @@
     <span class="toast-icon" id="toastIcon" aria-hidden="true"></span>
     <span class="toast-message" id="toastMessage"></span>
   </div>
-  <script type="module" src="./js/form-ui.js"></script>
-  <script type="module" src="./js/app.js">
+  <script type="module" src="./js/form-ui.js?v=4g-preproduction-1"></script>
+  <script type="module" src="./js/app.js?v=4g-preproduction-1">
   </script>
 </body>
 </html>

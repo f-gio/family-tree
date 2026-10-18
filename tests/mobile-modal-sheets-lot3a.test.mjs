@@ -223,7 +223,7 @@ test("Diagnostic Dossier desktop : reproduit le hook du test d’alignement exis
   const context = await browser.newContext({ locale: "fr-FR", isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } });
   await context.route("**/*", async route => {
     const url = route.request().url();
-    if (url.endsWith("/js/app.js")) {
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
       const response = await route.fetch();
       const hook = `window.__openDossierDiagnostic = () => { document.getElementById("authScreen").hidden = true; document.getElementById("topbar").hidden = false; openDossierForm(null); };`;
       return route.fulfill({ response, body: `${await response.text()}\n${hook}` });

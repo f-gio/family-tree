@@ -44,7 +44,7 @@ for (const redundantHeading of ["Événements de vie", "Informations complément
 assert.match(html, /id="endDetailsFields" hidden/);
 assert.ok((html.match(/data-date-panel="[^"]+" hidden/g) || []).length >= 10);
 assert.doesNotMatch(html, /data-date-panel="(?:birth|death)-unknown"/);
-assert.match(html, /src="\.\/js\/form-ui\.js"/);
+assert.match(html, /src="\.\/js\/form-ui\.js\?v=[^"]+"/);
 
 for (const behavior of [
   "showFieldError",

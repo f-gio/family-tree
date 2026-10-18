@@ -3,6 +3,13 @@ import test from "node:test";
 import { webkit } from "playwright";
 import { ROOT, startStaticServer } from "./helpers.mjs";
 
+async function waitForDialogLayout(page, dialogId) {
+  await page.waitForFunction(id => {
+    const dialog = document.getElementById(id);
+    return !!dialog?.open && dialog.getAnimations({ subtree: true }).every(animation => animation.playState === "finished");
+  }, dialogId);
+}
+
 test("les formulaires partagent leurs footers et réservent … aux actions d’objets existants", async t => {
   let browser;
   try {
@@ -19,7 +26,7 @@ test("les formulaires partagent leurs footers et réservent … aux actions d’
   });
   await context.route("**/*", async route => {
     const url = route.request().url();
-    if (url.endsWith("/js/app.js")) {
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
       const response = await route.fetch();
       const source = (await response.text()).replace(
         "async function loadTaskUsers() {",
@@ -80,7 +87,10 @@ window.__openModalForTest = async (kind, item = null) => {
         const footerHeights = [];
         const responsiveFooterMeasurements = [];
         for (const modal of cases) {
-          const open = item => page.evaluate(({ kind, item }) => window.__openModalForTest(kind, item), { kind: modal.kind, item });
+          const open = async item => {
+            await page.evaluate(({ kind, item }) => window.__openModalForTest(kind, item), { kind: modal.kind, item });
+            await waitForDialogLayout(page, modal.dialog);
+          };
           const tap = async selector => width <= 760
             ? page.locator(selector).tap()
             : page.locator(selector).click();

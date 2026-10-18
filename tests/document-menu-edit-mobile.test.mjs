@@ -67,7 +67,7 @@ test("Documents : … → Modifier/Supprimer fonctionne au clic et au tap", asyn
         });
         await context.route("**/*", async route => {
           const url = route.request().url();
-          if (url.endsWith("/js/app.js")) {
+          if (new URL(url).pathname.endsWith("/js/app.js")) {
             const response = await route.fetch();
             const source = (await response.text())
               .replace("onAuthStateChanged(auth, async user => {", "onAuthStateChanged(auth, async user => { window.__menuAuthCallbackStarted = true;")

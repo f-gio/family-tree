@@ -29,7 +29,8 @@ window.__personTreeHarness = {
       directoryLabels: [...document.querySelectorAll("#directoryList .directory-tree-label")].map(node => node.textContent),
       treeOptions: [...document.getElementById("directoryTreeFilter").options].map(option => ({ value: option.value, label: option.textContent })),
       creationTreeId: personCreationTreeId,
-      personCount: people.length
+      personCount: people.length,
+      personFormSaving
     };
   }
 };
@@ -68,7 +69,7 @@ async function openHarness(t, width = 1024) {
   await context.addInitScript(() => { window.__forcedEnv = "recette"; });
   await context.route("**/*", async route => {
     const url = route.request().url();
-    if (url.endsWith("/js/app.js")) {
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
       const response = await route.fetch();
       let source = await response.text();
       const lookup = 'await getDocFromServer(doc(db, "trees", destinationTreeId))';
@@ -203,7 +204,9 @@ test("double soumission protégée et reprise réseau idempotente dans le même 
     await page.evaluate(() => { window.__personTreeWriteMode = "delay"; });
     await page.locator("#savePersonBtn").click();
     await page.locator("#personForm").evaluate(form => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    await page.waitForFunction(() => window.__personTreeWrites.length === 1 && document.getElementById("personId").value);
+    await page.waitForFunction(() => window.__personTreeWrites.length === 1
+      && document.getElementById("personId").value
+      && window.__personTreeHarness.state().personFormSaving === false);
     let writes = await page.evaluate(() => window.__personTreeWrites.map(item => ({ ...item })));
     assert.equal(writes.length, 1);
 
@@ -218,7 +221,9 @@ test("double soumission protégée et reprise réseau idempotente dans le même 
     assert.equal(await page.evaluate(() => window.__personTreeWrites.length), 2, "la première tentative réseau a été interceptée");
     assert.match(await page.locator("#toastMessage").textContent(), /connexion impossible/i);
     await page.locator("#savePersonBtn").click();
-    await page.waitForFunction(() => window.__personTreeWrites.length === 3 && document.getElementById("personId").value);
+    await page.waitForFunction(() => window.__personTreeWrites.length === 3
+      && document.getElementById("personId").value
+      && window.__personTreeHarness.state().personFormSaving === false);
     writes = await page.evaluate(() => window.__personTreeWrites.map(item => ({ ...item })));
     assert.equal(writes[1].id, writes[2].id, "la reprise réutilise le même identifiant Firestore");
   } finally { await context.close(); await browser.close(); await server.close(); }

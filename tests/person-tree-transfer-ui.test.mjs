@@ -118,7 +118,7 @@ async function openTransferHarness(t, seed = { people, families, trees }) {
   await context.addInitScript(() => { window.__forcedEnv = "recette"; });
   await context.route("**/*", async route => {
     const url = route.request().url();
-    if (url.endsWith("/js/app.js")) {
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
       const response = await route.fetch();
       let source = await response.text();
       const freshRead = "await readFreshPersonTreeTransferData(state.personId)";

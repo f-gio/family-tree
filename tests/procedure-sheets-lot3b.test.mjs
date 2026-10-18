@@ -15,7 +15,7 @@ async function createPage(browser, server, width, height) {
   });
   await context.route("**/*", route => {
     const url = route.request().url();
-    if (url.endsWith("/js/app.js")) {
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
       return route.fetch().then(async response => route.fulfill({
         response,
         body: `${await response.text()}\nwindow.__openLot3bAction = (item = null) => { activeDossierId = "lot3b-ui-test"; openProcedureAction(item); };\nwindow.__openLot3bTask = (item = null) => { openTask(item); };`

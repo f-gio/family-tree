@@ -114,7 +114,7 @@ async function openHarness(t) {
   const context = await browser.newContext({ viewport: { width: 1024, height: 900 }, locale: "fr-FR", reducedMotion: "reduce" });
   await context.route("**/*", async route => {
     const url = route.request().url();
-    if (url.endsWith("/js/app.js")) {
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
       const response = await route.fetch();
       let source = await response.text();
       const freshRead = "await readFreshMultipleTreeTransferData(expectedPlan.personIds, expectedPlan.destinationTreeId)";

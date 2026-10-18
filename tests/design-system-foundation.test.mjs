@@ -8,7 +8,7 @@ const root = join(here, "..");
 const html = readFileSync(join(root, "index.html"), "utf8");
 const css = readFileSync(join(root, "css", "design-system.css"), "utf8");
 
-assert.match(html, /href="\.\/css\/design-system\.css"/);
+assert.match(html, /href="\.\/css\/design-system\.css\?v=[^"]+"/);
 
 for (const token of [
   "--color-brand",

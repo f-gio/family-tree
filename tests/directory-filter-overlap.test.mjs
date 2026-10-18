@@ -21,13 +21,21 @@ async function createDirectoryPage(browser, server, width, height) {
   });
   await context.route("**/*", route => {
     const url = route.request().url();
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
+      return route.fetch().then(async response => {
+        const source = (await response.text()).replace(/\r\n/g, "\n");
+        const authReadyMarker = 'showAuthPanel("login");\n    refreshSignupAvailability();';
+        assert.ok(source.includes(authReadyMarker), "le point de stabilisation de l’état d’authentification est présent");
+        return route.fulfill({ response, body: source.replace(authReadyMarker, `${authReadyMarker}\n    window.__directoryAuthReady = true;`) });
+      });
+    }
     if (isAllowedRequest(url, server.baseURL)) return route.continue().catch(() => {});
     if (blockedServiceFor(url)) return route.abort("blockedbyclient").catch(() => {});
     return route.continue().catch(() => {});
   });
   const page = await context.newPage();
   await page.goto(server.baseURL, { waitUntil: "load" });
-  await page.waitForTimeout(650);
+  await page.waitForFunction(() => window.__directoryAuthReady === true);
   await page.evaluate(() => {
     document.getElementById("authScreen").hidden = true;
     document.getElementById("topbar").hidden = false;
@@ -35,13 +43,26 @@ async function createDirectoryPage(browser, server, width, height) {
     document.getElementById("directoryView").hidden = false;
     for (const id of ["documentsView", "tasksView", "dossiersView"]) document.getElementById(id).hidden = true;
   });
+  await page.waitForFunction(() => {
+    const control = document.getElementById("directoryFiltersBtn");
+    const rect = control?.getBoundingClientRect();
+    return !!rect && rect.width > 0 && rect.height > 0 && getComputedStyle(control).visibility === "visible";
+  });
   return { context, page };
 }
 
 async function activateControl(page, selector, isMobile) {
   const control = page.locator(selector);
   if (!isMobile) return control.click();
-  await control.scrollIntoViewIfNeeded();
+  await control.evaluate(element => element.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
+  await page.waitForFunction(sel => {
+    const element = document.querySelector(sel);
+    if (!element || getComputedStyle(element).visibility !== "visible") return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0
+      && rect.top >= 0 && rect.left >= 0
+      && rect.bottom <= window.innerHeight && rect.right <= window.innerWidth;
+  }, selector);
   const box = await control.boundingBox();
   assert.ok(box && box.width > 0 && box.height > 0, `${selector} accessible au toucher`);
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
@@ -164,7 +185,10 @@ async function assertFilterDialog(browser, server, width, height, isMobile) {
   try {
     await activateControl(page, "#directoryFiltersBtn", isMobile);
     assert.equal(await page.locator("#directoryFilterDialog").evaluate(dialog => dialog.open), true, `${width}px : ouverture de la modale`);
-    await page.waitForTimeout(220);
+    await page.waitForFunction(() => {
+      const dialog = document.getElementById("directoryFilterDialog");
+      return dialog.open && dialog.getAnimations().every(animation => animation.playState === "finished");
+    });
 
     const beforeScroll = await page.evaluate(() => {
       const dialog = document.getElementById("directoryFilterDialog");
@@ -259,7 +283,7 @@ async function assertFilterDialog(browser, server, width, height, isMobile) {
       const contentArea = page.locator(".directory-filter-content");
       await contentArea.hover();
       await page.mouse.wheel(0, 360);
-      await page.waitForTimeout(80);
+      await page.waitForFunction(() => document.querySelector(".directory-filter-content").scrollTop > 0);
       const wheelScrollTop = await contentArea.evaluate(content => content.scrollTop);
       assert.ok(wheelScrollTop > 0, `${width}px : molette/trackpad fait défiler le contenu malgré la scrollbar masquée (scrollTop ${wheelScrollTop}/${beforeScroll.contentScrollRange})`);
     }
