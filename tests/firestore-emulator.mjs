@@ -7,9 +7,10 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { deleteApp, initializeApp } from "firebase/app";
 import { getAuth, connectAuthEmulator, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { initializeFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, deleteField, writeBatch, runTransaction, query, where, Bytes } from "firebase/firestore";
+import { initializeFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, deleteField, writeBatch, runTransaction, query, where, Bytes, serverTimestamp } from "firebase/firestore";
 import { FILE_CHUNK_BYTES, splitBytesIntoChunks, concatByteArrays, documentChunkId, sliceIntoBatches, importedDataFields } from "../js/backup-utils.js";
 import { prepareMultipleTreeTransferPlan } from "../js/tree-model.js";
+import { createGenealogyCollaborationStore } from "../js/genealogy-collaboration-firestore.js";
 import { assertLocalEmulator, assertFictiveProject, EMULATOR_PROJECT_ID } from "./emulator-guard.mjs";
 
 // GARDE ANTI-PRODUCTION : échoue (rouge) si l'émulateur n'est pas démarré ou non local.
@@ -1336,4 +1337,180 @@ test("trees + people : arbre et première personne peuvent être créés atomiqu
   await batch.commit();
   assert.equal((await getDoc(doc(db, "trees", TREE_ATOMIC_ID))).exists(), true);
   assert.equal((await getDoc(doc(db, "people", "tree-person-atomic"))).data().treeId, TREE_ATOMIC_ID);
+});
+
+test("LOT 6 : propositions, données officielles, historique immuable, notifications privées et atomicité", async () => {
+  const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp });
+  const proposalId = "lot6-proposal-member";
+  const rejectedProposalId = "lot6-proposal-rejected";
+  const proposalEventId = "lot6-proposal-created";
+  const decisionEventId = "lot6-proposal-accepted-event";
+  const notificationId = "lot6-proposal-notification";
+
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await store.createProposal({
+    proposal: { id: proposalId, type: "source", targetType: "source", targetId: "source-example", payload: { title: "Source proposée" } },
+    eventId: proposalEventId, actorUid: memberUid
+  });
+  await store.submitProposal({ proposalId, eventId: "lot6-proposal-submitted", actorUid: memberUid });
+  await store.createProposal({
+    proposal: { id: rejectedProposalId, type: "proof", targetType: "proof", targetId: "proof-rejected-example", payload: { relation: "ambiguous" } },
+    eventId: "lot6-rejected-proposal-created", actorUid: memberUid
+  });
+  await store.submitProposal({ proposalId: rejectedProposalId, eventId: "lot6-rejected-proposal-submitted", actorUid: memberUid });
+  await expectDenied(setDoc(doc(db, "sourceDocuments", "lot6-member-source"), {
+    data: { title: "Interdite" }, version: 1, revisionId: "rev", createdAt: new Date(), createdBy: memberUid,
+    updatedAt: new Date(), updatedBy: memberUid, eventId: "event"
+  }));
+  await expectDenied(store.decideProposal({
+    proposalId, decision: "accepted", reason: "Fraude", eventId: "lot6-fraud-decision", notificationId: "lot6-fraud-notification", actorUid: memberUid
+  }));
+  await expectDenied(store.createReexaminationEvent({
+    type: "proof", objectId: "proof-example", eventId: "lot6-member-review-event", reason: "Faux réexamen",
+    administratorUids: [adminUid], notificationIds: ["lot6-member-review-notification"], actorUid: memberUid
+  }));
+  await expectDenied(setDoc(doc(db, "factConclusions", "lot6-member-conclusion"), {
+    data: { status: "established" }, version: 1, revisionId: "member-conclusion-revision",
+    createdAt: serverTimestamp(), createdBy: memberUid, updatedAt: serverTimestamp(), updatedBy: memberUid,
+    eventId: "member-conclusion-event"
+  }));
+
+  await signOutAll();
+  const otherEmail = "autre-membre-emulator@test-fictif.fr";
+  const otherCredential = await createUserWithEmailAndPassword(auth, otherEmail, "autre-fictif-123");
+  const otherUid = otherCredential.user.uid;
+  await setDoc(doc(db, "users", otherUid), {
+    email: otherEmail, displayName: "Autre membre", photo: "", role: "member", status: "pending"
+  });
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await updateDoc(doc(db, "users", otherUid), { status: "approved" });
+  await signIn(otherUid, otherEmail, "autre-fictif-123");
+  await expectDenied(getDoc(doc(db, "genealogyProposals", proposalId)));
+  await expectDenied(updateDoc(doc(db, "genealogyProposals", proposalId), { payload: { title: "Volée" }, updatedAt: serverTimestamp() }));
+  await expectDenied(updateDoc(doc(db, "genealogyProposals", rejectedProposalId), { payload: { relation: "supports" }, updatedAt: serverTimestamp() }));
+  await signOutAll();
+
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await store.notifyAdministrators({
+    type: "proposal-submitted", objectType: "proposal", objectId: proposalId,
+    eventId: "lot6-proposal-submitted", administratorUids: [adminUid],
+    notificationIds: ["lot6-submitted-notification"]
+  });
+  assert.equal((await getDoc(doc(db, "genealogyNotifications", "lot6-submitted-notification"))).data().recipientUid, adminUid);
+  await store.decideProposal({
+    proposalId, decision: "accepted", reason: "Vérification éditoriale terminée", eventId: decisionEventId,
+    notificationId, actorUid: adminUid
+  });
+  await store.decideProposal({
+    proposalId: rejectedProposalId, decision: "rejected", reason: "Preuve source insuffisante",
+    eventId: "lot6-proposal-rejected-event", notificationId: "lot6-proposal-rejected-notification", actorUid: adminUid
+  });
+  const proposal = await getDoc(doc(db, "genealogyProposals", proposalId));
+  assert.equal(proposal.data().status, "accepted");
+  assert.equal(proposal.data().resolvedBy, adminUid);
+  assert.equal((await getDoc(doc(db, "genealogyProposals", rejectedProposalId))).data().status, "rejected");
+  await expectDenied(updateDoc(doc(db, "genealogyProposals", proposalId), {
+    status: "rejected", updatedAt: serverTimestamp(), resolvedAt: serverTimestamp(), resolvedBy: adminUid, resolutionReason: "réécriture"
+  }));
+  await expectDenied(updateDoc(doc(db, "genealogyProposals", rejectedProposalId), {
+    status: "accepted", updatedAt: serverTimestamp(), resolvedAt: serverTimestamp(), resolvedBy: adminUid, resolutionReason: "réécriture"
+  }));
+  await signOutAll();
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(updateDoc(doc(db, "genealogyProposals", proposalId), { payload: { title: "modification après acceptation" }, updatedAt: serverTimestamp() }));
+  await expectDenied(updateDoc(doc(db, "genealogyProposals", rejectedProposalId), { payload: { relation: "supports" }, updatedAt: serverTimestamp() }));
+  const notification = await getDoc(doc(db, "genealogyNotifications", notificationId));
+  assert.equal(notification.data().recipientUid, memberUid);
+  assert.equal(notification.data().read, false);
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await expectDenied(getDoc(doc(db, "genealogyNotifications", notificationId)));
+  await signOutAll();
+  await signIn(otherUid, otherEmail, "autre-fictif-123");
+  await expectDenied(getDoc(doc(db, "genealogyNotifications", notificationId)));
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await expectDenied(deleteDoc(doc(db, "genealogyEvents", decisionEventId)));
+  await expectDenied(updateDoc(doc(db, "genealogyEvents", decisionEventId), { reason: "altération" }));
+  await expectDenied(updateDoc(doc(db, "sourceRevisions", "lot6-source-revision"), { data: { title: "altération" } }));
+
+  await store.createOfficial({
+    type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision", eventId: "lot6-source-created-event",
+    data: { title: "Source officielle", schemaVersion: 1 }, reason: "Création documentée", actorUid: adminUid
+  });
+  const official = await getDoc(doc(db, "sourceDocuments", "lot6-official-source"));
+  assert.equal(official.data().revisionId, "lot6-source-revision");
+  await store.reviseOfficial({
+    type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision-2", eventId: "lot6-source-revised-event",
+    data: { title: "Source corrigée", schemaVersion: 1 }, reason: "Correction de cote", actorUid: adminUid
+  });
+  const revision = await getDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"));
+  assert.equal(revision.data().previousRevisionId, "lot6-source-revision");
+  await expectDenied(updateDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"), { data: { title: "effacée" } }));
+  await store.createOfficial({
+    type: "conclusion", id: "lot6-official-conclusion", revisionId: "lot6-conclusion-revision",
+    eventId: "lot6-conclusion-created-event", data: { status: "provisional", retainedValue: null },
+    reason: "Conclusion documentée", actorUid: adminUid
+  });
+  await signOutAll();
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(updateDoc(doc(db, "factConclusions", "lot6-official-conclusion"), { data: { status: "established" } }));
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+
+  await store.createReexaminationEvent({
+    type: "proof", objectId: "proof-reexamination-example", eventId: "lot6-proof-review-event",
+    reason: "Une transcription liée a changé", administratorUids: [adminUid], notificationIds: ["lot6-proof-review-notification"], actorUid: adminUid
+  });
+  const reviewEvent = await getDoc(doc(db, "genealogyEvents", "lot6-proof-review-event"));
+  assert.equal(reviewEvent.data().eventType, "proof.reexamination.required");
+  const reviewNotification = await getDoc(doc(db, "genealogyNotifications", "lot6-proof-review-notification"));
+  assert.equal(reviewNotification.data().type, "proof-reexamination");
+  assert.equal(reviewNotification.data().read, false);
+
+  await store.createOfficial({
+    type: "proof", id: "lot6-official-proof", revisionId: "lot6-proof-revision", eventId: "lot6-proof-created-event",
+    data: { technicalStatus: "active", relation: "supports" }, reason: "Création de preuve", actorUid: adminUid
+  });
+  await store.reviseOfficial({
+    type: "proof", id: "lot6-official-proof", revisionId: "lot6-proof-suspended-revision", eventId: "lot6-proof-suspended-event",
+    data: { technicalStatus: "suspended", relation: "supports" }, eventType: "proof.suspended",
+    reason: "Le passage cité est à vérifier", actorUid: adminUid
+  });
+  assert.equal((await getDoc(doc(db, "genealogyEvents", "lot6-proof-suspended-event"))).data().eventType, "proof.suspended");
+
+  await signOutAll();
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await store.markNotificationRead({ notificationId, actorUid: memberUid });
+  assert.equal((await getDoc(doc(db, "genealogyNotifications", notificationId))).data().read, true);
+  await expectDenied(updateDoc(doc(db, "genealogyNotifications", notificationId), { read: false, readAt: null }));
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+
+  await expectDenied(setDoc(doc(db, "genealogyEvents", "lot6-falsified-event"), {
+    eventType: "source.created", objectType: "source", objectId: "fake", actorUid: memberUid,
+    createdAt: new Date(), previousVersionId: null, newVersionId: "fake-revision", reason: "faux"
+  }));
+  await expectDenied(setDoc(doc(db, "genealogyEvents", "lot6-falsified-date-event"), {
+    eventType: "source.created", objectType: "source", objectId: "fake", actorUid: adminUid,
+    createdAt: new Date(0), previousVersionId: null, newVersionId: "fake-revision", reason: "date falsifiée"
+  }));
+
+  // Une collision d'événement fait échouer la transaction entière : aucun brouillon orphelin.
+  await expectDenied(store.createProposal({
+    proposal: { id: "lot6-atomicity-proposal", type: "proof", targetType: "proof", targetId: "proof", payload: {} },
+    eventId: decisionEventId, actorUid: adminUid
+  }));
+  assert.equal((await getDoc(doc(db, "genealogyProposals", "lot6-atomicity-proposal"))).exists(), false);
+
+  await signOutAll();
+  const unapprovedEmail = "sans-validation-emulator@test-fictif.fr";
+  await createUserWithEmailAndPassword(auth, unapprovedEmail, "sans-validation-123");
+  await expectDenied(getDocs(collection(db, "sourceDocuments")));
+  await expectDenied(getDocs(collection(db, "genealogyEvents")));
+  await expectDenied(setDoc(doc(db, "genealogyProposals", "lot6-unapproved-proposal"), {
+    type: "source", status: "draft", authorUid: auth.currentUser.uid, targetType: "source", targetId: "x", payload: {},
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
 });

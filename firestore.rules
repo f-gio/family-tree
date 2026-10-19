@@ -282,6 +282,195 @@ service cloud.firestore {
         || userId != get(/databases/$(database)/documents/settings/access).data.primaryAdminUid;
     }
 
+    function validCollaborationId(id) {
+      return id is string && id.matches('^[A-Za-z0-9_-]{1,128}$');
+    }
+
+    function validProposalType(value) {
+      return value in ['source', 'transcription', 'correction', 'proof'];
+    }
+
+    function validProposal(data) {
+      return data.keys().hasAll(['type', 'status', 'authorUid', 'targetType', 'targetId', 'payload', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['type', 'status', 'authorUid', 'targetType', 'targetId', 'payload', 'createdAt', 'updatedAt', 'submittedAt', 'resolvedAt', 'resolvedBy', 'resolutionReason'])
+        && validProposalType(data.type)
+        && data.status in ['draft', 'pending', 'accepted', 'rejected', 'cancelled']
+        && data.authorUid is string && data.targetType is string && data.targetId is string
+        && data.payload is map
+        && data.createdAt is timestamp && data.updatedAt is timestamp
+        && (!('submittedAt' in data) || data.submittedAt is timestamp)
+        && (!('resolvedAt' in data) || data.resolvedAt is timestamp)
+        && (!('resolvedBy' in data) || data.resolvedBy is string)
+        && (!('resolutionReason' in data) || (data.resolutionReason is string && data.resolutionReason.size() <= 2000));
+    }
+
+    function validProposalDraftCreate() {
+      return isApproved() && validProposal(request.resource.data)
+        && request.resource.data.status == 'draft'
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && !('submittedAt' in request.resource.data)
+        && !('resolvedAt' in request.resource.data)
+        && !('resolvedBy' in request.resource.data);
+    }
+
+    function validProposalAuthorUpdate() {
+      return isApproved() && resource.data.authorUid == request.auth.uid
+        && resource.data.status == 'draft'
+        && validProposal(request.resource.data)
+        && request.resource.data.authorUid == resource.data.authorUid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.status in ['draft', 'cancelled']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['type', 'targetType', 'targetId', 'payload', 'status', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && (request.resource.data.status == 'draft' || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']));
+    }
+
+    function validProposalDecision() {
+      return isAdmin() && resource.data.status == 'pending'
+        && request.resource.data.status in ['accepted', 'rejected']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'resolvedAt', 'resolvedBy', 'resolutionReason'])
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.resolvedAt == request.time
+        && request.resource.data.resolvedBy == request.auth.uid
+        && request.resource.data.resolutionReason is string
+        && request.resource.data.resolutionReason.size() > 0
+        && request.resource.data.resolutionReason.size() <= 2000;
+    }
+
+    function validProposalSubmission() {
+      return isApproved() && resource.data.authorUid == request.auth.uid
+        && resource.data.status == 'draft' && request.resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'submittedAt'])
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.submittedAt == request.time;
+    }
+
+    function validGenealogyEvent(data) {
+      return data.keys().hasAll(['eventType', 'objectType', 'objectId', 'actorUid', 'createdAt', 'previousVersionId', 'newVersionId', 'reason'])
+        && data.keys().hasOnly(['eventType', 'objectType', 'objectId', 'actorUid', 'createdAt', 'previousVersionId', 'newVersionId', 'reason'])
+        && data.eventType is string && data.objectType is string && data.objectId is string
+        && data.actorUid == request.auth.uid && data.createdAt == request.time
+        && (data.previousVersionId == null || data.previousVersionId is string)
+        && (data.newVersionId == null || data.newVersionId is string)
+        && data.reason is string && data.reason.size() <= 2000;
+    }
+
+    function validProposalEvent(eventId) {
+      let event = request.resource.data;
+      let proposalPath = /databases/$(database)/documents/genealogyProposals/$(event.objectId);
+      return validGenealogyEvent(event)
+        && event.objectType == 'proposal'
+        && existsAfter(proposalPath)
+        && getAfter(proposalPath).data.authorUid == request.auth.uid
+        && ((event.eventType == 'proposal.created' && getAfter(proposalPath).data.status == 'draft'
+            && event.newVersionId == 'draft' && event.previousVersionId == null
+            && event.createdAt == getAfter(proposalPath).data.createdAt)
+          || (event.eventType == 'proposal.updated' && getAfter(proposalPath).data.status == 'draft'
+            && event.newVersionId == 'draft' && event.previousVersionId == 'draft'
+            && event.createdAt == getAfter(proposalPath).data.updatedAt)
+          || (event.eventType == 'proposal.submitted' && getAfter(proposalPath).data.status == 'pending'
+            && event.newVersionId == 'pending' && event.previousVersionId == 'draft'
+            && event.createdAt == getAfter(proposalPath).data.submittedAt)
+          || (event.eventType == 'proposal.cancelled' && getAfter(proposalPath).data.status == 'cancelled'
+            && event.newVersionId == 'cancelled' && event.previousVersionId == 'draft'
+            && event.createdAt == getAfter(proposalPath).data.updatedAt));
+    }
+
+    function validNotification(data) {
+      return data.keys().hasAll(['recipientUid', 'type', 'objectType', 'objectId', 'eventId', 'createdAt', 'read'])
+        && data.keys().hasOnly(['recipientUid', 'type', 'objectType', 'objectId', 'eventId', 'createdAt', 'read', 'readAt'])
+        && data.recipientUid is string && data.type in ['proposal-accepted', 'proposal-rejected', 'proposal-submitted', 'proof-reexamination', 'conclusion-reexamination']
+        && data.objectType is string && data.objectId is string && validCollaborationId(data.eventId) && data.createdAt == request.time
+        && data.read is bool && data.read == false && !('readAt' in data);
+    }
+
+    function notificationMatchesProposal() {
+      let proposalPath = /databases/$(database)/documents/genealogyProposals/$(request.resource.data.objectId);
+      let eventPath = /databases/$(database)/documents/genealogyEvents/$(request.resource.data.eventId);
+      return existsAfter(proposalPath)
+        && existsAfter(eventPath)
+        && getAfter(proposalPath).data.status in ['accepted', 'rejected']
+        && getAfter(proposalPath).data.authorUid == request.resource.data.recipientUid
+        && getAfter(eventPath).data.objectType == 'proposal'
+        && getAfter(eventPath).data.objectId == request.resource.data.objectId
+        && ((request.resource.data.type == 'proposal-accepted' && getAfter(proposalPath).data.status == 'accepted')
+          || (request.resource.data.type == 'proposal-rejected' && getAfter(proposalPath).data.status == 'rejected'))
+        && getAfter(eventPath).data.eventType == (request.resource.data.type == 'proposal-accepted' ? 'proposal.accepted' : 'proposal.rejected');
+    }
+
+    function validProposalDecisionEvent() {
+      let event = request.resource.data;
+      let proposalPath = /databases/$(database)/documents/genealogyProposals/$(event.objectId);
+      return validGenealogyEvent(event) && event.objectType == 'proposal'
+        && event.eventType in ['proposal.accepted', 'proposal.rejected']
+        && existsAfter(proposalPath)
+        && getAfter(proposalPath).data.status == (event.eventType == 'proposal.accepted' ? 'accepted' : 'rejected')
+        && event.previousVersionId == 'pending'
+        && event.newVersionId == getAfter(proposalPath).data.status
+        && event.createdAt == getAfter(proposalPath).data.resolvedAt
+        && getAfter(proposalPath).data.resolvedBy == request.auth.uid;
+    }
+
+    function validAdminNotificationRecipient(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid))
+        && get(/databases/$(database)/documents/users/$(uid)).data.status == 'approved'
+        && get(/databases/$(database)/documents/users/$(uid)).data.role == 'admin';
+    }
+
+    function notificationMatchesPendingProposal() {
+      let proposalPath = /databases/$(database)/documents/genealogyProposals/$(request.resource.data.objectId);
+      let eventPath = /databases/$(database)/documents/genealogyEvents/$(request.resource.data.eventId);
+      return request.resource.data.type == 'proposal-submitted'
+        && existsAfter(proposalPath) && getAfter(proposalPath).data.status == 'pending'
+        && existsAfter(eventPath) && getAfter(eventPath).data.eventType == 'proposal.submitted'
+        && getAfter(eventPath).data.objectId == request.resource.data.objectId
+        && validAdminNotificationRecipient(request.resource.data.recipientUid);
+    }
+
+    function notificationMatchesReexamination() {
+      let eventPath = /databases/$(database)/documents/genealogyEvents/$(request.resource.data.eventId);
+      return existsAfter(eventPath)
+        && getAfter(eventPath).data.objectId == request.resource.data.objectId
+        && validAdminNotificationRecipient(request.resource.data.recipientUid)
+        && ((request.resource.data.type == 'proof-reexamination'
+            && getAfter(eventPath).data.eventType == 'proof.reexamination.required'
+            && getAfter(eventPath).data.objectType == 'proof')
+          || (request.resource.data.type == 'conclusion-reexamination'
+            && getAfter(eventPath).data.eventType == 'conclusion.reexamination.required'
+            && getAfter(eventPath).data.objectType == 'conclusion'));
+    }
+
+    function validOfficialRecord(data) {
+      return data.keys().hasAll(['data', 'version', 'revisionId', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'eventId'])
+        && data.keys().hasOnly(['data', 'version', 'revisionId', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'eventId'])
+        && data.data is map && data.version is int && data.version >= 1
+        && data.createdAt is timestamp && data.createdBy == request.auth.uid
+        && data.updatedAt is timestamp && data.updatedBy == request.auth.uid
+        && validCollaborationId(data.eventId) && validCollaborationId(data.revisionId);
+    }
+
+    function hasOfficialEvent(eventId, objectType, objectId, versionId, previousVersionId) {
+      let eventPath = /databases/$(database)/documents/genealogyEvents/$(eventId);
+      return existsAfter(eventPath)
+        && getAfter(eventPath).data.actorUid == request.auth.uid
+        && getAfter(eventPath).data.objectType == objectType
+        && getAfter(eventPath).data.objectId == objectId
+        && getAfter(eventPath).data.newVersionId == versionId
+        && getAfter(eventPath).data.previousVersionId == previousVersionId;
+    }
+
+    function hasOfficialRevision(collectionName, revisionId, objectId, eventId, data, previousVersionId) {
+      let revisionPath = /databases/$(database)/documents/$(collectionName)/$(revisionId);
+      return existsAfter(revisionPath)
+        && getAfter(revisionPath).data.objectId == objectId
+        && getAfter(revisionPath).data.eventId == eventId
+        && getAfter(revisionPath).data.authorUid == request.auth.uid
+        && getAfter(revisionPath).data.data == data
+        && getAfter(revisionPath).data.previousRevisionId == previousVersionId;
+    }
+
     // Configuration minimale lisible avant connexion pour afficher l'inscription.
     match /publicConfig/auth {
       allow read: if true;
@@ -389,6 +578,154 @@ service cloud.firestore {
         allow update: if isApproved() && validProcedureAction() && validUpdatedBy();
         allow delete: if isApproved();
       }
+    }
+
+    // Modèle collaboratif du lot 6. Les anciennes collections restent
+    // inchangées ; les têtes officielles pointent vers des révisions immuables.
+    match /genealogyProposals/{proposalId} {
+      allow get: if isAdmin() || (isApproved() && (resource == null || resource.data.authorUid == request.auth.uid));
+      allow list: if isAdmin() || (isApproved() && resource.data.authorUid == request.auth.uid);
+      allow create: if validProposalDraftCreate();
+      allow update: if validProposalAuthorUpdate() || validProposalSubmission() || validProposalDecision();
+      allow delete: if false;
+    }
+
+    match /genealogyEvents/{eventId} {
+      allow read: if isApproved();
+      allow create: if isApproved() && validProposalEvent(eventId);
+      allow create: if isAdmin() && validProposalDecisionEvent();
+      allow create: if isAdmin() && validGenealogyEvent(request.resource.data)
+        && request.resource.data.objectType in ['source', 'transcription', 'proof', 'conclusion']
+        && hasOfficialEvent(eventId, request.resource.data.objectType, request.resource.data.objectId, request.resource.data.newVersionId, request.resource.data.previousVersionId);
+      allow update, delete: if false;
+    }
+
+    match /genealogyNotifications/{notificationId} {
+      allow read: if isApproved() && (resource == null || resource.data.recipientUid == request.auth.uid);
+      allow create: if isAdmin() && validNotification(request.resource.data)
+        && ((request.resource.data.type in ['proposal-accepted', 'proposal-rejected'] && notificationMatchesProposal())
+          || notificationMatchesPendingProposal()
+          || notificationMatchesReexamination());
+      allow update: if isApproved() && resource.data.recipientUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt'])
+        && request.resource.data.read == true && request.resource.data.readAt == request.time;
+      allow delete: if false;
+    }
+
+    match /sourceDocuments/{sourceId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && validOfficialRecord(request.resource.data)
+        && request.resource.data.version == 1 && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'source', sourceId, request.resource.data.revisionId, null)
+        && hasOfficialRevision('sourceRevisions', request.resource.data.revisionId, sourceId, request.resource.data.eventId, request.resource.data.data, null);
+      allow update: if isAdmin() && validOfficialRecord(request.resource.data)
+        && request.resource.data.version == resource.data.version + 1
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid
+        && hasOfficialEvent(request.resource.data.eventId, 'source', sourceId, request.resource.data.revisionId, resource.data.revisionId)
+        && hasOfficialRevision('sourceRevisions', request.resource.data.revisionId, sourceId, request.resource.data.eventId, request.resource.data.data, resource.data.revisionId);
+      allow delete: if false;
+    }
+
+    match /sourceRevisions/{revisionId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && request.resource.data.keys().hasAll(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.keys().hasOnly(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.objectId is string && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && (request.resource.data.previousRevisionId == null || request.resource.data.previousRevisionId is string)
+        && request.resource.data.data is map
+        && hasOfficialEvent(request.resource.data.eventId, 'source', request.resource.data.objectId, revisionId, request.resource.data.previousRevisionId);
+      allow update, delete: if false;
+    }
+
+    match /transcriptionHeads/{transcriptionId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && validOfficialRecord(request.resource.data)
+        && request.resource.data.version == 1 && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'transcription', transcriptionId, request.resource.data.revisionId, null)
+        && hasOfficialRevision('transcriptionRevisions', request.resource.data.revisionId, transcriptionId, request.resource.data.eventId, request.resource.data.data, null);
+      allow update: if isAdmin() && validOfficialRecord(request.resource.data)
+        && request.resource.data.version == resource.data.version + 1
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'transcription', transcriptionId, request.resource.data.revisionId, resource.data.revisionId)
+        && hasOfficialRevision('transcriptionRevisions', request.resource.data.revisionId, transcriptionId, request.resource.data.eventId, request.resource.data.data, resource.data.revisionId);
+      allow delete: if false;
+    }
+
+    match /transcriptionRevisions/{revisionId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && request.resource.data.keys().hasAll(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.keys().hasOnly(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.objectId is string && request.resource.data.authorUid == request.auth.uid && request.resource.data.createdAt == request.time
+        && (request.resource.data.previousRevisionId == null || request.resource.data.previousRevisionId is string)
+        && request.resource.data.data is map
+        && hasOfficialEvent(request.resource.data.eventId, 'transcription', request.resource.data.objectId, revisionId, request.resource.data.previousRevisionId);
+      allow update, delete: if false;
+    }
+
+    match /genealogyProofs/{proofId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && validOfficialRecord(request.resource.data)
+        && request.resource.data.version == 1 && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'proof', proofId, request.resource.data.revisionId, null)
+        && hasOfficialRevision('genealogyProofRevisions', request.resource.data.revisionId, proofId, request.resource.data.eventId, request.resource.data.data, null);
+      allow update: if isAdmin() && validOfficialRecord(request.resource.data)
+        && request.resource.data.version == resource.data.version + 1
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'proof', proofId, request.resource.data.revisionId, resource.data.revisionId)
+        && hasOfficialRevision('genealogyProofRevisions', request.resource.data.revisionId, proofId, request.resource.data.eventId, request.resource.data.data, resource.data.revisionId);
+      allow delete: if false;
+    }
+
+    match /genealogyProofRevisions/{revisionId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && request.resource.data.keys().hasAll(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.keys().hasOnly(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.objectId is string && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && (request.resource.data.previousRevisionId == null || request.resource.data.previousRevisionId is string)
+        && request.resource.data.data is map
+        && hasOfficialEvent(request.resource.data.eventId, 'proof', request.resource.data.objectId, revisionId, request.resource.data.previousRevisionId);
+      allow update, delete: if false;
+    }
+
+    match /factConclusions/{conclusionId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && validOfficialRecord(request.resource.data)
+        && request.resource.data.version == 1 && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'conclusion', conclusionId, request.resource.data.revisionId, null)
+        && hasOfficialRevision('conclusionRevisions', request.resource.data.revisionId, conclusionId, request.resource.data.eventId, request.resource.data.data, null);
+      allow update: if isAdmin() && validOfficialRecord(request.resource.data)
+        && request.resource.data.version == resource.data.version + 1
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'conclusion', conclusionId, request.resource.data.revisionId, resource.data.revisionId)
+        && hasOfficialRevision('conclusionRevisions', request.resource.data.revisionId, conclusionId, request.resource.data.eventId, request.resource.data.data, resource.data.revisionId);
+      allow delete: if false;
+    }
+
+    match /conclusionRevisions/{revisionId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && request.resource.data.keys().hasAll(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.keys().hasOnly(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.objectId is string && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && (request.resource.data.previousRevisionId == null || request.resource.data.previousRevisionId is string)
+        && request.resource.data.data is map
+        && hasOfficialEvent(request.resource.data.eventId, 'conclusion', request.resource.data.objectId, revisionId, request.resource.data.previousRevisionId);
+      allow update, delete: if false;
     }
 
     // Aucun autre document Firestore n'est exposé.
