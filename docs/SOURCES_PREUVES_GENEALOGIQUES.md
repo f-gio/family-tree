@@ -88,19 +88,28 @@ Décision de travail consignée :
 
 ## E. Suivi des lots
 
-| Lot | Périmètre confirmé | Dépendances | Critères de validation | Statut |
-|---:|---|---|---|---|
-| 0 | Identifiants stables de faits et fondation pure des relations/invalidation. Fichiers : `js/genealogy-identities.js`, `tests/genealogy-identities.test.mjs`. Aucun stockage relationnel Firestore intégré. | Aucun lot antérieur. | Tests du module et non-régression locale : 45 réussis, 0 échec selon le rapport de validation. Identités indépendantes des valeurs et conservation locale de l'identité lors de l'invalidation. | **Terminé** — commit local `65ee5d2` (`65ee5d2ce53559eb8d8fa4545189ebc3194bfbc8`). Aucun déploiement. |
-| 1 | À confirmer | À confirmer | À confirmer | À confirmer |
-| 2 | À confirmer | À confirmer | À confirmer | À confirmer |
-| 3 | À confirmer | À confirmer | À confirmer | À confirmer |
-| 4 | À confirmer | À confirmer | À confirmer | À confirmer |
-| 5 | À confirmer | À confirmer | À confirmer | À confirmer |
-| 6 | À confirmer | À confirmer | À confirmer | À confirmer |
-| 7 | À confirmer | À confirmer | À confirmer | À confirmer |
-| 8 | À confirmer | À confirmer | À confirmer | À confirmer |
+### Découpage retenu
 
-Les découpages de lots évoqués dans des audits préparatoires ne constituent pas le plan validé et ne sont pas recopiés comme périmètre officiel.
+| Lot | Périmètre | Dépendances | Critères de validation | Statut |
+|---:|---|---|---|---|
+| 0 — Fondations des identifiants | Identifiants stables de faits et fondation pure des relations/invalidation. Fichiers : `js/genealogy-identities.js`, `tests/genealogy-identities.test.mjs`. Aucun stockage relationnel Firestore intégré. | Aucun lot antérieur. | Tests du module et non-régression locale : 45 réussis, 0 échec selon le rapport de validation. | **Terminé** — commit local `65ee5d2` (`65ee5d2ce53559eb8d8fa4545189ebc3194bfbc8`). Aucun déploiement. |
+| 1 — Modèle des sources et documents | Documents, pages, photographies, métadonnées archivistiques, SHA-256, compatibilité avec l'existant. | Lot 0 (identifiants de faits). | À confirmer. | À confirmer. |
+| 2 — Conservation des fichiers | Originaux immuables, aperçus séparés, stockage, consultation multipage, intégrité. | Lot 1 (modèle documentaire). | À confirmer. | À confirmer. |
+| 3 — Transcriptions et traductions | Italien, français, versions, passages permanents, incertitudes. | Lot 1 (pages et passages). | À confirmer. | À confirmer. |
+| 4 — Preuves généalogiques | Liens plusieurs-à-plusieurs entre sources et faits, citations, contradictions, faits vides et relations historiques. | Lots 0, 1 et 3. | À confirmer. | À confirmer. |
+| 5 — Conclusions et contradictions | Confrontation des affirmations, conclusion globale manuelle, accès administrateur. | Lot 4 (preuves). | À confirmer. | À confirmer. |
+| 6 — Collaboration et sécurité | Auteurs, propositions, notifications, historique, permissions et transactions. | Lots 1 à 5. | À confirmer. | À confirmer. |
+| 7 — Sauvegarde et restauration | Sauvegarde autonome, fichiers originaux, compatibilité v4, intégrité et restauration vérifiée. | Lots 1 à 6. | À confirmer. | À confirmer. |
+| 8 — Intégration finale et recherche | Fiches personnes/familles/documents, navigation, recherche, responsive et tests de bout en bout. | Lots 1 à 7. | À confirmer. | À confirmer. |
+
+### Règles transversales aux lots
+
+- Les tests, la sécurité et la récupération des données sont pris en compte dès les premiers lots concernés, pas reportés à la fin du projet.
+- Le lot 6 ne reporte pas à plus tard les contrôles de sécurité indispensables aux lots précédents ; il les consolide et les étend.
+- Le lot 7 ne reporte pas à plus tard la sauvegarde des nouvelles données ; chaque lot concerné prévoit et teste sa sauvegarde/restauration.
+- Aucun lot ne modifie automatiquement les valeurs généalogiques de l'arbre.
+- Toute activation Blaze ou publication nécessite une autorisation explicite.
+- Le travail s'effectue sur `recette`, sans toucher à la production.
 
 ## F. Règles de développement
 
@@ -121,5 +130,5 @@ Les découpages de lots évoqués dans des audits préparatoires ne constituent 
 | Arbitrages fonctionnels A-01 à A-08 | Décisions fournies comme validées ; consignées dans la section C. |
 | Décisions techniques T-01 et T-02 | Consignées dans la section D ; activation de service et tout déploiement restent soumis à autorisation et vérifications séparées. |
 | Lot 0 | Terminé au commit local `65ee5d2` ; aucun déploiement selon le périmètre fourni. |
-| Lots 1 à 8 | Périmètre détaillé non disponible dans la documentation locale examinée ; à confirmer. |
+| Découpage des lots 1 à 8 | Découpage désormais retenu et consigné dans la section E ; critères de validation détaillés : à confirmer avant chaque lot. |
 | Cahier détaillé des neuf chapitres | Titres et texte source à intégrer depuis la version validée ; non reconstitués ici. |
