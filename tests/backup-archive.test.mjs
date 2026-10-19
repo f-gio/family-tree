@@ -87,6 +87,14 @@ test("les marqueurs de collections détectent une écriture concurrente pendant 
   assert.equal(compareBackupCaptureMarkers({ people: "v1" }, { people: "v1" }).consistent, true);
 });
 
+test("les collections limitées à la visibilité du compte restent signalées partielles", async () => {
+  const input = completeCollections();
+  const archive = await createBackupArchiveManifest({ ...input, collectionScopes: { genealogyProposals: "authorUid=member-1", genealogyNotifications: "recipientUid=member-1" }, capture: { consistent: true }, cryptoProvider: webcrypto });
+  assert.equal(archive.manifest.completeness.status, "partial");
+  assert.deepEqual(archive.manifest.collectionScopes.genealogyProposals, "authorUid=member-1");
+  assert.ok(archive.manifest.completeness.warnings.some(warning => warning.code === "COLLECTION_SCOPE_LIMITED"));
+});
+
 test("les photos multiples gardent une entrée par version ; un WebP historique n'est jamais un original", async () => {
   const input = completeCollections();
   input.assets.push({ documentId: "doc-1", pageId: "page-1", photographId: "photo-legacy", rendition: "legacy-optimized", resourceRef: "ref:webp-only", sizeBytes: 2, sha256: null, mimeType: "image/webp", provenance: "old-document-optimized" });

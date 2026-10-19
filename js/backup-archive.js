@@ -76,7 +76,8 @@ function safeSegment(value) {
 
 function assetEntryPath(asset) {
   if (typeof asset.archivePath === "string" && asset.archivePath.startsWith("assets/") && !asset.archivePath.includes("..")) return asset.archivePath;
-  const rendition = asset.rendition === "preview" ? `previews/${safeSegment(asset.assetId)}` : "original";
+  const rendition = asset.rendition === "preview" ? `previews/${safeSegment(asset.assetId)}`
+    : asset.rendition === "legacy-file" || asset.rendition === "legacy-optimized" ? `legacy/${safeSegment(asset.assetId || "file")}` : "original";
   return `assets/${safeSegment(asset.documentId)}/${safeSegment(asset.pageId)}/${safeSegment(asset.photographId)}/${rendition}`;
 }
 
@@ -217,12 +218,13 @@ export async function adaptLegacyV4Archive(manifest, entries, { cryptoProvider =
   const entryMap = entries instanceof Map ? entries : new Map(Object.entries(entries || {}));
   for (const document of adapted.collections.documents) {
     if (!document.backupFile) continue;
+    const legacyRendition = document.mimeType === "image/webp" || document.compressed === true ? "legacy-optimized" : "legacy-file";
     const value = entryMap.get(document.backupFile);
     if (value == null) {
-      adapted.missingResources.push({ resourceRef: document.backupFile, documentId: document.id, rendition: "legacy-optimized", reason: "legacy-v4-file-missing" });
+      adapted.missingResources.push({ resourceRef: document.backupFile, documentId: document.id, rendition: legacyRendition, reason: "legacy-v4-file-missing" });
       adapted.assets.push({
         documentId: document.id, pageId: "legacy-page-unassigned", photographId: document.id,
-        rendition: "legacy-optimized", archivePath: document.backupFile, state: "missing", isOriginal: false,
+        rendition: legacyRendition, assetId: document.id, archivePath: document.backupFile, state: "missing", isOriginal: false,
         provenance: "legacy-v4-firestore-optimized-or-unknown", sha256: null, sizeBytes: null
       });
       continue;
@@ -230,7 +232,7 @@ export async function adaptLegacyV4Archive(manifest, entries, { cryptoProvider =
     const bytes = bytesOf(value);
     adapted.assets.push({
       documentId: document.id, pageId: "legacy-page-unassigned", photographId: document.id,
-      rendition: "legacy-optimized", archivePath: document.backupFile, state: "present", isOriginal: false,
+      rendition: legacyRendition, assetId: document.id, archivePath: document.backupFile, state: "present", isOriginal: false,
       provenance: "legacy-v4-firestore-optimized-or-unknown", sha256: await sha256(bytes, cryptoProvider),
       sizeBytes: bytes.byteLength, mimeType: document.mimeType || "application/octet-stream", fileName: document.fileName || null
     });
@@ -246,7 +248,7 @@ export async function adaptLegacyV4Archive(manifest, entries, { cryptoProvider =
 
 export async function createBackupArchiveManifest({
   collections = {}, assets = [], assetBytes = new Map(), createdAt = new Date().toISOString(),
-  capture = { consistent: false, strategy: "client-multi-read" }, cryptoProvider = globalThis.crypto
+  capture = { consistent: false, strategy: "client-multi-read" }, collectionScopes = {}, cryptoProvider = globalThis.crypto
 } = {}) {
   requireCollectionEntries(collections);
   if (collections.people && collections.families) validateFamilyDataset(collections.people, collections.families);
@@ -257,7 +259,7 @@ export async function createBackupArchiveManifest({
   const missingResources = [];
   const assetIds = new Set();
   for (const asset of assets) {
-    if (!asset || !["original", "preview", "legacy-optimized"].includes(asset.rendition)) throw new Error("Type de ressource d'archive inconnu");
+    if (!asset || !["original", "preview", "legacy-optimized", "legacy-file"].includes(asset.rendition)) throw new Error("Type de ressource d'archive inconnu");
     for (const key of ["documentId", "pageId", "photographId", "resourceRef"]) {
       if (typeof asset[key] !== "string" || !asset[key].trim()) throw new Error(`Ressource sans ${key}`);
     }
@@ -287,15 +289,23 @@ export async function createBackupArchiveManifest({
 
   const references = collectReferences(collections, normalizedAssets);
   const missingCollections = REQUIRED_COLLECTIONS.filter(name => !Object.hasOwn(collections, name));
+  const limitedScopes = Object.entries(collectionScopes).filter(([, scope]) => scope && scope !== "all").map(([name, scope]) => ({ collection: name, scope }));
   if (collections.documents && !collections.sourceDocuments) missingCollections.push("sourceDocuments (documents historiques non convertis)");
   if (collections.users) throw new Error("Les profils Firebase users ne doivent pas être ajoutés à une archive ; conservez les UID historiques dans leurs événements métier uniquement");
   const collectionRecords = Object.fromEntries(Object.entries(collections).map(([name, records]) => [name, structuredCloneSafe(records)]));
+  for (const documentRecord of collectionRecords.documents || []) {
+    const documentAssets = normalizedAssets.filter(asset => asset.documentId === documentRecord.id);
+    if (!documentAssets.length) continue;
+    for (const field of ["fileData", "fileUrl", "storagePath", "chunkVersion", "chunkCount", "storageMode", "storedSize", "compressed"]) delete documentRecord[field];
+    documentRecord.archiveAssets = documentAssets.map(asset => ({ archivePath: asset.archivePath, state: asset.state, rendition: asset.rendition, isOriginal: asset.isOriginal, sha256: asset.sha256, sizeBytes: asset.sizeBytes }));
+  }
   const complete = missingCollections.length === 0 && missingResources.length === 0 && references.errors.length === 0
-    && capture?.consistent === true && capture?.changeDetected !== true;
+    && limitedScopes.length === 0 && capture?.consistent === true && capture?.changeDetected !== true;
   const completenessWarnings = [...references.warnings];
   if (!capture?.consistent) completenessWarnings.push({ code: "SNAPSHOT_NOT_ATOMIC", message: "La capture multi-collections n'est pas garantie cohérente par une transaction globale Firestore." });
   if (capture?.changeDetected) completenessWarnings.push({ code: "CHANGES_DURING_CAPTURE", message: "Des marqueurs ont changé pendant l'export ; l'archive est signalée partielle." });
   if (missingCollections.length) completenessWarnings.push({ code: "COLLECTIONS_MISSING", message: `Collections non capturées : ${missingCollections.join(", ")}` });
+  if (limitedScopes.length) completenessWarnings.push({ code: "COLLECTION_SCOPE_LIMITED", message: "Certaines collections sont limitées aux éléments visibles par le compte exportateur.", scopes: limitedScopes });
   if (missingResources.length) completenessWarnings.push({ code: "RESOURCES_MISSING", message: `${missingResources.length} ressource(s) référencée(s) ne sont pas présentes dans l'archive.` });
   if (references.errors.length) completenessWarnings.push({ code: "REFERENCES_INVALID", message: `${references.errors.length} incohérence(s) de référence ou de révision détectée(s).` });
   const ids = Object.fromEntries(Object.entries(collectionRecords).map(([name, records]) => [name, records.map(record => record.id)]));
@@ -309,6 +319,7 @@ export async function createBackupArchiveManifest({
     sourceProvenance: "firestore-client-export",
     collections: collectionRecords,
     inventory: inventoryFor(collectionRecords),
+    collectionScopes: Object.fromEntries(BACKUP_COLLECTION_NAMES.map(name => [name, collectionScopes[name] || "all"])),
     identifiers: ids,
     assets: normalizedAssets,
     missingResources,

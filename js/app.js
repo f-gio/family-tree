@@ -22,9 +22,15 @@ import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsern
 import { formatCompactPlace } from "./place-format.js";
 import { createPersonMultiSelect } from "./person-multiselect.js";
 import { analyzeTreeQuality } from "./tree-quality.js";
-import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, importedTreeData, validateFamilyDataset, validateTreeDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, buildBackupManifest, parseBackupManifestText } from "./backup-utils.js";
+import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, importedTreeData, validateFamilyDataset, validateTreeDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, parseBackupManifestText } from "./backup-utils.js";
 import { firebaseConfigurationMatchesEnvironment, resolveFirebaseEnvironment, environmentFeatureFlags } from "./firebase-environment.js";
 import { TRANSFER_DIAGNOSTIC_STAGES, resolveTransferDiagnosticEnabled, buildTransferDiagnosticReport } from "./transfer-diagnostic.js";
+import { createGenealogyCollaborationStore } from "./genealogy-collaboration-firestore.js";
+import { createGenealogyProof, validateGenealogyProof } from "./genealogy-proofs.js";
+import { createConclusionRevision, createConclusionHead } from "./fact-conclusions.js";
+import { createSourceDocument } from "./source-document-model.js";
+import { createPageTextRevision } from "./document-transcription.js";
+import { BACKUP_ARCHIVE_VERSION, createBackupArchiveManifest, compareBackupCaptureMarkers, generateBackupZip, readBackupZip, prepareBackupRestorePlan } from "./backup-archive.js";
 
 const firebaseEnvironment = resolveFirebaseEnvironment(window.location);
 if (!firebaseEnvironment.allowed || !firebaseConfigurationMatchesEnvironment(firebaseEnvironment.environment, firebaseEnvironment.firebaseConfig)) {
@@ -76,11 +82,30 @@ const refs = {
   tasks: collection(db, "tasks"),
   users: collection(db, "users"),
   trees: collection(db, "trees"),
-  procedures: collection(db, "procedures")
+  procedures: collection(db, "procedures"),
+  sourceDocuments: collection(db, "sourceDocuments"),
+  sourceRevisions: collection(db, "sourceRevisions"),
+  transcriptionHeads: collection(db, "transcriptionHeads"),
+  transcriptionRevisions: collection(db, "transcriptionRevisions"),
+  genealogyProofs: collection(db, "genealogyProofs"),
+  genealogyProofRevisions: collection(db, "genealogyProofRevisions"),
+  factConclusions: collection(db, "factConclusions"),
+  conclusionRevisions: collection(db, "conclusionRevisions"),
+  genealogyProposals: collection(db, "genealogyProposals"),
+  genealogyEvents: collection(db, "genealogyEvents"),
+  genealogyNotifications: collection(db, "genealogyNotifications")
 };
+const genealogyStore = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp });
 
 let people = [], families = [], documents = [], tasks = [];
 let procedures = [];
+let genealogyRecords = {
+  sourceDocuments: [], sourceRevisions: [], transcriptionHeads: [], transcriptionRevisions: [],
+  genealogyProofs: [], genealogyProofRevisions: [], factConclusions: [], conclusionRevisions: [],
+  genealogyProposals: [], genealogyEvents: [], genealogyNotifications: []
+};
+let genealogyLoaded = false;
+let genealogyCollectionErrors = new Set();
 let treeMetadata = [];
 let activeTreeId = MAIN_TREE_ID;
 let treeCatalogState = "idle";
@@ -113,6 +138,10 @@ let manualOffsets = readOffsets();
 let treeLayoutEngine = "hybrid";
 let activeViewerUrl = "";
 let activePersonSection = "identity";
+let activeGenealogyItem = null;
+let genealogyZoom = 1;
+let activeGenealogyPageId = "";
+let activeGenealogyPhotoId = "";
 let documentReturnContext = null;
 let documentFileMarkedForRemoval = false;
 let familyDetailsReturnContext = null;
@@ -1592,6 +1621,7 @@ function updateReadyViews() {
     setLoadingSurface("proceduresList", false);
     renderProcedures();
   }
+  if (genealogyLoaded) renderGenealogyWorkspace();
 }
 
 function applySearch(focus = true) {
@@ -1626,6 +1656,15 @@ function renderPersonDocuments(personId) {
   $("personDocumentsList").innerHTML = linked.length
     ? `<div class="person-doc-gallery">${linked.map(personDocCard).join("")}</div>`
     : emptyState({ iconName: "document", title: "Aucun document associé", description: "Les documents ajoutés pour cette personne apparaîtront ici." });
+  const linkedProofs = genealogyRecords.genealogyProofs.filter(item => (genealogyRecordData(item).personIds || []).includes(personId));
+  const linkedConclusions = genealogyRecords.factConclusions.filter(conclusion => linkedProofs.some(proof => genealogyRecordData(proof).factId === genealogyRecordData(conclusion).factId));
+  const evidence = [
+    ...linkedProofs.map(item => ({ kind: "proof", record: item, data: genealogyRecordData(item) })),
+    ...linkedConclusions.map(item => ({ kind: "conclusion", record: item, data: genealogyRecordData(item) }))
+  ];
+  $("personGenealogyEvidenceList").innerHTML = evidence.length
+    ? evidence.map(item => `<article class="person-doc-card"><div class="person-doc-meta"><strong class="person-doc-title">${esc(item.data.factType || item.data.factId || item.kind)}</strong><span class="person-doc-subrow">${esc(genealogyKindLabels[item.kind])} · ${esc(item.data.technicalStatus || item.data.status || "à examiner")}</span><button class="btn small" type="button" data-open-genealogy="${esc(item.kind)}" data-genealogy-id="${esc(item.record.id)}">Consulter</button></div></article>`).join("")
+    : emptyState({ iconName: "document", title: "Aucune preuve associée", description: "Les preuves concernant cette personne apparaîtront ici après leur enregistrement." });
 }
 
 function setPersonSection(section = "identity", focusTab = false) {
@@ -3503,18 +3542,311 @@ function renderDocuments() {
   $("documentsList").innerHTML = filtered.length ? filtered.map(item => {
     const compactPlace = formatCompactPlace(item.place, item.placeInfo);
     const label = documentDisplayLabel(item);
+    const renditionStatus = item.compressed || item.mimeType === "image/webp"
+      ? "Image historique optimisée (WebP) · pas un original"
+      : item.chunkCount || item.fileData ? "Fichier historique · original non vérifié" : "Référence externe";
     const canOpen = !!(item.chunkCount || item.fileData || item.fileUrl || item.externalUrl);
     const tileSemantics = canOpen ? `data-primary-tile data-document-openable="true" tabindex="0" role="group" aria-label="Consulter ${esc(label)}" aria-keyshortcuts="Enter Space"` : `data-document-openable="false"`;
     const menu = tileContextMenuMarkup("document", item.id, label, [
       { key: "edit", label: "Modifier", icon: "edit" },
       { key: "delete", label: "Supprimer", icon: "trash", danger: true }
     ]);
-    return `<article class="content-card document-card" data-document-card="${item.id}" ${tileSemantics}><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(label)}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${compactPlace ? ` · ${esc(compactPlace)}` : ""}</p><div class="document-card-details"><p class="document-card-people">${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">Fichier optimisé : ${formatBytes(item.storedSize)}</p>` : ""}</div><div class="card-actions">${menu}</div></article>`;
+    return `<article class="content-card document-card" data-document-card="${item.id}" ${tileSemantics}><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(label)}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${compactPlace ? ` · ${esc(compactPlace)}` : ""}</p><div class="document-card-details"><p class="document-card-people">${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">${esc(renditionStatus)} · ${formatBytes(item.storedSize)}</p>` : `<p class="list-optional">${esc(renditionStatus)}</p>`}</div><div class="card-actions">${menu}</div></article>`;
   }).join("") : (documents.length
     ? emptyState({ iconName: "document", title: "Aucun document trouvé", description: "Modifiez la recherche ou le type de document sélectionné." })
     : emptyState({ iconName: "document", title: "Aucun document", description: "Centralisez ici les actes, photos et autres archives familiales.", action: `<button class="btn primary" type="button" data-empty-add-document>${icon("plus")}<span>Ajouter un document</span></button>` }));
   setContentMode("documents", viewModes.documents || "cards", false);
   if (activeId && $("personDialog").open) renderPersonDocuments(activeId);
+}
+
+function genealogyRecordData(record) {
+  return record?.data && typeof record.data === "object" ? record.data : record || {};
+}
+
+function genealogyWorkspaceItems() {
+  const sources = [
+    ...genealogyRecords.sourceDocuments.map(record => ({ kind: "source", record, data: genealogyRecordData(record), official: true })),
+    ...documents.filter(record => !genealogyRecords.sourceDocuments.some(source => source.id === record.id))
+      .map(record => ({ kind: "legacy-source", record, data: record, official: false }))
+  ];
+  const transcriptions = genealogyRecords.transcriptionHeads.map(record => ({ kind: "transcription", record, data: genealogyRecordData(record), official: true }));
+  const proofs = genealogyRecords.genealogyProofs.map(record => ({ kind: "proof", record, data: genealogyRecordData(record), official: true }));
+  const conclusions = genealogyRecords.factConclusions.map(record => ({ kind: "conclusion", record, data: genealogyRecordData(record), official: true }));
+  const proposals = genealogyRecords.genealogyProposals.map(record => ({ kind: "proposal", record, data: record, official: false }));
+  const events = genealogyRecords.genealogyEvents.map(record => ({ kind: "event", record, data: record, official: false }));
+  const notifications = genealogyRecords.genealogyNotifications.map(record => ({ kind: "notification", record, data: record, official: false }));
+  return [...sources, ...transcriptions, ...proofs, ...conclusions, ...proposals, ...events, ...notifications];
+}
+
+const genealogyKindLabels = {
+  source: "Source officielle", "legacy-source": "Document historique", transcription: "Transcription",
+  proof: "Preuve", conclusion: "Conclusion", proposal: "Proposition", event: "Historique", notification: "Notification"
+};
+
+function renderGenealogyWorkspace() {
+  const panel = $("genealogyResults");
+  if (!panel) return;
+  const queryText = searchable($("genealogySearch")?.value || "");
+  const kind = $("genealogyKindFilter")?.value || "all";
+  const items = genealogyWorkspaceItems().filter(item => {
+    if (kind !== "all" && !((kind === "sources" && ["source", "legacy-source"].includes(item.kind))
+      || (kind === "transcriptions" && item.kind === "transcription")
+      || (kind === "proofs" && item.kind === "proof")
+      || (kind === "conclusions" && item.kind === "conclusion")
+      || (kind === "proposals" && item.kind === "proposal")
+      || (kind === "history" && item.kind === "event")
+      || (kind === "notifications" && item.kind === "notification"))) return false;
+    if (!queryText) return true;
+    const recordText = JSON.stringify([item.kind, item.record, item.data, item.record.authorUid ? nameOf(item.record.authorUid) : ""]);
+    return searchable(recordText).includes(queryText);
+  });
+  const unread = genealogyRecords.genealogyNotifications.filter(item => item.read !== true).length;
+  const loadedStatus = `${items.length} élément${items.length === 1 ? "" : "s"} affiché${items.length === 1 ? "" : "s"}${unread ? ` · ${unread} notification${unread === 1 ? "" : "s"} non lue${unread === 1 ? "" : "s"}` : ""}`;
+  const unavailableStatus = genealogyCollectionErrors.size ? ` · Données indisponibles : ${[...genealogyCollectionErrors].join(", ")}` : "";
+  $("genealogyStatus").textContent = genealogyLoaded ? `${loadedStatus}${unavailableStatus}` : genealogyCollectionErrors.size ? `Chargement incomplet${unavailableStatus}` : "Chargement des archives…";
+  panel.innerHTML = items.length ? items.map(item => {
+    const record = item.record;
+    const data = item.data;
+    const title = data.title || data.factType || data.eventType || data.type || record.id;
+    const status = record.status || data.technicalStatus || data.status || (item.kind === "notification" ? record.read ? "Lue" : "Non lue" : "");
+    const updatedLabel = record.updatedAt?.toDate ? record.updatedAt.toDate().toLocaleString("fr-FR") : "";
+    const subtitle = [record.id, data.documentId, data.pageId, data.factId, updatedLabel, record.updatedByName].filter(Boolean).join(" · ");
+    const controls = [];
+    controls.push(`<button class="btn small" type="button" data-genealogy-open="${esc(item.kind)}" data-genealogy-id="${esc(record.id)}">Consulter</button>`);
+    if (item.kind === "proposal" && record.status === "draft" && record.authorUid === auth.currentUser?.uid) {
+      controls.push(`<button class="btn small" type="button" data-genealogy-proposal-action="submit" data-genealogy-id="${esc(record.id)}">Soumettre</button>`);
+      controls.push(`<button class="btn small" type="button" data-genealogy-proposal-action="cancel" data-genealogy-id="${esc(record.id)}">Annuler le brouillon</button>`);
+    }
+    if (item.kind === "proposal" && record.status === "pending" && isAdminUser()) {
+      controls.push(`<button class="btn small primary" type="button" data-genealogy-proposal-action="accept" data-genealogy-id="${esc(record.id)}">Accepter</button>`);
+      controls.push(`<button class="btn small" type="button" data-genealogy-proposal-action="reject" data-genealogy-id="${esc(record.id)}">Refuser</button>`);
+    }
+    if (item.official && isAdminUser()) controls.push(`<button class="btn small" type="button" data-genealogy-revise="${esc(item.kind)}" data-genealogy-id="${esc(record.id)}">Réviser</button>`);
+    if (item.kind === "notification" && record.read !== true) controls.push(`<button class="btn small" type="button" data-genealogy-notification-read="${esc(record.id)}">Marquer comme lue</button>`);
+    if (isAdminUser() && item.kind === "proof" && data.technicalStatus !== "suspended") controls.push(`<button class="btn small" type="button" data-genealogy-review="proof" data-genealogy-id="${esc(record.id)}">Demander réexamen</button>`);
+    if (isAdminUser() && item.kind === "conclusion") controls.push(`<button class="btn small" type="button" data-genealogy-review="conclusion" data-genealogy-id="${esc(record.id)}">Demander réexamen</button>`);
+    const review = data.technicalStatus === "suspended" || data.status === "reexamination_required" ? `<span class="genealogy-status-badge">À vérifier</span>` : "";
+    const contradiction = item.kind === "proof" && data.factId && genealogyRecords.genealogyProofs.some(other => {
+      const otherData = genealogyRecordData(other);
+      return other.id !== record.id && otherData.factId === data.factId && new Set([data.relation, otherData.relation]).has("supports") && new Set([data.relation, otherData.relation]).has("contradicts");
+    }) ? `<span class="genealogy-status-badge">Contradiction à examiner</span>` : "";
+    return `<article class="content-card genealogy-entry"><div class="genealogy-entry-heading"><div><span class="genealogy-entry-kind">${esc(genealogyKindLabels[item.kind] || item.kind)}</span><h3>${esc(title)}</h3></div>${status ? `<span class="genealogy-status-badge">${esc(status)}</span>` : ""}</div><p class="card-meta">${esc(subtitle)}</p>${review}${contradiction}<p class="genealogy-entry-content">${esc(JSON.stringify(data, null, 2).slice(0, 850))}</p><div class="genealogy-inline-actions">${controls.join("")}</div></article>`;
+  }).join("") : emptyState({ iconName: "document", title: "Aucun élément trouvé", description: "Modifiez la recherche ou le filtre sélectionné." });
+  $("genealogyOfficialBtn").hidden = !isAdminUser();
+}
+
+function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null) {
+  const item = genealogyWorkspaceItems().find(value => value.kind === kind && value.record.id === id);
+  if (!item) return toast("Cet élément n’est plus disponible.", "error");
+  if (kind === "legacy-source" && (item.record.chunkVersion || item.record.fileData?.startsWith("data:") || item.record.fileUrl || item.record.externalUrl)) return openStoredDocument(item.record);
+  activeGenealogyItem = item;
+  genealogyZoom = 1;
+  const { record, data } = item;
+  $("genealogyItemTitle").textContent = data.title || data.factType || data.eventType || data.type || genealogyKindLabels[kind];
+  $("genealogyItemSubtitle").textContent = [genealogyKindLabels[kind], record.id, record.authorUid ? `Auteur historique : ${record.authorUid}` : ""].filter(Boolean).join(" · ");
+  const transcriptionRevision = kind === "transcription"
+    ? genealogyRecords.transcriptionRevisions.find(revision => revision.id === data.revisionId || revision.id === data.currentRevisionId)
+    : null;
+  const transcriptionData = transcriptionRevision ? genealogyRecordData(transcriptionRevision).data || genealogyRecordData(transcriptionRevision) : data.revision || data;
+  const relatedDocumentId = data.documentId || transcriptionData.documentId || id;
+  const documentRecord = documents.find(documentRecord => documentRecord.id === relatedDocumentId);
+  const source = data.pages ? data : genealogyRecords.sourceDocuments.map(genealogyRecordData).find(value => value.id === relatedDocumentId);
+  const pages = source?.pages || documentRecord?.pages || [];
+  const requestedPageId = pageOverride || data.pageId || transcriptionData.pageId || pages[0]?.id;
+  const page = pages.find(value => value.id === requestedPageId) || pages[0] || null;
+  activeGenealogyPageId = page?.id || "";
+  const transcriptRecord = kind === "transcription" ? transcriptionData : null;
+  const passages = transcriptRecord?.passages || data.passages || data.revision?.passages || [];
+  const pageNavigation = pages.length > 1 ? `<nav class="genealogy-inline-actions" aria-label="Pages du document">${pages.map((value, index) => `<button class="btn small${value.id === page?.id ? " primary" : ""}" type="button" data-genealogy-page="${esc(value.id)}">Page ${index + 1}${value.label ? ` · ${esc(value.label)}` : ""}</button>`).join("")}</nav>` : "";
+  const photoRecords = page?.photographs || [];
+  const selectedPhoto = photoRecords.find(photoItem => photoItem.id === (photoOverride || activeGenealogyPhotoId)) || photoRecords[0] || null;
+  activeGenealogyPhotoId = selectedPhoto?.id || "";
+  const imageCandidate = selectedPhoto?.preview?.dataUrl || selectedPhoto?.preview?.localUrl || selectedPhoto?.original?.dataUrl || "";
+  const imageAvailable = imageCandidate.startsWith("data:image/") || imageCandidate.startsWith("blob:");
+  const photoSelectors = photoRecords.length > 1 ? `<div class="genealogy-inline-actions" aria-label="Photographies de la page">${photoRecords.map((photoItem, index) => `<button class="btn small${photoItem.id === selectedPhoto?.id ? " primary" : ""}" type="button" data-genealogy-photo="${esc(photoItem.id)}">Photo ${index + 1}${photoItem.preview ? " · aperçu" : photoItem.original ? " · original référencé" : ""}</button>`).join("")}</div>` : "";
+  const zoomTools = imageAvailable ? `<div class="genealogy-inline-actions"><button class="btn small" type="button" data-genealogy-zoom="out">Zoom −</button><button class="btn small" type="button" data-genealogy-zoom="reset">Réinitialiser</button><button class="btn small" type="button" data-genealogy-zoom="in">Zoom +</button></div>` : "";
+  const photo = `<section>${pageNavigation}<div class="genealogy-photo-panel">${imageAvailable
+    ? `<img id="genealogyPageImage" style="transform:scale(${genealogyZoom})" src="${esc(imageCandidate)}" alt="${selectedPhoto?.preview?.dataUrl ? "Aperçu" : "Image locale"} — ${esc(page?.label || "page")}">`
+    : `<p>${photoRecords.length ? "Les photos sont référencées, mais leur stockage durable n’est pas disponible dans cette application." : "Aucune photographie n’est associée à cette page."}</p>`}</div>${photoSelectors}${zoomTools}</section>`;
+  const passageNavigation = passages.length > 1 ? `<nav class="genealogy-inline-actions" aria-label="Navigation entre les passages">${passages.map((passage, index) => `<button class="btn small" type="button" data-genealogy-passage="passage-${index}">Passage ${index + 1}</button>`).join("")}</nav>` : "";
+  const transcript = passages.length ? `<section class="genealogy-transcript-panel"><h4>Transcription italienne et traduction française</h4>${passageNavigation}${passages.map((passage, index) => `<article id="passage-${index}" class="genealogy-passage" data-review="${passage.unreadable || (passage.hypotheses || []).length ? "true" : "false"}"><strong>Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</strong><p>${esc(passage.textIt || "Lecture indéchiffrable")}</p>${passage.translationFr ? `<p>${esc(passage.translationFr)}</p>` : `<p class="card-meta">Traduction non disponible</p>`}${(passage.hypotheses || []).map(hypothesis => `<p class="card-meta">Hypothèse (${esc(hypothesis.confidence || "unknown")}): ${esc(hypothesis.text || "")}${hypothesis.note ? ` · ${esc(hypothesis.note)}` : ""}</p>`).join("")}<button class="btn small" type="button" data-genealogy-passage-propose="${index}">Proposer une preuve sur ce passage</button></article>`).join("")}</section>` : `<section class="genealogy-transcript-panel"><p>Pas de transcription disponible pour cette version.</p>${JSON.stringify(data) !== "{}" ? `<pre>${esc(JSON.stringify(data, null, 2))}</pre>` : ""}</section>`;
+  const linkedProofs = genealogyRecords.genealogyProofs.filter(proof => {
+    const proofData = genealogyRecordData(proof);
+    return proofData.documentId === id || proofData.documentId === source?.id || proofData.documentId === relatedDocumentId || proofData.transcriptionRevisionId === record.id || proofData.transcriptionRevisionId === transcriptionRevision?.id;
+  });
+  const historyCollection = ({ source: "sourceRevisions", transcription: "transcriptionRevisions", proof: "genealogyProofRevisions", conclusion: "conclusionRevisions" })[kind];
+  const history = historyCollection ? genealogyRecords[historyCollection].filter(revision => revision.objectId === id).map(revision => `<li>${esc(revision.id)} · ${esc(revision.createdAt || "date non renseignée")} · auteur ${esc(revision.authorUid || "inconnu")}</li>`).join("") : "";
+  const historyBlock = history ? `<details><summary>Révisions historiques</summary><ol>${history}</ol></details>` : "";
+  const proofKinds = new Set(linkedProofs.map(proof => genealogyRecordData(proof).relation));
+  const contradictionNotice = proofKinds.has("supports") && proofKinds.has("contradicts") ? `<p class="genealogy-status-badge">Des affirmations contradictoires sont associées à cet élément.</p>` : "";
+  const proofList = linkedProofs.length ? `<section><h4>Preuves liées (${linkedProofs.length})</h4>${contradictionNotice}${linkedProofs.map(proof => `<button class="btn small" type="button" data-open-genealogy="proof" data-genealogy-id="${esc(proof.id)}">${esc(genealogyRecordData(proof).factType || genealogyRecordData(proof).factId || proof.id)} · ${esc(genealogyRecordData(proof).relation || "mention")} · ${esc(genealogyRecordData(proof).technicalStatus || "active")}</button>`).join(" ")}</section>` : "";
+  $("genealogyItemContent").innerHTML = `<div class="genealogy-detail-grid">${photo}${transcript}</div><p class="card-meta">État technique : ${esc(data.technicalStatus || data.status || "non précisé")} · Les conclusions n'altèrent pas les faits de l'arbre.</p>${historyBlock}${proofList}`;
+  $("genealogyItemDialog").showModal();
+}
+
+function openGenealogyPage(pageId) {
+  if (!activeGenealogyItem) return;
+  const { kind, record } = activeGenealogyItem;
+  openGenealogyItem(kind, record.id, pageId, null);
+}
+
+function createGenealogyId(collectionRef) {
+  return doc(collectionRef).id;
+}
+
+function openGenealogyContribution({ official = false, reviseItem = null } = {}) {
+  if (official && !isAdminUser()) return toast("La création des données officielles est réservée aux administrateurs.", "error");
+  $("genealogyContributionForm").reset();
+  $("genealogyContributionNotice").textContent = official
+    ? "Donnée officielle : la création ou la nouvelle révision et son événement d'historique seront enregistrés ensemble."
+    : "Le brouillon ne modifie pas les données officielles. L’envoi exigera une validation administrative.";
+  $("genealogyContributionTitle").textContent = reviseItem ? "Réviser la donnée officielle" : official ? "Créer une donnée officielle" : "Proposer une contribution";
+  const correctionOption = [...$("genealogyContributionType").options].find(option => option.value === "correction");
+  const conclusionOption = [...$("genealogyContributionType").options].find(option => option.value === "conclusion");
+  if (correctionOption) correctionOption.hidden = official;
+  if (conclusionOption) conclusionOption.hidden = !official;
+  const kindMap = { source: "source", transcription: "transcription", proof: "proof", conclusion: "conclusion" };
+  $("genealogyContributionType").value = reviseItem ? (kindMap[reviseItem.kind] || "source") : "source";
+  $("genealogyContributionTarget").value = reviseItem?.record.id || "";
+  if (reviseItem) {
+    const current = reviseItem.data.revision || reviseItem.data;
+    $("genealogyContributionTitleField").value = current.title || current.factType || reviseItem.record.id;
+    $("genealogyContributionPayload").value = JSON.stringify(current, null, 2);
+  }
+  $("genealogyContributionDialog").dataset.official = String(official);
+  $("genealogyContributionDialog").dataset.revision = String(!!reviseItem);
+  $("genealogyContributionDialog").showModal();
+}
+
+function parseGenealogyPayload(text, title, type) {
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("La racine JSON doit être un objet.");
+    return parsed;
+  } catch (error) {
+    if (error instanceof SyntaxError && ["source", "correction"].includes(type)) return { title, notes: text };
+    throw new Error(`Les données structurées doivent être un JSON valide. ${error.message}`);
+  }
+}
+
+async function saveGenealogyContribution(event) {
+  event.preventDefault();
+  const official = $("genealogyContributionDialog").dataset.official === "true";
+  const revise = $("genealogyContributionDialog").dataset.revision === "true";
+  const type = $("genealogyContributionType").value;
+  const title = $("genealogyContributionTitleField").value.trim();
+  const text = $("genealogyContributionPayload").value.trim();
+  const targetId = $("genealogyContributionTarget").value.trim() || createGenealogyId(refs.documents);
+  const actorUid = auth.currentUser?.uid;
+  if (!actorUid) return toast("Votre session a expiré.", "error");
+  try {
+    const payload = parseGenealogyPayload(text, title, type);
+    const eventId = createGenealogyId(refs.genealogyEvents);
+    if (official) {
+      const revisionCollection = ({ source: "sourceRevisions", transcription: "transcriptionRevisions", proof: "genealogyProofRevisions", conclusion: "conclusionRevisions" })[type];
+      if (!revisionCollection) throw new Error("Type de donnée officielle non pris en charge.");
+      const officialId = targetId;
+      const revisionId = createGenealogyId(collection(db, revisionCollection));
+      const currentHead = revise ? genealogyRecords[({ source: "sourceDocuments", transcription: "transcriptionHeads", proof: "genealogyProofs", conclusion: "factConclusions" })[type]].find(item => item.id === officialId) : null;
+      if (revise && !currentHead) throw new Error("La donnée officielle à réviser n'est plus disponible.");
+      let officialData;
+      if (type === "source") {
+        officialData = createSourceDocument({ ...payload, id: officialId, title: payload.title || title });
+      } else if (type === "transcription") {
+        officialData = createPageTextRevision({ ...payload, id: revisionId, previousRevisionId: revise ? currentHead.revisionId : null, authorUid: actorUid, changedAt: new Date().toISOString(), justification: payload.justification || title });
+      } else if (type === "proof") {
+        const proofInput = { ...(payload.data || payload) };
+        if (proofInput.citation) {
+          proofInput.citationIt ??= proofInput.citation.textIt ?? null;
+          proofInput.citationFr ??= proofInput.citation.translationFr ?? null;
+        }
+        const proof = { ...createGenealogyProof({ ...proofInput, id: officialId, authorUid: actorUid, createdAt: new Date().toISOString() }), ...proofInput, id: officialId, authorUid: actorUid, createdAt: new Date().toISOString() };
+        const validation = validateGenealogyProof(proof);
+        if (!validation.valid) throw new Error(`Preuve invalide : ${validation.errors.join(" ; ")}`);
+        officialData = proof;
+      } else {
+        const previousRevisionId = revise ? currentHead.revisionId : null;
+        const conclusionInput = { ...payload };
+        conclusionInput.subjectKind ??= conclusionInput.subject?.kind;
+        conclusionInput.subjectId ??= conclusionInput.subject?.id;
+        const revision = createConclusionRevision({
+          ...conclusionInput, id: revisionId, conclusionId: officialId, previousRevisionId, authorUid: actorUid,
+          createdAt: new Date().toISOString(), reason: conclusionInput.reason || title, justification: conclusionInput.justification || text,
+          actorRole: "admin"
+        });
+        const existingHeads = genealogyRecords.factConclusions.filter(item => item.id !== officialId).map(item => genealogyRecordData(item));
+        const head = revise
+          ? { ...genealogyRecordData(currentHead), currentRevisionId: revisionId }
+          : createConclusionHead({ id: officialId, factId: revision.factId, factType: revision.factType, firstRevision: revision }, { actorRole: "admin", existingHeads });
+        officialData = { ...head, revision };
+      }
+      if (revise) {
+        const eventType = type === "proof" && officialData.technicalStatus === "suspended" ? "proof.suspended"
+          : type === "proof" && currentHead.data?.technicalStatus === "suspended" ? "proof.reassessed" : undefined;
+        await genealogyStore.reviseOfficial({ type, id: officialId, revisionId, eventId, data: officialData, eventType, reason: title, actorUid });
+      } else {
+        await genealogyStore.createOfficial({ type, id: officialId, revisionId, eventId, data: officialData, reason: `Création officielle : ${title}`, actorUid });
+      }
+      toast(revise ? "Nouvelle révision officielle enregistrée." : "Donnée officielle créée avec son historique.");
+    } else {
+      const proposalId = createGenealogyId(refs.genealogyProposals);
+      await genealogyStore.createProposal({
+        proposal: { id: proposalId, type, targetType: type, targetId, payload: { title, data: payload } }, eventId, actorUid
+      });
+      toast("Brouillon de proposition enregistré.");
+    }
+    $("genealogyContributionDialog").close();
+  } catch (error) {
+    toast(error.message || "Enregistrement impossible.", "error");
+  }
+}
+
+async function handleGenealogyWorkspaceClick(event) {
+  const openButton = event.target.closest("[data-genealogy-open]");
+  if (openButton) return openGenealogyItem(openButton.dataset.genealogyOpen, openButton.dataset.genealogyId);
+  const reviseButton = event.target.closest("[data-genealogy-revise]");
+  if (reviseButton) {
+    const item = genealogyWorkspaceItems().find(value => value.kind === reviseButton.dataset.genealogyRevise && value.record.id === reviseButton.dataset.genealogyId);
+    if (item) openGenealogyContribution({ official: true, reviseItem: item });
+    return;
+  }
+  const proposalAction = event.target.closest("[data-genealogy-proposal-action]");
+  if (proposalAction) {
+    const proposalId = proposalAction.dataset.genealogyId;
+    const action = proposalAction.dataset.genealogyProposalAction;
+    const eventId = createGenealogyId(refs.genealogyEvents);
+    try {
+      if (action === "submit") await genealogyStore.submitProposal({ proposalId, eventId, actorUid: auth.currentUser.uid });
+      else if (action === "cancel") await genealogyStore.cancelDraft({ proposalId, eventId, actorUid: auth.currentUser.uid });
+      else await genealogyStore.decideProposal({
+        proposalId, decision: action === "accept" ? "accepted" : "rejected",
+        reason: action === "accept" ? "Validée par un administrateur" : "Refusée après examen", eventId,
+        notificationId: createGenealogyId(refs.genealogyNotifications), actorUid: auth.currentUser.uid
+      });
+      toast(action === "submit" ? "Proposition soumise." : action === "cancel" ? "Brouillon annulé." : "Décision enregistrée avec notification.");
+    } catch (error) { toast(error.message || "Action impossible.", "error"); }
+    return;
+  }
+  const readButton = event.target.closest("[data-genealogy-notification-read]");
+  if (readButton) {
+    try { await genealogyStore.markNotificationRead({ notificationId: readButton.dataset.genealogyNotificationRead, actorUid: auth.currentUser.uid }); }
+    catch (error) { toast(error.message || "Notification inchangée.", "error"); }
+    return;
+  }
+  const reviewButton = event.target.closest("[data-genealogy-review]");
+  if (reviewButton) {
+    if (!isAdminUser()) return toast("Le réexamen est réservé aux administrateurs.", "error");
+    try {
+      const adminSnapshot = await getDocs(query(refs.users, where("role", "==", "admin"), where("status", "==", "approved")));
+      const admins = [...new Set([primaryAdminUid, ...adminSnapshot.docs.map(snapshot => snapshot.id)].filter(Boolean))];
+      await genealogyStore.createReexaminationEvent({
+        type: reviewButton.dataset.genealogyReview, objectId: reviewButton.dataset.genealogyId,
+        eventId: createGenealogyId(refs.genealogyEvents), reason: "Réexamen demandé depuis le dossier Sources & preuves",
+        administratorUids: admins, notificationIds: admins.map(() => createGenealogyId(refs.genealogyNotifications)), actorUid: auth.currentUser.uid
+      });
+      toast("Demande de réexamen et notifications enregistrées.");
+    } catch (error) { toast(error.message || "Demande de réexamen impossible.", "error"); }
+  }
 }
 
 async function optimizeFile(file) {
@@ -3606,16 +3938,90 @@ async function readChunkedFile(item) {
   return new Blob([concatByteArrays(parts)], { type: item.mimeType || "application/octet-stream" });
 }
 
-async function documentBlob(item) {
-  if (item.chunkCount && item.chunkVersion) return readChunkedFile(item);
-  if (item.fileData) return fetch(item.fileData).then(response => response.blob());
-  if (item.fileUrl) return fetch(item.fileUrl).then(response => response.blob());
-  return null;
-}
-
 async function zipLibrary() {
   const module = await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm");
   return module.default || module;
+}
+
+function backupMarkerValue(value) {
+  if (value && typeof value.toMillis === "function") return { timestampMillis: value.toMillis() };
+  if (Array.isArray(value)) return value.map(backupMarkerValue);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map(key => [key, backupMarkerValue(value[key])]));
+  return value;
+}
+
+function backupRecordMarker(record) {
+  return JSON.stringify(backupMarkerValue(record));
+}
+
+async function readBackupCollectionsFromServer() {
+  const names = ["people", "families", "trees", "documents", "tasks", "sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyProposals", "genealogyEvents", "genealogyNotifications"];
+  const result = {};
+  for (const name of names) {
+    let target = refs[name];
+    if (name === "genealogyProposals" && !isAdminUser()) target = query(target, where("authorUid", "==", auth.currentUser?.uid || ""));
+    if (name === "genealogyNotifications") target = query(target, where("recipientUid", "==", auth.currentUser?.uid || ""));
+    const snapshot = await getDocsFromServer(target);
+    if (snapshot.metadata.fromCache) throw new Error(`La collection ${name} n’a pas pu être vérifiée auprès du serveur.`);
+    result[name] = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+  }
+  return result;
+}
+
+async function readLocallyAvailableDocumentBlob(item) {
+  if (item.chunkVersion && item.chunkCount) return readChunkedFile(item);
+  if (typeof item.fileData === "string" && item.fileData.startsWith("data:")) {
+    const comma = item.fileData.indexOf(",");
+    if (comma < 0) throw new Error(`Données intégrées mal formées pour ${item.id}`);
+    const metadata = item.fileData.slice(0, comma);
+    const content = item.fileData.slice(comma + 1);
+    const bytes = /;base64/i.test(metadata)
+      ? base64ToBytes(content)
+      : new TextEncoder().encode(decodeURIComponent(content));
+    return new Blob([bytes], { type: item.mimeType || metadata.match(/^data:([^;]+)/)?.[1] || "application/octet-stream" });
+  }
+  return null;
+}
+
+async function collectArchiveAssets(collections) {
+  const assets = [];
+  const assetBytes = new Map();
+  for (const collectionName of ["documents", "sourceDocuments"]) {
+    for (const record of collections[collectionName] || []) {
+      for (const page of record.pages || []) for (const photograph of page.photographs || []) {
+        for (const rendition of ["original", "preview"]) {
+          const metadata = photograph[rendition];
+          if (!metadata?.resourceRef) continue;
+          assets.push({
+            documentId: record.id, pageId: page.id, photographId: photograph.id,
+            rendition, assetId: rendition === "preview" ? (metadata.id || metadata.resourceRef.split("/").at(-1)) : undefined,
+            resourceRef: metadata.resourceRef, sizeBytes: metadata.sizeBytes, sha256: metadata.sha256,
+            fileName: metadata.originalFileName, mimeType: metadata.mimeType,
+            provenance: metadata.provenance || "declared-photograph-resource"
+          });
+        }
+      }
+    }
+  }
+  for (const record of collections.documents || []) {
+    const fileRef = record.chunkVersion ? `firestore-chunks:${record.id}:${record.chunkVersion}` : record.fileUrl || record.storagePath || record.externalUrl || (record.fileData ? `embedded:${record.id}` : "");
+    if (!fileRef && !record.fileName) continue;
+    let blob = null;
+    try { blob = await readLocallyAvailableDocumentBlob(record); }
+    catch (error) { console.warn(`Lecture du fichier de document impossible (${record.id})`, error); }
+    const legacyOptimized = record.compressed === true || record.mimeType === "image/webp";
+    const asset = {
+      documentId: record.id, pageId: "legacy-page-unassigned", photographId: record.id,
+      rendition: legacyOptimized ? "legacy-optimized" : "legacy-file",
+      assetId: record.id, resourceRef: fileRef || `missing-file:${record.id}`,
+      sizeBytes: blob?.size ?? record.storedSize ?? null, sha256: null,
+      fileName: record.fileName || null, mimeType: blob?.type || record.mimeType || "application/octet-stream",
+      provenance: blob ? "legacy-document-chunks-or-embedded-data" : "historical-file-reference-only"
+    };
+    assets.push(asset);
+    if (blob) assetBytes.set(asset.resourceRef, new Uint8Array(await blob.arrayBuffer()));
+  }
+  return { assets, assetBytes };
 }
 
 function importedData(item) {
@@ -3629,27 +4035,44 @@ async function exportCompleteBackup() {
   button.innerHTML = '… <span class="label">Préparation</span>';
   try {
     const JSZip = await zipLibrary();
-    const zip = new JSZip();
-    const blobs = new Map();
-    for (let index = 0; index < documents.length; index++) {
-      button.innerHTML = `… <span class="label">Document ${index + 1}/${documents.length}</span>`;
-      blobs.set(documents[index].id, await documentBlob(documents[index]));
-    }
-    const treeSnapshot = await getDocs(refs.trees);
-    const trees = treeSnapshot.docs.map(item => ({ id: item.id, ...item.data() }));
-    const manifest = buildBackupManifest({ people, families, trees, tasks, documents, blobs });
-    for (const item of manifest.documents) {
-      if (item.backupFile) zip.file(item.backupFile, blobs.get(item.id));
-    }
-    zip.file("family-tree.json", JSON.stringify(manifest, null, 2));
+    button.innerHTML = '… <span class="label">Lecture des collections</span>';
+    const collections = await readBackupCollectionsFromServer();
+    const before = Object.fromEntries(Object.entries(collections).map(([name, records]) => [name, records.map(backupRecordMarker).sort().join("\n")]));
+    const assets = await collectArchiveAssets(collections);
+    button.innerHTML = '… <span class="label">Vérification de cohérence</span>';
+    const afterCollections = await readBackupCollectionsFromServer();
+    const after = Object.fromEntries(Object.entries(afterCollections).map(([name, records]) => [name, records.map(backupRecordMarker).sort().join("\n")]));
+    const markerCheck = compareBackupCaptureMarkers(before, after);
+    const archive = await createBackupArchiveManifest({
+      collections, assets: assets.assets, assetBytes: assets.assetBytes,
+      collectionScopes: {
+        genealogyProposals: isAdminUser() ? "all" : `authorUid=${auth.currentUser?.uid || ""}`,
+        genealogyNotifications: `recipientUid=${auth.currentUser?.uid || ""}`
+      },
+      capture: {
+        consistent: false,
+        changeDetected: markerCheck.changeDetected,
+        strategy: "double-read-client-no-global-firestore-transaction",
+        before, after
+      }
+    });
+    const integrity = await readBackupZip({
+      file(path, value) {
+        if (value !== undefined) return this;
+        if (path === "family-tree.json") return { async: async () => JSON.stringify(archive.manifest) };
+        const bytes = archive.entries.get(path);
+        return bytes ? { async: async () => bytes } : null;
+      }
+    });
+    if (!integrity.integrity.valid) console.warn("L’intégrité de l’archive préparée a relevé des éléments absents", integrity.integrity.errors);
+    const zip = await generateBackupZip(archive, JSZip, { type: "blob" });
     button.innerHTML = '… <span class="label">Compression</span>';
-    const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
     const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `family-tree-complet-${new Date().toISOString().slice(0, 10)}.zip`;
+    link.href = URL.createObjectURL(zip);
+    link.download = `la-nostra-storia-archive-v${BACKUP_ARCHIVE_VERSION}-${new Date().toISOString().slice(0, 10)}.zip`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 2000);
-    toast(`Sauvegarde complète créée · ${formatBytes(blob.size)}`);
+    toast(`Archive v${BACKUP_ARCHIVE_VERSION} créée · ${formatBytes(zip.size)} · ${archive.manifest.completeness.status === "complete" ? "complète" : "partielle, avertissements inclus"}`);
   } catch (error) {
     console.error(error);
     toast(error.message || "Création de la sauvegarde impossible", "error");
@@ -3721,6 +4144,31 @@ async function writeImportedTreeRecords(records = [], existingIdsAtPreflight = n
   }
 }
 
+function showV5RestorePreview(archive) {
+  const current = {
+    people: people.map(item => item.id), families: families.map(item => item.id), trees: treeMetadata.map(item => item.id),
+    documents: documents.map(item => item.id), tasks: tasks.map(item => item.id)
+  };
+  for (const [collectionName, records] of Object.entries(genealogyRecords)) current[collectionName] = records.map(item => item.id);
+  const renderPlan = policy => {
+    const plan = prepareBackupRestorePlan(archive.manifest, {
+      existing: current, conflictPolicy: policy, activeUserIds: [auth.currentUser?.uid].filter(Boolean), allowIncomplete: true, preflight: true
+    });
+    const integrity = archive.integrity;
+    const statusLabel = archive.manifest.completeness.status === "complete" && integrity.valid ? "Complète selon son manifeste" : "Partielle / à examiner";
+    const errors = integrity.errors.map(item => `<li><strong>${esc(item.code)}</strong> · ${esc(item.message)}</li>`).join("");
+    const warnings = [...integrity.warnings, ...plan.warnings].map(item => `<li><strong>${esc(item.code)}</strong> · ${esc(item.message)}</li>`).join("");
+    const conflicts = plan.conflicts.map(item => `<li>${esc(item.collection)} / ${esc(item.id)} — ${esc(item.policy)}</li>`).join("");
+    const operations = plan.operations.filter(item => item.action !== "skip").slice(0, 80).map(item => `<li>${esc(item.action)} · ${esc(item.collection)} / ${esc(item.id)}</li>`).join("");
+    $("restorePreviewContent").innerHTML = `<p><strong>Archive v${esc(archive.manifest.version)} — ${esc(statusLabel)}</strong></p><p>${Object.entries(archive.manifest.inventory || {}).map(([name, inventory]) => `${esc(name)} : ${Number(inventory.recordCount) || 0}`).join(" · ")}</p><label>Politique de conflit<select class="field" id="restorePreviewPolicy"><option value="abort">Bloquer en cas de conflit</option><option value="keep-existing">Conserver les éléments présents</option><option value="replace-existing">Prévoir le remplacement par identifiant</option></select></label><p><strong>Prévisualisation uniquement :</strong> aucune écriture ne sera exécutée depuis cette interface. L’intégration serveur requise pour les données officielles n’est pas disponible.</p>${plan.historicalAuthorUids.length ? `<p>UID d’auteurs historiques conservés sans compte ni rôle : ${plan.historicalAuthorUids.map(esc).join(", ")}</p>` : ""}${errors ? `<h4>Erreurs d’intégrité</h4><ul>${errors}</ul>` : ""}${warnings ? `<h4>Avertissements</h4><ul>${warnings}</ul>` : ""}${conflicts ? `<h4>Conflits détectés</h4><ul>${conflicts}</ul>` : ""}${operations ? `<h4>Opérations envisagées (${plan.operations.length})</h4><ul>${operations}${plan.operations.length > 80 ? "<li>…</li>" : ""}</ul>` : ""}<p role="status">Plan ${plan.blocked ? "bloqué par des conflits" : "préparé"} · écritures réalisées : non.</p>`;
+    const select = $("restorePreviewPolicy");
+    select.value = policy;
+    select.onchange = () => renderPlan(select.value);
+  };
+  renderPlan("abort");
+  $("restorePreviewDialog").showModal();
+}
+
 async function restoreCompleteBackup(file) {
   const button = $("importBtn");
   button.disabled = true;
@@ -3731,7 +4179,16 @@ async function restoreCompleteBackup(file) {
     const zip = await JSZip.loadAsync(file);
     const manifestEntry = zip.file("family-tree.json");
     if (!manifestEntry) throw new Error("Cette archive ne contient pas de sauvegarde Family Tree");
-    const manifest = parseBackupManifestText(await manifestEntry.async("string"));
+    const manifestText = await manifestEntry.async("string");
+    const archiveVersion = JSON.parse(manifestText).version;
+    if (archiveVersion === BACKUP_ARCHIVE_VERSION) {
+      const archive = await readBackupZip(zip);
+      showV5RestorePreview(archive);
+      if (!archive.integrity.valid) toast("Archive v5 ouverte avec des erreurs ou ressources manquantes ; consultez la prévisualisation.", "error");
+      else toast("Prévisualisation de restauration v5 prête ; aucune donnée n’a été modifiée.", "info");
+      return;
+    }
+    const manifest = parseBackupManifestText(manifestText);
     validateFamilyDataset(manifest.people, manifest.families);
     validateTreeDataset(manifest.people, manifest.trees || []);
     const liveTreesSnapshot = await getDocsFromServer(refs.trees);
@@ -4500,6 +4957,9 @@ function stopPrivateData() {
   adminUsersUnsub = null;
   activeDataUid = "";
   people = []; families = []; documents = []; tasks = [];
+  genealogyRecords = { sourceDocuments: [], sourceRevisions: [], transcriptionHeads: [], transcriptionRevisions: [], genealogyProofs: [], genealogyProofRevisions: [], factConclusions: [], conclusionRevisions: [], genealogyProposals: [], genealogyEvents: [], genealogyNotifications: [] };
+  genealogyLoaded = false;
+  genealogyCollectionErrors = new Set();
   treeMetadata = [];
   activeTreeId = MAIN_TREE_ID;
   treeCatalogState = "idle";
@@ -4510,10 +4970,13 @@ function stopPrivateData() {
   updateTreeBranchOptions();
   updateTreeActionButtons();
   $("topbar").hidden = true;
-  $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("tasksView").hidden = true;
+  $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("genealogyView").hidden = $("tasksView").hidden = true;
   if ($("adminDialog").open) $("adminDialog").close();
   if ($("profileDialog").open) $("profileDialog").close();
   if ($("dataDialog").open) $("dataDialog").close();
+  if ($("genealogyContributionDialog").open) $("genealogyContributionDialog").close();
+  if ($("genealogyItemDialog").open) $("genealogyItemDialog").close();
+  if ($("restorePreviewDialog").open) $("restorePreviewDialog").close();
 }
 
 function applyAccessProfile(profile, user) {
@@ -4703,6 +5166,7 @@ function setView(view) {
   $("appMain").hidden = view !== "tree";
   $("directoryView").hidden = view !== "directory";
   $("documentsView").hidden = view !== "documents";
+  $("genealogyView").hidden = view !== "genealogy";
   $("tasksView").hidden = view !== "tasks";
   $("dossiersView").hidden = view !== "dossiers";
   $("addBtn").hidden = view !== "tree";
@@ -4716,6 +5180,7 @@ function setView(view) {
   });
   if (view === "directory") renderDirectory();
   if (view === "documents") renderDocuments();
+  if (view === "genealogy") renderGenealogyWorkspace();
   if (view === "tasks") renderTasks();
   if (view === "dossiers") renderProcedures();
   if (view === "tree" && !branchView) setTimeout(() => camera.recenter(), 0);
@@ -4744,6 +5209,9 @@ function startData() {
   updateTreeBranchOptions();
   loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = false;
   loadedProcedures = false;
+  genealogyLoaded = false;
+  genealogyRecords = { sourceDocuments: [], sourceRevisions: [], transcriptionHeads: [], transcriptionRevisions: [], genealogyProofs: [], genealogyProofRevisions: [], factConclusions: [], conclusionRevisions: [], genealogyProposals: [], genealogyEvents: [], genealogyNotifications: [] };
+  genealogyCollectionErrors = new Set();
   ["treeViewport", "directoryList", "documentsList", "tasksList", "proceduresList"].forEach(id => setLoadingSurface(id, true));
   $("directoryResultCount").textContent = "Chargement de l’annuaire…";
   $("syncText").textContent = "Synchronisation en cours…";
@@ -4779,6 +5247,31 @@ function startData() {
     updateReadyViews();
   }, dataError));
   unsubs.push(onSnapshot(refs.trees, acceptTreeCatalog, rejectTreeCatalog));
+  const genealogyCollections = ["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyEvents"];
+  let genealogyCollectionLoadCount = 0;
+  for (const collectionName of genealogyCollections) {
+    unsubs.push(onSnapshot(refs[collectionName], snapshot => {
+      genealogyRecords[collectionName] = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+      genealogyCollectionLoadCount++;
+      if (genealogyCollectionLoadCount >= genealogyCollections.length) genealogyLoaded = true;
+      renderGenealogyWorkspace();
+    }, error => {
+      console.error(`Chargement de ${collectionName} impossible`, error);
+      genealogyCollectionErrors.add(collectionName);
+      renderGenealogyWorkspace();
+    }));
+  }
+  const proposalQuery = isAdminUser()
+    ? refs.genealogyProposals
+    : query(refs.genealogyProposals, where("authorUid", "==", auth.currentUser?.uid || ""));
+  unsubs.push(onSnapshot(proposalQuery, snapshot => {
+    genealogyRecords.genealogyProposals = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+    renderGenealogyWorkspace();
+  }, error => { console.error("Chargement des propositions impossible", error); genealogyCollectionErrors.add("genealogyProposals"); renderGenealogyWorkspace(); }));
+  unsubs.push(onSnapshot(query(refs.genealogyNotifications, where("recipientUid", "==", auth.currentUser?.uid || "")), snapshot => {
+    genealogyRecords.genealogyNotifications = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+    renderGenealogyWorkspace();
+  }, error => { console.error("Chargement des notifications impossible", error); genealogyCollectionErrors.add("genealogyNotifications"); renderGenealogyWorkspace(); }));
 }
 
 onAuthStateChanged(auth, async user => {
@@ -5446,6 +5939,64 @@ $("documentDialog").addEventListener("close", () => {
 
 $("documentSearch").oninput = renderDocuments;
 $("documentTypeFilter").onchange = renderDocuments;
+$("genealogySearch").oninput = renderGenealogyWorkspace;
+$("genealogyKindFilter").onchange = renderGenealogyWorkspace;
+$("genealogyResults").addEventListener("click", event => runSafely(() => handleGenealogyWorkspaceClick(event), "Action d’archive impossible"));
+document.addEventListener("click", event => {
+  const button = event.target.closest("[data-open-genealogy]");
+  if (button) openGenealogyItem(button.dataset.openGenealogy, button.dataset.genealogyId);
+});
+$("genealogyItemContent").addEventListener("click", event => {
+  const pageButton = event.target.closest("[data-genealogy-page]");
+  if (pageButton) return openGenealogyPage(pageButton.dataset.genealogyPage);
+  const zoomButton = event.target.closest("[data-genealogy-zoom]");
+  const photoButton = event.target.closest("[data-genealogy-photo]");
+  if (photoButton && activeGenealogyItem) return openGenealogyItem(activeGenealogyItem.kind, activeGenealogyItem.record.id, activeGenealogyPageId, photoButton.dataset.genealogyPhoto);
+  const passageProofButton = event.target.closest("[data-genealogy-passage-propose]");
+  if (passageProofButton && activeGenealogyItem) {
+    const sourceData = activeGenealogyItem.data;
+    const revision = genealogyRecords.transcriptionRevisions.find(item => item.id === sourceData.revisionId || item.id === sourceData.currentRevisionId);
+    const transcriptionData = revision ? genealogyRecordData(revision).data || genealogyRecordData(revision) : sourceData.revision || sourceData;
+    const passage = transcriptionData.passages?.[Number(passageProofButton.dataset.genealogyPassage)];
+    if (!passage) return toast("Ce passage n’est plus disponible.", "error");
+    openGenealogyContribution();
+    $("genealogyContributionType").value = "proof";
+    $("genealogyContributionTitleField").value = `Preuve — ${passage.lineLabel || `passage ${Number(passageProofButton.dataset.genealogyPassage) + 1}`}`;
+    $("genealogyContributionTarget").value = "";
+    $("genealogyContributionPayload").value = JSON.stringify({
+      factId: "", factType: "", personIds: [], documentId: transcriptionData.documentId || sourceData.documentId || "",
+      pageId: transcriptionData.pageId || activeGenealogyPageId || "", passageId: passage.id,
+      transcriptionRevisionId: revision?.id || sourceData.revisionId || "",
+      sourceValue: null, relation: "supports", citationIt: passage.textIt || "", citationFr: passage.translationFr || null
+    }, null, 2);
+    return;
+  }
+  if (!zoomButton) return;
+  genealogyZoom = zoomButton.dataset.genealogyZoom === "reset" ? 1
+    : Math.min(3, Math.max(1, genealogyZoom + (zoomButton.dataset.genealogyZoom === "in" ? .25 : -.25)));
+  const image = $("genealogyPageImage");
+  if (image) image.style.transform = `scale(${genealogyZoom})`;
+});
+$("genealogyContributionForm").addEventListener("submit", event => runSafely(() => saveGenealogyContribution(event), "Enregistrement de proposition impossible"));
+$("genealogyProposeBtn").onclick = () => openGenealogyContribution();
+$("genealogyOfficialBtn").onclick = () => openGenealogyContribution({ official: true });
+$("genealogyProposeProofForPersonBtn").onclick = () => {
+  const personId = $("personId").value;
+  if (!personId) return;
+  openGenealogyContribution();
+  $("genealogyContributionType").value = "proof";
+  $("genealogyContributionTitleField").value = `Preuve — ${nameOf(personId)}`;
+  $("genealogyContributionPayload").value = JSON.stringify({
+    factId: "", factType: "", personIds: [personId], documentId: "", pageId: null, passageId: null,
+    transcriptionRevisionId: null, sourceValue: null, relation: "supports", citationIt: null, citationFr: null
+  }, null, 2);
+};
+syncSearchClearBtn("genealogySearch", "clearGenealogySearchBtn");
+$("clearGenealogySearchBtn").onclick = () => {
+  $("genealogySearch").value = "";
+  $("genealogySearch").dispatchEvent(new Event("input"));
+  $("genealogySearch").focus();
+};
 syncSearchClearBtn("documentSearch", "clearDocumentSearchBtn");
 $("clearDocumentSearchBtn").onclick = () => {
   $("documentSearch").value = "";

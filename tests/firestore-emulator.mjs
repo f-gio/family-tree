@@ -1358,6 +1358,8 @@ test("LOT 6 : propositions, données officielles, historique immuable, notificat
     eventId: "lot6-rejected-proposal-created", actorUid: memberUid
   });
   await store.submitProposal({ proposalId: rejectedProposalId, eventId: "lot6-rejected-proposal-submitted", actorUid: memberUid });
+  const ownProposals = await getDocs(query(collection(db, "genealogyProposals"), where("authorUid", "==", memberUid)));
+  assert.deepEqual(new Set(ownProposals.docs.map(snapshot => snapshot.id)), new Set([proposalId, rejectedProposalId]));
   await expectDenied(setDoc(doc(db, "sourceDocuments", "lot6-member-source"), {
     data: { title: "Interdite" }, version: 1, revisionId: "rev", createdAt: new Date(), createdBy: memberUid,
     updatedAt: new Date(), updatedBy: memberUid, eventId: "event"
@@ -1387,6 +1389,8 @@ test("LOT 6 : propositions, données officielles, historique immuable, notificat
   await updateDoc(doc(db, "users", otherUid), { status: "approved" });
   await signIn(otherUid, otherEmail, "autre-fictif-123");
   await expectDenied(getDoc(doc(db, "genealogyProposals", proposalId)));
+  await expectDenied(getDocs(query(collection(db, "genealogyProposals"), where("authorUid", "==", memberUid))));
+  assert.equal((await getDocs(query(collection(db, "genealogyProposals"), where("authorUid", "==", otherUid)))).size, 0);
   await expectDenied(updateDoc(doc(db, "genealogyProposals", proposalId), { payload: { title: "Volée" }, updatedAt: serverTimestamp() }));
   await expectDenied(updateDoc(doc(db, "genealogyProposals", rejectedProposalId), { payload: { relation: "supports" }, updatedAt: serverTimestamp() }));
   await signOutAll();

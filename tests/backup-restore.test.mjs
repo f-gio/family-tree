@@ -587,20 +587,27 @@ test("formatBytes produit les libellés français attendus", () => {
   assert.equal(formatBytes(1.25 * 1024 * 1024), "1,3 Mo");
 });
 
-test("app.js est réellement câblé sur backup-utils et ne redéfinit plus les helpers déplacés", () => {
+test("app.js raccorde l'export ZIP v5, garde la prévisualisation sans écriture et préserve l'import v4", () => {
   const source = fs.readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
   assert.match(source, /from "\.\/backup-utils\.js"/);
-  assert.match(source, /const treeSnapshot = await getDocs\(refs\.trees\)/, "l'export lit la collection trees réelle");
-  assert.match(source, /buildBackupManifest\(\{ people, families, trees, tasks, documents, blobs \}\)/);
+  assert.match(source, /async function readBackupCollectionsFromServer\(\)/, "l'export lit les collections réellement accessibles");
+  assert.match(source, /getDocsFromServer\(target\)/);
+  assert.match(source, /createBackupArchiveManifest\(\{/);
+  assert.match(source, /consistent: false/, "la capture multi-collections n'est pas présentée comme atomique");
+  assert.match(source, /generateBackupZip\(archive, JSZip, \{ type: "blob" \}\)/);
   assert.match(source, /validateTreeDataset\(manifest\.people, manifest\.trees \|\| \[\]\)/);
   const restoreBlock = source.slice(source.indexOf("async function restoreCompleteBackup("), source.indexOf("async function openStoredDocument("));
+  assert.match(restoreBlock, /if \(archiveVersion === BACKUP_ARCHIVE_VERSION\)/);
+  assert.match(restoreBlock, /showV5RestorePreview\(archive\)/);
+  assert.match(restoreBlock, /parseBackupManifestText\(manifestText\)/, "le lecteur historique v4 est conservé");
   assert.match(restoreBlock, /await writeImportedTreeRecords\(manifest\.trees \|\| \[\], existingTreeIdsAtPreflight\)/);
   assert.match(restoreBlock, /Arbres absents qui seront recréés/);
   assert.match(restoreBlock, /lifecycleState === TREE_LIFECYCLE_DELETING/);
   const treesRestoreIndex = restoreBlock.indexOf('await writeImportedTreeRecords(manifest.trees || [], existingTreeIdsAtPreflight)');
   const peopleRestoreIndex = restoreBlock.indexOf('await writeImportedRecords("people", manifest.people)');
   assert.ok(treesRestoreIndex >= 0 && peopleRestoreIndex > treesRestoreIndex, "les arbres sont restaurés avant les personnes qui les référencent");
-  assert.match(source, /parseBackupManifestText\(await manifestEntry\.async\("string"\)\)/);
+  assert.match(source, /function showV5RestorePreview\(archive\)/);
+  assert.match(source, /écritures réalisées : non/);
   assert.doesNotMatch(source, /function validateFamilyDataset/);
   assert.doesNotMatch(source, /function exportableRecord/);
   assert.doesNotMatch(source, /function safeBackupName/);
