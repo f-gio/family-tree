@@ -128,6 +128,11 @@ export function createPhotographAsset({
   sha256,
   originalRef,
   previewRef = null,
+  previewMimeType = null,
+  previewSizeBytes = null,
+  previewWidth = null,
+  previewHeight = null,
+  previewSha256 = null,
   importedAt = null,
   role = "full"
 } = {}) {
@@ -140,13 +145,25 @@ export function createPhotographAsset({
   if (typeof sha256 !== "string" || !SHA256_HEX_PATTERN.test(sha256)) errors.push("sha256 doit contenir exactement 64 caractères hexadécimaux");
   if (previewRef !== null && (typeof previewRef !== "string" || !previewRef.trim())) errors.push("previewRef doit être une référence non vide ou null");
   if (previewRef && previewRef === originalRef) errors.push("L’aperçu doit être une ressource distincte de l’original");
+  if (previewRef && previewMimeType !== null && (typeof previewMimeType !== "string" || !previewMimeType.trim())) errors.push("previewMimeType doit être une chaîne non vide");
+  if (previewRef && previewSizeBytes !== null && (!Number.isSafeInteger(previewSizeBytes) || previewSizeBytes < 0)) errors.push("previewSizeBytes doit être un entier positif ou nul");
+  if (previewRef && previewWidth !== null && (!Number.isInteger(previewWidth) || previewWidth < 1)) errors.push("previewWidth doit être un entier positif");
+  if (previewRef && previewHeight !== null && (!Number.isInteger(previewHeight) || previewHeight < 1)) errors.push("previewHeight doit être un entier positif");
+  if (previewRef && previewSha256 !== null && (typeof previewSha256 !== "string" || !SHA256_HEX_PATTERN.test(previewSha256))) errors.push("previewSha256 doit contenir exactement 64 caractères hexadécimaux");
   if (importedAt !== null && typeof importedAt !== "string" && !(importedAt instanceof Date)) errors.push("importedAt doit être une chaîne, une date ou null");
   if (typeof role !== "string" || !role.trim()) errors.push("role doit être une chaîne non vide");
   if (errors.length) throw new TypeError(errors.join("; "));
   return {
     id,
     original: { originalFileName, mimeType, sizeBytes, sha256: sha256.toLowerCase(), resourceRef: originalRef, importedAt },
-    preview: previewRef ? { resourceRef: previewRef } : null,
+    preview: previewRef ? {
+      resourceRef: previewRef,
+      ...(previewMimeType !== null ? { mimeType: previewMimeType } : {}),
+      ...(previewSizeBytes !== null ? { sizeBytes: previewSizeBytes } : {}),
+      ...(previewWidth !== null ? { width: previewWidth } : {}),
+      ...(previewHeight !== null ? { height: previewHeight } : {}),
+      ...(previewSha256 !== null ? { sha256: previewSha256.toLowerCase() } : {})
+    } : null,
     role
   };
 }
@@ -174,6 +191,11 @@ export function validatePhotographAsset(asset) {
     } else if (original?.resourceRef === asset.preview.resourceRef) {
       errors.push("L’aperçu doit être une ressource distincte de l’original");
     }
+    if (asset.preview.mimeType !== undefined && (typeof asset.preview.mimeType !== "string" || !asset.preview.mimeType.trim())) errors.push("preview.mimeType doit être une chaîne non vide");
+    if (asset.preview.sizeBytes !== undefined && (!Number.isSafeInteger(asset.preview.sizeBytes) || asset.preview.sizeBytes < 0)) errors.push("preview.sizeBytes doit être un entier positif ou nul");
+    if (asset.preview.width !== undefined && (!Number.isInteger(asset.preview.width) || asset.preview.width < 1)) errors.push("preview.width doit être un entier positif");
+    if (asset.preview.height !== undefined && (!Number.isInteger(asset.preview.height) || asset.preview.height < 1)) errors.push("preview.height doit être un entier positif");
+    if (asset.preview.sha256 !== undefined && (typeof asset.preview.sha256 !== "string" || !SHA256_HEX_PATTERN.test(asset.preview.sha256))) errors.push("preview.sha256 doit contenir exactement 64 caractères hexadécimaux");
   }
   return { valid: errors.length === 0, errors };
 }
