@@ -122,3 +122,54 @@ Fichiers historiques non suivis préservés : `DEMARCHES_RULES.md`, `LA_NOSTRA_S
 **GO pour préparer un commit local après revue/validation de François ; aucun commit n’est créé ici. NO-GO pour la prochaine publication** jusqu’à ce que les Firestore Rules de recette soient déployées et validées séparément. Les corrections locales du chargement et des cartes sont prêtes pour revue. Cause recette confirmée : les Rules actives du 5 octobre n’incluent aucun des onze chemins Sources & preuves et le catch-all refuse les lectures.
 
 François doit autoriser explicitement l’opération distincte de déploiement des seules Firestore Rules vers le projet `la-nostra-storia-recette`. Cette tâche n’a ni effectué cette opération ni créé de commit, push ou déploiement applicatif.
+
+## F. Préparation du déploiement Firestore Rules (recette)
+
+### Comparaison détaillée des versions
+
+Release active recette : `projects/la-nostra-storia-recette/rulesets/63956a47-a53e-4076-b592-63f89a5c7f13`, créée le 5 octobre 2026. SHA-256 distant `06A66D260B7925E3D643813675BCFB0B0327F4A470704BFCDFA5F1D00AABEE02`, SHA-256 local `813349F62186C380C7FA2C69D41323F1C7806FBA3DB95BB876D8D7F13F9BDD21`.
+
+Les 28 fonctions utilitaires partagées sont **strictement identiques** entre les deux versions (comparaison caractère normalisé). Les 10 blocs `match` historiques sont **strictement identiques** : `publicConfig/auth`, `settings/access`, `users/{userId}`, `people/{personId}`, `trees/{treeId}`, `families/{familyId}`, `documents/{documentId}`, `documentChunks/{chunkId}`, `tasks/{taskId}`, `procedures/{dossierId}`, ainsi que le catch-all `/{document=**}`.
+
+**Aucune modification sans rapport avec le chantier Sources & preuves.** Les seules différences sont :
+
+- 18 nouvelles fonctions de collaboration (`validCollaborationId` … `hasOfficialRevision`).
+- 11 nouveaux blocs `match` : `genealogyProposals`, `genealogyEvents`, `genealogyNotifications`, `sourceDocuments`, `sourceRevisions`, `transcriptionHeads`, `transcriptionRevisions`, `genealogyProofs`, `genealogyProofRevisions`, `factConclusions`, `conclusionRevisions`.
+
+### Analyse des droits des nouvelles collections
+
+| Collection | Lecture | Création | Modification | Suppression |
+|---|---|---|---|---|
+| `sourceDocuments`, `transcriptionHeads`, `genealogyProofs`, `factConclusions` | `isApproved()` | `isAdmin()` + événement + révision immuable | `isAdmin()` + version incrémentale + événement + révision | `if false` |
+| `sourceRevisions`, `transcriptionRevisions`, `genealogyProofRevisions`, `conclusionRevisions` | `isApproved()` | `isAdmin()` + événement officiel | `if false` | `if false` |
+| `genealogyProposals` | admin : toutes ; membre : les siennes (`authorUid`) | auteur approuvé, statut `draft` | auteur (draft/cancel), soumission, décision admin | `if false` |
+| `genealogyEvents` | `isApproved()` | auteur (événements de proposition) ou admin (décision/official) | `if false` | `if false` |
+| `genealogyNotifications` | destinataire uniquement | admin, uniquement types validés | destinataire, marquage lu seul | `if false` |
+
+### Vérifications de risques
+
+- **Non authentifié** : aucun accès — catch-all `if false` + `signedIn()` requis partout.
+- **Non approuvé** : `isApproved()` est `false` → toutes les lectures et écritures refusées sur les 11 collections.
+- **Membre approuvé** : lecture des 9 collections officielles + ses propres propositions/notifications ; **écriture officielle interdite** (réservée `isAdmin()`), pas de suppression, pas de création d'événement arbitraire.
+- **Administrateur** : lecture complète ; écriture officielle soumise à la validation d'événement + révision immuable ; suppressions toujours interdites.
+- **Collections historiques** : strictement inchangées (blocs identiques au caractère près).
+- **Isolation** : propositions limitées à `authorUid`, notifications à `recipientUid` ; un membre ne lit pas celles d'autrui.
+- **Aucune écriture/suppression non prévue** : toutes les suppressions officielles et propositions sont `if false`.
+
+### Tests Emulator
+
+Le test `Sécurité Sources & preuves : matrice des accès sur les 11 collections` a été ajouté à `tests/firestore-emulator.mjs`. Il vérifie : refus non authentifié et non approuvé sur les 11 collections, lecture membre (portée restreinte), refus d'écriture officielle membre, lecture admin complète, refus d'accès croisé propositions. Suite complète : **73/73 réussis** (72 précédents + 1 nouveau).
+
+Note : les requêtes list non filtrées sur `genealogyNotifications` sont refusées par le moteur de règles Firestore (propriété `recipientUid` non démontrable sans filtre) — c'est un comportement attendu, les clients utilisent toujours une requête filtrée par `recipientUid`.
+
+### Commande de déploiement proposée
+
+```
+firebase deploy --only firestore:rules --project la-nostra-storia-recette
+```
+
+Projet explicite obligatoire ; ne jamais utiliser la cible par défaut de `.firebaserc` (production). Ne déploie ni Hosting, ni indexes, ni Functions, ni Storage, ni données.
+
+### Décision
+
+**GO** pour le déploiement des Firestore Rules en recette, sous réserve de l'autorisation explicite de François. Aucune modification locale supplémentaire n'est requise.

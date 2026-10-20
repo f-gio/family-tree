@@ -1408,6 +1408,91 @@ test("lecture Sources & preuves : les requêtes sans résultat sont des snapshot
     "membre approuvé peut lire sa requête de notifications sans résultat");
 });
 
+test("Sécurité Sources & preuves : matrice des accès sur les 11 collections", async () => {
+  const allCollections = [
+    "sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions",
+    "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions",
+    "genealogyProposals", "genealogyEvents", "genealogyNotifications"
+  ];
+
+  // ── Visiteur non authentifié : aucune lecture, aucune écriture ──
+  await signOutAll();
+  for (const name of allCollections.filter(n => n !== "genealogyNotifications")) {
+    await expectDenied(getDocs(collection(db, name)));
+  }
+  await expectDenied(getDocs(query(collection(db, "genealogyNotifications"), where("recipientUid", "==", "anonyme"))));
+  await expectDenied(setDoc(doc(db, "genealogyProposals", "securite-anon-proposal"), {
+    type: "source", status: "draft", authorUid: "anon", targetType: "source", targetId: "x",
+    payload: {}, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
+
+  // ── Utilisateur authentifié non approuvé : aucune lecture, aucune écriture ──
+  const unapprovedEmail = "non-approuve-securite@test-fictif.fr";
+  const unapprovedCred = await createUserWithEmailAndPassword(auth, unapprovedEmail, "non-approuve-sec");
+  await setDoc(doc(db, "users", unapprovedCred.user.uid), {
+    email: unapprovedEmail, displayName: "Non Approuvé", photo: "", role: "member", status: "pending"
+  });
+  await signIn(unapprovedCred.user.uid, unapprovedEmail, "non-approuve-sec");
+  for (const name of allCollections.filter(n => n !== "genealogyNotifications")) {
+    await expectDenied(getDocs(collection(db, name)));
+  }
+  await expectDenied(getDocs(query(collection(db, "genealogyNotifications"), where("recipientUid", "==", unapprovedCred.user.uid))));
+  await expectDenied(setDoc(doc(db, "genealogyProposals", "securite-unapproved-proposal"), {
+    type: "source", status: "draft", authorUid: unapprovedCred.user.uid, targetType: "source",
+    targetId: "x", payload: {}, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
+  await signOutAll();
+
+  // ── Membre approuvé : lecture autorisée (portée restreinte), écriture officielle interdite ──
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  for (const name of allCollections.filter(n => n !== "genealogyProposals" && n !== "genealogyNotifications")) {
+    const snap = await getDocs(query(collection(db, name), where("eventId", "==", "inexistant-emulator")));
+    assert.equal(snap.empty, true, `membre : lecture vide acceptée sur ${name}`);
+  }
+  const myProposals = await getDocs(query(collection(db, "genealogyProposals"), where("authorUid", "==", memberUid)));
+  assert.ok(myProposals.docs !== undefined, "membre : lecture de ses propositions acceptée");
+
+  await expectDenied(setDoc(doc(db, "sourceDocuments", "securite-member-source"), {
+    data: { title: "Interdite" }, version: 1, revisionId: "rev-sec", createdAt: serverTimestamp(),
+    createdBy: memberUid, updatedAt: serverTimestamp(), updatedBy: memberUid, eventId: "evt-sec"
+  }));
+  await expectDenied(setDoc(doc(db, "factConclusions", "securite-member-conclusion"), {
+    data: { status: "established" }, version: 1, revisionId: "rev-sec", createdAt: serverTimestamp(),
+    createdBy: memberUid, updatedAt: serverTimestamp(), updatedBy: memberUid, eventId: "evt-sec"
+  }));
+  await expectDenied(setDoc(doc(db, "genealogyEvents", "securite-member-event"), {
+    eventType: "source.created", objectType: "source", objectId: "x", actorUid: memberUid,
+    createdAt: serverTimestamp(), previousVersionId: null, newVersionId: "r", reason: "test"
+  }));
+  await expectDenied(setDoc(doc(db, "genealogyNotifications", "securite-member-notif"), {
+    recipientUid: memberUid, type: "proposal-accepted", objectType: "proposal", objectId: "x",
+    eventId: "evt", createdAt: serverTimestamp(), read: false
+  }));
+  await signOutAll();
+
+  // ── Administrateur : lecture complète des 11 collections ──
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  for (const name of allCollections.filter(n => n !== "genealogyNotifications")) {
+    const snap = await getDocs(collection(db, name));
+    assert.ok(snap !== null, `admin : lecture acceptée sur ${name}`);
+  }
+  const adminNotifs = await getDocs(query(collection(db, "genealogyNotifications"), where("recipientUid", "==", adminUid)));
+  assert.ok(adminNotifs !== null, "admin : lecture acceptée sur genealogyNotifications");
+  await signOutAll();
+
+  // ── Accès croisé : un membre ne lit pas les propositions ni les notifications d'autrui ──
+  const otherEmail = "autre-securite-emulator@test-fictif.fr";
+  const otherCred = await createUserWithEmailAndPassword(auth, otherEmail, "autre-securite-123");
+  await setDoc(doc(db, "users", otherCred.user.uid), {
+    email: otherEmail, displayName: "Autre Membre", photo: "", role: "member", status: "pending"
+  });
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await updateDoc(doc(db, "users", otherCred.user.uid), { status: "approved" });
+  await signIn(otherCred.user.uid, otherEmail, "autre-securite-123");
+  await expectDenied(getDocs(query(collection(db, "genealogyProposals"), where("authorUid", "==", memberUid))));
+  await signOutAll();
+});
+
 test("LOT 6 : propositions, données officielles, historique immuable, notifications privées et atomicité", async () => {
   const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp });
   const proposalId = "lot6-proposal-member";
