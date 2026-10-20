@@ -47,6 +47,28 @@ test("propositions, décisions, révisions et réexamens passent par le magasin 
   assert.match(app, /data-genealogy-review=/);
 });
 
+test("les boutons contribution et officiel ouvrent les modes attendus, avec garde administrateur", () => {
+  assert.match(app, /\$\("genealogyProposeBtn"\)\.onclick = \(\) => openGenealogyContribution\(\)/);
+  assert.match(app, /\$\("genealogyOfficialBtn"\)\.onclick = \(\) => openGenealogyContribution\(\{ official: true \}\)/);
+  assert.match(app, /const officialMode = Boolean\(official \|\| reviseItem\)/);
+  assert.match(app, /if \(officialMode && !isAdminUser\(\)\) return toast\("La création des données officielles est réservée aux administrateurs\."/);
+  assert.match(app, /\$\("genealogyOfficialBtn"\)\.hidden = !isAdminUser\(\)/);
+  assert.match(app, /openGenealogyContribution\(\{ official: true, reviseItem: item \}\)/);
+});
+
+test("les textes, aides et statut readonly sont appliqués à chaque ouverture et changement de type", () => {
+  for (const id of ["genealogyContributionSubtitle", "genealogyContributionSubmitBtn", "genealogyContributionTargetHelp", "genealogyContributionPayloadHelp"]) {
+    assert.ok(html.includes(`id="${id}"`), `élément de formulaire absent : ${id}`);
+  }
+  assert.match(app, /configureGenealogyContributionDialog\(\{/);
+  assert.match(app, /\$\("genealogyContributionType"\)\.addEventListener\("change", updateGenealogyContributionPresentation\)/);
+  assert.match(app, /\$\("genealogyContributionDialog"\)\.dataset\.official = String\(officialMode\)[\s\S]*?\$\("genealogyContributionDialog"\)\.dataset\.revision = String\(!!reviseItem\)[\s\S]*?updateGenealogyContributionPresentation\(\)/);
+  assert.match(app, /primaryAction: \$\("genealogyContributionSubmitBtn"\)/);
+  assert.match(app, /target: \$\("genealogyContributionTarget"\)/);
+  assert.match(app, /type: \$\("genealogyContributionType"\)\.value/);
+  assert.match(app, /if \(official\) \{[\s\S]*?genealogyStore\.reviseOfficial\([\s\S]*?genealogyStore\.createOfficial\([\s\S]*?\} else \{[\s\S]*?genealogyStore\.createProposal\(/);
+});
+
 test("transcriptions, incertitudes, photos, contradictions et accès depuis les fiches sont affichés", () => {
   assert.match(html, /id="personGenealogyEvidenceList"/);
   assert.match(app, /Transcription italienne et traduction française/);

@@ -13,6 +13,45 @@ export function describeFirestoreReadError(error) {
   return { code: code || "unknown", description };
 }
 
+export function configureGenealogyContributionDialog(elements, { official = false, revise = false, type = "source" } = {}) {
+  const revision = Boolean(revise);
+  const officialMode = Boolean(official || revision);
+  const presentation = revision
+    ? {
+        title: "Réviser une donnée officielle",
+        subtitle: "Cette modification créera une nouvelle révision conservée dans l'historique.",
+        actionLabel: "Enregistrer la nouvelle révision",
+        targetHelp: "Référence existante de la donnée révisée ; elle ne peut pas être remplacée.",
+        targetReadOnly: true
+      }
+    : officialMode
+      ? {
+          title: "Créer une donnée officielle",
+          subtitle: "Cette donnée sera enregistrée officiellement avec son historique.",
+          actionLabel: "Créer la donnée officielle",
+          targetHelp: "Un identifiant est généré automatiquement si ce champ reste vide.",
+          targetReadOnly: false
+        }
+      : {
+          title: "Proposer une contribution",
+          subtitle: "Préparez une proposition. Vous pourrez la soumettre ensuite à validation.",
+          actionLabel: "Enregistrer le brouillon",
+          targetHelp: "Référence cible facultative : indiquez l'identifiant de l'élément concerné si vous le connaissez.",
+          targetReadOnly: false
+        };
+  const payloadHelp = ["source", "correction"].includes(type)
+    ? "Texte libre accepté pour les sources et corrections."
+    : "Données JSON structurées requises pour les transcriptions, preuves et conclusions.";
+
+  elements.title.textContent = presentation.title;
+  elements.subtitle.textContent = presentation.subtitle;
+  elements.primaryAction.textContent = presentation.actionLabel;
+  elements.target.readOnly = presentation.targetReadOnly;
+  elements.targetHelp.textContent = presentation.targetHelp;
+  elements.payloadHelp.textContent = payloadHelp;
+  return { ...presentation, payloadHelp };
+}
+
 export function legacyDocumentCardDetails(item = {}, personNames = []) {
   const title = String(item.title || "").trim() || String(item.type || "").trim() || "Document historique";
   const date = typeof item.date === "string" ? item.date.trim() : "";

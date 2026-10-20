@@ -20,7 +20,7 @@ import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalize
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
 import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
 import { formatCompactPlace } from "./place-format.js";
-import { describeFirestoreReadError, legacyDocumentCardDetails } from "./genealogy-workspace-utils.js";
+import { describeFirestoreReadError, legacyDocumentCardDetails, configureGenealogyContributionDialog } from "./genealogy-workspace-utils.js";
 import { createPersonMultiSelect } from "./person-multiselect.js";
 import { analyzeTreeQuality } from "./tree-quality.js";
 import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedDataFields, importedTreeData, validateFamilyDataset, validateTreeDataset, documentChunkId, splitBytesIntoChunks, concatByteArrays, collectChunkParts, sliceIntoBatches, parseBackupManifestText } from "./backup-utils.js";
@@ -3713,27 +3713,44 @@ function createGenealogyId(collectionRef) {
   return doc(collectionRef).id;
 }
 
+function updateGenealogyContributionPresentation() {
+  const dialog = $("genealogyContributionDialog");
+  configureGenealogyContributionDialog({
+    title: $("genealogyContributionTitle"),
+    subtitle: $("genealogyContributionSubtitle"),
+    primaryAction: $("genealogyContributionSubmitBtn"),
+    target: $("genealogyContributionTarget"),
+    targetHelp: $("genealogyContributionTargetHelp"),
+    payloadHelp: $("genealogyContributionPayloadHelp")
+  }, {
+    official: dialog.dataset.official === "true",
+    revise: dialog.dataset.revision === "true",
+    type: $("genealogyContributionType").value
+  });
+}
+
 function openGenealogyContribution({ official = false, reviseItem = null } = {}) {
-  if (official && !isAdminUser()) return toast("La création des données officielles est réservée aux administrateurs.", "error");
+  const officialMode = Boolean(official || reviseItem);
+  if (officialMode && !isAdminUser()) return toast("La création des données officielles est réservée aux administrateurs.", "error");
   $("genealogyContributionForm").reset();
-  $("genealogyContributionNotice").textContent = official
+  $("genealogyContributionNotice").textContent = officialMode
     ? "Donnée officielle : la création ou la nouvelle révision et son événement d'historique seront enregistrés ensemble."
     : "Le brouillon ne modifie pas les données officielles. L’envoi exigera une validation administrative.";
-  $("genealogyContributionTitle").textContent = reviseItem ? "Réviser la donnée officielle" : official ? "Créer une donnée officielle" : "Proposer une contribution";
   const correctionOption = [...$("genealogyContributionType").options].find(option => option.value === "correction");
   const conclusionOption = [...$("genealogyContributionType").options].find(option => option.value === "conclusion");
-  if (correctionOption) correctionOption.hidden = official;
-  if (conclusionOption) conclusionOption.hidden = !official;
+  if (correctionOption) correctionOption.hidden = officialMode;
+  if (conclusionOption) conclusionOption.hidden = !officialMode;
   const kindMap = { source: "source", transcription: "transcription", proof: "proof", conclusion: "conclusion" };
   $("genealogyContributionType").value = reviseItem ? (kindMap[reviseItem.kind] || "source") : "source";
   $("genealogyContributionTarget").value = reviseItem?.record.id || "";
+  $("genealogyContributionDialog").dataset.official = String(officialMode);
+  $("genealogyContributionDialog").dataset.revision = String(!!reviseItem);
+  updateGenealogyContributionPresentation();
   if (reviseItem) {
     const current = reviseItem.data.revision || reviseItem.data;
     $("genealogyContributionTitleField").value = current.title || current.factType || reviseItem.record.id;
     $("genealogyContributionPayload").value = JSON.stringify(current, null, 2);
   }
-  $("genealogyContributionDialog").dataset.official = String(official);
-  $("genealogyContributionDialog").dataset.revision = String(!!reviseItem);
   $("genealogyContributionDialog").showModal();
 }
 
@@ -5974,6 +5991,7 @@ $("genealogyItemContent").addEventListener("click", event => {
     if (!passage) return toast("Ce passage n’est plus disponible.", "error");
     openGenealogyContribution();
     $("genealogyContributionType").value = "proof";
+    updateGenealogyContributionPresentation();
     $("genealogyContributionTitleField").value = `Preuve — ${passage.lineLabel || `passage ${Number(passageProofButton.dataset.genealogyPassage) + 1}`}`;
     $("genealogyContributionTarget").value = "";
     $("genealogyContributionPayload").value = JSON.stringify({
@@ -5991,6 +6009,7 @@ $("genealogyItemContent").addEventListener("click", event => {
   if (image) image.style.transform = `scale(${genealogyZoom})`;
 });
 $("genealogyContributionForm").addEventListener("submit", event => runSafely(() => saveGenealogyContribution(event), "Enregistrement de proposition impossible"));
+$("genealogyContributionType").addEventListener("change", updateGenealogyContributionPresentation);
 $("genealogyProposeBtn").onclick = () => openGenealogyContribution();
 $("genealogyOfficialBtn").onclick = () => openGenealogyContribution({ official: true });
 $("genealogyProposeProofForPersonBtn").onclick = () => {
@@ -5998,6 +6017,7 @@ $("genealogyProposeProofForPersonBtn").onclick = () => {
   if (!personId) return;
   openGenealogyContribution();
   $("genealogyContributionType").value = "proof";
+  updateGenealogyContributionPresentation();
   $("genealogyContributionTitleField").value = `Preuve — ${nameOf(personId)}`;
   $("genealogyContributionPayload").value = JSON.stringify({
     factId: "", factType: "", personIds: [personId], documentId: "", pageId: null, passageId: null,

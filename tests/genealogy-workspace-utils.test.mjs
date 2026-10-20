@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { describeFirestoreReadError, legacyDocumentCardDetails } from "../js/genealogy-workspace-utils.js";
+import { describeFirestoreReadError, legacyDocumentCardDetails, configureGenealogyContributionDialog } from "../js/genealogy-workspace-utils.js";
 
 test("erreurs Firestore sont distinguées sans confondre une liste vide avec une erreur", () => {
   assert.deepEqual(describeFirestoreReadError({ code: "permission-denied" }), {
@@ -58,4 +58,45 @@ test("carte historique sans titre ni détails : type comme remplacement et champ
   assert.deepEqual(legacyDocumentCardDetails({ fileName: "acte.webp" }), {
     title: "Document historique", date: "", place: "", people: [], notes: "", hasPhotograph: true
   });
+});
+
+test("formulaire contribution : les trois modes réinitialisent tous les textes et la référence", () => {
+  const elements = {
+    title: { textContent: "ancienne valeur" },
+    subtitle: { textContent: "ancienne valeur" },
+    primaryAction: { textContent: "ancienne valeur" },
+    target: { readOnly: true },
+    targetHelp: { textContent: "ancienne valeur" },
+    payloadHelp: { textContent: "ancienne valeur" }
+  };
+
+  configureGenealogyContributionDialog(elements, { official: false, type: "source" });
+  assert.equal(elements.title.textContent, "Proposer une contribution");
+  assert.equal(elements.subtitle.textContent, "Préparez une proposition. Vous pourrez la soumettre ensuite à validation.");
+  assert.equal(elements.primaryAction.textContent, "Enregistrer le brouillon");
+  assert.equal(elements.target.readOnly, false);
+  assert.equal(elements.targetHelp.textContent, "Référence cible facultative : indiquez l'identifiant de l'élément concerné si vous le connaissez.");
+  assert.equal(elements.payloadHelp.textContent, "Texte libre accepté pour les sources et corrections.");
+
+  configureGenealogyContributionDialog(elements, { official: true, type: "proof" });
+  assert.equal(elements.title.textContent, "Créer une donnée officielle");
+  assert.equal(elements.subtitle.textContent, "Cette donnée sera enregistrée officiellement avec son historique.");
+  assert.equal(elements.primaryAction.textContent, "Créer la donnée officielle");
+  assert.equal(elements.target.readOnly, false);
+  assert.equal(elements.targetHelp.textContent, "Un identifiant est généré automatiquement si ce champ reste vide.");
+  assert.equal(elements.payloadHelp.textContent, "Données JSON structurées requises pour les transcriptions, preuves et conclusions.");
+
+  configureGenealogyContributionDialog(elements, { official: true, revise: true, type: "conclusion" });
+  assert.equal(elements.title.textContent, "Réviser une donnée officielle");
+  assert.equal(elements.subtitle.textContent, "Cette modification créera une nouvelle révision conservée dans l'historique.");
+  assert.equal(elements.primaryAction.textContent, "Enregistrer la nouvelle révision");
+  assert.equal(elements.target.readOnly, true);
+  assert.equal(elements.targetHelp.textContent, "Référence existante de la donnée révisée ; elle ne peut pas être remplacée.");
+  assert.equal(elements.payloadHelp.textContent, "Données JSON structurées requises pour les transcriptions, preuves et conclusions.");
+
+  configureGenealogyContributionDialog(elements, { type: "correction" });
+  assert.equal(elements.title.textContent, "Proposer une contribution");
+  assert.equal(elements.primaryAction.textContent, "Enregistrer le brouillon");
+  assert.equal(elements.target.readOnly, false);
+  assert.equal(elements.payloadHelp.textContent, "Texte libre accepté pour les sources et corrections.");
 });
