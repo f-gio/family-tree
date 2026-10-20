@@ -148,7 +148,7 @@ test("G1. navigateur mobile : #personPrintDialog en sheet 92dvh, impression inta
                 window.__printCalled = 0;
               });
               await page.click("#personPrintGoBtn");
-              await page.waitForTimeout(150);
+              await page.waitForFunction(() => window.__printCalled >= 1);
               assert.equal(await page.evaluate(() => window.__printCalled), 1, "print appelé");
               const portal = await page.evaluate(() => ({
                 filled: document.getElementById("printPortal").children.length > 0,

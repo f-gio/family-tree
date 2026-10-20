@@ -19,9 +19,23 @@ test("les collections du lot 6 sont abonnées avec des requêtes limitées pour 
   for (const name of ["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyEvents"]) {
     assert.ok(app.includes(`"${name}"`), `nom de collection abonné absent : ${name}`);
   }
-  assert.match(app, /onSnapshot\(refs\[collectionName\]/);
-  assert.match(app, /query\(target, where\("authorUid", "==", auth\.currentUser\?\.uid/);
-  assert.match(app, /query\(refs\.genealogyNotifications, where\("recipientUid", "==", auth\.currentUser\?\.uid/);
+  assert.match(app, /onSnapshot\(target, snapshot/);
+  assert.match(app, /if \(collectionName === "genealogyProposals" && !isAdminUser\(\)\) target = query\(target, where\("authorUid", "==", auth\.currentUser\?\.uid/);
+  assert.match(app, /if \(collectionName === "genealogyNotifications"\) target = query\(target, where\("recipientUid", "==", auth\.currentUser\?\.uid/);
+  assert.match(app, /genealogyCollectionsLoaded\.add\(collectionName\)/);
+  assert.match(app, /genealogyCollectionErrors\.delete\(collectionName\)/);
+  assert.match(app, /genealogyCollectionErrors\.set\(collectionName, describeFirestoreReadError\(error\)\)/);
+  assert.match(app, /genealogyLoaded = genealogyCollectionsLoaded\.size === genealogyCollections\.length/);
+});
+
+test("les documents historiques ont une fiche lisible sans métadonnées JSON, Consulter conservé", () => {
+  assert.match(app, /legacyDocumentCardDetails\(data, \(data\.personIds \|\| \[\]\)\.map\(personId => person\(personId\)\)/);
+  assert.match(app, /legacyDetails\?\.title \|\| data\.title \|\| data\.factType/);
+  assert.match(app, /Photographie disponible/);
+  assert.match(app, /const entryContent = legacyDetails[\s\S]*?legacyNotes\}\$\{legacyPhotograph\}/);
+  assert.match(app, /data-genealogy-open="\$\{esc\(item\.kind\)\}"/);
+  assert.match(app, /if \(kind === "legacy-source"[\s\S]*?openStoredDocument\(item\.record\)/);
+  assert.match(css, /\.genealogy-entry-legacy-document/);
 });
 
 test("propositions, décisions, révisions et réexamens passent par le magasin sécurisé du lot 6", () => {

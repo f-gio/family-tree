@@ -1382,6 +1382,32 @@ test("trees + people : arbre et première personne peuvent être créés atomiqu
   assert.equal((await getDoc(doc(db, "people", "tree-person-atomic"))).data().treeId, TREE_ATOMIC_ID);
 });
 
+test("lecture Sources & preuves : les requêtes sans résultat sont des snapshots réussis pour admin et membre approuvé", async () => {
+  const officialCollections = [
+    "sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions",
+    "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyEvents"
+  ];
+  const readEmptyCollections = async () => {
+    for (const name of officialCollections) {
+      const snapshot = await getDocs(query(collection(db, name), where("id", "==", "aucune-entree-fixture-emulator")));
+      assert.equal(snapshot.empty, true, `requête sans résultat sur ${name} acceptée`);
+    }
+  };
+
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await readEmptyCollections();
+  assert.ok((await getDocs(collection(db, "genealogyProposals"))).docs, "admin peut lire les propositions");
+  assert.equal((await getDocs(query(collection(db, "genealogyNotifications"), where("recipientUid", "==", adminUid)))).empty, true,
+    "admin peut recevoir un résultat vide pour sa portée de notifications");
+
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await readEmptyCollections();
+  assert.ok((await getDocs(query(collection(db, "genealogyProposals"), where("authorUid", "==", memberUid)))).docs,
+    "membre approuvé peut lire sa requête de propositions");
+  assert.equal((await getDocs(query(collection(db, "genealogyNotifications"), where("recipientUid", "==", memberUid), where("id", "==", "aucune-entree-fixture-emulator")))).empty, true,
+    "membre approuvé peut lire sa requête de notifications sans résultat");
+});
+
 test("LOT 6 : propositions, données officielles, historique immuable, notifications privées et atomicité", async () => {
   const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp });
   const proposalId = "lot6-proposal-member";

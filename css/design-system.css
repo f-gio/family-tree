@@ -2345,6 +2345,9 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .genealogy-passage[data-review="true"] { border-inline-start: 4px solid var(--color-accent); background: var(--color-brand-soft); }
 .genealogy-inline-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .genealogy-status-badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: var(--color-surface-muted); color: var(--color-text-muted); font-size: var(--text-xs); }
+.genealogy-entry-legacy-document .genealogy-entry-heading { align-items: flex-start; }
+.genealogy-entry-legacy-document .card-description { margin: 0; }
+.genealogy-entry-legacy-document > .genealogy-status-badge { margin-top: var(--space-2); }
 /* Le lien 8A ajoute une sixième destination ; maintenir les six rubriques sur
    une seule rangée tactile plutôt que créer une seconde rangée de navigation. */
 @media (max-width: 760px) {
