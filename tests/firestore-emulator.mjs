@@ -333,6 +333,49 @@ test("documents : création, lecture et suppression par un admin", async () => {
   assert.equal((await getDoc(ref)).exists(), false);
 });
 
+test("SECURITE 8B : un contributeur garde les droits documents historiques mais ne peut pas modifier une preuve officielle", async () => {
+  const legacyDocumentId = "lot8b-legacy-document-contributor";
+  const legacyChunkId = documentChunkId(legacyDocumentId, "legacy-v1", 0);
+  const officialProofId = "lot8b-official-proof-guard";
+  const documentRef = doc(db, "documents", legacyDocumentId);
+  const chunkRef = doc(db, "documentChunks", legacyChunkId);
+  const proofRef = doc(db, "genealogyProofs", officialProofId);
+
+  try {
+    await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await setDoc(documentRef, { title: "Fixture historique de sécurité", notes: "Document témoin" });
+    const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp });
+    await store.createOfficial({
+      type: "proof", id: officialProofId, revisionId: "lot8b-proof-revision", eventId: "lot8b-proof-event",
+      data: { id: officialProofId, factId: "fact-fixture", factType: "birth.date", technicalStatus: "active" },
+      reason: "Fixture locale de sécurité", actorUid: adminUid
+    });
+    await signOutAll();
+    await expectDenied(getDoc(documentRef));
+    const pendingEmail = "documents-pending-emulator@test-fictif.fr";
+    const pendingCredential = await createUserWithEmailAndPassword(auth, pendingEmail, "documents-pending-123");
+    await setDoc(doc(db, "users", pendingCredential.user.uid), {
+      email: pendingEmail, displayName: "Documents pending", photo: "", role: "member", status: "pending"
+    });
+    await expectDenied(getDoc(documentRef));
+    await expectDenied(setDoc(doc(db, "documents", "lot8b-pending-document"), { title: "Création pending refusée" }));
+    await expectDenied(updateDoc(documentRef, { notes: "écriture refusée" }));
+    await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+    await updateDoc(documentRef, { notes: "Modifiable par un contributeur approuvé selon la règle historique" });
+    await setDoc(chunkRef, { documentId: legacyDocumentId, version: "legacy-v1", index: 0, data: Bytes.fromUint8Array(new Uint8Array([1, 2, 3])) });
+    assert.equal((await getDoc(documentRef)).data().notes, "Modifiable par un contributeur approuvé selon la règle historique");
+    await expectDenied(updateDoc(proofRef, { data: { id: officialProofId, factId: "fact-fixture", technicalStatus: "historical" }, version: 2, revisionId: "lot8b-other-revision", updatedAt: serverTimestamp(), updatedBy: memberUid, eventId: "lot8b-other-event" }));
+    await deleteDoc(documentRef);
+    await deleteDoc(chunkRef);
+  } finally {
+    await signOutAll();
+    await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await deleteDoc(documentRef).catch(() => {});
+    await deleteDoc(chunkRef).catch(() => {});
+    await deleteDoc(proofRef).catch(() => {});
+  }
+});
+
 // ─── TÂCHES ─────────────────────────────────────────────────────────────────
 test("tâches : création, mise à jour et suppression par un membre approuvé", async () => {
   await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);

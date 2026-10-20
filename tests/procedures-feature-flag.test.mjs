@@ -206,11 +206,11 @@ test("Recette simulée : onglet Démarches visible et fonctionnel", async t => {
             return !document.getElementById("appMain").hidden;
           });
           assert.ok(back, "retour Arbre OK");
-          /* navigation mobile : 5 colonnes */
+          /* Recette conserve les six destinations, dont Sources & preuves (lot 8A). */
           if (width <= 760) {
             const cols = await page.evaluate(() => getComputedStyle(document.querySelector(".main-nav")).gridTemplateColumns);
             const colCount = cols.split(" ").filter(Boolean).length;
-            assert.equal(colCount, 5, `nav mobile à 5 colonnes (${cols})`);
+            assert.equal(colCount, 6, `nav mobile à 6 colonnes (${cols})`);
           }
         } finally { await context.close(); }
       });

@@ -24,8 +24,8 @@ for (const rule of [
 
 assert.match(html, /class="person-dialog modal-xl[^\"]*"/);
 assert.match(html, /class="modal-body person-modal-form" id="personForm"/);
-// 6 modales-formulaires : foyer, document, tâche, démarche, action de démarche et gestion d’arbre.
-assert.equal((html.match(/class="modal-body modal-form"/g) || []).length, 6);
+// 7 modales-formulaires, dont le formulaire de contribution Sources & preuves (lot 8A).
+assert.equal((html.match(/class="modal-body modal-form"/g) || []).length, 7);
 assert.equal((html.match(/class="person-section-panel"/g) || []).length, 3);
 
 for (const heading of [

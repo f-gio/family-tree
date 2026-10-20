@@ -692,7 +692,7 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   /* Quand le menu est ouvert, le canvas déborde temporairement de son shell;
      la scène reste rognée par .tree-canvas-clip, mais le menu peut remonter. */
   #treeViewport:has(#treeMenu:not([hidden])) { overflow: visible; }
-  #treeMenu { max-height: calc(100dvh - max(1rem, env(safe-area-inset-top)) - max(1rem, env(safe-area-inset-bottom))) !important; }
+  #treeMenu { max-height: calc(100dvh - max(1rem, env(safe-area-inset-top)) - max(1rem, env(safe-area-inset-bottom))); }
 
   #treeExportDialog .modal-actions .right {
     display: flex;
@@ -2345,6 +2345,23 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .genealogy-passage[data-review="true"] { border-inline-start: 4px solid var(--color-accent); background: var(--color-brand-soft); }
 .genealogy-inline-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .genealogy-status-badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: var(--color-surface-muted); color: var(--color-text-muted); font-size: var(--text-xs); }
+/* Le lien 8A ajoute une sixième destination ; maintenir les six rubriques sur
+   une seule rangée tactile plutôt que créer une seconde rangée de navigation. */
+@media (max-width: 760px) {
+  .main-nav { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .main-nav .nav-btn { min-width: 0; white-space: normal; text-align: center; }
+  #appMain .tree-filter-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #appMain .tree-filter-toolbar > .sr-only { display: none; }
+  #appMain .tree-filter-toolbar .search-bar { grid-column: 1 / -1; grid-row: 1; min-width: 0; }
+  #appMain .tree-filter-toolbar .toolbar-tree { grid-column: 1; grid-row: 2; min-width: 0; }
+  #appMain .tree-filter-toolbar .toolbar-branch { grid-column: 2; grid-row: 2; min-width: 0; }
+  #appMain .tree-filter-toolbar .toolbar-tree .field,
+  #appMain .tree-filter-toolbar .toolbar-branch .field { width: 100%; min-width: 0; padding-inline: 5px; font-size: 16px; }
+}
+@media (max-width: 390px) {
+  .main-nav .nav-btn { font-size: 0.53rem; line-height: 1.05; }
+  .main-nav .nav-icon { width: 14px; }
+}
 @media (max-width: 760px) {
   .genealogy-toolbar { grid-template-columns: minmax(0, 1fr); }
   .genealogy-detail-grid { grid-template-columns: minmax(0, 1fr); }
@@ -2609,6 +2626,31 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   color: var(--color-text-muted);
   font-weight: var(--weight-bold);
   line-height: 1;
+}
+/* Canvas sur écrans très courts : garder la zone de dessin dans l'espace restant
+   et ancrer ses commandes au viewport pour ne pas les perdre sous le pli. */
+@media (max-height: 620px) {
+  #appMain { padding-top: 8px; padding-bottom: 8px; }
+  #appMain .intro .lead,
+  #appMain .intro .eyebrow { display: none; }
+  #appMain .intro { margin-bottom: 6px; }
+  #appMain .intro h2 { font-size: 1.25rem; }
+  #appMain .tree-controls {
+    position: fixed;
+    z-index: 30;
+    left: max(1rem, calc((100vw - 776px) / 2 + 6px));
+    right: max(1rem, calc((100vw - 776px) / 2 + 6px));
+  }
+  #appMain .tree-shell { height: calc(100dvh - 250px); min-height: 220px; }
+  #appMain .tree-shell:has(#treeMenu:not([hidden])) { overflow: visible; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  #appMain .tree-filter-toolbar { margin-bottom: 4px; }
+  #directoryView .view-switch button { min-width: 44px; min-height: 44px; }
+}
+@media (max-width: 760px) and (max-height: 460px) {
+  #appMain .tree-shell:has(#treeMenu:not([hidden])) { overflow: visible; }
+  #treeMenu { max-height: calc(100dvh - 2rem) !important; }
 }
 @media (max-width: 760px) {
   /* iOS zoome le viewport au focus si font-size < 16px : forcer 16px sur les
@@ -4424,4 +4466,18 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
     max-width: none;
     margin-top: 7px;
   }
+}
+
+/* Vue Arbre 8B : condenser les trois filtres en deux lignes sous 760 px.
+   Cette règle vient après les règles historiques qui imposaient trois lignes. */
+@media (max-width: 760px) {
+  #appMain > .tree-filter-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #appMain > .tree-filter-toolbar > .sr-only { display: none; }
+  #appMain > .tree-filter-toolbar .search-bar { grid-column: 1 / -1; grid-row: 1; }
+  #appMain > .tree-filter-toolbar .toolbar-tree { grid-column: 1; grid-row: 2; min-width: 0; }
+  #appMain > .tree-filter-toolbar .toolbar-branch { grid-column: 2; grid-row: 2; min-width: 0; }
+}
+
+@media (max-width: 760px) and (max-height: 620px) {
+  #appMain > .tree-filter-toolbar { margin-bottom: var(--space-2); }
 }
