@@ -2348,6 +2348,23 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .genealogy-entry-legacy-document .genealogy-entry-heading { align-items: flex-start; }
 .genealogy-entry-legacy-document .card-description { margin: 0; }
 .genealogy-entry-legacy-document > .genealogy-status-badge { margin-top: var(--space-2); }
+.source-document-picker { display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-3); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface-muted); }
+.source-document-picker[hidden] { display: none; }
+.source-document-picker .form-section-heading { margin: 0; }
+.source-document-picker .form-section-heading p { margin: var(--space-1) 0 0; }
+.source-document-picker-options { display: grid; gap: var(--space-1); max-height: min(16rem, 45dvh); overflow: auto; padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-sm); background: var(--color-surface-raised); }
+.source-document-option { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-2); min-width: 0; min-height: var(--control-touch); padding: var(--space-2); border-radius: var(--radius-sm); cursor: pointer; }
+.source-document-option:hover { background: var(--color-brand-soft); }
+.source-document-option input { width: 1rem; height: 1rem; margin: 0; accent-color: var(--color-brand); }
+.source-document-option-details { display: grid; gap: 2px; min-width: 0; }
+.source-document-option-details strong, .source-document-option-details small { overflow-wrap: anywhere; }
+.source-document-option-details small, .source-document-picker-selection .hint { color: var(--color-text-muted); font-size: var(--text-xs); }
+.source-document-picker-selection { display: grid; gap: var(--space-2); min-width: 0; }
+.source-document-selection-item { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; padding: 3px 6px 3px 10px; border-radius: 999px; background: var(--color-brand-soft); color: var(--color-text); font-size: var(--text-xs); }
+.source-document-selection-item span { overflow-wrap: anywhere; }
+.source-document-selection-item.is-missing { background: var(--color-danger-soft); color: var(--color-danger); }
+.source-document-selection-item button { flex: 0 0 auto; min-width: var(--control-touch); min-height: var(--control-touch); border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
+.source-document-selection-item button:hover { background: var(--color-surface-raised); }
 /* Le lien 8A ajoute une sixième destination ; maintenir les six rubriques sur
    une seule rangée tactile plutôt que créer une seconde rangée de navigation. */
 @media (max-width: 760px) {

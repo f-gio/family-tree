@@ -447,12 +447,12 @@ test("I. clics réels : modale → aperçu → impression (spy), X, Annuler, suc
 
     // B — clic réel du bouton d'impression de l'aperçu (window.print espionné)
     await page.click("#personPrintGoBtn");
-    await page.waitForTimeout(120);
+    await page.waitForFunction(() => window.__printSpy === 1);
     assert.equal(await page.evaluate(() => window.__printSpy), 1, "window.print() une fois");
 
     // deuxième impression depuis le même aperçu
     await page.click("#personPrintGoBtn");
-    await page.waitForTimeout(120);
+    await page.waitForFunction(() => window.__printSpy === 2);
     assert.equal(await page.evaluate(() => window.__printSpy), 2, "réimpression possible");
 
     // fermeture X
@@ -477,7 +477,7 @@ test("I. clics réels : modale → aperçu → impression (spy), X, Annuler, suc
     await page.click("#printPersonBtn");
     await page.waitForTimeout(80);
     await page.click("#personPrintGoBtn");
-    await page.waitForTimeout(150);
+    await page.waitForFunction(() => window.__printSpy === 3);
     const after = await page.evaluate(() => ({
       spy: window.__printSpy,
       printing: document.body.classList.contains("is-printing-person"),

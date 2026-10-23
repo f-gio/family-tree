@@ -70,6 +70,23 @@ test("métadonnées partielles, champs inconnus et état archivé sont acceptés
   assert.equal(document.customLegacyField, "préservé");
 });
 
+test("documentIds est facultatif et conserve sans doublons les IDs stables de la bibliothèque", () => {
+  const withoutLinks = createSourceDocument({ id: "source-without-documents" });
+  assert.deepEqual(withoutLinks.documentIds, []);
+  const historicalSource = { ...withoutLinks };
+  delete historicalSource.documentIds;
+  assert.equal(validateSourceDocument(historicalSource).valid, true, "une source existante sans documentIds reste valide");
+
+  const linked = createSourceDocument({ id: "source-linked", documentIds: ["document-1", "document-1", "document-2"] });
+  assert.deepEqual(linked.documentIds, ["document-1", "document-2"]);
+  assert.equal(validateSourceDocument(linked).valid, true);
+  const secondSource = createSourceDocument({ id: "source-second", documentIds: ["document-1"] });
+  assert.equal(linked.documentIds.includes("document-1") && secondSource.documentIds.includes("document-1"), true,
+    "le même document peut être référencé par plusieurs sources sans créer une copie");
+  assert.equal(validateSourceDocument({ ...linked, documentIds: ["document-1", " "] }).valid, false);
+  assert.equal(validateSourceDocument({ ...linked, documentIds: "document-1" }).valid, false, "documentIds doit être un tableau");
+});
+
 test("dates documentaires acceptent année, mois, approximation, période et inconnue", () => {
   for (const dateInfo of [
     { type: "year", year: 1890 },

@@ -69,6 +69,41 @@ test("les textes, aides et statut readonly sont appliqués à chaque ouverture e
   assert.match(app, /if \(official\) \{[\s\S]*?genealogyStore\.reviseOfficial\([\s\S]*?genealogyStore\.createOfficial\([\s\S]*?\} else \{[\s\S]*?genealogyStore\.createProposal\(/);
 });
 
+test("la source officielle référence des documents sélectionnés sans recopier leurs fichiers", () => {
+  for (const id of ["genealogySourceDocumentPicker", "genealogySourceDocumentSearch", "genealogySourceDocumentOptions", "genealogySourceDocumentSelection"]) {
+    assert.ok(html.includes(`id="${id}"`), `sélecteur de documents absent : ${id}`);
+  }
+  assert.match(html, /Rechercher par titre/);
+  assert.match(app, /Aucun document n’est disponible/);
+  assert.match(app, /documents\.filter\(item => searchable\(`\$\{item\.title \|\| ""\} \$\{item\.fileName \|\| ""\}`\)\.includes\(queryText\)\)/);
+  assert.match(app, /documentIds: \[\.\.\.selectedGenealogySourceDocumentIds\]/);
+  assert.match(app, /sourceData\.documentIds/);
+  assert.match(app, /Document référencé introuvable/);
+  assert.match(app, /data-source-document-open=/);
+  assert.match(app, /linkedDocumentButton\.dataset\.sourceDocumentOpen[\s\S]*?openStoredDocument\(linkedDocument\)/);
+  assert.match(app, /sourceData\.documentIds[\s\S]*?data-open-document-source=/);
+  assert.match(app, /openGenealogyItem\("source", sourceLink\.dataset\.openDocumentSource\)/);
+  assert.match(app, /if \(collectionName === "sourceDocuments" && loadedPeople && loadedDocuments\) renderDocuments\(\)/);
+  assert.match(app, /if \(!tile \|\| event\.target\.closest\("button, a, input, select, textarea, summary, \.tile-context-actions"\)\) return/);
+  assert.doesNotMatch(app.match(/if \(type === "source"\) \{([\s\S]*?)\} else if \(type === "transcription"\)/)?.[1] || "", /writeFileChunks|setDoc\(doc\(db, "documents"/);
+  assert.match(html, /Sélectionnez les fiches existantes utilisées par cette source\. Les fichiers ne sont pas copiés\./);
+});
+
+test("les deux espaces naviguent entre sources et documents, avec références absentes signalées", () => {
+  assert.match(app, /function linkedSourceDocumentsMarkup\(sourceData\)/);
+  assert.match(app, /new Set\(Array\.isArray\(sourceData\.documentIds\)/);
+  assert.match(app, /Document référencé introuvable/);
+  assert.match(app, /Fiche trouvée, aucun fichier ou lien consultable n’est associé/);
+  assert.match(app, /const linkedDocumentsBlock = kind === "source" \? linkedSourceDocumentsMarkup\(data\) : ""/);
+  assert.match(app, /const linkedSources = sourceDocumentsLoaded \? genealogyRecords\.sourceDocuments\.filter/);
+  assert.match(app, /sourceData\.documentIds\.includes\(item\.id\)/);
+  assert.match(app, /data-open-document-source="\$\{esc\(source\.id\)\}"/);
+  assert.match(app, /openGenealogyItem\("source", sourceLink\.dataset\.openDocumentSource\)/);
+  assert.match(app, /data-source-document-open="\$\{esc\(id\)\}"/);
+  assert.match(app, /openStoredDocument\(linkedDocument\)/);
+  assert.match(app, /if \(collectionName === "sourceDocuments" && loadedPeople && loadedDocuments\) renderDocuments\(\)/);
+});
+
 test("transcriptions, incertitudes, photos, contradictions et accès depuis les fiches sont affichés", () => {
   assert.match(html, /id="personGenealogyEvidenceList"/);
   assert.match(app, /Transcription italienne et traduction française/);

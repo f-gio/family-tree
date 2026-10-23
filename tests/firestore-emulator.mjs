@@ -1593,18 +1593,35 @@ test("LOT 6 : propositions, données officielles, historique immuable, notificat
   await expectDenied(updateDoc(doc(db, "genealogyEvents", decisionEventId), { reason: "altération" }));
   await expectDenied(updateDoc(doc(db, "sourceRevisions", "lot6-source-revision"), { data: { title: "altération" } }));
 
+  const linkedDocumentIds = ["lot6-link-document-a", "lot6-link-document-b"];
+  for (const [index, documentId] of linkedDocumentIds.entries()) {
+    await setDoc(doc(db, "documents", documentId), { title: `Document de bibliothèque ${index + 1}`, type: "Acte de naissance" });
+  }
   await store.createOfficial({
     type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision", eventId: "lot6-source-created-event",
-    data: { title: "Source officielle", schemaVersion: 1 }, reason: "Création documentée", actorUid: adminUid
+    data: { title: "Source officielle", schemaVersion: 1, documentIds: linkedDocumentIds }, reason: "Création documentée", actorUid: adminUid
   });
   const official = await getDoc(doc(db, "sourceDocuments", "lot6-official-source"));
   assert.equal(official.data().revisionId, "lot6-source-revision");
+  assert.deepEqual(official.data().data.documentIds, linkedDocumentIds, "une source conserve plusieurs IDs de documents existants");
   await store.reviseOfficial({
     type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision-2", eventId: "lot6-source-revised-event",
-    data: { title: "Source corrigée", schemaVersion: 1 }, reason: "Correction de cote", actorUid: adminUid
+    data: { title: "Source corrigée", schemaVersion: 1, documentIds: [linkedDocumentIds[1]] }, reason: "Correction de cote", actorUid: adminUid
   });
+  assert.deepEqual((await getDoc(doc(db, "sourceRevisions", "lot6-source-revision"))).data().data.documentIds, linkedDocumentIds,
+    "la révision précédente reste immuable avec ses références originales");
   const revision = await getDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"));
   assert.equal(revision.data().previousRevisionId, "lot6-source-revision");
+  assert.deepEqual(revision.data().data.documentIds, [linkedDocumentIds[1]]);
+  await store.createOfficial({
+    type: "source", id: "lot6-official-source-second", revisionId: "lot6-source-second-revision",
+    eventId: "lot6-source-second-event", data: { title: "Autre analyse du même document", schemaVersion: 1, documentIds: [linkedDocumentIds[0]] },
+    reason: "Document réutilisé sans copie", actorUid: adminUid
+  });
+  assert.deepEqual((await getDoc(doc(db, "sourceDocuments", "lot6-official-source-second"))).data().data.documentIds, [linkedDocumentIds[0]],
+    "un document existant peut être référencé par plusieurs sources indépendantes");
+  assert.deepEqual((await getDoc(doc(db, "documents", linkedDocumentIds[0]))).data(), { title: "Document de bibliothèque 1", type: "Acte de naissance" },
+    "la création et la révision des sources ne copient ni ne modifient la fiche/fichier Documents");
   await expectDenied(updateDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"), { data: { title: "effacée" } }));
   await store.createOfficial({
     type: "conclusion", id: "lot6-official-conclusion", revisionId: "lot6-conclusion-revision",

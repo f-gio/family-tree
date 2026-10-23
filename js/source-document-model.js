@@ -87,6 +87,7 @@ export function createSourceDocument({ id, ...metadata } = {}) {
   const languages = copyArray(metadata.languages);
   const archivalReferences = copyArray(metadata.archivalReferences);
   const personIds = copyArray(metadata.personIds);
+  const documentIds = Array.isArray(metadata.documentIds) ? [...new Set(metadata.documentIds)] : metadata.documentIds === undefined ? [] : metadata.documentIds;
   const pages = copyArray(metadata.pages);
   return {
     ...metadata,
@@ -107,6 +108,7 @@ export function createSourceDocument({ id, ...metadata } = {}) {
     researchNotes: metadata.researchNotes ?? "",
     status: metadata.status ?? "active",
     personIds,
+    documentIds,
     pages
   };
 }
@@ -233,6 +235,11 @@ export function validateSourceDocument(document) {
   if (!SOURCE_DOCUMENT_STATES.includes(document.status)) errors.push("status doit être active ou archived");
   if (!Array.isArray(document.languages) || document.languages.some(value => typeof value !== "string" || !value.trim())) errors.push("languages doit être un tableau de chaînes non vides");
   if (!Array.isArray(document.personIds) || document.personIds.some(value => typeof value !== "string" || !value.trim())) errors.push("personIds doit être un tableau d'identifiants non vides");
+  if (document.documentIds !== undefined && (!Array.isArray(document.documentIds)
+    || document.documentIds.some(value => typeof value !== "string" || !value.trim())
+    || new Set(document.documentIds).size !== document.documentIds.length)) {
+    errors.push("documentIds doit être un tableau d'identifiants de documents uniques et non vides");
+  }
   if (!Array.isArray(document.archivalReferences)) errors.push("archivalReferences doit être un tableau");
   else document.archivalReferences.forEach((reference, index) => {
     if (!reference || typeof reference !== "object" || Array.isArray(reference) || typeof reference.value !== "string") {

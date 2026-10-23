@@ -108,6 +108,7 @@ let genealogyRecords = {
 let genealogyLoaded = false;
 let genealogyCollectionErrors = new Map();
 let genealogyCollectionsLoaded = new Set();
+let selectedGenealogySourceDocumentIds = new Set();
 let treeMetadata = [];
 let activeTreeId = MAIN_TREE_ID;
 let treeCatalogState = "idle";
@@ -3544,6 +3545,20 @@ function renderDocuments() {
   $("documentsList").innerHTML = filtered.length ? filtered.map(item => {
     const compactPlace = formatCompactPlace(item.place, item.placeInfo);
     const label = documentDisplayLabel(item);
+    const sourceDocumentsLoaded = genealogyCollectionsLoaded.has("sourceDocuments");
+    const sourceDocumentsUnavailable = genealogyCollectionErrors.has("sourceDocuments");
+    const linkedSources = sourceDocumentsLoaded ? genealogyRecords.sourceDocuments.filter(source => {
+      const sourceData = genealogyRecordData(source);
+      return Array.isArray(sourceData.documentIds) && sourceData.documentIds.includes(item.id);
+    }) : [];
+    const linkedSourcesMarkup = sourceDocumentsLoaded
+      ? `<div class="document-source-associations"><strong>Sources officielles</strong>${linkedSources.length
+        ? `<ul>${linkedSources.map(source => {
+          const sourceData = genealogyRecordData(source);
+          return `<li><button class="btn small" type="button" data-open-document-source="${esc(source.id)}">${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</button></li>`;
+        }).join("")}</ul>`
+        : `<p class="list-optional">Aucune source officielle ne référence ce document.</p>`}</div>`
+      : sourceDocumentsUnavailable ? `<p class="list-optional">Les sources associées ne sont pas disponibles actuellement.</p>` : "";
     const renditionStatus = item.compressed || item.mimeType === "image/webp"
       ? "Image historique optimisée (WebP) · pas un original"
       : item.chunkCount || item.fileData ? "Fichier historique · original non vérifié" : "Référence externe";
@@ -3553,7 +3568,7 @@ function renderDocuments() {
       { key: "edit", label: "Modifier", icon: "edit" },
       { key: "delete", label: "Supprimer", icon: "trash", danger: true }
     ]);
-    return `<article class="content-card document-card" data-document-card="${item.id}" ${tileSemantics}><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(label)}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${compactPlace ? ` · ${esc(compactPlace)}` : ""}</p><div class="document-card-details"><p class="document-card-people">${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">${esc(renditionStatus)} · ${formatBytes(item.storedSize)}</p>` : `<p class="list-optional">${esc(renditionStatus)}</p>`}</div><div class="card-actions">${menu}</div></article>`;
+    return `<article class="content-card document-card" data-document-card="${item.id}" ${tileSemantics}><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(label)}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${compactPlace ? ` · ${esc(compactPlace)}` : ""}</p><div class="document-card-details"><p class="document-card-people">${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">${esc(renditionStatus)} · ${formatBytes(item.storedSize)}</p>` : `<p class="list-optional">${esc(renditionStatus)}</p>`}${linkedSourcesMarkup}</div><div class="card-actions">${menu}</div></article>`;
   }).join("") : (documents.length
     ? emptyState({ iconName: "document", title: "Aucun document trouvé", description: "Modifiez la recherche ou le type de document sélectionné." })
     : emptyState({ iconName: "document", title: "Aucun document", description: "Centralisez ici les actes, photos et autres archives familiales.", action: `<button class="btn primary" type="button" data-empty-add-document>${icon("plus")}<span>Ajouter un document</span></button>` }));
@@ -3696,10 +3711,11 @@ function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null) 
   const historyCollection = ({ source: "sourceRevisions", transcription: "transcriptionRevisions", proof: "genealogyProofRevisions", conclusion: "conclusionRevisions" })[kind];
   const history = historyCollection ? genealogyRecords[historyCollection].filter(revision => revision.objectId === id).map(revision => `<li>${esc(revision.id)} · ${esc(revision.createdAt || "date non renseignée")} · auteur ${esc(revision.authorUid || "inconnu")}</li>`).join("") : "";
   const historyBlock = history ? `<details><summary>Révisions historiques</summary><ol>${history}</ol></details>` : "";
+  const linkedDocumentsBlock = kind === "source" ? linkedSourceDocumentsMarkup(data) : "";
   const proofKinds = new Set(linkedProofs.map(proof => genealogyRecordData(proof).relation));
   const contradictionNotice = proofKinds.has("supports") && proofKinds.has("contradicts") ? `<p class="genealogy-status-badge">Des affirmations contradictoires sont associées à cet élément.</p>` : "";
   const proofList = linkedProofs.length ? `<section><h4>Preuves liées (${linkedProofs.length})</h4>${contradictionNotice}${linkedProofs.map(proof => `<button class="btn small" type="button" data-open-genealogy="proof" data-genealogy-id="${esc(proof.id)}">${esc(genealogyRecordData(proof).factType || genealogyRecordData(proof).factId || proof.id)} · ${esc(genealogyRecordData(proof).relation || "mention")} · ${esc(genealogyRecordData(proof).technicalStatus || "active")}</button>`).join(" ")}</section>` : "";
-  $("genealogyItemContent").innerHTML = `<div class="genealogy-detail-grid">${photo}${transcript}</div><p class="card-meta">État technique : ${esc(data.technicalStatus || data.status || "non précisé")} · Les conclusions n'altèrent pas les faits de l'arbre.</p>${historyBlock}${proofList}`;
+  $("genealogyItemContent").innerHTML = `<div class="genealogy-detail-grid">${photo}${transcript}</div>${linkedDocumentsBlock}<p class="card-meta">État technique : ${esc(data.technicalStatus || data.status || "non précisé")} · Les conclusions n'altèrent pas les faits de l'arbre.</p>${historyBlock}${proofList}`;
   $("genealogyItemDialog").showModal();
 }
 
@@ -3711,6 +3727,65 @@ function openGenealogyPage(pageId) {
 
 function createGenealogyId(collectionRef) {
   return doc(collectionRef).id;
+}
+
+function renderGenealogySourceDocumentSelection() {
+  const selectedIds = [...selectedGenealogySourceDocumentIds];
+  $("genealogySourceDocumentSelectionEmpty").hidden = selectedIds.length > 0;
+  $("genealogySourceDocumentSelection").innerHTML = selectedIds.map(id => {
+    const item = documents.find(value => value.id === id);
+    const label = item ? documentDisplayLabel(item) : `Référence introuvable · ${id}`;
+    return `<span class="source-document-selection-item${item ? "" : " is-missing"}"><span>${esc(label)}</span><button type="button" data-remove-genealogy-source-document="${esc(id)}" aria-label="Retirer ${esc(label)} de la source">×</button></span>`;
+  }).join("");
+}
+
+function renderGenealogySourceDocumentPicker() {
+  const picker = $("genealogySourceDocumentPicker");
+  if (!picker) return;
+  const active = $("genealogyContributionDialog").dataset.official === "true"
+    && $("genealogyContributionType").value === "source";
+  picker.hidden = !active;
+  if (!active) return;
+
+  const queryText = searchable($("genealogySourceDocumentSearch").value.trim());
+  const matches = documents.filter(item => searchable(`${item.title || ""} ${item.fileName || ""}`).includes(queryText));
+  const emptyMessage = $("genealogySourceDocumentEmpty");
+  if (!documents.length) {
+    emptyMessage.textContent = "Aucun document n’est disponible. Vous pourrez enregistrer la source sans document associé, ou ajouter un document dans la bibliothèque.";
+    emptyMessage.hidden = false;
+  } else if (!matches.length) {
+    emptyMessage.textContent = "Aucun document ne correspond à cette recherche.";
+    emptyMessage.hidden = false;
+  } else {
+    emptyMessage.textContent = "";
+    emptyMessage.hidden = true;
+  }
+
+  $("genealogySourceDocumentOptions").innerHTML = matches.map(item => {
+    const label = documentDisplayLabel(item);
+    const details = [item.type || item.fileName || "Document", item.date || ""].filter(Boolean).join(" · ");
+    return `<label class="source-document-option"><input type="checkbox" data-genealogy-source-document="${esc(item.id)}"${selectedGenealogySourceDocumentIds.has(item.id) ? " checked" : ""}><span class="source-document-option-details"><strong>${esc(label)}</strong><small>${esc(details)}</small></span></label>`;
+  }).join("");
+  renderGenealogySourceDocumentSelection();
+}
+
+function linkedSourceDocumentsMarkup(sourceData) {
+  const documentIds = [...new Set(Array.isArray(sourceData.documentIds)
+    ? sourceData.documentIds.filter(id => typeof id === "string" && id.trim())
+    : [])];
+  if (!documentIds.length) return `<section class="genealogy-linked-documents"><h4>Documents de la bibliothèque</h4><p>Aucun document associé à cette source.</p></section>`;
+  if (!loadedDocuments) return `<section class="genealogy-linked-documents"><h4>Documents de la bibliothèque</h4><p>Chargement des documents associés…</p></section>`;
+  const links = documentIds.map(id => {
+    const item = documents.find(documentItem => documentItem.id === id);
+    if (!item) return `<li class="source-document-reference-missing"><strong>Document référencé introuvable</strong><span>Référence : ${esc(id)}</span></li>`;
+    const label = documentDisplayLabel(item);
+    const canOpen = !!(item.chunkCount || item.fileData || item.fileUrl || item.externalUrl);
+    const action = canOpen
+      ? `<button class="btn small" type="button" data-source-document-open="${esc(id)}">Consulter</button>`
+      : `<span class="card-meta">Fiche trouvée, aucun fichier ou lien consultable n’est associé.</span>`;
+    return `<li><span><strong>${esc(label)}</strong><small>${esc(item.type || item.fileName || "Document")}</small></span>${action}</li>`;
+  }).join("");
+  return `<section class="genealogy-linked-documents"><h4>Documents de la bibliothèque (${documentIds.length})</h4><ul>${links}</ul></section>`;
 }
 
 function updateGenealogyContributionPresentation() {
@@ -3727,6 +3802,7 @@ function updateGenealogyContributionPresentation() {
     revise: dialog.dataset.revision === "true",
     type: $("genealogyContributionType").value
   });
+  renderGenealogySourceDocumentPicker();
 }
 
 function openGenealogyContribution({ official = false, reviseItem = null } = {}) {
@@ -3743,6 +3819,9 @@ function openGenealogyContribution({ official = false, reviseItem = null } = {})
   const kindMap = { source: "source", transcription: "transcription", proof: "proof", conclusion: "conclusion" };
   $("genealogyContributionType").value = reviseItem ? (kindMap[reviseItem.kind] || "source") : "source";
   $("genealogyContributionTarget").value = reviseItem?.record.id || "";
+  selectedGenealogySourceDocumentIds = new Set(Array.isArray(reviseItem?.data?.documentIds)
+    ? reviseItem.data.documentIds.filter(documentId => typeof documentId === "string" && documentId.trim())
+    : []);
   $("genealogyContributionDialog").dataset.official = String(officialMode);
   $("genealogyContributionDialog").dataset.revision = String(!!reviseItem);
   updateGenealogyContributionPresentation();
@@ -3787,7 +3866,10 @@ async function saveGenealogyContribution(event) {
       if (revise && !currentHead) throw new Error("La donnée officielle à réviser n'est plus disponible.");
       let officialData;
       if (type === "source") {
-        officialData = createSourceDocument({ ...payload, id: officialId, title: payload.title || title });
+        officialData = createSourceDocument({
+          ...payload, id: officialId, title: payload.title || title,
+          documentIds: [...selectedGenealogySourceDocumentIds]
+        });
       } else if (type === "transcription") {
         officialData = createPageTextRevision({ ...payload, id: revisionId, previousRevisionId: revise ? currentHead.revisionId : null, authorUid: actorUid, changedAt: new Date().toISOString(), justification: payload.justification || title });
       } else if (type === "proof") {
@@ -5271,6 +5353,7 @@ function startData() {
     loadedDocuments = true;
     syncState();
     updateReadyViews();
+    renderGenealogySourceDocumentPicker();
   }, dataError));
   unsubs.push(onSnapshot(refs.tasks, snapshot => {
     tasks = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
@@ -5296,10 +5379,12 @@ function startData() {
       genealogyCollectionErrors.delete(collectionName);
       genealogyLoaded = genealogyCollectionsLoaded.size === genealogyCollections.length;
       renderGenealogyWorkspace();
+      if (collectionName === "sourceDocuments" && loadedPeople && loadedDocuments) renderDocuments();
     }, error => {
       console.error(`Chargement de ${collectionName} impossible`, error);
       genealogyCollectionErrors.set(collectionName, describeFirestoreReadError(error));
       renderGenealogyWorkspace();
+      if (collectionName === "sourceDocuments" && loadedPeople && loadedDocuments) renderDocuments();
     }));
   }
 }
@@ -5604,6 +5689,11 @@ document.addEventListener("keydown", event => {
 });
 
 $("documentsList").onclick = event => {
+  const sourceLink = event.target.closest("[data-open-document-source]");
+  if (sourceLink) {
+    openGenealogyItem("source", sourceLink.dataset.openDocumentSource);
+    return;
+  }
   const tile = event.target.closest(".document-card[data-document-card][data-document-openable='true']");
   if (!tile || event.target.closest("button, a, input, select, textarea, summary, .tile-context-actions")) return;
   const item = documents.find(value => value.id === tile.dataset.documentCard);
@@ -5977,6 +6067,15 @@ document.addEventListener("click", event => {
   if (button) openGenealogyItem(button.dataset.openGenealogy, button.dataset.genealogyId);
 });
 $("genealogyItemContent").addEventListener("click", event => {
+  const linkedDocumentButton = event.target.closest("[data-source-document-open]");
+  if (linkedDocumentButton) {
+    const linkedDocument = documents.find(item => item.id === linkedDocumentButton.dataset.sourceDocumentOpen);
+    if (!linkedDocument) return toast("Le document référencé n’est plus disponible.", "error");
+    if (!(linkedDocument.chunkVersion && linkedDocument.chunkCount) && !linkedDocument.fileData && !linkedDocument.fileUrl && !linkedDocument.externalUrl) {
+      return toast("La fiche existe, mais aucun fichier ou lien consultable n’y est associé.", "error");
+    }
+    return openStoredDocument(linkedDocument);
+  }
   const pageButton = event.target.closest("[data-genealogy-page]");
   if (pageButton) return openGenealogyPage(pageButton.dataset.genealogyPage);
   const zoomButton = event.target.closest("[data-genealogy-zoom]");
@@ -6010,6 +6109,20 @@ $("genealogyItemContent").addEventListener("click", event => {
 });
 $("genealogyContributionForm").addEventListener("submit", event => runSafely(() => saveGenealogyContribution(event), "Enregistrement de proposition impossible"));
 $("genealogyContributionType").addEventListener("change", updateGenealogyContributionPresentation);
+$("genealogySourceDocumentSearch").addEventListener("input", renderGenealogySourceDocumentPicker);
+$("genealogySourceDocumentOptions").addEventListener("change", event => {
+  const checkbox = event.target.closest("[data-genealogy-source-document]");
+  if (!checkbox) return;
+  if (checkbox.checked) selectedGenealogySourceDocumentIds.add(checkbox.dataset.genealogySourceDocument);
+  else selectedGenealogySourceDocumentIds.delete(checkbox.dataset.genealogySourceDocument);
+  renderGenealogySourceDocumentSelection();
+});
+$("genealogySourceDocumentSelection").addEventListener("click", event => {
+  const removeButton = event.target.closest("[data-remove-genealogy-source-document]");
+  if (!removeButton) return;
+  selectedGenealogySourceDocumentIds.delete(removeButton.dataset.removeGenealogySourceDocument);
+  renderGenealogySourceDocumentPicker();
+});
 $("genealogyProposeBtn").onclick = () => openGenealogyContribution();
 $("genealogyOfficialBtn").onclick = () => openGenealogyContribution({ official: true });
 $("genealogyProposeProofForPersonBtn").onclick = () => {
