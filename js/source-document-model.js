@@ -369,3 +369,21 @@ export function searchLinkedDocuments(documents = [], query = "") {
     [item?.title, item?.fileName, item?.type].filter(value => typeof value === "string" && value.trim()).join(" ")
   ).includes(needle));
 }
+
+export function resolveSourceDocumentLinks(sourceData, documents = []) {
+  if (!Array.isArray(documents)) throw new TypeError("documents doit être un tableau");
+  const ids = [...new Set(Array.isArray(sourceData?.documentIds)
+    ? sourceData.documentIds.filter(id => typeof id === "string" && id.trim())
+    : [])];
+  return ids.map(id => {
+    const item = documents.find(documentItem => documentItem?.id === id) || null;
+    if (!item) return { id, missing: true, label: "", type: "", canOpen: false };
+    return {
+      id,
+      missing: false,
+      label: String(item.title || "").trim() || String(item.type || "").trim() || String(item.fileName || "").trim() || "Document",
+      type: String(item.type || "").trim() || String(item.fileName || "").trim() || "Document",
+      canOpen: !!(item.chunkCount || item.fileData || item.fileUrl || item.externalUrl)
+    };
+  });
+}

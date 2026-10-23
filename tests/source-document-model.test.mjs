@@ -10,6 +10,7 @@ import {
   findExactPhotographDuplicates,
   normalizeSourceDocumentSearchText,
   reorderDocumentPages,
+  resolveSourceDocumentLinks,
   searchLinkedDocuments,
   SOURCE_DOCUMENT_PICKER_PAGE_SIZE,
   validateDocumentDateInfo,
@@ -123,6 +124,33 @@ test("la recherche couvre aussi le titre de la fiche sans nom de fichier", () =>
   const documents = [{ id: "recit", title: "Récit oral de Lucie", type: "Source narrative" }];
   assert.deepEqual(searchLinkedDocuments(documents, "lucie").map(item => item.id), ["recit"]);
   assert.deepEqual(searchLinkedDocuments(documents, "source narrative").map(item => item.id), ["recit"]);
+});
+
+test("les liaisons d'une source résolument titre, type et disponibilité, sans inventer de fichier", () => {
+  const documents = [
+    { id: "d-chunks", title: "Acte de mariage Molinari", fileName: "mariage.jpg", type: "Mariage", chunkCount: 3 },
+    { id: "d-url", fileName: "bapteme.png", fileUrl: "https://example.invalid/bapteme.png" },
+    { id: "d-ora", title: "Carnet manuscrit" },
+    { id: "d-data", fileData: "data:image/jpeg;base64,AAAA" }
+  ];
+
+  assert.deepEqual(resolveSourceDocumentLinks(createSourceDocument({ id: "sans-liens" }), documents), [], "source sans document");
+
+  const unique = resolveSourceDocumentLinks(createSourceDocument({ id: "s1", documentIds: ["d-chunks"] }), documents);
+  assert.deepEqual(unique, [{ id: "d-chunks", missing: false, label: "Acte de mariage Molinari", type: "Mariage", canOpen: true }]);
+
+  const plusieurDocs = resolveSourceDocumentLinks({ documentIds: ["d-url", "d-url", "d-data", "ref-fantome"] }, documents);
+  assert.equal(plusieurDocs.length, 3, "les doublons sont dédupliqués et chaque référence est résolue");
+  assert.equal(plusieurDocs[0].canOpen, true);
+  assert.equal(plusieurDocs[1].canOpen, true);
+  assert.deepEqual(plusieurDocs[2], { id: "ref-fantome", missing: true, label: "", type: "", canOpen: false });
+
+  assert.deepEqual(resolveSourceDocumentLinks({ documentIds: ["d-ora"] }, documents),
+    [{ id: "d-ora", missing: false, label: "Carnet manuscrit", type: "Document", canOpen: false }],
+    "fiche liée sans fichier ni lien : aucune disponibilité inventée");
+  assert.deepEqual(resolveSourceDocumentLinks({ documentIds: ["d-chunks"] }, []),
+    [{ id: "d-chunks", missing: true, label: "", type: "", canOpen: false }],
+    "référence non résolue dans le snapshot fourni : signalée, jamais inventée ; l'application affiche son écran de chargement tant que la bibliothèque n'est pas chargée");
 });
 
 test("dates documentaires acceptent année, mois, approximation, période et inconnue", () => {

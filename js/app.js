@@ -29,7 +29,7 @@ import { TRANSFER_DIAGNOSTIC_STAGES, resolveTransferDiagnosticEnabled, buildTran
 import { createGenealogyCollaborationStore } from "./genealogy-collaboration-firestore.js";
 import { createGenealogyProof, validateGenealogyProof } from "./genealogy-proofs.js";
 import { createConclusionRevision, createConclusionHead } from "./fact-conclusions.js";
-import { createSourceDocument, searchLinkedDocuments, SOURCE_DOCUMENT_PICKER_PAGE_SIZE } from "./source-document-model.js";
+import { createSourceDocument, resolveSourceDocumentLinks, searchLinkedDocuments, SOURCE_DOCUMENT_PICKER_PAGE_SIZE } from "./source-document-model.js";
 import { createPageTextRevision } from "./document-transcription.js";
 import { BACKUP_ARCHIVE_VERSION, createBackupArchiveManifest, compareBackupCaptureMarkers, generateBackupZip, readBackupZip, prepareBackupRestorePlan } from "./backup-archive.js";
 
@@ -3691,9 +3691,8 @@ function genealogyExcerpt(value, max = 200) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-function genealogyPersonListText(personIds) {
-  const names = (Array.isArray(personIds) ? personIds : []).map(personId => nameOf(personId)).filter(Boolean);
-  return names.length ? `Personnes concernées : ${names.join(", ")}` : "";
+function genealogyPersonNames(personIds) {
+  return (Array.isArray(personIds) ? personIds : []).map(personId => nameOf(personId)).filter(Boolean);
 }
 
 function genealogyEntryBits(item) {
@@ -3715,8 +3714,8 @@ function genealogyEntryBits(item) {
     const dateLabel = formatGenealogyDate(data.dateInfo, data.date);
     if (dateLabel && dateLabel !== "-") bits.push(`Date : ${dateLabel}`);
     if (data.placeOrTerritory) bits.push(`Lieu : ${data.placeOrTerritory}`);
-    const peopleText = genealogyPersonListText(data.personIds);
-    if (peopleText) bits.push(peopleText);
+    const peopleNames = genealogyPersonNames(data.personIds);
+    if (peopleNames.length) bits.push(`Personnes concernées : ${peopleNames.join(", ")}`);
     const documentsText = genealogyLinkedDocumentsText(data.documentIds);
     if (documentsText) bits.push(documentsText);
     const observations = data.researchNotes || data.notes || data.description;
@@ -3753,8 +3752,8 @@ function genealogyEntryBits(item) {
     const revision = data.revision || {};
     if (GENEALOGY_CONCLUSION_STATUS_LABELS[revision.status]) bits.push(`Conclusion ${GENEALOGY_CONCLUSION_STATUS_LABELS[revision.status].toLowerCase()}`);
     if (revision.subjectKind === "person") {
-      const peopleText = genealogyPersonListText([revision.subjectId]);
-      if (peopleText) bits.push(peopleText);
+      const peopleNames = genealogyPersonNames([revision.subjectId]);
+      if (peopleNames.length) bits.push(`Personnes concernées : ${peopleNames.join(", ")}`);
     }
     if (typeof revision.retainedValue === "string" && revision.retainedValue.trim()) bits.push(`Valeur retenue : ${genealogyExcerpt(revision.retainedValue)}`);
     else if (typeof revision.retainedValue === "number") bits.push(`Valeur retenue : ${revision.retainedValue}`);
@@ -3898,11 +3897,12 @@ function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null) 
   const imageAvailable = imageCandidate.startsWith("data:image/") || imageCandidate.startsWith("blob:");
   const photoSelectors = photoRecords.length > 1 ? `<div class="genealogy-inline-actions" aria-label="Photographies de la page">${photoRecords.map((photoItem, index) => `<button class="btn small${photoItem.id === selectedPhoto?.id ? " primary" : ""}" type="button" data-genealogy-photo="${esc(photoItem.id)}">Photo ${index + 1}${photoItem.preview ? " · aperçu" : photoItem.original ? " · original référencé" : ""}</button>`).join("")}</div>` : "";
   const zoomTools = imageAvailable ? `<div class="genealogy-inline-actions"><button class="btn small" type="button" data-genealogy-zoom="out">Zoom −</button><button class="btn small" type="button" data-genealogy-zoom="reset">Réinitialiser</button><button class="btn small" type="button" data-genealogy-zoom="in">Zoom +</button></div>` : "";
-  const photo = `<section>${pageNavigation}<div class="genealogy-photo-panel">${imageAvailable
+  const photo = pages.length ? `<section>${pageNavigation}<div class="genealogy-photo-panel">${imageAvailable
     ? `<img id="genealogyPageImage" style="transform:scale(${genealogyZoom})" src="${esc(imageCandidate)}" alt="${selectedPhoto?.preview?.dataUrl ? "Aperçu" : "Image locale"} — ${esc(page?.label || "page")}">`
-    : `<p>${photoRecords.length ? "Les photos sont référencées, mais leur stockage durable n’est pas disponible dans cette application." : "Aucune photographie n’est associée à cette page."}</p>`}</div>${photoSelectors}${zoomTools}</section>`;
+    : `<p>${photoRecords.length ? "Les photos sont référencées, mais leur stockage durable n’est pas disponible dans cette application." : "Aucune photographie n’est associée à cette page."}</p>`}</div>${photoSelectors}${zoomTools}</section>`
+    : kind === "source" ? "" : `<section><div class="genealogy-photo-panel"><p>Aucune photographie n’est associée à cette page.</p></div></section>`;
   const passageNavigation = passages.length > 1 ? `<nav class="genealogy-inline-actions" aria-label="Navigation entre les passages">${passages.map((passage, index) => `<button class="btn small" type="button" data-genealogy-passage="passage-${index}">Passage ${index + 1}</button>`).join("")}</nav>` : "";
-  const transcript = passages.length ? `<section class="genealogy-transcript-panel"><h4>Transcription italienne et traduction française</h4>${passageNavigation}${passages.map((passage, index) => `<article id="passage-${index}" class="genealogy-passage" data-review="${passage.unreadable || (passage.hypotheses || []).length ? "true" : "false"}"><strong>Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</strong><p>${esc(passage.textIt || "Lecture indéchiffrable")}</p>${passage.translationFr ? `<p>${esc(passage.translationFr)}</p>` : `<p class="card-meta">Traduction non disponible</p>`}${(passage.hypotheses || []).map(hypothesis => `<p class="card-meta">Hypothèse (${esc(hypothesis.confidence || "unknown")}): ${esc(hypothesis.text || "")}${hypothesis.note ? ` · ${esc(hypothesis.note)}` : ""}</p>`).join("")}<button class="btn small" type="button" data-genealogy-passage-propose="${index}">Proposer une preuve sur ce passage</button></article>`).join("")}</section>` : `<section class="genealogy-transcript-panel"><p>Pas de transcription disponible pour cette version.</p>${JSON.stringify(data) !== "{}" ? `<pre>${esc(JSON.stringify(data, null, 2))}</pre>` : ""}</section>`;
+  const transcript = passages.length ? `<section class="genealogy-transcript-panel"><h4>Transcription italienne et traduction française</h4>${passageNavigation}${passages.map((passage, index) => `<article id="passage-${index}" class="genealogy-passage" data-review="${passage.unreadable || (passage.hypotheses || []).length ? "true" : "false"}"><strong>Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</strong><p>${esc(passage.textIt || "Lecture indéchiffrable")}</p>${passage.translationFr ? `<p>${esc(passage.translationFr)}</p>` : `<p class="card-meta">Traduction non disponible</p>`}${(passage.hypotheses || []).map(hypothesis => `<p class="card-meta">Hypothèse (${esc(hypothesis.confidence || "unknown")}): ${esc(hypothesis.text || "")}${hypothesis.note ? ` · ${esc(hypothesis.note)}` : ""}</p>`).join("")}<button class="btn small" type="button" data-genealogy-passage-propose="${index}">Proposer une preuve sur ce passage</button></article>`).join("")}</section>` : `<section class="genealogy-transcript-panel"><h4>Transcription italienne et traduction française</h4><p>${kind === "source" ? "Aucune transcription n’est rattachée à cette source." : "Pas de transcription disponible pour cette version."}</p>${kind !== "source" && JSON.stringify(data) !== "{}" ? `<pre>${esc(JSON.stringify(data, null, 2))}</pre>` : ""}</section>`;
   const linkedProofs = genealogyRecords.genealogyProofs.filter(proof => {
     const proofData = genealogyRecordData(proof);
     return proofData.documentId === id || proofData.documentId === source?.id || proofData.documentId === relatedDocumentId || proofData.transcriptionRevisionId === record.id || proofData.transcriptionRevisionId === transcriptionRevision?.id;
@@ -3913,8 +3913,12 @@ function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null) 
   const linkedDocumentsBlock = kind === "source" ? linkedSourceDocumentsMarkup(data) : "";
   const proofKinds = new Set(linkedProofs.map(proof => genealogyRecordData(proof).relation));
   const contradictionNotice = proofKinds.has("supports") && proofKinds.has("contradicts") ? `<p class="genealogy-status-badge">Des affirmations contradictoires sont associées à cet élément.</p>` : "";
-  const proofList = linkedProofs.length ? `<section><h4>Preuves liées (${linkedProofs.length})</h4>${contradictionNotice}${linkedProofs.map(proof => `<button class="btn small" type="button" data-open-genealogy="proof" data-genealogy-id="${esc(proof.id)}">${esc(genealogyRecordData(proof).factType || genealogyRecordData(proof).factId || proof.id)} · ${esc(genealogyRecordData(proof).relation || "mention")} · ${esc(genealogyRecordData(proof).technicalStatus || "active")}</button>`).join(" ")}</section>` : "";
-  $("genealogyItemContent").innerHTML = `<div class="genealogy-detail-grid">${photo}${transcript}</div>${linkedDocumentsBlock}<p class="card-meta">État technique : ${esc(data.technicalStatus || data.status || "non précisé")} · Les conclusions n'altèrent pas les faits de l'arbre.</p>${historyBlock}${proofList}`;
+  const sourceFactsBlock = kind === "source" ? sourceDetailFactsMarkup(data) : "";
+  const proofList = linkedProofs.length ? `<section><h4>Preuves liées (${linkedProofs.length})</h4>${contradictionNotice}${linkedProofs.map(proof => `<button class="btn small" type="button" data-open-genealogy="proof" data-genealogy-id="${esc(proof.id)}">${esc(genealogyRecordData(proof).factType || genealogyRecordData(proof).factId || proof.id)} · ${esc(genealogyRecordData(proof).relation || "mention")} · ${esc(genealogyRecordData(proof).technicalStatus || "active")}</button>`).join(" ")}</section>`
+    : `<section><h4>Preuves liées</h4><p>Aucune preuve n’est rattachée à cet élément.</p></section>`;
+  $("genealogyItemContent").innerHTML = kind === "source"
+    ? `${sourceFactsBlock}${linkedDocumentsBlock}<div class="genealogy-detail-grid">${photo}${transcript}</div><p class="card-meta">État technique : ${esc(data.technicalStatus || data.status || "non précisé")} · Les conclusions n'altèrent pas les faits de l'arbre.</p>${historyBlock}${proofList}`
+    : `<div class="genealogy-detail-grid">${photo}${transcript}</div>${linkedDocumentsBlock}<p class="card-meta">État technique : ${esc(data.technicalStatus || data.status || "non précisé")} · Les conclusions n'altèrent pas les faits de l'arbre.</p>${historyBlock}${proofList}`;
   $("genealogyItemDialog").showModal();
 }
 
@@ -3978,22 +3982,46 @@ function renderGenealogySourceDocumentPicker() {
 }
 
 function linkedSourceDocumentsMarkup(sourceData) {
-  const documentIds = [...new Set(Array.isArray(sourceData.documentIds)
-    ? sourceData.documentIds.filter(id => typeof id === "string" && id.trim())
-    : [])];
-  if (!documentIds.length) return `<section class="genealogy-linked-documents"><h4>Documents de la bibliothèque</h4><p>Aucun document associé à cette source.</p></section>`;
-  if (!loadedDocuments) return `<section class="genealogy-linked-documents"><h4>Documents de la bibliothèque</h4><p>Chargement des documents associés…</p></section>`;
-  const links = documentIds.map(id => {
-    const item = documents.find(documentItem => documentItem.id === id);
-    if (!item) return `<li class="source-document-reference-missing"><strong>Document référencé introuvable</strong><span>Référence : ${esc(id)}</span></li>`;
-    const label = documentDisplayLabel(item);
-    const canOpen = !!(item.chunkCount || item.fileData || item.fileUrl || item.externalUrl);
-    const action = canOpen
-      ? `<button class="btn small" type="button" data-source-document-open="${esc(id)}">Consulter</button>`
-      : `<span class="card-meta">Fiche trouvée, aucun fichier ou lien consultable n’est associé.</span>`;
-    return `<li><span><strong>${esc(label)}</strong><small>${esc(item.type || item.fileName || "Document")}</small></span>${action}</li>`;
-  }).join("");
-  return `<section class="genealogy-linked-documents"><h4>Documents de la bibliothèque (${documentIds.length})</h4><ul>${links}</ul></section>`;
+  const links = resolveSourceDocumentLinks(sourceData, documents);
+  if (!links.length) return `<section class="genealogy-linked-documents"><h4>Documents associés</h4><p>Aucun document de la bibliothèque n’est associé à cette source.</p></section>`;
+  if (!loadedDocuments) return `<section class="genealogy-linked-documents"><h4>Documents associés</h4><p>Chargement des documents associés…</p></section>`;
+  const items = links.map(link => link.missing
+    ? `<li class="source-document-reference-missing"><strong>Document référencé introuvable</strong><span>Référence : ${esc(link.id)}</span></li>`
+    : `<li><span><strong>${esc(link.label)}</strong><small>${esc(link.type)} · ${esc(link.canOpen ? "Fichier disponible" : "Fiche sans fichier consultable")}</small></span>${link.canOpen
+      ? `<button class="btn small" type="button" data-source-document-open="${esc(link.id)}">Consulter l’original</button>`
+      : `<span class="card-meta">Fiche trouvée, aucun fichier ou lien consultable n’est associé.</span>`}</li>`);
+  return `<section class="genealogy-linked-documents"><h4>Documents associés (${links.length})</h4><ul>${items.join("")}</ul></section>`;
+}
+
+function sourceDetailFactsMarkup(data) {
+  const facts = [];
+  const addFact = (label, raw) => {
+    const text = typeof raw === "string" || typeof raw === "number" ? String(raw).trim() : "";
+    if (text) facts.push(`<div class="source-detail-fact"><strong>${esc(label)}</strong><span>${esc(text)}</span></div>`);
+  };
+  const statusLabel = GENEALOGY_DATA_STATUS_LABELS[data.status] || data.status;
+  if (statusLabel) addFact("Statut", statusLabel);
+  addFact("Type ou catégorie", data.category);
+  const dateLabel = formatGenealogyDate(data.dateInfo, data.date);
+  if (dateLabel && dateLabel !== "-") facts.push(`<div class="source-detail-fact"><strong>Date</strong><span>${esc(dateLabel)}</span></div>`);
+  addFact("Lieu", data.placeOrTerritory);
+  addFact("Institution de conservation", data.holdingOrganization);
+  addFact("Fonds ou série", data.fondsSeries);
+  addFact("Cote", data.cote);
+  addFact("Sous-cote", data.subCote);
+  (Array.isArray(data.languages) ? data.languages : []).forEach(language => {
+    if (typeof language === "string" && language.trim()) addFact("Langue", language);
+  });
+  (Array.isArray(data.archivalReferences) ? data.archivalReferences : []).forEach(reference => {
+    const value = typeof reference?.value === "string" ? reference.value.trim() : "";
+    if (value) facts.push(`<div class="source-detail-fact"><strong>${esc(reference.label || "Référence archivistique")}</strong><span>${esc(value)}</span></div>`);
+  });
+  const peopleNames = genealogyPersonNames(data.personIds);
+  if (peopleNames.length) facts.push(`<div class="source-detail-fact"><strong>Personnes concernées</strong><span>${esc(peopleNames.join(", "))}</span></div>`);
+  const observations = data.researchNotes || data.notes || data.description;
+  if (observations) facts.push(`<div class="source-detail-fact source-detail-observations"><strong>Observations</strong><span>${esc(observations)}</span></div>`);
+  if (!facts.length) return `<section class="genealogy-source-facts"><h4>Informations de la source</h4><p class="card-meta">Les informations archivistiques de cette source ne sont pas encore renseignées.</p></section>`;
+  return `<section class="genealogy-source-facts"><h4>Informations de la source</h4><div class="source-detail-facts">${facts.join("")}</div></section>`;
 }
 
 function updateGenealogyContributionPresentation() {

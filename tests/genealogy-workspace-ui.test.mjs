@@ -118,7 +118,7 @@ test("les cartes Sources & preuves présentent un résumé humain sans JSON brut
 
   assert.match(app, /Catégorie : \$\{data\.category\}/);
   assert.match(app, /Conservé par |Cote : \$\{data\.cote\}/);
-  assert.match(app, /Personnes concernées : \$\{names\.join\(", "\)\}/);
+  assert.match(app, /Personnes concernées : \$\{peopleNames\.join\(", "\)\}/);
   assert.match(app, /Document référencé introuvable/);
   assert.match(app, /référence\$\{missing > 1 \? "s" : ""\} introuvable\$\{missing > 1 \? "s" : ""\} dans la bibliothèque chargée/);
   assert.match(app, /Chargement de la bibliothèque…/);
@@ -144,9 +144,44 @@ test("le sélecteur conserve et retire plusieurs documents dont le titre ou l'au
   assert.match(app, /openStoredDocument\(linkedDocument\)/);
 });
 
+test("la fiche détaillée d'une source présente des faits structurés sans JSON", () => {
+  const facts = app.match(/function sourceDetailFactsMarkup\(data\)[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(facts.length > 400, "la présentation détaillée des sources existe");
+  for (const label of ["Statut", "Type ou catégorie", "Date", "Lieu", "Institution de conservation", "Fonds ou série", "Cote", "Sous-cote", "Référence archivistique", "Personnes concernées", "Observations"]) {
+    assert.ok(facts.includes(`"${label}"`) || facts.includes(`>${label}</strong>`), `libellé de fiche source absent : ${label}`);
+  }
+  assert.doesNotMatch(facts, /JSON/);
+  assert.match(facts, /Les informations archivistiques de cette source ne sont pas encore renseignées/);
+  assert.match(app, /const sourceFactsBlock = kind === "source" \? sourceDetailFactsMarkup\(data\) : ""/);
+});
+
+test("la fiche détaillée évite le JSON et les photographies trompeuses pour les sources", () => {
+  assert.match(app, /kind !== "source" && JSON\.stringify\(data\) !== "\{\}" \? `<pre>/);
+  assert.match(app, /Aucune transcription n’est rattachée à cette source\./);
+  assert.match(app, /Aucune preuve n’est rattachée à cet élément\./);
+  assert.match(app, /: kind === "source" \? "" : `<section><div class="genealogy-photo-panel"><p>Aucune photographie n’est associée à cette page\.<\/p><\/div><\/section>`/);
+  assert.match(app, /\? `\$\{sourceFactsBlock\}\$\{linkedDocumentsBlock\}<div class="genealogy-detail-grid">/);
+});
+
+test("les documents associés d'une source sont mis en valeur avec consultation de l'original", () => {
+  for (const expected of [
+    "Documents associés (${links.length})",
+    "Aucun document de la bibliothèque n’est associé à cette source.",
+    "Consulter l’original",
+    "Fichier disponible",
+    "Fiche sans fichier consultable",
+    "Fiche trouvée, aucun fichier ou lien consultable n’est associé."
+  ]) assert.ok(app.includes(expected), `élément de la section documents absent : ${expected}`);
+  assert.match(app, /data-source-document-open="\$\{esc\(link\.id\)\}"/);
+  assert.match(css, /\.genealogy-linked-documents \{[\s\S]*?background: var\(--color-surface-muted\)/);
+  assert.match(css, /\.source-detail-facts \{/);
+  assert.match(css, /\.source-detail-fact \{/);
+  assert.match(css, /\.source-document-reference-missing \{/);
+});
+
 test("les deux espaces naviguent entre sources et documents, avec références absentes signalées", () => {
   assert.match(app, /function linkedSourceDocumentsMarkup\(sourceData\)/);
-  assert.match(app, /new Set\(Array\.isArray\(sourceData\.documentIds\)/);
+  assert.match(app, /resolveSourceDocumentLinks\(sourceData, documents\)/);
   assert.match(app, /Document référencé introuvable/);
   assert.match(app, /Fiche trouvée, aucun fichier ou lien consultable n’est associé/);
   assert.match(app, /const linkedDocumentsBlock = kind === "source" \? linkedSourceDocumentsMarkup\(data\) : ""/);
@@ -154,7 +189,7 @@ test("les deux espaces naviguent entre sources et documents, avec références a
   assert.match(app, /sourceData\.documentIds\.includes\(item\.id\)/);
   assert.match(app, /data-open-document-source="\$\{esc\(source\.id\)\}"/);
   assert.match(app, /openGenealogyItem\("source", sourceLink\.dataset\.openDocumentSource\)/);
-  assert.match(app, /data-source-document-open="\$\{esc\(id\)\}"/);
+  assert.match(app, /data-source-document-open="\$\{esc\(link\.id\)\}"/);
   assert.match(app, /openStoredDocument\(linkedDocument\)/);
   assert.match(app, /if \(collectionName === "sourceDocuments" && loadedPeople && loadedDocuments\) renderDocuments\(\)/);
 });
