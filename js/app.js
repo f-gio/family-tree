@@ -29,7 +29,7 @@ import { TRANSFER_DIAGNOSTIC_STAGES, resolveTransferDiagnosticEnabled, buildTran
 import { createGenealogyCollaborationStore } from "./genealogy-collaboration-firestore.js";
 import { createGenealogyProof, validateGenealogyProof } from "./genealogy-proofs.js";
 import { createConclusionRevision, createConclusionHead } from "./fact-conclusions.js";
-import { createSourceDocument } from "./source-document-model.js";
+import { createSourceDocument, searchLinkedDocuments, SOURCE_DOCUMENT_PICKER_PAGE_SIZE } from "./source-document-model.js";
 import { createPageTextRevision } from "./document-transcription.js";
 import { BACKUP_ARCHIVE_VERSION, createBackupArchiveManifest, compareBackupCaptureMarkers, generateBackupZip, readBackupZip, prepareBackupRestorePlan } from "./backup-archive.js";
 
@@ -109,6 +109,8 @@ let genealogyLoaded = false;
 let genealogyCollectionErrors = new Map();
 let genealogyCollectionsLoaded = new Set();
 let selectedGenealogySourceDocumentIds = new Set();
+let genealogySourceDocumentPagesShown = 1;
+let genealogySourceDocumentLastQuery = null;
 let treeMetadata = [];
 let activeTreeId = MAIN_TREE_ID;
 let treeCatalogState = "idle";
@@ -3600,6 +3602,196 @@ const genealogyKindLabels = {
   proof: "Preuve", conclusion: "Conclusion", proposal: "Proposition", event: "Historique", notification: "Notification"
 };
 
+const GENEALOGY_EVENT_TYPE_LABELS = Object.freeze({
+  "proposal.created": "Proposition créée",
+  "proposal.updated": "Proposition modifiée",
+  "proposal.submitted": "Proposition soumise",
+  "proposal.cancelled": "Proposition annulée",
+  "proposal.accepted": "Proposition acceptée",
+  "proposal.rejected": "Proposition refusée",
+  "source.created": "Source créée",
+  "source.revised": "Source révisée",
+  "transcription.revised": "Transcription révisée",
+  "proof.created": "Preuve créée",
+  "proof.revised": "Preuve révisée",
+  "proof.suspended": "Preuve suspendue",
+  "proof.reassessed": "Preuve réévaluée",
+  "conclusion.created": "Conclusion créée",
+  "conclusion.revised": "Conclusion révisée",
+  "proof.reexamination.required": "Réexamen de preuve demandé",
+  "conclusion.reexamination.required": "Réexamen de conclusion demandé"
+});
+
+const GENEALOGY_PROPOSAL_STATUS_LABELS = Object.freeze({
+  draft: "Brouillon", pending: "En attente de décision", accepted: "Acceptée", rejected: "Refusée", cancelled: "Annulée"
+});
+
+const GENEALOGY_PROPOSAL_TYPE_LABELS = Object.freeze({
+  source: "source", transcription: "transcription", correction: "correction", proof: "preuve"
+});
+
+const GENEALOGY_NOTIFICATION_TYPE_LABELS = Object.freeze({
+  "proposal-accepted": "Proposition acceptée",
+  "proposal-rejected": "Proposition refusée",
+  "proposal-submitted": "Proposition soumise pour avis",
+  "proof-reexamination": "Réexamen d’une preuve demandé",
+  "conclusion-reexamination": "Réexamen d’une conclusion demandé"
+});
+
+const GENEALOGY_RELATION_LABELS = Object.freeze({
+  supports: "Appuie", contradicts: "Contredit", mentions: "Mentionne", ambiguous: "Ambiguë"
+});
+
+const GENEALOGY_DATA_STATUS_LABELS = Object.freeze({
+  active: "Active", archived: "Archivée", suspended: "Suspendue", historical: "Historique"
+});
+
+const GENEALOGY_CONCLUSION_STATUS_LABELS = Object.freeze({
+  undetermined: "Indéterminée", provisional: "Provisoire", established: "Établie", disputed: "Contestée", reexamination_required: "À réexaminer"
+});
+
+function genealogyEventLabel(eventType) {
+  return GENEALOGY_EVENT_TYPE_LABELS[eventType] || "";
+}
+
+function genealogyCardTimestamp(record) {
+  const stamp = record?.updatedAt || record?.createdAt;
+  return stamp?.toDate ? stamp.toDate().toLocaleString("fr-FR") : "";
+}
+
+function genealogyActorLabel(uid) {
+  if (!uid) return "";
+  if (uid === auth.currentUser?.uid) return currentUserProfile?.displayName || "";
+  return adminUsersCache.find(item => item.id === uid)?.displayName || "";
+}
+
+function genealogyDocumentLabel(documentId) {
+  if (!documentId) return "";
+  const item = documents.find(value => value.id === documentId);
+  return item ? documentDisplayLabel(item) : "";
+}
+
+function genealogyLinkedDocumentsText(documentIds) {
+  const ids = [...new Set(Array.isArray(documentIds) ? documentIds.filter(id => typeof id === "string" && id.trim()) : [])];
+  if (!ids.length) return "";
+  if (!loadedDocuments) return "Documents associés : Chargement de la bibliothèque…";
+  const labels = ids.map(genealogyDocumentLabel);
+  const missing = labels.filter(label => !label).length;
+  const parts = [];
+  const known = labels.filter(Boolean);
+  if (known.length) {
+    parts.push(known.length > 3 ? `${known.slice(0, 3).join(", ")} et ${known.length - 3} autre${known.length - 3 > 1 ? "s" : ""}` : known.join(", "));
+  }
+  if (missing) parts.push(`${missing} référence${missing > 1 ? "s" : ""} introuvable${missing > 1 ? "s" : ""} dans la bibliothèque chargée`);
+  return parts.length ? `Documents associés : ${parts.join(" · ")}` : "";
+}
+
+function genealogyExcerpt(value, max = 200) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function genealogyPersonListText(personIds) {
+  const names = (Array.isArray(personIds) ? personIds : []).map(personId => nameOf(personId)).filter(Boolean);
+  return names.length ? `Personnes concernées : ${names.join(", ")}` : "";
+}
+
+function genealogyEntryBits(item) {
+  const { kind, record, data } = item;
+  if (kind === "source") {
+    const bits = [];
+    if (data.category) bits.push(`Catégorie : ${data.category}`);
+    const archival = [
+      data.holdingOrganization ? `Conservé par : ${data.holdingOrganization}` : "",
+      data.fondsSeries ? `Fonds : ${data.fondsSeries}` : "",
+      data.cote ? `Cote : ${data.cote}` : "",
+      data.subCote ? `Sous-cote : ${data.subCote}` : ""
+    ].filter(Boolean);
+    if (archival.length) bits.push(archival.join(" · "));
+    (Array.isArray(data.archivalReferences) ? data.archivalReferences : []).forEach(reference => {
+      const value = typeof reference?.value === "string" ? reference.value.trim() : "";
+      if (value) bits.push(`${reference.label || "Référence archivistique"} : ${value}`);
+    });
+    const dateLabel = formatGenealogyDate(data.dateInfo, data.date);
+    if (dateLabel && dateLabel !== "-") bits.push(`Date : ${dateLabel}`);
+    if (data.placeOrTerritory) bits.push(`Lieu : ${data.placeOrTerritory}`);
+    const peopleText = genealogyPersonListText(data.personIds);
+    if (peopleText) bits.push(peopleText);
+    const documentsText = genealogyLinkedDocumentsText(data.documentIds);
+    if (documentsText) bits.push(documentsText);
+    const observations = data.researchNotes || data.notes || data.description;
+    if (observations) bits.push(`Observations : ${genealogyExcerpt(observations, 240)}`);
+    return bits;
+  }
+  if (kind === "transcription") {
+    const bits = [];
+    const documentLabel = genealogyDocumentLabel(data.documentId);
+    if (documentLabel) bits.push(`Document : ${documentLabel}`);
+    const revisionData = data.revision || data;
+    const passages = revisionData.passages || [];
+    if (passages.length) {
+      bits.push(`${passages.length} passage${passages.length > 1 ? "s" : ""} transcrit${passages.length > 1 ? "s" : ""}`);
+      const first = passages[0];
+      bits.push(first?.textIt ? `Extrait : ${genealogyExcerpt(first.textIt)}` : "Lecture indéchiffrable pour le premier passage");
+    } else if (revisionData.textIt) bits.push(`Extrait : ${genealogyExcerpt(revisionData.textIt)}`);
+    return bits;
+  }
+  if (kind === "proof") {
+    const bits = [];
+    bits.push(`${GENEALOGY_RELATION_LABELS[data.relation] || data.relation || "Se rapporte à"}${data.factType ? ` le fait « ${data.factType} »` : ""}`);
+    const documentLabel = genealogyDocumentLabel(data.documentId);
+    if (documentLabel) bits.push(`Source : ${documentLabel}`);
+    if (typeof data.sourceValue === "string" && data.sourceValue.trim()) bits.push(`Valeur relevée : ${genealogyExcerpt(data.sourceValue)}`);
+    const citation = typeof data.citationIt === "string" ? data.citationIt : data.citation?.textIt;
+    if (citation) bits.push(`Citation : ${genealogyExcerpt(citation)}`);
+    const translation = typeof data.citationFr === "string" ? data.citationFr : data.citation?.translationFr;
+    if (translation) bits.push(`Traduction : ${genealogyExcerpt(translation)}`);
+    return bits;
+  }
+  if (kind === "conclusion") {
+    const bits = [];
+    const revision = data.revision || {};
+    if (GENEALOGY_CONCLUSION_STATUS_LABELS[revision.status]) bits.push(`Conclusion ${GENEALOGY_CONCLUSION_STATUS_LABELS[revision.status].toLowerCase()}`);
+    if (revision.subjectKind === "person") {
+      const peopleText = genealogyPersonListText([revision.subjectId]);
+      if (peopleText) bits.push(peopleText);
+    }
+    if (typeof revision.retainedValue === "string" && revision.retainedValue.trim()) bits.push(`Valeur retenue : ${genealogyExcerpt(revision.retainedValue)}`);
+    else if (typeof revision.retainedValue === "number") bits.push(`Valeur retenue : ${revision.retainedValue}`);
+    if (revision.justification) bits.push(`Justification : ${genealogyExcerpt(revision.justification, 240)}`);
+    return bits;
+  }
+  if (kind === "proposal") {
+    const bits = [];
+    bits.push(`Type de contribution : ${GENEALOGY_PROPOSAL_TYPE_LABELS[record.type] || record.type}`);
+    const payloadTitle = record.payload?.data?.title ? ` « ${record.payload.data.title} »` : "";
+    bits.push(`Souhait : réviser ${GENEALOGY_PROPOSAL_TYPE_LABELS[record.targetType] || record.targetType || "une donnée"}${payloadTitle}`);
+    if (record.resolutionReason) bits.push(`Motif de la décision : ${genealogyExcerpt(record.resolutionReason, 240)}`);
+    return bits;
+  }
+  if (kind === "event") {
+    const bits = [];
+    if (record.reason) bits.push(`Motif : ${genealogyExcerpt(record.reason, 240)}`);
+    if (record.objectType) bits.push(`Élément concerné : ${GENEALOGY_PROPOSAL_TYPE_LABELS[record.objectType] || genealogyKindLabels[record.objectType] || record.objectType}`);
+    return bits;
+  }
+  return [];
+}
+
+function genealogyEntryContent(item) {
+  return genealogyEntryBits(item).map(bit => `<p class="card-description">${esc(bit)}</p>`).join("");
+}
+
+function genealogyItemTitle(item) {
+  const { kind, record, data } = item;
+  if (data.title) return data.title;
+  if (data.factType) return data.factType;
+  if (kind === "proposal") return record.payload?.title || `Proposition (${GENEALOGY_PROPOSAL_TYPE_LABELS[record.type] || record.type || "non précisée"})`;
+  if (kind === "event") return data.eventType ? genealogyEventLabel(data.eventType) || "Événement d’historique" : "Événement d’historique";
+  if (kind === "notification") return GENEALOGY_NOTIFICATION_TYPE_LABELS[data.type] || "Notification";
+  return genealogyKindLabels[kind] || record.id;
+}
+
 function renderGenealogyWorkspace() {
   const panel = $("genealogyResults");
   if (!panel) return;
@@ -3614,8 +3806,8 @@ function renderGenealogyWorkspace() {
       || (kind === "history" && item.kind === "event")
       || (kind === "notifications" && item.kind === "notification"))) return false;
     if (!queryText) return true;
-    const recordText = JSON.stringify([item.kind, item.record, item.data, item.record.authorUid ? nameOf(item.record.authorUid) : ""]);
-    return searchable(recordText).includes(queryText);
+    const searchText = searchable([genealogyItemTitle(item), ...genealogyEntryBits(item)].join(" "));
+    return searchText.includes(queryText);
   });
   const unread = genealogyRecords.genealogyNotifications.filter(item => item.read !== true).length;
   const loadedStatus = `${items.length} élément${items.length === 1 ? "" : "s"} affiché${items.length === 1 ? "" : "s"}${unread ? ` · ${unread} notification${unread === 1 ? "" : "s"} non lue${unread === 1 ? "" : "s"}` : ""}`;
@@ -3629,17 +3821,24 @@ function renderGenealogyWorkspace() {
     const legacyDetails = item.kind === "legacy-source"
       ? legacyDocumentCardDetails(data, (data.personIds || []).map(personId => person(personId)).filter(Boolean).map(personItem => [personItem.firstName, personItem.middleName, personItem.lastName].filter(Boolean).join(" ")))
       : null;
-    const title = legacyDetails?.title || data.title || data.factType || data.eventType || data.type || record.id;
-    const status = record.status || data.technicalStatus || data.status || (item.kind === "notification" ? record.read ? "Lue" : "Non lue" : "");
-    const updatedLabel = record.updatedAt?.toDate ? record.updatedAt.toDate().toLocaleString("fr-FR") : "";
+    const title = legacyDetails ? legacyDetails.title : genealogyItemTitle(item);
+    const status = item.kind === "notification" ? (record.read ? "Lue" : "Non lue")
+      : item.kind === "proposal" ? GENEALOGY_PROPOSAL_STATUS_LABELS[record.status] || record.status
+      : item.kind === "conclusion" && data.revision?.status ? GENEALOGY_CONCLUSION_STATUS_LABELS[data.revision.status] || data.revision.status
+      : GENEALOGY_DATA_STATUS_LABELS[record.status] ? GENEALOGY_DATA_STATUS_LABELS[record.status]
+      : GENEALOGY_DATA_STATUS_LABELS[data.technicalStatus] ? GENEALOGY_DATA_STATUS_LABELS[data.technicalStatus]
+      : GENEALOGY_DATA_STATUS_LABELS[data.status] ? GENEALOGY_DATA_STATUS_LABELS[data.status]
+      : record.status || data.technicalStatus || data.status || "";
     const legacyMetadata = legacyDetails ? [
       legacyDetails.date,
       legacyDetails.place ? formatCompactPlace(legacyDetails.place, data.placeInfo) : "",
       legacyDetails.people.length ? `Personnes : ${legacyDetails.people.join(", ")}` : ""
     ].filter(Boolean) : null;
+    const authorUid = item.kind === "event" ? record.actorUid : record.authorUid;
+    const authorLabel = legacyDetails ? "" : genealogyActorLabel(authorUid);
     const subtitle = legacyDetails
       ? legacyMetadata.join(" · ")
-      : [record.id, data.documentId, data.pageId, data.factId, updatedLabel, record.updatedByName].filter(Boolean).join(" · ");
+      : [genealogyCardTimestamp(record), authorLabel ? `Auteur : ${authorLabel}` : ""].filter(Boolean).join(" · ");
     const controls = [];
     controls.push(`<button class="btn small" type="button" data-genealogy-open="${esc(item.kind)}" data-genealogy-id="${esc(record.id)}">Consulter</button>`);
     if (item.kind === "proposal" && record.status === "draft" && record.authorUid === auth.currentUser?.uid) {
@@ -3663,7 +3862,7 @@ function renderGenealogyWorkspace() {
     const legacyPhotograph = legacyDetails?.hasPhotograph ? `<span class="genealogy-status-badge">Photographie disponible</span>` : "";
     const entryContent = legacyDetails
       ? `${legacyNotes}${legacyPhotograph}`
-      : `<p class="genealogy-entry-content">${esc(JSON.stringify(data, null, 2).slice(0, 850))}</p>`;
+      : genealogyEntryContent(item);
     return `<article class="content-card genealogy-entry${legacyDetails ? " genealogy-entry-legacy-document" : ""}"><div class="genealogy-entry-heading"><div><span class="genealogy-entry-kind">${esc(genealogyKindLabels[item.kind] || item.kind)}</span><h3>${esc(title)}</h3></div>${status ? `<span class="genealogy-status-badge">${esc(status)}</span>` : ""}</div>${subtitle ? `<p class="card-meta">${esc(subtitle)}</p>` : ""}${review}${contradiction}${entryContent}<div class="genealogy-inline-actions">${controls.join("")}</div></article>`;
   }).join("") : emptyState({ iconName: "document", title: "Aucun élément trouvé", description: "Modifiez la recherche ou le filtre sélectionné." });
   $("genealogyOfficialBtn").hidden = !isAdminUser();
@@ -3676,7 +3875,7 @@ function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null) 
   activeGenealogyItem = item;
   genealogyZoom = 1;
   const { record, data } = item;
-  $("genealogyItemTitle").textContent = data.title || data.factType || data.eventType || data.type || genealogyKindLabels[kind];
+  $("genealogyItemTitle").textContent = data.title || data.factType || genealogyEventLabel(data.eventType) || GENEALOGY_NOTIFICATION_TYPE_LABELS[data.type] || data.type || genealogyKindLabels[kind];
   $("genealogyItemSubtitle").textContent = [genealogyKindLabels[kind], record.id, record.authorUid ? `Auteur historique : ${record.authorUid}` : ""].filter(Boolean).join(" · ");
   const transcriptionRevision = kind === "transcription"
     ? genealogyRecords.transcriptionRevisions.find(revision => revision.id === data.revisionId || revision.id === data.currentRevisionId)
@@ -3747,11 +3946,19 @@ function renderGenealogySourceDocumentPicker() {
   picker.hidden = !active;
   if (!active) return;
 
-  const queryText = searchable($("genealogySourceDocumentSearch").value.trim());
-  const matches = documents.filter(item => searchable(`${item.title || ""} ${item.fileName || ""}`).includes(queryText));
+  const rawQuery = $("genealogySourceDocumentSearch").value.trim();
+  if (genealogySourceDocumentLastQuery !== rawQuery) {
+    genealogySourceDocumentLastQuery = rawQuery;
+    genealogySourceDocumentPagesShown = 1;
+  }
+  const shown = SOURCE_DOCUMENT_PICKER_PAGE_SIZE * genealogySourceDocumentPagesShown;
+  const matches = rawQuery ? searchLinkedDocuments(documents, rawQuery) : [];
   const emptyMessage = $("genealogySourceDocumentEmpty");
   if (!documents.length) {
     emptyMessage.textContent = "Aucun document n’est disponible. Vous pourrez enregistrer la source sans document associé, ou ajouter un document dans la bibliothèque.";
+    emptyMessage.hidden = false;
+  } else if (!rawQuery) {
+    emptyMessage.textContent = "Saisissez au moins un caractère pour rechercher dans la bibliothèque par titre, nom de fichier ou type.";
     emptyMessage.hidden = false;
   } else if (!matches.length) {
     emptyMessage.textContent = "Aucun document ne correspond à cette recherche.";
@@ -3760,12 +3967,13 @@ function renderGenealogySourceDocumentPicker() {
     emptyMessage.textContent = "";
     emptyMessage.hidden = true;
   }
-
-  $("genealogySourceDocumentOptions").innerHTML = matches.map(item => {
+  $("genealogySourceDocumentOptions").innerHTML = matches.slice(0, shown).map(item => {
     const label = documentDisplayLabel(item);
     const details = [item.type || item.fileName || "Document", item.date || ""].filter(Boolean).join(" · ");
     return `<label class="source-document-option"><input type="checkbox" data-genealogy-source-document="${esc(item.id)}"${selectedGenealogySourceDocumentIds.has(item.id) ? " checked" : ""}><span class="source-document-option-details"><strong>${esc(label)}</strong><small>${esc(details)}</small></span></label>`;
   }).join("");
+  const moreButton = $("genealogySourceDocumentMore");
+  if (moreButton) moreButton.hidden = !(rawQuery && matches.length > shown);
   renderGenealogySourceDocumentSelection();
 }
 
@@ -3822,6 +4030,8 @@ function openGenealogyContribution({ official = false, reviseItem = null } = {})
   selectedGenealogySourceDocumentIds = new Set(Array.isArray(reviseItem?.data?.documentIds)
     ? reviseItem.data.documentIds.filter(documentId => typeof documentId === "string" && documentId.trim())
     : []);
+  genealogySourceDocumentPagesShown = 1;
+  genealogySourceDocumentLastQuery = null;
   $("genealogyContributionDialog").dataset.official = String(officialMode);
   $("genealogyContributionDialog").dataset.revision = String(!!reviseItem);
   updateGenealogyContributionPresentation();
@@ -6121,6 +6331,10 @@ $("genealogySourceDocumentSelection").addEventListener("click", event => {
   const removeButton = event.target.closest("[data-remove-genealogy-source-document]");
   if (!removeButton) return;
   selectedGenealogySourceDocumentIds.delete(removeButton.dataset.removeGenealogySourceDocument);
+  renderGenealogySourceDocumentPicker();
+});
+$("genealogySourceDocumentMore").addEventListener("click", () => {
+  genealogySourceDocumentPagesShown += 1;
   renderGenealogySourceDocumentPicker();
 });
 $("genealogyProposeBtn").onclick = () => openGenealogyContribution();

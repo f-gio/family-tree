@@ -30,14 +30,13 @@ test("les collections du lot 6 sont abonnées avec des requêtes limitées pour 
 
 test("les documents historiques ont une fiche lisible sans métadonnées JSON, Consulter conservé", () => {
   assert.match(app, /legacyDocumentCardDetails\(data, \(data\.personIds \|\| \[\]\)\.map\(personId => person\(personId\)\)/);
-  assert.match(app, /legacyDetails\?\.title \|\| data\.title \|\| data\.factType/);
+  assert.match(app, /const title = legacyDetails \? legacyDetails\.title : genealogyItemTitle\(item\)/);
   assert.match(app, /Photographie disponible/);
   assert.match(app, /const entryContent = legacyDetails[\s\S]*?legacyNotes\}\$\{legacyPhotograph\}/);
   assert.match(app, /data-genealogy-open="\$\{esc\(item\.kind\)\}"/);
   assert.match(app, /if \(kind === "legacy-source"[\s\S]*?openStoredDocument\(item\.record\)/);
   assert.match(css, /\.genealogy-entry-legacy-document/);
 });
-
 test("propositions, décisions, révisions et réexamens passent par le magasin sécurisé du lot 6", () => {
   for (const operation of ["createProposal", "submitProposal", "cancelDraft", "decideProposal", "createOfficial", "reviseOfficial", "createReexaminationEvent", "markNotificationRead"]) {
     assert.ok(app.includes(`genealogyStore.${operation}(`), `opération du magasin absente : ${operation}`);
@@ -73,9 +72,10 @@ test("la source officielle référence des documents sélectionnés sans recopie
   for (const id of ["genealogySourceDocumentPicker", "genealogySourceDocumentSearch", "genealogySourceDocumentOptions", "genealogySourceDocumentSelection"]) {
     assert.ok(html.includes(`id="${id}"`), `sélecteur de documents absent : ${id}`);
   }
-  assert.match(html, /Rechercher par titre/);
+  assert.match(html, /Rechercher dans la bibliothèque/);
+  assert.match(html, /placeholder="Titre, nom de fichier ou type"/);
   assert.match(app, /Aucun document n’est disponible/);
-  assert.match(app, /documents\.filter\(item => searchable\(`\$\{item\.title \|\| ""\} \$\{item\.fileName \|\| ""\}`\)\.includes\(queryText\)\)/);
+  assert.match(app, /const matches = rawQuery \? searchLinkedDocuments\(documents, rawQuery\) : \[\]/);
   assert.match(app, /documentIds: \[\.\.\.selectedGenealogySourceDocumentIds\]/);
   assert.match(app, /sourceData\.documentIds/);
   assert.match(app, /Document référencé introuvable/);
@@ -87,6 +87,61 @@ test("la source officielle référence des documents sélectionnés sans recopie
   assert.match(app, /if \(!tile \|\| event\.target\.closest\("button, a, input, select, textarea, summary, \.tile-context-actions"\)\) return/);
   assert.doesNotMatch(app.match(/if \(type === "source"\) \{([\s\S]*?)\} else if \(type === "transcription"\)/)?.[1] || "", /writeFileChunks|setDoc\(doc\(db, "documents"/);
   assert.match(html, /Sélectionnez les fiches existantes utilisées par cette source\. Les fichiers ne sont pas copiés\./);
+});
+
+test("le sélecteur de documents est paginé, masqué sans recherche et conserve la sélection", () => {
+  assert.match(html, /id="genealogySourceDocumentMore"[\s\S]{0,200}?Afficher plus de résultats<\/button>/);
+  assert.match(app, /const shown = SOURCE_DOCUMENT_PICKER_PAGE_SIZE \* genealogySourceDocumentPagesShown/);
+  assert.match(app, /matches\.slice\(0, shown\)/);
+  assert.match(app, /moreButton\.hidden = !\(rawQuery && matches\.length > shown\)/);
+  assert.match(app, /Saisissez au moins un caractère pour rechercher dans la bibliothèque par titre, nom de fichier ou type\./);
+  assert.match(app, /\$\("genealogySourceDocumentMore"\)\.addEventListener\("click", \(\) => \{[\s\S]*?genealogySourceDocumentPagesShown \+= 1;[\s\S]*?renderGenealogySourceDocumentPicker\(\)/);
+  assert.match(app, /genealogySourceDocumentPagesShown = 1;[\s\S]{0,80}?genealogySourceDocumentLastQuery = null;/);
+  assert.match(app, /if \(genealogySourceDocumentLastQuery !== rawQuery\) \{[\s\S]*?genealogySourceDocumentPagesShown = 1;/);
+});
+
+test("les cartes Sources & preuves présentent un résumé humain sans JSON brut", () => {
+  const workspace = app.match(/function renderGenealogyWorkspace\(\) \{[\s\S]*?\n\}\n/)?.[0] || "";
+  assert.ok(workspace.length > 500, "le rendu du dossier est présent");
+  assert.doesNotMatch(workspace, /JSON\.stringify/);
+  assert.doesNotMatch(app, /genealogy-entry-content/);
+  assert.match(app, /function genealogyEntryBits\(item\)/);
+  assert.match(app, /: genealogyEntryContent\(item\)/);
+  assert.match(app, /const searchText = searchable\(\[genealogyItemTitle\(item\), \.\.\.genealogyEntryBits\(item\)\]\.join\(" "\)\)/);
+
+  assert.match(app, /"source.created": "Source créée"/);
+  assert.match(app, /"source.revised": "Source révisée"/);
+  assert.match(app, /"proposal.submitted": "Proposition soumise"/);
+  assert.match(app, /"proposal.accepted": "Proposition acceptée"/);
+  assert.match(app, /"proposal.rejected": "Proposition refusée"/);
+  assert.match(app, /genealogyEventLabel\(data\.eventType\)/);
+
+  assert.match(app, /Catégorie : \$\{data\.category\}/);
+  assert.match(app, /Conservé par |Cote : \$\{data\.cote\}/);
+  assert.match(app, /Personnes concernées : \$\{names\.join\(", "\)\}/);
+  assert.match(app, /Document référencé introuvable/);
+  assert.match(app, /référence\$\{missing > 1 \? "s" : ""\} introuvable\$\{missing > 1 \? "s" : ""\} dans la bibliothèque chargée/);
+  assert.match(app, /Chargement de la bibliothèque…/);
+  assert.match(app, /Observations : \$\{genealogyExcerpt\(/);
+  assert.match(app, /\$\{passages\.length\} passage\$/);
+  assert.match(app, /Valeur relevée : \$\{genealogyExcerpt\(/);
+  assert.match(app, /Justification : \$\{genealogyExcerpt\(revision\.justification, 240\)\}/);
+  assert.match(app, /Type de contribution : \$\{GENEALOGY_PROPOSAL_TYPE_LABELS\[record\.type\] \|\| record\.type\}/);
+  assert.match(app, /resolutionReason\) bits\.push\(`Motif de la décision : \$\{genealogyExcerpt\(record\.resolutionReason, 240\)\}`\)/);
+  assert.match(app, /Motif : \$\{genealogyExcerpt\(record\.reason, 240\)\}/);
+
+  assert.match(app, /Auteur : \$\{authorLabel\}/);
+  assert.match(app, /GENEALOGY_PROPOSAL_STATUS_LABELS\[record\.status\] \|\| record\.status/);
+  assert.match(app, /GENEALOGY_CONCLUSION_STATUS_LABELS\[data\.revision\.status\]/);
+  assert.match(css, /\.genealogy-entry-legacy-document/);
+  assert.doesNotMatch(css, /genealogy-entry-content/);
+});
+
+test("le sélecteur conserve et retire plusieurs documents dont le titre ou l'auteur est révisé", () => {
+  const workspace = app.match(/function renderGenealogySourceDocumentSelection\(\)[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(workspace, /Référence introuvable · \$\{id\}/);
+  assert.match(workspace, /data-remove-genealogy-source-document/);
+  assert.match(app, /openStoredDocument\(linkedDocument\)/);
 });
 
 test("les deux espaces naviguent entre sources et documents, avec références absentes signalées", () => {

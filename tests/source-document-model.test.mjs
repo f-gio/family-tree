@@ -8,7 +8,10 @@ import {
   createPhotographAsset,
   createSourceDocument,
   findExactPhotographDuplicates,
+  normalizeSourceDocumentSearchText,
   reorderDocumentPages,
+  searchLinkedDocuments,
+  SOURCE_DOCUMENT_PICKER_PAGE_SIZE,
   validateDocumentDateInfo,
   validateDocumentPage,
   validatePhotographAsset,
@@ -85,6 +88,41 @@ test("documentIds est facultatif et conserve sans doublons les IDs stables de la
     "le même document peut être référencé par plusieurs sources sans créer une copie");
   assert.equal(validateSourceDocument({ ...linked, documentIds: ["document-1", " "] }).valid, false);
   assert.equal(validateSourceDocument({ ...linked, documentIds: "document-1" }).valid, false, "documentIds doit être un tableau");
+});
+
+test("la recherche de documents liés gère plusieurs centaines de fiches, les accents et la pagination", () => {
+  assert.equal(SOURCE_DOCUMENT_PICKER_PAGE_SIZE, 10);
+  const documents = [];
+  for (let index = 0; index < 300; index++) {
+    documents.push({ id: `document-${index}`, title: `Acte de naissance n° ${index}`, fileName: `acte-${index}.jpg`, type: "Naissance" });
+  }
+  documents.push({ id: "document-photo", fileName: "photo-mariage-gérard.jpg", type: "Photographie" });
+
+  assert.equal(searchLinkedDocuments(documents, "").length, 0, "recherche vide : aucun résultat affiché");
+  assert.equal(searchLinkedDocuments([], "acte").length, 0);
+
+  const everything = searchLinkedDocuments(documents, "naissance");
+  assert.equal(everything.length, 300, "tous les résultats restent disponibles pour la pagination");
+  const firstPage = everything.slice(0, SOURCE_DOCUMENT_PICKER_PAGE_SIZE);
+  assert.equal(firstPage.length, 10);
+  assert.deepEqual(firstPage.map(item => item.id), documents.slice(0, 10).map(item => item.id));
+  assert.equal(everything.slice(SOURCE_DOCUMENT_PICKER_PAGE_SIZE, SOURCE_DOCUMENT_PICKER_PAGE_SIZE * 2).length, 10);
+
+  assert.deepEqual(searchLinkedDocuments(documents, "ACTE DE NAISSANCE N° 7 ").map(item => item.id),
+    ["document-7", "document-70", "document-71", "document-72", "document-73", "document-74", "document-75", "document-76", "document-77", "document-78", "document-79"],
+    "la recherche insensible à la casse couvre aussi les sous-numéros");
+  assert.deepEqual(searchLinkedDocuments(documents, "Acte de naissance n° 277").map(item => item.id), ["document-277"]);
+  assert.deepEqual(searchLinkedDocuments(documents, "gerard").map(item => item.id), ["document-photo"]);
+  assert.deepEqual(searchLinkedDocuments(documents, "photographie").map(item => item.id), ["document-photo"]);
+  assert.equal(searchLinkedDocuments(documents, "acté de naissançe").length, 300, "la requête accentuée retrouve les titres non accentués");
+  assert.deepEqual(searchLinkedDocuments(documents, "relevé inconnu").map(item => item.id), []);
+  assert.equal(normalizeSourceDocumentSearchText("ÉèêÀ ÇîÏ"), "eeea cii");
+});
+
+test("la recherche couvre aussi le titre de la fiche sans nom de fichier", () => {
+  const documents = [{ id: "recit", title: "Récit oral de Lucie", type: "Source narrative" }];
+  assert.deepEqual(searchLinkedDocuments(documents, "lucie").map(item => item.id), ["recit"]);
+  assert.deepEqual(searchLinkedDocuments(documents, "source narrative").map(item => item.id), ["recit"]);
 });
 
 test("dates documentaires acceptent année, mois, approximation, période et inconnue", () => {

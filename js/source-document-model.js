@@ -354,3 +354,18 @@ export function findExactPhotographDuplicates(documents) {
     .filter(([, occurrences]) => occurrences.length > 1)
     .map(([sha256, occurrences]) => ({ sha256, occurrences }));
 }
+
+export const SOURCE_DOCUMENT_PICKER_PAGE_SIZE = 10;
+
+export function normalizeSourceDocumentSearchText(value = "") {
+  return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+export function searchLinkedDocuments(documents = [], query = "") {
+  if (!Array.isArray(documents)) throw new TypeError("documents doit être un tableau");
+  const needle = normalizeSourceDocumentSearchText(query);
+  if (!needle) return [];
+  return documents.filter(item => normalizeSourceDocumentSearchText(
+    [item?.title, item?.fileName, item?.type].filter(value => typeof value === "string" && value.trim()).join(" ")
+  ).includes(needle));
+}

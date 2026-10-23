@@ -2336,7 +2336,6 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .genealogy-entry { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .genealogy-entry .genealogy-entry-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); }
 .genealogy-entry .genealogy-entry-kind { color: var(--color-text-muted); font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-.genealogy-entry .genealogy-entry-content { white-space: pre-wrap; overflow-wrap: anywhere; }
 .genealogy-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); }
 .genealogy-photo-panel { min-width: 0; min-height: 180px; display: grid; place-items: center; overflow: auto; border-radius: var(--radius-md); background: var(--color-surface-muted); }
 .genealogy-photo-panel img { display: block; max-width: 100%; max-height: 65dvh; object-fit: contain; transform-origin: center; transition: transform 120ms ease; }
