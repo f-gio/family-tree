@@ -33,7 +33,8 @@ test("les documents historiques ont une fiche lisible sans métadonnées JSON, C
   assert.match(app, /const title = legacyDetails \? legacyDetails\.title : genealogyItemTitle\(item\)/);
   assert.match(app, /Photographie disponible/);
   assert.match(app, /const entryContent = legacyDetails[\s\S]*?legacyNotes\}\$\{legacyPhotograph\}/);
-  assert.match(app, /data-genealogy-open="\$\{esc\(item\.kind\)\}"/);
+  assert.match(app, /tileContextMenuMarkup\("archive-entry", record\.id, title, controls\)/);
+  assert.match(app, /action === "open"\) return openGenealogyItem\(item\.kind, id\)/);
   assert.match(app, /if \(kind === "legacy-source"[\s\S]*?openStoredDocument\(item\.record\)/);
   assert.match(css, /\.genealogy-entry-legacy-document/);
 });
@@ -42,8 +43,8 @@ test("propositions, décisions, révisions et réexamens passent par le magasin 
     assert.ok(app.includes(`genealogyStore.${operation}(`), `opération du magasin absente : ${operation}`);
   }
   assert.match(app, /hidden = !isAdminUser\(\)/);
-  assert.match(app, /data-genealogy-proposal-action="accept"/);
-  assert.match(app, /data-genealogy-review=/);
+  assert.match(app, /key: "proposal-accept", label: "Accepter"/);
+  assert.match(app, /key: "review-proof", label: "Demander réexamen"/);
 });
 
 test("les boutons contribution et officiel ouvrent les modes attendus, avec garde administrateur", () => {

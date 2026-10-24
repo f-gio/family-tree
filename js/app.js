@@ -475,7 +475,7 @@ function documentLinkedSources(documentId) {
 }
 
 function sourceDependencySnapshotComplete() {
-  const required = ["sourceDocuments", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "factConclusions", "conclusionRevisions"];
+  const required = ["sourceDocuments", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions"];
   return loadedDocuments && loadedPeople && loadedFamilies
     && required.every(name => genealogyCollectionsLoaded.has(name) && !genealogyCollectionErrors.has(name));
 }
@@ -485,15 +485,28 @@ function sourceHasOtherAssociations(sourceRecord, excludingDocumentId = "") {
   const sourceData = genealogyRecordData(sourceRecord);
   const linkedDocumentIds = Array.isArray(sourceData.documentIds) ? sourceData.documentIds : [];
   const remainingDocumentIds = linkedDocumentIds.filter(id => id !== excludingDocumentId);
-  if (remainingDocumentIds.length || (sourceData.personIds || []).length || (sourceData.pages || []).length) return true;
+  if (remainingDocumentIds.length) return true;
   const references = new Set([sourceRecord.id, ...linkedDocumentIds]);
-  const referencedByProof = genealogyRecords.genealogyProofs.some(record => references.has(genealogyRecordData(record).documentId));
-  const referencedByTranscription = genealogyRecords.transcriptionHeads.some(record => references.has(genealogyRecordData(record).documentId));
+  const proofReferences = [...genealogyRecords.genealogyProofs, ...genealogyRecords.genealogyProofRevisions];
+  const transcriptionReferences = [...genealogyRecords.transcriptionHeads, ...genealogyRecords.transcriptionRevisions];
+  const referencedByProof = proofReferences.some(record => {
+    const data = genealogyRecordData(record);
+    const proofData = data.data && typeof data.data === "object" ? data.data : data;
+    return references.has(proofData.documentId) || references.has(proofData.sourceId);
+  });
+  const referencedByTranscription = transcriptionReferences.some(record => {
+    const data = genealogyRecordData(record);
+    const transcriptionData = data.data && typeof data.data === "object" ? data.data : data;
+    return references.has(transcriptionData.documentId) || references.has(transcriptionData.sourceId);
+  });
   return referencedByProof || referencedByTranscription;
 }
 
 function sourceHasAnyAssociation(sourceRecord) {
-  return sourceHasOtherAssociations(sourceRecord, "");
+  const sourceData = genealogyRecordData(sourceRecord);
+  return sourceHasOtherAssociations(sourceRecord, "") === true
+    || (Array.isArray(sourceData.personIds) && sourceData.personIds.length > 0)
+    || (Array.isArray(sourceData.pages) && sourceData.pages.length > 0);
 }
 
 function renderDocumentSourceManager(documentId) {
@@ -505,7 +518,7 @@ function renderDocumentSourceManager(documentId) {
   $("genealogyItemSubtitle").textContent = documentDisplayLabel(documentItem);
   $("genealogyItemContent").innerHTML = `<section class="document-source-manager"><h4>${linkedSources.length} source${linkedSources.length > 1 ? "s" : ""} liée${linkedSources.length > 1 ? "s" : ""}</h4>${linkedSources.length ? `<ul>${linkedSources.map(source => {
     const sourceData = genealogyRecordData(source);
-    return `<li><span class="document-source-manager-main"><button class="btn small" type="button" data-managed-source-open="${esc(source.id)}">${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</button><small>${sourceData.status === "archived" ? "Source archivée" : "Source active"}</small></span><button class="btn small" type="button" data-managed-source-remove="${esc(source.id)}">Retirer l’association</button></li>`;
+    return `<li><span class="document-source-manager-main"><button class="btn small" type="button" data-managed-source-open="${esc(source.id)}">${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</button><span class="document-source-manager-status ${sourceData.status === "archived" ? "is-archived" : "is-active"}">${sourceData.status === "archived" ? "Archivée" : "Active"}</span></span><button class="btn small" type="button" data-managed-source-remove="${esc(source.id)}">Retirer l’association</button></li>`;
   }).join("")}</ul>` : `<p class="card-meta">Aucune source officielle ne référence ce document.</p>`}</section>`;
   if (!$('genealogyItemDialog').open) $("genealogyItemDialog").showModal();
 }
@@ -602,6 +615,7 @@ function showTileContextMenu(toggle) {
 
 async function performTileContextAction(button) {
   const { tileMenuKind: kind, tileMenuAction: action, tileMenuId: id } = button.dataset;
+  if (kind === "archive-entry") return performArchiveCardAction(id, action);
   if (kind === "directory" && action === "delete") {
     return runSafely(() => removeDirectoryPersonPermanently(id), "Suppression de la personne impossible");
   }
@@ -1750,6 +1764,45 @@ function updateReadyViews() {
     renderProcedures();
   }
   if (genealogyLoaded) renderGenealogyWorkspace();
+}
+
+async function performArchiveCardAction(id, action) {
+  const item = genealogyWorkspaceItems().find(value => value.record.id === id);
+  if (!item) return toast("Cet élément n’est plus disponible.", "error");
+  if (action === "open") return openGenealogyItem(item.kind, id);
+  if (action === "revise") {
+    if (!isAdminUser() || !item.official) return toast("La révision est réservée aux administrateurs.", "error");
+    return openGenealogyContribution({ official: true, reviseItem: item });
+  }
+  if (action === "source-archive") return setOfficialSourceArchived(id, true);
+  if (action === "source-restore") return setOfficialSourceArchived(id, false);
+  if (action === "proof-archive") return archiveOfficialProof(id);
+  if (action === "notification-read") {
+    try { await genealogyStore.markNotificationRead({ notificationId: id, actorUid: auth.currentUser?.uid }); }
+    catch (error) { toast(error.message || "Notification inchangée.", "error"); }
+    return;
+  }
+  if (action.startsWith("proposal-")) {
+    const decision = action === "proposal-accept" ? "accepted" : action === "proposal-reject" ? "rejected" : "";
+    try {
+      const eventId = createGenealogyId(refs.genealogyEvents);
+      if (action === "proposal-submit") await genealogyStore.submitProposal({ proposalId: id, eventId, actorUid: auth.currentUser.uid });
+      else if (action === "proposal-cancel") await genealogyStore.cancelDraft({ proposalId: id, eventId, actorUid: auth.currentUser.uid });
+      else if (decision) await genealogyStore.decideProposal({ proposalId: id, decision, reason: decision === "accepted" ? "Validée par un administrateur" : "Refusée après examen", eventId, notificationId: createGenealogyId(refs.genealogyNotifications), actorUid: auth.currentUser.uid });
+      toast(action === "proposal-submit" ? "Proposition soumise." : action === "proposal-cancel" ? "Brouillon annulé." : "Décision enregistrée avec notification.");
+    } catch (error) { toast(error.message || "Action sur la proposition impossible.", "error"); }
+    return;
+  }
+  if (action === "review-proof" || action === "review-conclusion") {
+    if (!isAdminUser()) return toast("Le réexamen est réservé aux administrateurs.", "error");
+    const type = action === "review-proof" ? "proof" : "conclusion";
+    try {
+      const adminSnapshot = await getDocs(query(refs.users, where("role", "==", "admin"), where("status", "==", "approved")));
+      const admins = [...new Set([primaryAdminUid, ...adminSnapshot.docs.map(snapshot => snapshot.id)].filter(Boolean))];
+      await genealogyStore.createReexaminationEvent({ type, objectId: id, eventId: createGenealogyId(refs.genealogyEvents), reason: "Réexamen demandé depuis les Archives", administratorUids: admins, notificationIds: admins.map(() => createGenealogyId(refs.genealogyNotifications)), actorUid: auth.currentUser.uid });
+      toast("Demande de réexamen et notifications enregistrées.");
+    } catch (error) { toast(error.message || "Demande de réexamen impossible.", "error"); }
+  }
 }
 
 function applySearch(focus = true) {
@@ -3974,24 +4027,25 @@ function renderGenealogyWorkspace() {
     const subtitle = legacyDetails
       ? legacyMetadata.join(" · ")
       : [genealogyCardTimestamp(record), authorLabel ? `Auteur : ${authorLabel}` : ""].filter(Boolean).join(" · ");
-    const controls = [];
-    controls.push(`<button class="btn small" type="button" data-genealogy-open="${esc(item.kind)}" data-genealogy-id="${esc(record.id)}">Consulter</button>`);
+    const controls = [{ key: "open", label: "Consulter", icon: "eye" }];
     if (item.kind === "proposal" && record.status === "draft" && record.authorUid === auth.currentUser?.uid) {
-      controls.push(`<button class="btn small" type="button" data-genealogy-proposal-action="submit" data-genealogy-id="${esc(record.id)}">Soumettre</button>`);
-      controls.push(`<button class="btn small" type="button" data-genealogy-proposal-action="cancel" data-genealogy-id="${esc(record.id)}">Annuler le brouillon</button>`);
+      controls.push({ key: "proposal-submit", label: "Soumettre", icon: "check" });
+      controls.push({ key: "proposal-cancel", label: "Annuler le brouillon", icon: "close" });
     }
     if (item.kind === "proposal" && record.status === "pending" && isAdminUser()) {
-      controls.push(`<button class="btn small primary" type="button" data-genealogy-proposal-action="accept" data-genealogy-id="${esc(record.id)}">Accepter</button>`);
-      controls.push(`<button class="btn small" type="button" data-genealogy-proposal-action="reject" data-genealogy-id="${esc(record.id)}">Refuser</button>`);
+      controls.push({ key: "proposal-accept", label: "Accepter", icon: "check" });
+      controls.push({ key: "proposal-reject", label: "Refuser", icon: "close" });
     }
-    if (item.kind === "proof" && isAdminUser() && data.technicalStatus !== "historical") controls.push(`<button class="btn small" type="button" data-genealogy-proof-archive="${esc(record.id)}">Archiver</button>`);
     if (item.official && isAdminUser()) {
-      controls.push(`<button class="btn small" type="button" data-genealogy-revise="${esc(item.kind)}" data-genealogy-id="${esc(record.id)}">Réviser</button>`);
-      if (item.kind === "source") controls.push(`<button class="btn small" type="button" data-genealogy-source-lifecycle="${data.status === "archived" ? "restore" : "archive"}" data-genealogy-id="${esc(record.id)}">${data.status === "archived" ? "Restaurer la source" : "Archiver la source"}</button>`);
+      controls.push({ key: "revise", label: "Réviser", icon: "edit" });
+      if (item.kind === "source") controls.push(data.status === "archived"
+        ? { key: "source-restore", label: "Restaurer la source", icon: "arrow-right" }
+        : { key: "source-archive", label: "Archiver la source", icon: "check" });
+      if (item.kind === "proof" && data.technicalStatus !== "historical") controls.push({ key: "proof-archive", label: "Archiver la preuve", icon: "check" });
     }
-    if (item.kind === "notification" && record.read !== true) controls.push(`<button class="btn small" type="button" data-genealogy-notification-read="${esc(record.id)}">Marquer comme lue</button>`);
-    if (isAdminUser() && item.kind === "proof" && data.technicalStatus !== "suspended") controls.push(`<button class="btn small" type="button" data-genealogy-review="proof" data-genealogy-id="${esc(record.id)}">Demander réexamen</button>`);
-    if (isAdminUser() && item.kind === "conclusion") controls.push(`<button class="btn small" type="button" data-genealogy-review="conclusion" data-genealogy-id="${esc(record.id)}">Demander réexamen</button>`);
+    if (item.kind === "notification" && record.read !== true) controls.push({ key: "notification-read", label: "Marquer comme lue", icon: "check" });
+    if (isAdminUser() && item.kind === "proof" && data.technicalStatus !== "suspended") controls.push({ key: "review-proof", label: "Demander réexamen", icon: "search" });
+    if (isAdminUser() && item.kind === "conclusion") controls.push({ key: "review-conclusion", label: "Demander réexamen", icon: "search" });
     const review = data.technicalStatus === "suspended" || data.status === "reexamination_required" ? `<span class="genealogy-status-badge">À vérifier</span>` : "";
     const contradiction = item.kind === "proof" && data.factId && genealogyRecords.genealogyProofs.some(other => {
       const otherData = genealogyRecordData(other);
@@ -4003,7 +4057,8 @@ function renderGenealogyWorkspace() {
       ? `${legacyNotes}${legacyPhotograph}`
       : genealogyEntryContent(item);
     const entryKindLabel = item.kind === "source" && data.status === "archived" ? "Source archivée" : genealogyKindLabels[item.kind] || item.kind;
-    return `<article class="content-card genealogy-entry${legacyDetails ? " genealogy-entry-legacy-document" : ""}"><header class="genealogy-entry-heading"><span class="genealogy-entry-kind">${esc(entryKindLabel)}</span>${status ? `<span class="genealogy-status-badge">${esc(status)}</span>` : ""}</header><h3 class="genealogy-entry-title" title="${esc(title)}">${esc(title)}</h3><p class="card-meta genealogy-entry-meta"${subtitle ? ` title="${esc(subtitle)}"` : ""}>${esc(subtitle || " ")}</p><div class="genealogy-entry-metadata">${review}${contradiction}${entryContent}</div><div class="genealogy-inline-actions">${controls.join("")}</div></article>`;
+    const menu = tileContextMenuMarkup("archive-entry", record.id, title, controls);
+    return `<article class="content-card genealogy-entry${legacyDetails ? " genealogy-entry-legacy-document" : ""}"><header class="genealogy-entry-heading"><span class="genealogy-entry-kind">${esc(entryKindLabel)}</span><span class="genealogy-entry-status-actions">${status ? `<span class="genealogy-status-badge">${esc(status)}</span>` : ""}${menu}</span></header><h3 class="genealogy-entry-title" title="${esc(title)}">${esc(title)}</h3><p class="card-meta genealogy-entry-meta"${subtitle ? ` title="${esc(subtitle)}"` : ""}>${esc(subtitle || " ")}</p><div class="genealogy-entry-metadata">${review}${contradiction}${entryContent}</div></article>`;
   }).join("") : emptyState({ iconName: "document", title: "Aucun élément trouvé", description: "Modifiez la recherche ou le filtre sélectionné." });
   $("genealogyOfficialBtn").hidden = !isAdminUser();
 }

@@ -1600,7 +1600,7 @@ test("LOT 6 : propositions, données officielles, historique immuable, notificat
   }
   await store.createOfficial({
     type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision", eventId: "lot6-source-created-event",
-    data: { title: "Source officielle", schemaVersion: 1, documentIds: linkedDocumentIds }, reason: "Création documentée", actorUid: adminUid
+    data: { title: "Source officielle", schemaVersion: 1, documentIds: linkedDocumentIds, personIds: ["lot6-person-mentioned"] }, reason: "Création documentée", actorUid: adminUid
   });
   await store.createOfficial({
     type: "source", id: "lot6-official-source-second", revisionId: "lot6-source-second-revision",
@@ -1623,26 +1623,31 @@ test("LOT 6 : propositions, données officielles, historique immuable, notificat
     "la suppression du lien d'une source n'altère pas l'association d'une autre source");
   await store.reviseOfficial({
     type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision-3", eventId: "lot6-source-unlinked-event",
-    data: { title: "Source corrigée", schemaVersion: 1, documentIds: [] }, reason: "Retrait du dernier document lié", actorUid: adminUid
+    data: { title: "Source corrigée", schemaVersion: 1, documentIds: [], personIds: ["lot6-person-mentioned"], status: "archived" }, reason: "Retrait du dernier document lié et archivage", actorUid: adminUid
   });
   assert.deepEqual((await getDoc(doc(db, "sourceDocuments", "lot6-official-source"))).data().data.documentIds, [],
     "le dernier lien peut être retiré sans supprimer la source");
+  assert.deepEqual((await getDoc(doc(db, "sourceDocuments", "lot6-official-source"))).data().data.personIds, ["lot6-person-mentioned"],
+    "la personne descriptive est conservée et ne bloque pas l’archivage");
+  assert.equal((await getDoc(doc(db, "sourceDocuments", "lot6-official-source"))).data().data.status, "archived");
   assert.deepEqual((await getDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"))).data().data.documentIds, [linkedDocumentIds[1]],
     "la révision précédente reste immuable après le retrait du dernier lien");
   assert.equal((await getDoc(doc(db, "genealogyEvents", "lot6-source-unlinked-event"))).data().eventType, "source.revised");
   await store.reviseOfficial({
-    type: "source", id: "lot6-official-source", revisionId: "lot6-source-archived-revision", eventId: "lot6-source-archived-event",
-    data: { title: "Source corrigée", schemaVersion: 1, documentIds: [], status: "archived" }, reason: "Source archivée", actorUid: adminUid
-  });
-  assert.equal((await getDoc(doc(db, "sourceDocuments", "lot6-official-source"))).data().data.status, "archived");
-  assert.deepEqual((await getDoc(doc(db, "sourceRevisions", "lot6-source-revision-3"))).data().data.documentIds, [],
-    "l’archivage conserve la révision précédente et ses associations vides");
-  await store.reviseOfficial({
     type: "source", id: "lot6-official-source", revisionId: "lot6-source-restored-revision", eventId: "lot6-source-restored-event",
-    data: { title: "Source corrigée", schemaVersion: 1, documentIds: [], status: "active" }, reason: "Source restaurée", actorUid: adminUid
+    data: { title: "Source corrigée", schemaVersion: 1, documentIds: [], personIds: ["lot6-person-mentioned"], status: "active" }, reason: "Source restaurée", actorUid: adminUid
   });
   assert.equal((await getDoc(doc(db, "sourceDocuments", "lot6-official-source"))).data().data.status, "active");
   assert.equal((await getDoc(doc(db, "genealogyEvents", "lot6-source-restored-event"))).data().eventType, "source.revised");
+  await signOutAll();
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(store.reviseOfficial({
+    type: "source", id: "lot6-official-source", revisionId: "lot6-source-member-archive-revision", eventId: "lot6-source-member-archive-event",
+    data: { title: "Source corrigée", schemaVersion: 1, documentIds: [], personIds: ["lot6-person-mentioned"], status: "archived" },
+    reason: "Tentative membre", actorUid: memberUid
+  }));
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
   assert.deepEqual((await getDoc(doc(db, "documents", linkedDocumentIds[0]))).data(), { title: "Document de bibliothèque 1", type: "Acte de naissance" },
     "la création et la révision des sources ne copient ni ne modifient la fiche/fichier Documents");
   await expectDenied(updateDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"), { data: { title: "effacée" } }));

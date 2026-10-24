@@ -186,7 +186,8 @@ test("Documents : liste et tuiles restent compactes avec sources liées et actio
               const type = card.querySelector(".badge")?.getBoundingClientRect();
               const date = card.querySelector(".card-meta")?.getBoundingClientRect();
               const people = card.querySelector(".document-card-people")?.getBoundingClientRect();
-              return { left: rect.left, right: rect.right, width: rect.width, titleLeft: title?.left, titleTop: title?.top, titleHeight: title?.height, typeLeft: type?.left, typeTop: type?.top, typeHeight: type?.height, dateLeft: date?.left, dateTop: date?.top, dateHeight: date?.height, peopleLeft: people?.left, peopleTop: people?.top, peopleHeight: people?.height, associationLeft: association?.left, associationTop: association?.top, associationHeight: association?.height, actionsLeft: actions?.left, actionsTop: actions?.top, actionsHeight: actions?.height, associationRight: association?.right, actionsRight: actions?.right };
+              const menuButton = card.querySelector(".card-actions [data-tile-menu-toggle]")?.getBoundingClientRect();
+              return { left: rect.left, right: rect.right, width: rect.width, titleLeft: title?.left, titleTop: title?.top, titleHeight: title?.height, typeLeft: type?.left, typeTop: type?.top, typeHeight: type?.height, dateLeft: date?.left, dateTop: date?.top, dateHeight: date?.height, peopleLeft: people?.left, peopleTop: people?.top, peopleHeight: people?.height, associationLeft: association?.left, associationTop: association?.top, associationHeight: association?.height, actionsLeft: actions?.left, actionsTop: actions?.top, actionsHeight: actions?.height, menuButton, associationRight: association?.right, actionsRight: actions?.right };
             }),
             linkedCount: list.querySelectorAll(".document-source-associations")[0]?.textContent,
             menuActions: [...list.querySelectorAll(".tile-context-menu-item")].map(button => button.textContent),
@@ -199,6 +200,7 @@ test("Documents : liste et tuiles restent compactes avec sources liées et actio
           assert.ok(card.left >= -1 && card.right <= metrics.viewportWidth + 1, `${width}px ${mode}: carte dans le viewport`);
           assert.ok(card.associationRight === undefined || card.associationRight <= card.right + 1, `${width}px ${mode}: indicateur source contenu`);
           assert.ok(card.actionsRight === undefined || card.actionsRight <= card.right + 1, `${width}px ${mode}: actions contenues`);
+          assert.ok(card.menuButton?.width >= 44 && card.menuButton?.height >= 44, `${width}px ${mode}: menu … tactile`);
         }
         assert.equal(metrics.linkedCount, "2 sources liées", `${width}px ${mode}: indicateur compact des sources`);
         assert.ok(metrics.menuActions.includes("Ajouter une source"), `${width}px ${mode}: action de création accessible dans le menu`);
@@ -228,15 +230,20 @@ test("Documents : liste et tuiles restent compactes avec sources liées et actio
         document.getElementById("documentsView").hidden = true;
         document.getElementById("genealogyView").hidden = false;
         const results = document.getElementById("genealogyResults");
-        results.innerHTML = `<article class="content-card genealogy-entry"><header class="genealogy-entry-heading"><span class="genealogy-entry-kind">Source officielle</span><span class="genealogy-status-badge">Active</span></header><h3 class="genealogy-entry-title">Registre de naissance</h3><p class="card-meta genealogy-entry-meta">12 mars 1900 · Auteur connu</p><div class="genealogy-entry-metadata"><p class="card-description">Catégorie : Registre</p><p class="card-description">Cote : 0017</p></div><div class="genealogy-inline-actions"><button class="btn small">Consulter</button><button class="btn small">Réviser</button></div></article><article class="content-card genealogy-entry"><header class="genealogy-entry-heading"><span class="genealogy-entry-kind">Preuve</span><span class="genealogy-status-badge">Active</span></header><h3 class="genealogy-entry-title">Naissance de Marie</h3><p class="card-meta genealogy-entry-meta">12 mars 1900</p><div class="genealogy-entry-metadata"><p class="card-description">Appuie le fait « Naissance »</p></div><div class="genealogy-inline-actions"><button class="btn small">Consulter</button><button class="btn small">Réviser</button><button class="btn small">Archiver</button></div></article>`;
+        const menu = `<div class="tile-context-actions"><button class="tile-context-toggle" type="button" data-tile-menu-toggle aria-haspopup="menu" aria-expanded="false" aria-label="Actions Archives"><span class="tile-context-glyph"><span class="tile-context-dot"></span><span class="tile-context-dot"></span><span class="tile-context-dot"></span></span></button><div class="tile-context-menu" role="menu" hidden><button class="tile-context-menu-item" type="button" role="menuitem">Consulter</button><button class="tile-context-menu-item" type="button" role="menuitem">Réviser</button><button class="tile-context-menu-item" type="button" role="menuitem">Archiver la source</button></div></div>`;
+        results.innerHTML = `<article class="content-card genealogy-entry"><header class="genealogy-entry-heading"><span class="genealogy-entry-kind">Source</span><span class="genealogy-entry-status-actions"><span class="genealogy-status-badge">Active</span>${menu}</span></header><h3 class="genealogy-entry-title">Registre de naissance</h3><p class="card-meta genealogy-entry-meta">12 mars 1900 · Auteur connu</p><div class="genealogy-entry-metadata"><p class="card-description">Catégorie : Registre</p><p class="card-description">Cote : 0017</p></div></article><article class="content-card genealogy-entry"><header class="genealogy-entry-heading"><span class="genealogy-entry-kind">Preuve</span><span class="genealogy-entry-status-actions"><span class="genealogy-status-badge">Active</span>${menu.replace("Archiver la source", "Archiver la preuve")}</span></header><h3 class="genealogy-entry-title">Naissance de Marie</h3><p class="card-meta genealogy-entry-meta">12 mars 1900</p><div class="genealogy-entry-metadata"><p class="card-description">Appuie le fait « Naissance »</p></div></article>`;
         const cards = [...results.querySelectorAll(".genealogy-entry")];
         return {
           viewportWidth: document.documentElement.clientWidth,
           scrollWidth: document.documentElement.scrollWidth,
           cards: cards.map(card => {
             const rect = card.getBoundingClientRect();
-            const actions = card.querySelector(".genealogy-inline-actions").getBoundingClientRect();
-            return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, height: rect.height, actionsBottom: actions.bottom };
+            const actions = card.querySelector(".tile-context-toggle").getBoundingClientRect();
+            const header = card.querySelector(".genealogy-entry-heading").getBoundingClientRect();
+            const title = card.querySelector(".genealogy-entry-title").getBoundingClientRect();
+            const meta = card.querySelector(".genealogy-entry-meta").getBoundingClientRect();
+            const metadata = card.querySelector(".genealogy-entry-metadata").getBoundingClientRect();
+            return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, height: rect.height, actionsBottom: actions.bottom, actionsRight: actions.right, headerTop: header.top, titleTop: title.top, metaTop: meta.top, metadataTop: metadata.top };
           })
         };
       });
@@ -245,8 +252,24 @@ test("Documents : liste et tuiles restent compactes avec sources liées et actio
       if (width >= 1024) {
         assert.ok(Math.abs(archivesMetrics.cards[0].top - archivesMetrics.cards[1].top) < 2, `${width}px Archives : cartes sur la même rangée`);
         assert.ok(Math.abs(archivesMetrics.cards[0].height - archivesMetrics.cards[1].height) < 2, `${width}px Archives : hauteurs de cartes cohérentes`);
-        assert.ok(Math.abs(archivesMetrics.cards[0].actionsBottom - archivesMetrics.cards[1].actionsBottom) < 2, `${width}px Archives : actions alignées en bas`);
+          assert.ok(archivesMetrics.cards.every(card => card.actionsRight <= card.right + 1), `${width}px Archives : menu dans la carte`);
+          for (const card of archivesMetrics.cards) assert.ok(card.headerTop < card.titleTop && card.titleTop < card.metaTop && card.metaTop < card.metadataTop && card.actionsBottom <= card.titleTop, `${width}px Archives : menu dans l’en-tête, métadonnées après le titre`);
       }
+      const managerGeometry = await page.evaluate(() => {
+        const content = document.getElementById("genealogyItemContent");
+        content.innerHTML = `<section class="document-source-manager"><h4>2 sources liées</h4><ul><li><span class="document-source-manager-main"><button class="btn small">Dossier Militaire avec un titre très long pour vérifier le repli</button><span class="document-source-manager-status is-active">Active</span></span><button class="btn small">Retirer l’association</button></li></ul></section>`;
+        document.getElementById("genealogyItemDialog").showModal();
+        const row = content.querySelector("li").getBoundingClientRect();
+        const title = content.querySelector(".document-source-manager-main > button").getBoundingClientRect();
+        const state = content.querySelector(".document-source-manager-status").getBoundingClientRect();
+        const remove = content.querySelector("li > button").getBoundingClientRect();
+        return { viewport: document.documentElement.clientWidth, width: document.documentElement.scrollWidth, row, title, state, remove };
+      });
+      assert.equal(managerGeometry.width, managerGeometry.viewport, `${width}px sources liées sans débordement horizontal`);
+      assert.ok(managerGeometry.state.left - managerGeometry.title.right >= 8, `${width}px badge espacée du titre`);
+      const removeSeparated = managerGeometry.remove.top >= managerGeometry.state.bottom + 4 || managerGeometry.remove.left >= managerGeometry.state.right + 8;
+      assert.ok(removeSeparated, `${width}px action espacée du badge (badge=${managerGeometry.state.x},${managerGeometry.state.y}; action=${managerGeometry.remove.x},${managerGeometry.remove.y})`);
+      await page.locator("#genealogyItemDialog").evaluate(dialog => dialog.close());
     }
     for (const [width, expectedMin] of [[1024, 970], [1280, 1070], [390, 380]]) {
       await page.setViewportSize({ width, height: 800 });
