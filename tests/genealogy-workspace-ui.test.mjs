@@ -132,7 +132,7 @@ test("une preuve peut être archivée en conservant son historique et sans suppr
   assert.match(app, /transitionProofStatus\(proof, \{[\s\S]*?to: "historical"/);
   assert.match(app, /genealogyStore\.reviseOfficial\(\{[\s\S]*?type: "proof"/);
   assert.match(app, /Elle reste accessible dans le filtre Historique/);
-  assert.match(app, /item\.data\.technicalStatus === "historical" && kind !== "history"/);
+  assert.match(app, /kind === "main" && !\([\s\S]*item\.data\.technicalStatus !== "historical"/);
   assert.doesNotMatch(app.match(/function archiveOfficialProof[\s\S]*?\n\}/)?.[0] || "", /deleteDoc|allow delete/);
 });
 
@@ -146,9 +146,11 @@ test("la création et la révision source utilisent le store officiel sans écra
 
 test("le retrait d'une association passe par une nouvelle révision officielle", () => {
   assert.match(app, /function removeDocumentSourceAssociation\(documentId, sourceId\)/);
-  assert.match(app, /window\.confirm\("Retirer l’association entre ce document et cette source/);
+  assert.match(app, /function chooseSourceRemovalAction\(\{ canArchive, reason = "" \}\)/);
+  assert.match(html, /Retirer uniquement l’association/);
+  assert.match(html, /Retirer et archiver la source/);
   assert.match(app, /const documentIds = Array\.isArray\(sourceData\.documentIds\) \? sourceData\.documentIds\.filter\(id => id !== documentId\) : \[\]/);
-  assert.match(app, /const revisedData = createSourceDocument\(\{ \.\.\.sourceData, documentIds \}\)/);
+  assert.match(app, /createSourceDocument\(\{ \.\.\.sourceData, documentIds, \.\.\.\(action === "archive" \? \{ status: "archived" \} : \{\}\) \}\)/);
   assert.match(app, /genealogyStore\.reviseOfficial\(\{ type: "source", id: sourceId, revisionId, eventId, data: revisedData/);
   assert.match(app, /data-managed-source-remove/);
   assert.match(app, /if \(!isAdminUser\(\)\) return toast\("La gestion des associations est réservée aux administrateurs/);
@@ -160,10 +162,21 @@ test("une preuve archivée conserve sa trace par révision et reste accessible d
   assert.match(app, /function archiveOfficialProof\(proofId\)/);
   assert.match(app, /to: "historical", reason: "Preuve archivée par un administrateur"/);
   assert.match(app, /type: "proof", id: proofId, revisionId, eventId, data: archived/);
-  assert.match(app, /item\.data\.technicalStatus === "historical" && kind !== "history"/);
+  assert.match(app, /kind === "history" && !\(item\.kind === "event" \|\| \(item\.kind === "proof" && item\.data\.technicalStatus === "historical"\)\)/);
   assert.match(app, /item\.kind === "proof" && item\.data\.technicalStatus === "historical"/);
   assert.doesNotMatch(app.match(/function archiveOfficialProof[\s\S]*?\n\}/)?.[0] || "", /deleteDoc/);
   assert.match(html, /<option value="history">Historique et preuves archivées<\/option>/);
+});
+
+test("les Archives séparent vue principale, sources sans association, documents et historique", () => {
+  for (const [value, label] of [["main", "Vue principale"], ["archived-sources", "Sources archivées"], ["unassociated", "Sources sans association"], ["legacy-documents", "Documents historiques"]]) {
+    assert.match(html, new RegExp(`<option value="${value}"[^>]*>${label}<\\/option>`));
+  }
+  assert.match(app, /kind === "main" && !\([\s\S]*item\.kind === "source" && sourceStatus === "active" && sourceAssociated !== false/);
+  assert.match(app, /kind === "unassociated" && !\(item\.kind === "source" && sourceStatus === "active" && sourceDependencySnapshotComplete\(\) && !sourceAssociated\)/);
+  assert.match(app, /const associationLoadStatus = kind === "unassociated" && !sourceDependencySnapshotComplete\(\)/);
+  assert.match(app, /kind === "archived-sources" && !\(item\.kind === "source" && sourceStatus === "archived"\)/);
+  assert.match(app, /kind === "legacy-documents" && item\.kind !== "legacy-source"/);
 });
 
 test("les textes, aides et statut readonly sont appliqués à chaque ouverture et changement de type", () => {
