@@ -8,7 +8,7 @@ const [html, app, css] = await Promise.all([
   readFile(new URL("../css/design-system.css", import.meta.url), "utf8")
 ]);
 
-test("la navigation Sources & preuves est intégrée aux vues privées", () => {
+test("la navigation Archives conserve les identifiants internes et les vues privées", () => {
   assert.match(html, /data-view="genealogy"/);
   assert.match(html, /id="genealogyView"/);
   assert.match(app, /\$\("genealogyView"\)\.hidden = view !== "genealogy"/);
@@ -69,7 +69,7 @@ test("le formulaire source officiel est guidé et réutilisable depuis Documents
 });
 
 test("Documents propose une source sans duplication et consulte les sources liées", () => {
-  assert.match(app, /key: "create-source", label: "Créer une source à partir de ce document"/);
+  assert.match(app, /key: "create-source", label: "Ajouter une source"/);
   assert.match(app, /key: "manage-sources", label: "Gérer les sources liées"/);
   assert.doesNotMatch(app, /data-document-source-revise/);
   assert.match(app, /function openOfficialSourceFromDocument\(documentId\)/);
@@ -95,11 +95,45 @@ test("le sélecteur de personnes est recherché, paginé et distinct des documen
 
 test("la modale source est élargie seulement sur desktop et la liste Documents reste compacte", () => {
   assert.match(css, /@media \(min-width: 761px\)[\s\S]*?#genealogyContributionDialog \{ width: min\(68rem/);
-  assert.match(css, /#documentsList\.list-mode \.content-card \{[\s\S]*?grid-template-areas: "main meta actions" "details details actions"/);
+  assert.match(css, /#documentsList\.list-mode \.content-card \{[\s\S]*?grid-template-areas: "main meta people source actions"/);
   assert.match(css, /#documentsList\.list-mode \.document-card-details/);
   assert.match(css, /\.document-source-associations \{[\s\S]*?flex-wrap: wrap/);
-  assert.match(app, /const linkedSourcesMarkup = sourceDocumentsLoaded && linkedSources\.length/);
+  assert.match(app, /const linkedSourcesMarkup = linkedSources\.length/);
   assert.doesNotMatch(app, /data-document-source-revise/);
+});
+
+test("les documents ont leur type après le titre, une liaison réelle et un menu secondaire", () => {
+  assert.match(app, /<div class="document-card-main"><h3 title=/);
+  assert.match(app, /<span class="badge">\$\{esc\(item\.type \|\| "Autre"\)\}<\/span>/);
+  assert.match(app, /Date inconnue/);
+  assert.match(app, /documentLinkedSources\(item\.id\)/);
+  assert.match(app, /linkedSources\.length === 1 \? "Source officielle" : `\$\{linkedSources\.length\} sources liées`/);
+  assert.match(app, /class="document-source-associations is-unlinked"/);
+  assert.match(app, /key: "create-source", label: "Ajouter une source"/);
+  assert.match(app, /key: "manage-sources", label: "Gérer les sources liées"/);
+  assert.match(app, /const sourceAction = sourceDocumentsLoaded && isAdminUser\(\)/);
+  assert.doesNotMatch(app, /Créer une source à partir de ce document/);
+  assert.doesNotMatch(app, /document-card-details[\s\S]{0,260}list-optional/);
+});
+
+test("les Archives remplacent le nom visible sans renommer les identifiants internes", () => {
+  assert.match(html, /data-view="genealogy"[^>]*aria-label="Archives"[\s\S]*?<span>Archives<\/span>/);
+  assert.match(html, /<h2 class="page-title">Archives<\/h2>/);
+  assert.match(html, /placeholder="Rechercher dans les archives/);
+  assert.match(html, /id="genealogyView"/);
+  assert.match(app, /view === "genealogy"\) renderGenealogyWorkspace/);
+  assert.match(app, /genealogyCollections = \["sourceDocuments"/);
+});
+
+test("une preuve peut être archivée en conservant son historique et sans suppression destructive", () => {
+  assert.match(app, /data-genealogy-proof-archive/);
+  assert.match(app, /function archiveOfficialProof\(proofId\)/);
+  assert.match(app, /if \(!isAdminUser\(\)\) return toast\("L’archivage des preuves est réservé aux administrateurs/);
+  assert.match(app, /transitionProofStatus\(proof, \{[\s\S]*?to: "historical"/);
+  assert.match(app, /genealogyStore\.reviseOfficial\(\{[\s\S]*?type: "proof"/);
+  assert.match(app, /Elle reste accessible dans le filtre Historique/);
+  assert.match(app, /item\.data\.technicalStatus === "historical" && kind !== "history"/);
+  assert.doesNotMatch(app.match(/function archiveOfficialProof[\s\S]*?\n\}/)?.[0] || "", /deleteDoc|allow delete/);
 });
 
 test("la création et la révision source utilisent le store officiel sans écraser les révisions", () => {
@@ -119,6 +153,17 @@ test("le retrait d'une association passe par une nouvelle révision officielle",
   assert.match(app, /data-managed-source-remove/);
   assert.match(app, /if \(!isAdminUser\(\)\) return toast\("La gestion des associations est réservée aux administrateurs/);
   assert.doesNotMatch(app.match(/function removeDocumentSourceAssociation[\s\S]*?\n\}/)?.[0] || "", /deleteDoc|updateDoc\(doc\(db, "documents"/);
+  assert.match(app, /if \(activeDocumentSourceManagerId && \$\("genealogyItemDialog"\)\.open\) renderDocumentSourceManager\(activeDocumentSourceManagerId\)/);
+});
+
+test("une preuve archivée conserve sa trace par révision et reste accessible dans Historique", () => {
+  assert.match(app, /function archiveOfficialProof\(proofId\)/);
+  assert.match(app, /to: "historical", reason: "Preuve archivée par un administrateur"/);
+  assert.match(app, /type: "proof", id: proofId, revisionId, eventId, data: archived/);
+  assert.match(app, /item\.data\.technicalStatus === "historical" && kind !== "history"/);
+  assert.match(app, /item\.kind === "proof" && item\.data\.technicalStatus === "historical"/);
+  assert.doesNotMatch(app.match(/function archiveOfficialProof[\s\S]*?\n\}/)?.[0] || "", /deleteDoc/);
+  assert.match(html, /<option value="history">Historique et preuves archivées<\/option>/);
 });
 
 test("les textes, aides et statut readonly sont appliqués à chaque ouverture et changement de type", () => {
@@ -149,7 +194,7 @@ test("la source officielle référence des documents sélectionnés sans recopie
   assert.match(app, /linkedDocumentButton\.dataset\.sourceDocumentOpen[\s\S]*?openStoredDocument\(linkedDocument\)/);
   assert.match(app, /data-managed-source-open=/);
   assert.match(app, /openGenealogyItem\("source", managedSourceOpen\.dataset\.managedSourceOpen\)/);
-  assert.match(app, /if \(collectionName === "sourceDocuments" && loadedPeople && loadedDocuments\) renderDocuments\(\)/);
+  assert.match(app, /if \(collectionName === "sourceDocuments"\) \{[\s\S]*?renderDocuments\(\)[\s\S]*?renderDocumentSourceManager\(activeDocumentSourceManagerId\)/);
   assert.match(app, /if \(!tile \|\| event\.target\.closest\("button, a, input, select, textarea, summary, \.tile-context-actions"\)\) return/);
   assert.doesNotMatch(app.match(/if \(type === "source"\) \{([\s\S]*?)\} else if \(type === "transcription"\)/)?.[1] || "", /writeFileChunks|setDoc\(doc\(db, "documents"/);
   assert.match(html, /Sélectionnez les fiches existantes utilisées par cette source\. Les fichiers ne sont pas copiés\./);
@@ -251,13 +296,13 @@ test("les deux espaces naviguent entre sources et documents, avec références a
   assert.match(app, /Document référencé introuvable/);
   assert.match(app, /Fiche trouvée, aucun fichier ou lien consultable n’est associé/);
   assert.match(app, /const linkedDocumentsBlock = kind === "source" \? linkedSourceDocumentsMarkup\(data\) : ""/);
-  assert.match(app, /const linkedSources = sourceDocumentsLoaded \? genealogyRecords\.sourceDocuments\.filter/);
-  assert.match(app, /sourceData\.documentIds\.includes\(item\.id\)/);
+  assert.match(app, /const linkedSources = sourceDocumentsLoaded \? documentLinkedSources\(item\.id\)/);
+  assert.match(app, /Array\.isArray\(sourceData\.documentIds\) && sourceData\.documentIds\.includes\(documentId\)/);
   assert.match(app, /data-managed-source-open="\$\{esc\(source\.id\)\}"/);
   assert.match(app, /openGenealogyItem\("source", sourceLink\.dataset\.openDocumentSource\)/);
   assert.match(app, /data-source-document-open="\$\{esc\(link\.id\)\}"/);
   assert.match(app, /openStoredDocument\(linkedDocument\)/);
-  assert.match(app, /if \(collectionName === "sourceDocuments" && loadedPeople && loadedDocuments\) renderDocuments\(\)/);
+  assert.match(app, /if \(collectionName === "sourceDocuments"\) \{[\s\S]*?if \(loadedPeople && loadedDocuments\) renderDocuments\(\)/);
 });
 
 test("transcriptions, incertitudes, photos, contradictions et accès depuis les fiches sont affichés", () => {
@@ -271,7 +316,8 @@ test("transcriptions, incertitudes, photos, contradictions et accès depuis les 
 });
 
 test("l'interface distingue les médias historiques optimisés et indique l'absence de stockage photographique durable", () => {
-  assert.match(app, /Image historique optimisée \(WebP\) · pas un original/);
+  const documents = app.match(/function renderDocuments\(\)[\s\S]*?\n\}/)?.[0] || "";
+  assert.doesNotMatch(documents, /Image historique optimisée|Fichier historique · original non vérifié|Référence externe/);
   assert.match(app, /stockage durable n’est pas disponible/);
   assert.match(css, /\.genealogy-detail-grid\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\)/);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.genealogy-detail-grid\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)/);

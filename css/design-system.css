@@ -2331,11 +2331,27 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 
 .documents-toolbar .view-switch { margin-left: 0; white-space: nowrap; }
 .documents-toolbar select.field { min-width: 0; }
+.document-card { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.document-card-main { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding-right: calc(var(--control-touch) + var(--space-1)); }
+.document-card-main h3 { flex: 0 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.document-card-main .badge { flex: 0 0 auto; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.document-card > .card-meta { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.document-card-details { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-3); min-width: 0; margin-top: auto; }
+.document-card-people { min-width: 0; margin: 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.document-source-associations { display: inline-flex; align-items: center; min-width: 0; margin: 0; padding: 2px 8px; border-radius: 999px; background: var(--color-brand-soft); color: var(--color-brand); font-size: var(--text-xs); white-space: nowrap; }
+.document-source-associations.is-unlinked { padding: 0; background: transparent; color: var(--color-text-muted); }
+.content-grid:not(.list-mode) .document-source-associations.is-unlinked { display: none; }
+.document-card > .card-actions { position: absolute; top: var(--space-2); right: var(--space-2); margin: 0; }
 
 .genealogy-toolbar { grid-template-columns: minmax(220px, 1fr) minmax(150px, 220px); }
-.genealogy-entry { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
-.genealogy-entry .genealogy-entry-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); }
+.genealogy-entry { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; align-content: stretch; gap: var(--space-2); min-width: 0; height: 100%; }
+.genealogy-entry .genealogy-entry-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; }
 .genealogy-entry .genealogy-entry-kind { color: var(--color-text-muted); font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.genealogy-entry-title { display: -webkit-box; min-width: 0; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+.genealogy-entry-meta { min-height: 1.25em; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.genealogy-entry-metadata { display: grid; align-content: start; gap: var(--space-1); min-width: 0; overflow: hidden; }
+.genealogy-entry-metadata > p { display: -webkit-box; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+.genealogy-entry .genealogy-inline-actions { align-self: end; min-height: var(--control-touch); margin-top: var(--space-1); }
 .genealogy-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); }
 .genealogy-photo-panel { min-width: 0; min-height: 180px; display: grid; place-items: center; overflow: auto; border-radius: var(--radius-md); background: var(--color-surface-muted); }
 .genealogy-photo-panel img { display: block; max-width: 100%; max-height: 65dvh; object-fit: contain; transform-origin: center; transition: transform 120ms ease; }
@@ -2415,19 +2431,36 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .source-detail-fact span { overflow-wrap: anywhere; }
 .source-detail-fact.source-detail-observations span { white-space: pre-wrap; }
 #documentsList.list-mode .content-card {
-  grid-template-columns: minmax(0, 2fr) minmax(8rem, 1fr) auto;
-  grid-template-areas: "main meta actions" "details details actions";
+  display: grid;
+  grid-template-columns: minmax(17rem, 2fr) minmax(9rem, .8fr) minmax(14rem, 1.4fr) minmax(9rem, .9fr) var(--control-touch);
+  grid-template-areas: "main meta people source actions";
   align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-height: 3.5rem;
   min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  box-shadow: none;
 }
-#documentsList.list-mode .content-card > div:first-child { grid-area: main; }
+#documentsList.list-mode .content-card > .document-card-main { grid-area: main; display: flex; flex-direction: row; align-items: center; gap: var(--space-2); min-width: 0; padding: 0; }
+#documentsList.list-mode .document-card-main h3 { order: 0; flex: 0 1 auto; font-size: var(--text-md); }
+#documentsList.list-mode .document-card-main .badge { order: 1; max-width: 10rem; }
 #documentsList.list-mode .content-card > .card-meta { grid-area: meta; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-#documentsList.list-mode .document-card-details { grid-area: details; display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-3); min-width: 0; }
-#documentsList.list-mode .document-card-details > p { margin: 0; }
-#documentsList.list-mode .document-source-associations { flex: 1 1 auto; min-width: 0; margin-top: 0; }
-#documentsList.list-mode .document-source-associations ul { flex-wrap: nowrap; overflow: hidden; }
-#documentsList.list-mode .document-source-associations .btn { max-width: 12rem; }
-#documentsList.list-mode .card-actions { grid-area: actions; }
+#documentsList.list-mode .document-card-details { display: contents; }
+#documentsList.list-mode .document-card-people { grid-area: people; min-width: 0; }
+#documentsList.list-mode .document-source-associations { grid-area: source; justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+#documentsList.list-mode .card-actions { position: static; grid-area: actions; }
+@media (max-width: 1180px) and (min-width: 761px) {
+  #documentsList.list-mode .content-card { grid-template-columns: minmax(10rem, 1.6fr) minmax(6.5rem, .8fr) minmax(8rem, 1.2fr) minmax(7rem, auto) var(--control-touch); gap: var(--space-1) var(--space-2); }
+  #documentsList.list-mode .document-card-main .badge { max-width: 8rem; }
+}
+@media (max-width: 760px) {
+  #documentsList.list-mode .content-card { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "main actions" "meta meta" "people source"; align-items: center; gap: var(--space-1) var(--space-2); }
+  #documentsList.list-mode .document-card-main .badge { max-width: 8rem; }
+  #documentsList.list-mode .document-card-people { white-space: normal; }
+  #documentsList.list-mode .document-source-associations { justify-self: end; }
+}
+.genealogy-entry { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+.genealogy-entry .genealogy-status-badge { flex: 0 0 auto; }
 /* Le lien 8A ajoute une sixième destination ; maintenir les six rubriques sur
    une seule rangée tactile plutôt que créer une seconde rangée de navigation. */
 @media (max-width: 760px) {

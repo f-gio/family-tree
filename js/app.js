@@ -27,7 +27,7 @@ import { FILE_CHUNK_BYTES, MAX_FILE_BYTES, formatBytes, base64ToBytes, importedD
 import { firebaseConfigurationMatchesEnvironment, resolveFirebaseEnvironment, environmentFeatureFlags } from "./firebase-environment.js";
 import { TRANSFER_DIAGNOSTIC_STAGES, resolveTransferDiagnosticEnabled, buildTransferDiagnosticReport } from "./transfer-diagnostic.js";
 import { createGenealogyCollaborationStore } from "./genealogy-collaboration-firestore.js";
-import { createGenealogyProof, validateGenealogyProof } from "./genealogy-proofs.js";
+import { createGenealogyProof, transitionProofStatus, validateGenealogyProof } from "./genealogy-proofs.js";
 import { createConclusionRevision, createConclusionHead } from "./fact-conclusions.js";
 import { createSourceDocument, mergeSourceDocumentGuidedData, resolveSourceDocumentLinks, searchLinkedDocuments, SOURCE_DOCUMENT_PICKER_PAGE_SIZE } from "./source-document-model.js";
 import { createPageTextRevision } from "./document-transcription.js";
@@ -500,11 +500,7 @@ async function removeDocumentSourceAssociation(documentId, sourceId) {
   const revisedData = createSourceDocument({ ...sourceData, documentIds });
   try {
     await genealogyStore.reviseOfficial({ type: "source", id: sourceId, revisionId, eventId, data: revisedData, reason: "Association document retirée depuis Documents", actorUid: auth.currentUser.uid });
-    const index = genealogyRecords.sourceDocuments.findIndex(item => item.id === sourceId);
-    if (index >= 0) genealogyRecords.sourceDocuments[index] = { ...genealogyRecords.sourceDocuments[index], data: revisedData, revisionId };
-    renderDocuments();
-    renderDocumentSourceManager(documentId);
-    toast("Association retirée. Une nouvelle révision de la source a été enregistrée.");
+    toast("Retrait enregistré par une nouvelle révision. Les listes se mettent à jour depuis la source officielle.");
   } catch (error) {
     toast(error.message || "Retrait de l’association impossible.", "error");
   }
@@ -3619,28 +3615,21 @@ function renderDocuments() {
     const compactPlace = formatCompactPlace(item.place, item.placeInfo);
     const label = documentDisplayLabel(item);
     const sourceDocumentsLoaded = genealogyCollectionsLoaded.has("sourceDocuments");
-    const sourceDocumentsUnavailable = genealogyCollectionErrors.has("sourceDocuments");
-    const linkedSources = sourceDocumentsLoaded ? genealogyRecords.sourceDocuments.filter(source => {
-      const sourceData = genealogyRecordData(source);
-      return Array.isArray(sourceData.documentIds) && sourceData.documentIds.includes(item.id);
-    }) : [];
-    const linkedSourcesMarkup = sourceDocumentsLoaded && linkedSources.length
-      ? `<div class="document-source-associations"><strong>${linkedSources.length} source${linkedSources.length > 1 ? "s" : ""} liée${linkedSources.length > 1 ? "s" : ""}</strong></div>`
-      : sourceDocumentsUnavailable ? "" : "";
-    const renditionStatus = item.compressed || item.mimeType === "image/webp"
-      ? "Image historique optimisée (WebP) · pas un original"
-      : item.chunkCount || item.fileData ? "Fichier historique · original non vérifié" : "Référence externe";
+    const linkedSources = sourceDocumentsLoaded ? documentLinkedSources(item.id) : [];
+    const linkedSourcesMarkup = linkedSources.length
+      ? `<span class="document-source-associations" aria-label="${linkedSources.length} source${linkedSources.length > 1 ? "s" : ""} liée${linkedSources.length > 1 ? "s" : ""}">${linkedSources.length === 1 ? "Source officielle" : `${linkedSources.length} sources liées`}</span>`
+      : sourceDocumentsLoaded ? `<span class="document-source-associations is-unlinked">Aucune source liée</span>` : "";
     const canOpen = !!(item.chunkCount || item.fileData || item.fileUrl || item.externalUrl);
     const tileSemantics = canOpen ? `data-primary-tile data-document-openable="true" tabindex="0" role="group" aria-label="Consulter ${esc(label)}" aria-keyshortcuts="Enter Space"` : `data-document-openable="false"`;
     const sourceAction = sourceDocumentsLoaded && isAdminUser()
-      ? linkedSources.length ? { key: "manage-sources", label: "Gérer les sources liées", icon: "link" } : { key: "create-source", label: "Créer une source à partir de ce document", icon: "plus" }
+      ? linkedSources.length ? { key: "manage-sources", label: "Gérer les sources liées", icon: "link" } : { key: "create-source", label: "Ajouter une source", icon: "plus" }
       : null;
     const menu = tileContextMenuMarkup("document", item.id, label, [
       { key: "edit", label: "Modifier", icon: "edit" },
       ...(sourceAction ? [sourceAction] : []),
       { key: "delete", label: "Supprimer", icon: "trash", danger: true }
     ]);
-    return `<article class="content-card document-card" data-document-card="${item.id}" ${tileSemantics}><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(label)}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${compactPlace ? ` · ${esc(compactPlace)}` : ""}</p><div class="document-card-details"><p class="document-card-people">${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">${esc(renditionStatus)} · ${formatBytes(item.storedSize)}</p>` : `<p class="list-optional">${esc(renditionStatus)}</p>`}${linkedSourcesMarkup}</div><div class="card-actions">${menu}</div></article>`;
+    return `<article class="content-card document-card" data-document-card="${esc(item.id)}" ${tileSemantics}><div class="document-card-main"><h3 title="${esc(label)}">${esc(label)}</h3><span class="badge">${esc(item.type || "Autre")}</span></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date inconnue"}${compactPlace ? ` · ${esc(compactPlace)}` : ""}</p><div class="document-card-details"><p class="document-card-people" title="${esc((item.personIds || []).map(nameOf).join(", "))}">${(item.personIds || []).length ? esc(item.personIds.map(nameOf).join(", ")) : "Aucune personne associée"}</p>${linkedSourcesMarkup}</div><div class="card-actions">${menu}</div></article>`;
   }).join("") : (documents.length
     ? emptyState({ iconName: "document", title: "Aucun document trouvé", description: "Modifiez la recherche ou le type de document sélectionné." })
     : emptyState({ iconName: "document", title: "Aucun document", description: "Centralisez ici les actes, photos et autres archives familiales.", action: `<button class="btn primary" type="button" data-empty-add-document>${icon("plus")}<span>Ajouter un document</span></button>` }));
@@ -3848,7 +3837,7 @@ function genealogyEntryBits(item) {
 }
 
 function genealogyEntryContent(item) {
-  return genealogyEntryBits(item).map(bit => `<p class="card-description">${esc(bit)}</p>`).join("");
+  return genealogyEntryBits(item).map(bit => `<p class="card-description" title="${esc(bit)}">${esc(bit)}</p>`).join("");
 }
 
 function genealogyItemTitle(item) {
@@ -3867,12 +3856,13 @@ function renderGenealogyWorkspace() {
   const queryText = searchable($("genealogySearch")?.value || "");
   const kind = $("genealogyKindFilter")?.value || "all";
   const items = genealogyWorkspaceItems().filter(item => {
+    if (item.kind === "proof" && item.data.technicalStatus === "historical" && kind !== "history") return false;
     if (kind !== "all" && !((kind === "sources" && ["source", "legacy-source"].includes(item.kind))
       || (kind === "transcriptions" && item.kind === "transcription")
       || (kind === "proofs" && item.kind === "proof")
       || (kind === "conclusions" && item.kind === "conclusion")
       || (kind === "proposals" && item.kind === "proposal")
-      || (kind === "history" && item.kind === "event")
+      || (kind === "history" && (item.kind === "event" || (item.kind === "proof" && item.data.technicalStatus === "historical")))
       || (kind === "notifications" && item.kind === "notification"))) return false;
     if (!queryText) return true;
     const searchText = searchable([genealogyItemTitle(item), ...genealogyEntryBits(item)].join(" "));
@@ -3918,6 +3908,7 @@ function renderGenealogyWorkspace() {
       controls.push(`<button class="btn small primary" type="button" data-genealogy-proposal-action="accept" data-genealogy-id="${esc(record.id)}">Accepter</button>`);
       controls.push(`<button class="btn small" type="button" data-genealogy-proposal-action="reject" data-genealogy-id="${esc(record.id)}">Refuser</button>`);
     }
+    if (item.kind === "proof" && isAdminUser() && data.technicalStatus !== "historical") controls.push(`<button class="btn small" type="button" data-genealogy-proof-archive="${esc(record.id)}">Archiver</button>`);
     if (item.official && isAdminUser()) controls.push(`<button class="btn small" type="button" data-genealogy-revise="${esc(item.kind)}" data-genealogy-id="${esc(record.id)}">Réviser</button>`);
     if (item.kind === "notification" && record.read !== true) controls.push(`<button class="btn small" type="button" data-genealogy-notification-read="${esc(record.id)}">Marquer comme lue</button>`);
     if (isAdminUser() && item.kind === "proof" && data.technicalStatus !== "suspended") controls.push(`<button class="btn small" type="button" data-genealogy-review="proof" data-genealogy-id="${esc(record.id)}">Demander réexamen</button>`);
@@ -3932,12 +3923,13 @@ function renderGenealogyWorkspace() {
     const entryContent = legacyDetails
       ? `${legacyNotes}${legacyPhotograph}`
       : genealogyEntryContent(item);
-    return `<article class="content-card genealogy-entry${legacyDetails ? " genealogy-entry-legacy-document" : ""}"><div class="genealogy-entry-heading"><div><span class="genealogy-entry-kind">${esc(genealogyKindLabels[item.kind] || item.kind)}</span><h3>${esc(title)}</h3></div>${status ? `<span class="genealogy-status-badge">${esc(status)}</span>` : ""}</div>${subtitle ? `<p class="card-meta">${esc(subtitle)}</p>` : ""}${review}${contradiction}${entryContent}<div class="genealogy-inline-actions">${controls.join("")}</div></article>`;
+    return `<article class="content-card genealogy-entry${legacyDetails ? " genealogy-entry-legacy-document" : ""}"><header class="genealogy-entry-heading"><span class="genealogy-entry-kind">${esc(genealogyKindLabels[item.kind] || item.kind)}</span>${status ? `<span class="genealogy-status-badge">${esc(status)}</span>` : ""}</header><h3 class="genealogy-entry-title" title="${esc(title)}">${esc(title)}</h3><p class="card-meta genealogy-entry-meta"${subtitle ? ` title="${esc(subtitle)}"` : ""}>${esc(subtitle || " ")}</p><div class="genealogy-entry-metadata">${review}${contradiction}${entryContent}</div><div class="genealogy-inline-actions">${controls.join("")}</div></article>`;
   }).join("") : emptyState({ iconName: "document", title: "Aucun élément trouvé", description: "Modifiez la recherche ou le filtre sélectionné." });
   $("genealogyOfficialBtn").hidden = !isAdminUser();
 }
 
 function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null) {
+  activeDocumentSourceManagerId = "";
   const item = genealogyWorkspaceItems().find(value => value.kind === kind && value.record.id === id);
   if (!item) return toast("Cet élément n’est plus disponible.", "error");
   if (kind === "legacy-source" && (item.record.chunkVersion || item.record.fileData?.startsWith("data:") || item.record.fileUrl || item.record.externalUrl)) return openStoredDocument(item.record);
@@ -4432,6 +4424,8 @@ async function handleGenealogyWorkspaceClick(event) {
     if (item) openGenealogyContribution({ official: true, reviseItem: item });
     return;
   }
+  const archiveProofButton = event.target.closest("[data-genealogy-proof-archive]");
+  if (archiveProofButton) return archiveOfficialProof(archiveProofButton.dataset.genealogyProofArchive);
   const proposalAction = event.target.closest("[data-genealogy-proposal-action]");
   if (proposalAction) {
     const proposalId = proposalAction.dataset.genealogyId;
@@ -4463,11 +4457,40 @@ async function handleGenealogyWorkspaceClick(event) {
       const admins = [...new Set([primaryAdminUid, ...adminSnapshot.docs.map(snapshot => snapshot.id)].filter(Boolean))];
       await genealogyStore.createReexaminationEvent({
         type: reviewButton.dataset.genealogyReview, objectId: reviewButton.dataset.genealogyId,
-        eventId: createGenealogyId(refs.genealogyEvents), reason: "Réexamen demandé depuis le dossier Sources & preuves",
+        eventId: createGenealogyId(refs.genealogyEvents), reason: "Réexamen demandé depuis les Archives",
         administratorUids: admins, notificationIds: admins.map(() => createGenealogyId(refs.genealogyNotifications)), actorUid: auth.currentUser.uid
       });
       toast("Demande de réexamen et notifications enregistrées.");
     } catch (error) { toast(error.message || "Demande de réexamen impossible.", "error"); }
+  }
+}
+
+async function archiveOfficialProof(proofId) {
+  if (!isAdminUser()) return toast("L’archivage des preuves est réservé aux administrateurs.", "error");
+  const record = genealogyRecords.genealogyProofs.find(item => item.id === proofId);
+  if (!record) return toast("Cette preuve n’est plus disponible.", "error");
+  const proof = genealogyRecordData(record);
+  if (proof.technicalStatus === "historical") return toast("Cette preuve est déjà archivée.", "info");
+  if (!window.confirm("Archiver cette preuve ? Elle restera consultable dans l’historique et aucune révision ne sera supprimée.")) return;
+  const revisionId = createGenealogyId(refs.genealogyProofRevisions);
+  const eventId = createGenealogyId(refs.genealogyEvents);
+  let archived;
+  try {
+    archived = transitionProofStatus(proof, {
+      to: "historical", reason: "Preuve archivée par un administrateur", eventId,
+      actorUid: auth.currentUser?.uid || null, at: new Date().toISOString()
+    });
+  } catch (error) {
+    return toast(error.message || "Cette preuve ne peut pas être archivée.", "error");
+  }
+  try {
+    await genealogyStore.reviseOfficial({
+      type: "proof", id: proofId, revisionId, eventId, data: archived,
+      reason: "Preuve archivée par un administrateur", actorUid: auth.currentUser.uid
+    });
+    toast("Preuve archivée. Elle reste accessible dans le filtre Historique.");
+  } catch (error) {
+    toast(error.message || "Archivage de la preuve impossible.", "error");
   }
 }
 
@@ -5883,12 +5906,20 @@ function startData() {
       genealogyCollectionErrors.delete(collectionName);
       genealogyLoaded = genealogyCollectionsLoaded.size === genealogyCollections.length;
       renderGenealogyWorkspace();
-      if (collectionName === "sourceDocuments" && loadedPeople && loadedDocuments) renderDocuments();
+      if (collectionName === "sourceDocuments") {
+        if (loadedPeople && loadedDocuments) renderDocuments();
+        if (activeDocumentSourceManagerId && $("genealogyItemDialog").open) renderDocumentSourceManager(activeDocumentSourceManagerId);
+      }
     }, error => {
       console.error(`Chargement de ${collectionName} impossible`, error);
       genealogyCollectionErrors.set(collectionName, describeFirestoreReadError(error));
       renderGenealogyWorkspace();
-      if (collectionName === "sourceDocuments" && loadedPeople && loadedDocuments) renderDocuments();
+      if (collectionName === "sourceDocuments") {
+        if (loadedPeople && loadedDocuments) renderDocuments();
+        if (activeDocumentSourceManagerId && $("genealogyItemDialog").open) {
+          $("genealogyItemContent").innerHTML = `<p class="card-meta">Sources liées indisponibles actuellement. Réessayez après le rétablissement de la synchronisation.</p>`;
+        }
+      }
     }));
   }
 }
@@ -6577,7 +6608,10 @@ document.addEventListener("click", event => {
 });
 $("genealogyItemContent").addEventListener("click", event => {
   const managedSourceOpen = event.target.closest("[data-managed-source-open]");
-  if (managedSourceOpen) return openGenealogyItem("source", managedSourceOpen.dataset.managedSourceOpen);
+  if (managedSourceOpen) {
+    activeDocumentSourceManagerId = "";
+    return openGenealogyItem("source", managedSourceOpen.dataset.managedSourceOpen);
+  }
   const managedSourceRemove = event.target.closest("[data-managed-source-remove]");
   if (managedSourceRemove) {
     return runSafely(() => removeDocumentSourceAssociation(activeDocumentSourceManagerId, managedSourceRemove.dataset.managedSourceRemove), "Retrait de l’association impossible");

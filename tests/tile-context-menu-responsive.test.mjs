@@ -169,9 +169,9 @@ test("Documents : liste et tuiles restent compactes avec sources liées et actio
             const view = document.getElementById(id);
             if (view) view.hidden = id !== "documentsView";
           }
-          const menu = `<div class="tile-context-actions"><button class="tile-context-toggle" type="button" aria-label="Actions secondaires"><span class="tile-context-glyph"><span class="tile-context-dot"></span><span class="tile-context-dot"></span><span class="tile-context-dot"></span></span></button></div>`;
+          const menu = extra => `<div class="tile-context-actions"><button class="tile-context-toggle" type="button" data-tile-menu-toggle aria-haspopup="menu" aria-expanded="false" aria-label="Actions secondaires"><span class="tile-context-glyph"><span class="tile-context-dot"></span><span class="tile-context-dot"></span><span class="tile-context-dot"></span></span></button><div class="tile-context-menu" role="menu" hidden><button class="tile-context-menu-item" type="button" role="menuitem">Modifier</button>${extra}<button class="tile-context-menu-item" type="button" role="menuitem">Supprimer</button></div></div>`;
           document.getElementById("documentsList").className = `content-grid ${currentMode}`;
-          document.getElementById("documentsList").innerHTML = `<article class="content-card document-card"><div><span class="badge">Acte</span><h3>Acte familial long de démonstration</h3></div><p class="card-meta">12 mars 1900 · Turin</p><div class="document-card-details"><p class="document-card-people">Associé à : Marie Rossi, Jean Rossi</p><p class="list-optional">Fichier historique · original non vérifié</p><div class="document-source-associations"><strong>2 sources liées</strong><ul><li><button class="btn small" type="button">Source naissance</button></li><li><button class="btn small" type="button">Registre familial</button></li></ul></div></div><div class="card-actions">${menu}</div></article><article class="content-card document-card"><div><span class="badge">Photo</span><h3>Photographie sans source</h3></div><p class="card-meta">Date non renseignée</p><div class="document-card-details"><p class="document-card-people">Aucune personne associée</p><p class="list-optional">Référence externe</p><div class="document-source-associations"><strong>Sources officielles</strong><button class="btn small" type="button">Créer une source à partir de ce document</button></div></div><div class="card-actions">${menu}</div></article>`;
+          document.getElementById("documentsList").innerHTML = `<article class="content-card document-card" data-primary-tile><div class="document-card-main"><h3>Acte familial long de démonstration</h3><span class="badge">Acte de naissance</span></div><p class="card-meta">12 mars 1900 · Turin</p><div class="document-card-details"><p class="document-card-people">Marie Rossi, Jean Rossi</p><span class="document-source-associations">2 sources liées</span></div><div class="card-actions">${menu('<button class="tile-context-menu-item" type="button" role="menuitem">Gérer les sources liées</button>')}</div></article><article class="content-card document-card" data-primary-tile><div class="document-card-main"><h3>Photographie sans source</h3><span class="badge">Photo</span></div><p class="card-meta">Date inconnue</p><div class="document-card-details"><p class="document-card-people">Aucune personne associée</p></div><div class="card-actions">${menu('<button class="tile-context-menu-item" type="button" role="menuitem">Ajouter une source</button>')}</div></article>`;
         }, mode);
         const metrics = await page.locator("#documentsList").evaluate(list => {
           const cards = [...list.querySelectorAll(".document-card")];
@@ -180,12 +180,17 @@ test("Documents : liste et tuiles restent compactes avec sources liées et actio
             scrollWidth: document.documentElement.scrollWidth,
             cards: cards.map(card => {
               const rect = card.getBoundingClientRect();
-              const association = card.querySelector(".document-source-associations")?.getBoundingClientRect();
-              const actions = card.querySelector(".card-actions")?.getBoundingClientRect();
-              return { left: rect.left, right: rect.right, width: rect.width, associationRight: association?.right, actionsRight: actions?.right };
+            const association = card.querySelector(".document-source-associations")?.getBoundingClientRect();
+            const actions = card.querySelector(".card-actions")?.getBoundingClientRect();
+              const title = card.querySelector("h3")?.getBoundingClientRect();
+              const type = card.querySelector(".badge")?.getBoundingClientRect();
+              const date = card.querySelector(".card-meta")?.getBoundingClientRect();
+              const people = card.querySelector(".document-card-people")?.getBoundingClientRect();
+              return { left: rect.left, right: rect.right, width: rect.width, titleLeft: title?.left, titleTop: title?.top, titleHeight: title?.height, typeLeft: type?.left, typeTop: type?.top, typeHeight: type?.height, dateLeft: date?.left, dateTop: date?.top, dateHeight: date?.height, peopleLeft: people?.left, peopleTop: people?.top, peopleHeight: people?.height, associationLeft: association?.left, associationTop: association?.top, associationHeight: association?.height, actionsLeft: actions?.left, actionsTop: actions?.top, actionsHeight: actions?.height, associationRight: association?.right, actionsRight: actions?.right };
             }),
-            linkedCount: list.querySelectorAll(".document-source-associations strong")[0]?.textContent,
-            createAction: list.querySelectorAll(".document-source-associations button")[2]?.textContent
+            linkedCount: list.querySelectorAll(".document-source-associations")[0]?.textContent,
+            menuActions: [...list.querySelectorAll(".tile-context-menu-item")].map(button => button.textContent),
+            noPermanentSourceBlock: [...list.querySelectorAll(".document-source-associations")].every(item => !item.querySelector("ul,button"))
           };
         });
         assert.equal(metrics.scrollWidth, metrics.viewportWidth, `${width}px ${mode}: aucun débordement horizontal`);
@@ -196,7 +201,51 @@ test("Documents : liste et tuiles restent compactes avec sources liées et actio
           assert.ok(card.actionsRight === undefined || card.actionsRight <= card.right + 1, `${width}px ${mode}: actions contenues`);
         }
         assert.equal(metrics.linkedCount, "2 sources liées", `${width}px ${mode}: indicateur compact des sources`);
-        assert.equal(metrics.createAction, "Créer une source à partir de ce document", `${width}px ${mode}: action de création accessible`);
+        assert.ok(metrics.menuActions.includes("Ajouter une source"), `${width}px ${mode}: action de création accessible dans le menu`);
+        assert.ok(metrics.menuActions.includes("Gérer les sources liées"), `${width}px ${mode}: gestion des sources dans le menu`);
+        assert.equal(metrics.noPermanentSourceBlock, true, `${width}px ${mode}: pas de liste ou d'action secondaire permanente`);
+        assert.ok(metrics.cards.every(card => card.titleLeft <= card.typeLeft), `${width}px ${mode}: titre avant capsule type`);
+        for (const [cardIndex, expectedMenuAction] of [[0, "Gérer les sources liées"], [1, "Ajouter une source"]]) {
+          const card = page.locator(`#documentsList .document-card`).nth(cardIndex);
+          await card.locator("[data-tile-menu-toggle]").click();
+          const menu = card.locator(".tile-context-menu");
+          assert.equal(await menu.isVisible(), true, `${width}px ${mode}: menu ouvert`);
+          assert.ok((await menu.innerText()).includes(expectedMenuAction), `${width}px ${mode}: ${expectedMenuAction} accessible dans le menu`);
+          await page.keyboard.press("Escape");
+        }
+        if (width >= 1024 && mode === "list-mode") {
+          const card = metrics.cards[0];
+          const centers = [[card.titleTop, card.titleHeight], [card.typeTop, card.typeHeight], [card.dateTop, card.dateHeight], [card.peopleTop, card.peopleHeight], [card.associationTop, card.associationHeight], [card.actionsTop, card.actionsHeight]].map(([top, height]) => top + height / 2);
+          assert.ok(centers.every(center => Math.abs(center - centers[0]) < 6), `${width}px liste : colonnes alignées sur une seule ligne (${centers.join(", ")})`);
+          assert.ok(card.titleLeft < card.dateLeft && card.dateLeft < card.peopleLeft && card.peopleLeft < card.associationLeft && card.associationLeft < card.actionsLeft,
+            `${width}px liste : ordre titre, date, personnes, liaison, actions`);
+        }
+      }
+    }
+    for (const width of [390, 760, 1024, 1280]) {
+      await page.setViewportSize({ width, height: 820 });
+      const archivesMetrics = await page.evaluate(() => {
+        document.getElementById("documentsView").hidden = true;
+        document.getElementById("genealogyView").hidden = false;
+        const results = document.getElementById("genealogyResults");
+        results.innerHTML = `<article class="content-card genealogy-entry"><header class="genealogy-entry-heading"><span class="genealogy-entry-kind">Source officielle</span><span class="genealogy-status-badge">Active</span></header><h3 class="genealogy-entry-title">Registre de naissance</h3><p class="card-meta genealogy-entry-meta">12 mars 1900 · Auteur connu</p><div class="genealogy-entry-metadata"><p class="card-description">Catégorie : Registre</p><p class="card-description">Cote : 0017</p></div><div class="genealogy-inline-actions"><button class="btn small">Consulter</button><button class="btn small">Réviser</button></div></article><article class="content-card genealogy-entry"><header class="genealogy-entry-heading"><span class="genealogy-entry-kind">Preuve</span><span class="genealogy-status-badge">Active</span></header><h3 class="genealogy-entry-title">Naissance de Marie</h3><p class="card-meta genealogy-entry-meta">12 mars 1900</p><div class="genealogy-entry-metadata"><p class="card-description">Appuie le fait « Naissance »</p></div><div class="genealogy-inline-actions"><button class="btn small">Consulter</button><button class="btn small">Réviser</button><button class="btn small">Archiver</button></div></article>`;
+        const cards = [...results.querySelectorAll(".genealogy-entry")];
+        return {
+          viewportWidth: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+          cards: cards.map(card => {
+            const rect = card.getBoundingClientRect();
+            const actions = card.querySelector(".genealogy-inline-actions").getBoundingClientRect();
+            return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, height: rect.height, actionsBottom: actions.bottom };
+          })
+        };
+      });
+      assert.equal(archivesMetrics.scrollWidth, archivesMetrics.viewportWidth, `${width}px Archives : pas de débordement horizontal`);
+      assert.equal(archivesMetrics.cards.length, 2);
+      if (width >= 1024) {
+        assert.ok(Math.abs(archivesMetrics.cards[0].top - archivesMetrics.cards[1].top) < 2, `${width}px Archives : cartes sur la même rangée`);
+        assert.ok(Math.abs(archivesMetrics.cards[0].height - archivesMetrics.cards[1].height) < 2, `${width}px Archives : hauteurs de cartes cohérentes`);
+        assert.ok(Math.abs(archivesMetrics.cards[0].actionsBottom - archivesMetrics.cards[1].actionsBottom) < 2, `${width}px Archives : actions alignées en bas`);
       }
     }
     for (const [width, expectedMin] of [[1024, 970], [1280, 1070], [390, 380]]) {

@@ -11,6 +11,7 @@ import { initializeFirestore, connectFirestoreEmulator, collection, doc, getDoc,
 import { FILE_CHUNK_BYTES, splitBytesIntoChunks, concatByteArrays, documentChunkId, sliceIntoBatches, importedDataFields } from "../js/backup-utils.js";
 import { prepareMultipleTreeTransferPlan } from "../js/tree-model.js";
 import { createGenealogyCollaborationStore } from "../js/genealogy-collaboration-firestore.js";
+import { createGenealogyProof, transitionProofStatus } from "../js/genealogy-proofs.js";
 import { assertLocalEmulator, assertFictiveProject, EMULATOR_PROJECT_ID } from "./emulator-guard.mjs";
 
 // GARDE ANTI-PRODUCTION : échoue (rouge) si l'émulateur n'est pas démarré ou non local.
@@ -1601,6 +1602,11 @@ test("LOT 6 : propositions, données officielles, historique immuable, notificat
     type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision", eventId: "lot6-source-created-event",
     data: { title: "Source officielle", schemaVersion: 1, documentIds: linkedDocumentIds }, reason: "Création documentée", actorUid: adminUid
   });
+  await store.createOfficial({
+    type: "source", id: "lot6-official-source-second", revisionId: "lot6-source-second-revision",
+    eventId: "lot6-source-second-event", data: { title: "Autre analyse du même document", schemaVersion: 1, documentIds: [linkedDocumentIds[0]] },
+    reason: "Document réutilisé sans copie", actorUid: adminUid
+  });
   const official = await getDoc(doc(db, "sourceDocuments", "lot6-official-source"));
   assert.equal(official.data().revisionId, "lot6-source-revision");
   assert.deepEqual(official.data().data.documentIds, linkedDocumentIds, "une source conserve plusieurs IDs de documents existants");
@@ -1612,23 +1618,18 @@ test("LOT 6 : propositions, données officielles, historique immuable, notificat
     "la révision précédente reste immuable avec ses références originales");
   const revision = await getDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"));
   assert.equal(revision.data().previousRevisionId, "lot6-source-revision");
-   assert.deepEqual(revision.data().data.documentIds, [linkedDocumentIds[1]]);
-   await store.reviseOfficial({
-     type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision-3", eventId: "lot6-source-unlinked-event",
-     data: { title: "Source corrigée", schemaVersion: 1, documentIds: [] }, reason: "Retrait du dernier document lié", actorUid: adminUid
-   });
-   assert.deepEqual((await getDoc(doc(db, "sourceDocuments", "lot6-official-source"))).data().data.documentIds, [],
-     "le dernier lien peut être retiré sans supprimer la source");
-   assert.deepEqual((await getDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"))).data().data.documentIds, [linkedDocumentIds[1]],
-     "la révision précédente reste immuable après le retrait du dernier lien");
-   assert.equal((await getDoc(doc(db, "genealogyEvents", "lot6-source-unlinked-event"))).data().eventType, "source.revised");
-   await store.createOfficial({
-    type: "source", id: "lot6-official-source-second", revisionId: "lot6-source-second-revision",
-    eventId: "lot6-source-second-event", data: { title: "Autre analyse du même document", schemaVersion: 1, documentIds: [linkedDocumentIds[0]] },
-    reason: "Document réutilisé sans copie", actorUid: adminUid
-  });
+  assert.deepEqual(revision.data().data.documentIds, [linkedDocumentIds[1]]);
   assert.deepEqual((await getDoc(doc(db, "sourceDocuments", "lot6-official-source-second"))).data().data.documentIds, [linkedDocumentIds[0]],
-    "un document existant peut être référencé par plusieurs sources indépendantes");
+    "la suppression du lien d'une source n'altère pas l'association d'une autre source");
+  await store.reviseOfficial({
+    type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision-3", eventId: "lot6-source-unlinked-event",
+    data: { title: "Source corrigée", schemaVersion: 1, documentIds: [] }, reason: "Retrait du dernier document lié", actorUid: adminUid
+  });
+  assert.deepEqual((await getDoc(doc(db, "sourceDocuments", "lot6-official-source"))).data().data.documentIds, [],
+    "le dernier lien peut être retiré sans supprimer la source");
+  assert.deepEqual((await getDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"))).data().data.documentIds, [linkedDocumentIds[1]],
+    "la révision précédente reste immuable après le retrait du dernier lien");
+  assert.equal((await getDoc(doc(db, "genealogyEvents", "lot6-source-unlinked-event"))).data().eventType, "source.revised");
   assert.deepEqual((await getDoc(doc(db, "documents", linkedDocumentIds[0]))).data(), { title: "Document de bibliothèque 1", type: "Acte de naissance" },
     "la création et la révision des sources ne copient ni ne modifient la fiche/fichier Documents");
   await expectDenied(updateDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"), { data: { title: "effacée" } }));
@@ -1663,6 +1664,35 @@ test("LOT 6 : propositions, données officielles, historique immuable, notificat
     reason: "Le passage cité est à vérifier", actorUid: adminUid
   });
   assert.equal((await getDoc(doc(db, "genealogyEvents", "lot6-proof-suspended-event"))).data().eventType, "proof.suspended");
+
+  const archivableProof = createGenealogyProof({
+    id: "lot6-proof-archivable", factId: "lot6-fact-archivable", factType: "birthDate", personIds: ["lot6-person-archivable"],
+    documentId: linkedDocumentIds[0], sourceValue: null, relation: "supports", authorUid: adminUid
+  });
+  await store.createOfficial({
+    type: "proof", id: "lot6-proof-archivable", revisionId: "lot6-proof-archivable-rev-1", eventId: "lot6-proof-archivable-created-event",
+    data: archivableProof, reason: "Preuve créée pour test d’archivage", actorUid: adminUid
+  });
+  await signOutAll();
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(store.reviseOfficial({
+    type: "proof", id: "lot6-proof-archivable", revisionId: "lot6-proof-member-rev", eventId: "lot6-proof-member-event",
+    data: { ...archivableProof, technicalStatus: "historical" }, reason: "Tentative membre", actorUid: memberUid
+  }));
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const archiveEventId = "lot6-proof-archivable-event";
+  const archivedProof = transitionProofStatus(archivableProof, {
+    to: "historical", reason: "Preuve erronée archivée", eventId: archiveEventId, actorUid: adminUid, at: new Date().toISOString()
+  });
+  await store.reviseOfficial({
+    type: "proof", id: "lot6-proof-archivable", revisionId: "lot6-proof-archivable-rev-2", eventId: archiveEventId,
+    data: archivedProof, reason: "Preuve erronée archivée", actorUid: adminUid
+  });
+  assert.equal((await getDoc(doc(db, "genealogyProofs", "lot6-proof-archivable"))).data().data.technicalStatus, "historical");
+  assert.equal((await getDoc(doc(db, "genealogyProofRevisions", "lot6-proof-archivable-rev-1"))).data().data.technicalStatus, "active",
+    "l’ancienne révision de preuve reste immuable");
+  assert.equal((await getDoc(doc(db, "genealogyEvents", archiveEventId))).data().eventType, "proof.revised");
 
   await signOutAll();
   await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);

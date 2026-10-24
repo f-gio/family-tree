@@ -173,7 +173,7 @@
 <button class="nav-btn active" type="button" data-view="tree" aria-pressed="true" aria-current="page"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-tree"></use></svg></span><span>Arbre</span></button>
 <button class="nav-btn" type="button" data-view="directory" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-people"></use></svg></span><span>Annuaire</span></button>
 <button class="nav-btn" type="button" data-view="documents" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-document"></use></svg></span><span>Documents</span></button>
-<button class="nav-btn" type="button" data-view="genealogy" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-history"></use></svg></span><span>Sources & preuves</span></button>
+<button class="nav-btn" type="button" data-view="genealogy" aria-pressed="false" aria-label="Archives"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-history"></use></svg></span><span>Archives</span></button>
 <button class="nav-btn" type="button" data-view="tasks" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-check"></use></svg></span><span>Actions</span></button>
 <button class="nav-btn" type="button" data-view="dossiers" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-procedures"></use></svg></span><span>Démarches</span></button>
 </nav>
@@ -301,7 +301,7 @@
   <main class="workspace-view page-content-lane" id="documentsView" hidden>
 <section class="section-head page-heading">
 <div>
-<p class="eyebrow page-kicker">Archives familiales</p>
+<p class="eyebrow page-kicker">Bibliothèque familiale</p>
 <h2 class="page-title">Documents</h2>
 <p>Consultez les actes et attribuez chaque document à une ou plusieurs personnes.</p>
 </div>
@@ -327,8 +327,8 @@
 </div>
 </main>
   <main class="workspace-view page-content-lane" id="genealogyView" hidden>
-<section class="section-head page-heading"><div><p class="eyebrow page-kicker">Archives et preuves</p><h2 class="page-title">Sources & preuves</h2><p>Consultez les sources, transcriptions, preuves, conclusions et propositions de contribution.</p></div><div class="right"><button class="btn" id="genealogyProposeBtn" type="button">Proposer une contribution</button><button class="btn primary" id="genealogyOfficialBtn" type="button" hidden>Créer une donnée officielle</button></div></section>
-<div class="documents-toolbar"><label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="genealogySearch" type="search" enterkeyhint="search" autocomplete="off" placeholder="Rechercher sources, faits, preuves ou personnes…"><button type="button" class="search-bar-clear" id="clearGenealogySearchBtn" aria-label="Effacer la recherche">Effacer</button></label><label><span class="sr-only">Filtrer par catégorie</span><select class="field" id="genealogyKindFilter"><option value="all">Tout le dossier</option><option value="sources">Sources</option><option value="transcriptions">Transcriptions</option><option value="proofs">Preuves</option><option value="conclusions">Conclusions</option><option value="proposals">Propositions</option><option value="history">Historique</option><option value="notifications">Notifications</option></select></label></div>
+  <section class="section-head page-heading"><div><p class="eyebrow page-kicker">Archives familiales</p><h2 class="page-title">Archives</h2><p>Consultez les sources, transcriptions, preuves, conclusions, propositions et événements de l’histoire familiale.</p></div><div class="right"><button class="btn" id="genealogyProposeBtn" type="button">Proposer une contribution</button><button class="btn primary" id="genealogyOfficialBtn" type="button" hidden>Créer une donnée officielle</button></div></section>
+<div class="documents-toolbar"><label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="genealogySearch" type="search" enterkeyhint="search" autocomplete="off" placeholder="Rechercher dans les archives…"><button type="button" class="search-bar-clear" id="clearGenealogySearchBtn" aria-label="Effacer la recherche">Effacer</button></label><label><span class="sr-only">Filtrer par catégorie d’archive</span><select class="field" id="genealogyKindFilter"><option value="all">Toutes les archives</option><option value="sources">Sources</option><option value="transcriptions">Transcriptions</option><option value="proofs">Preuves actives</option><option value="conclusions">Conclusions</option><option value="proposals">Propositions</option><option value="history">Historique et preuves archivées</option><option value="notifications">Notifications</option></select></label></div>
 <p id="genealogyStatus" role="status" aria-live="polite">Chargement des archives…</p><div class="content-grid" id="genealogyResults"></div>
 </main>
   <main class="workspace-view page-content-lane" id="tasksView" hidden>
