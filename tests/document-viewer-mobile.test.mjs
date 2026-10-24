@@ -85,6 +85,7 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     img.removeAttribute("src");
     document.getElementById("viewerMessage").hidden = true;
     document.getElementById("viewerExternalBtn").hidden = false;
+    document.getElementById("viewerDocumentDetails").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4><div class="document-unified-facts">${Array.from({ length: 4 }, (_, index) => `<div class="document-unified-fact"><strong>Métadonnée ${index + 1}</strong><span>Valeur de démonstration ${index + 1}</span></div>`).join("")}</div></section><section class="document-unified-section"><h4>Personnes concernées</h4><p>Marie Rossi et Jean Rossi</p></section><section class="document-unified-section"><h4>Sources et provenance</h4>${Array.from({ length: 2 }, (_, index) => `<details class="document-unified-source" open><summary>Source liée ${index + 1}</summary><p>Cote archivistique de démonstration</p></details>`).join("")}</section>`;
     if (kind === "image") {
       img.src = src;
       img.hidden = false;
@@ -104,18 +105,23 @@ async function measureViewer(page) {
     const dialog = document.getElementById("documentViewerDialog");
     const head = dialog.querySelector(":scope > .modal-head");
     const body = dialog.querySelector(":scope > .modal-body");
+    const layout = dialog.querySelector(".document-unified-layout");
+    const originalPanel = dialog.querySelector(".document-original-panel");
+    const detailsPanel = dialog.querySelector(".document-unified-details");
     const viewer = dialog.querySelector(".viewer-body");
     const title = document.getElementById("viewerTitle");
     const subtitle = document.getElementById("viewerSubtitle");
     const external = document.getElementById("viewerExternalBtn");
     const label = external.querySelector(".viewer-external-label");
     const closeBtn = head.querySelector("[data-close]");
+    const backBtn = document.getElementById("viewerBackBtn");
+    const editBtn = document.getElementById("viewerEditBtn");
     const img = document.getElementById("viewerImage");
     const frame = document.getElementById("viewerFrame");
     const box = el => {
       if (!el || el.hidden) return null;
       const r = el.getBoundingClientRect();
-      return { x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1), bottom: +r.bottom.toFixed(1) };
+      return { x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1), right: +r.right.toFixed(1), bottom: +r.bottom.toFixed(1) };
     };
     const titleStyle = getComputedStyle(title);
     const subtitleStyle = getComputedStyle(subtitle);
@@ -142,14 +148,25 @@ async function measureViewer(page) {
       externalBtn: box(external),
       externalMinH: getComputedStyle(external).minHeight,
       closeBtn: box(closeBtn),
+      backBtn: box(backBtn),
+      backLabel: backBtn.textContent.trim(),
+      editBtn: box(editBtn),
       body: box(body),
       bodyDisplay: getComputedStyle(body).display,
       bodyFlex: getComputedStyle(body).flex,
       bodyMinH: getComputedStyle(body).minHeight,
       bodyPaddingBottom: getComputedStyle(body).paddingBottom,
+      layout: box(layout),
+      layoutColumns: getComputedStyle(layout).gridTemplateColumns,
+      originalPanel: box(originalPanel),
+      detailsPanel: box(detailsPanel),
+      detailsOverflowY: getComputedStyle(detailsPanel).overflowY,
+      sourceSections: detailsPanel.querySelectorAll(".document-unified-source").length,
+      detailSectionCount: detailsPanel.querySelectorAll(".document-unified-section").length,
       viewer: box(viewer),
-      viewerOverflowY: getComputedStyle(viewer).overflowY,
-      viewerScroll: { sh: viewer.scrollHeight, ch: viewer.clientHeight, sw: viewer.scrollWidth, cw: viewer.clientWidth },
+       viewerOverflowY: getComputedStyle(viewer).overflowY,
+       viewerScroll: { sh: viewer.scrollHeight, ch: viewer.clientHeight, sw: viewer.scrollWidth, cw: viewer.clientWidth },
+       bodyScroll: { sh: body.scrollHeight, ch: body.clientHeight, sw: body.scrollWidth, cw: body.clientWidth, overflowY: getComputedStyle(body).overflowY },
       img: box(img),
       imgFit: img.hidden ? null : getComputedStyle(img).objectFit,
       frame: box(frame),
@@ -193,14 +210,30 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 assert.ok(m.titleAccessible, `${key} : titre complet accessible`);
                 assert.ok(m.bodyDisplay === "flex", `${key} : modal-body flex`);
                 assert.equal(m.bodyMinH, "0px", `${key} : modal-body min-height 0`);
-                assert.equal(m.viewerOverflowY, "auto", `${key} : viewer-body scrollable`);
+                assert.ok(m.layout && m.originalPanel && m.detailsPanel, `${key} : fiche unifiée contient original et informations`);
+                assert.equal(m.detailSectionCount, 3, `${key} : informations, personnes et sources rendues`);
+                assert.equal(m.sourceSections, 2, `${key} : plusieurs sources restent visibles séparément`);
+                if (width <= 760) {
+                  assert.ok(m.originalPanel.y < m.detailsPanel.y, `${width}px : original avant les informations sur mobile`);
+                  assert.equal(m.detailsOverflowY, "visible", `${width}px : défilement vertical unique de la fiche`);
+                } else {
+                  assert.ok(m.originalPanel.x < m.detailsPanel.x, `${width}px : original à gauche des informations`);
+                  assert.ok(m.originalPanel.right <= m.detailsPanel.x + 1, `${width}px : panneaux desktop non chevauchés`);
+                  assert.equal(m.detailsOverflowY, "auto", `${width}px : panneau d’informations défilant indépendamment`);
+                }
+                assert.equal(m.viewerOverflowY, width <= 760 ? "hidden" : "auto", `${key} : original contenu dans son panneau mobile`);
                 assert.equal(m.docOverflowX, 0, `${key} : aucun overflow horizontal`);
                 assert.ok(m.closeBtn && m.closeBtn.w >= 43.5 && m.closeBtn.h >= 43.5, `${key} : fermeture ≥44px`);
+                assert.ok(m.backBtn && m.editBtn, `${key} : retour et modification accessibles dans la fiche`);
+                if (width <= 760) assert.ok(m.backBtn.h >= 43.5 && m.editBtn.h >= 43.5, `${key} : cibles Retour/Modifier tactiles`);
                 assert.ok(m.externalAriaLabel === "Ouvrir dans un nouvel onglet", `${key} : aria-label conservé`);
                 assert.ok(m.externalTitle === "Ouvrir dans un nouvel onglet", `${key} : title conservé`);
-                /* sous-titre visible sur mobile */
-                assert.notEqual(m.subtitleDisplay, "none", `${key} : sous-titre visible`);
-                assert.equal(m.subtitleEllipsis, "ellipsis", `${key} : ellipsis sous-titre`);
+                /* sous-titre fileName visible tablette, masqué sur téléphone pour préserver l'espace de lecture */
+                if (width <= 560) assert.equal(m.subtitleDisplay, "none", `${key} : sous-titre masqué pour libérer l'espace mobile`);
+                else {
+                  assert.notEqual(m.subtitleDisplay, "none", `${key} : sous-titre visible`);
+                  assert.equal(m.subtitleEllipsis, "ellipsis", `${key} : ellipsis sous-titre`);
+                }
                 /* clamp : le header ne doit plus exploser avec un titre long */
                 if (key === "long") {
                   assert.ok(m.titleH <= 2 * 40 + 2, `${key} : titre borné à 2 lignes (h=${m.titleH})`);
@@ -212,7 +245,7 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
               }
               t.diagnostic(`${engineName} ${width}×${height}: header short=${headers.short.head.h} medium=${headers.medium.head.h} long=${headers.long.head.h} ; doc long=${headers.long.viewer.h} ; dialog=${headers.long.dialog.h}`);
               /* la zone document reste majoritaire même avec un titre long */
-              assert.ok(headers.long.viewer.h >= height * 0.7, `zone doc titre long ≥70% viewport (${headers.long.viewer.h} / ${height})`);
+                assert.ok(headers.long.viewer.h >= height * 0.38, `original suffisamment grand avant les informations documentaires (${headers.long.viewer.h} / ${height})`);
 
               /* --- responsive Nouvel onglet --- */
               for (const [vw, expectIcon] of [[320, true], [390, true], [480, true], [481, false], [560, false], [760, false]]) {
@@ -246,26 +279,26 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 if (kind === "image") {
                   assert.ok(m.img, `${label} : img présente`);
                   assert.equal(m.imgFit, "contain", `${label} : ratio conservé`);
-                  assert.ok(m.viewerScroll.sh >= m.viewerScroll.ch, `${label} : scroll géré`);
+                  assert.ok(m.bodyScroll.sh >= m.bodyScroll.ch, `${label} : fiche complète défilable dans son conteneur`);
                 } else {
                   assert.ok(m.frame, `${label} : iframe présente`);
                   assert.ok(m.frame.w > 100 && m.frame.h > 100, `${label} : iframe visible`);
                 }
               }
-              /* scroll unique + dernier pixel du document consultable */
-              await openViewer(page, { title: TITLES.short, fileName: "haut.pdf", kind: "image", src: tallSvg });
-              const before = await measureViewer(page);
-              assert.ok(before.viewerScroll.sh > before.viewerScroll.ch, "document haut défilable");
-              await page.locator(".viewer-body").evaluate(el => { el.scrollTop = el.scrollHeight; });
-              await page.waitForTimeout(40);
-              const afterScroll = await page.evaluate(() => {
-                const viewer = document.querySelector(".viewer-body");
-                const body = document.querySelector("#documentViewerDialog > .modal-body");
-                return { viewerTop: viewer.scrollTop, bodyTop: body.scrollTop, bodyOverflow: getComputedStyle(body).overflow };
-              });
-              assert.ok(afterScroll.viewerTop > 0, "scroll sur viewer-body");
-              assert.equal(afterScroll.bodyTop, 0, "pas de scroll sur modal-body");
-              assert.equal(afterScroll.bodyOverflow, "hidden", "modal-body overflow hidden (scroller unique)");
+               /* Le panneau fiche est le scroller mobile unique ; l'original reste contenu dans son cadre. */
+               await openViewer(page, { title: TITLES.short, fileName: "haut.pdf", kind: "image", src: tallSvg });
+               const before = await measureViewer(page);
+               assert.ok(before.bodyScroll.sh > before.bodyScroll.ch, "informations complètes défilables");
+               await page.locator("#documentViewerDialog > .modal-body").evaluate(el => { el.scrollTop = el.scrollHeight; });
+               await page.waitForTimeout(40);
+               const afterScroll = await page.evaluate(() => {
+                 const viewer = document.querySelector(".viewer-body");
+                 const body = document.querySelector("#documentViewerDialog > .modal-body");
+                 return { viewerTop: viewer.scrollTop, bodyTop: body.scrollTop, bodyOverflow: getComputedStyle(body).overflow };
+               });
+               assert.equal(afterScroll.viewerTop, 0, "l’original reste contenu dans son panneau");
+               assert.ok(afterScroll.bodyTop > 0, "la fiche entière défile dans le panneau principal");
+               assert.equal(afterScroll.bodyOverflow, "auto", "modal-body est le scroller unique");
               assert.deepEqual(before.head, (await measureViewer(page)).head, "header stable pendant le scroll");
             } finally { await context.close(); }
           });

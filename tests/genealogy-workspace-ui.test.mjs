@@ -35,7 +35,7 @@ test("les documents historiques ont une fiche lisible sans métadonnées JSON, C
   assert.match(app, /const entryContent = legacyDetails[\s\S]*?legacyNotes\}\$\{legacyPhotograph\}/);
   assert.match(app, /tileContextMenuMarkup\("archive-entry", record\.id, title, controls\)/);
   assert.match(app, /action === "open"\) return openGenealogyItem\(item\.kind, id\)/);
-  assert.match(app, /if \(kind === "legacy-source"[\s\S]*?openStoredDocument\(item\.record\)/);
+  assert.match(app, /if \(kind === "legacy-source"[\s\S]*?openStoredDocument\(item\.record, "archives"\)/);
   assert.match(css, /\.genealogy-entry-legacy-document/);
 });
 test("propositions, décisions, révisions et réexamens passent par le magasin sécurisé du lot 6", () => {
@@ -173,7 +173,7 @@ test("les Archives séparent vue principale, sources sans association, documents
   for (const [value, label] of [["main", "Vue principale"], ["archived-sources", "Sources archivées"], ["unassociated", "Sources sans association"], ["legacy-documents", "Documents historiques"]]) {
     assert.match(html, new RegExp(`<option value="${value}"[^>]*>${label}<\\/option>`));
   }
-  assert.match(app, /kind === "main" && !\([\s\S]*item\.kind === "source" && sourceStatus === "active" && sourceAssociated !== false/);
+  assert.match(app, /kind === "main" && !\([\s\S]*item\.kind === "source" && sourceStatus === "active" && sourceAssociated === true/);
   assert.match(app, /kind === "unassociated" && !\(item\.kind === "source" && sourceStatus === "active" && sourceDependencySnapshotComplete\(\) && !sourceAssociated\)/);
   assert.match(app, /const associationLoadStatus = kind === "unassociated" && !sourceDependencySnapshotComplete\(\)/);
   assert.match(app, /kind === "archived-sources" && !\(item\.kind === "source" && sourceStatus === "archived"\)/);
@@ -205,7 +205,7 @@ test("la source officielle référence des documents sélectionnés sans recopie
   assert.match(app, /sourceData\.documentIds/);
   assert.match(app, /Document référencé introuvable/);
   assert.match(app, /data-source-document-open=/);
-  assert.match(app, /linkedDocumentButton\.dataset\.sourceDocumentOpen[\s\S]*?openStoredDocument\(linkedDocument\)/);
+  assert.match(app, /linkedDocumentButton\.dataset\.sourceDocumentOpen[\s\S]*?openStoredDocument\(linkedDocument, "archives"\)/);
   assert.match(app, /data-managed-source-open=/);
   assert.match(app, /openGenealogyItem\("source", managedSourceOpen\.dataset\.managedSourceOpen\)/);
   assert.match(app, /if \(collectionName === "sourceDocuments"\) \{[\s\S]*?renderDocuments\(\)[\s\S]*?renderDocumentSourceManager\(activeDocumentSourceManagerId\)/);
@@ -266,7 +266,7 @@ test("le sélecteur conserve et retire plusieurs documents dont le titre ou l'au
   const workspace = app.match(/function renderGenealogySourceDocumentSelection\(\)[\s\S]*?\n\}/)?.[0] || "";
   assert.match(workspace, /Référence introuvable · \$\{id\}/);
   assert.match(workspace, /data-remove-genealogy-source-document/);
-  assert.match(app, /openStoredDocument\(linkedDocument\)/);
+  assert.match(app, /openStoredDocument\(linkedDocument, "archives"\)/);
 });
 
 test("la fiche détaillée d'une source présente des faits structurés sans JSON", () => {
@@ -315,7 +315,7 @@ test("les deux espaces naviguent entre sources et documents, avec références a
   assert.match(app, /data-managed-source-open="\$\{esc\(source\.id\)\}"/);
   assert.match(app, /openGenealogyItem\("source", sourceLink\.dataset\.openDocumentSource\)/);
   assert.match(app, /data-source-document-open="\$\{esc\(link\.id\)\}"/);
-  assert.match(app, /openStoredDocument\(linkedDocument\)/);
+  assert.match(app, /openStoredDocument\(linkedDocument, "archives"\)/);
   assert.match(app, /if \(collectionName === "sourceDocuments"\) \{[\s\S]*?if \(loadedPeople && loadedDocuments\) renderDocuments\(\)/);
 });
 
@@ -337,10 +337,60 @@ test("l'interface distingue les médias historiques optimisés et indique l'abse
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.genealogy-detail-grid\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)/);
 });
 
+test("la consultation depuis Documents compose une fiche unifiée sans remplacer les modèles existants", () => {
+  const details = app.match(/function renderUnifiedDocumentDetails\(item\)[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(html, /class="document-unified-layout"/);
+  assert.match(html, /class="document-original-panel"/);
+  assert.match(html, /id="viewerDocumentDetails"/);
+  assert.match(details, /Informations documentaires/);
+  assert.match(details, /Personnes concernées/);
+  assert.match(details, /Sources et provenance/);
+  assert.match(details, /linkedSources\.map\(source/);
+  assert.match(details, /sourceDetailFactsMarkup\(sourceData\)/);
+  assert.match(details, /Aucune source officielle n’est associée à cette fiche/);
+  assert.match(app, /async function openStoredDocument\(item, returnContext = "previous"\)/);
+  assert.match(app, /if \(item\.chunkCount && item\.chunkVersion\)[\s\S]*?readChunkedFile\(item\)/);
+  assert.match(app, /data-unified-source-open=/);
+  assert.match(app, /data-unified-source-revise=/);
+  assert.match(app, /data-unified-person=/);
+  assert.match(app, /openStoredDocument\(item, "documents"\)/);
+  assert.match(app, /if \(collectionName === "sourceDocuments"\)[\s\S]*?renderUnifiedDocumentDetails\(viewedDocument\)/);
+  assert.doesNotMatch(details, /JSON\.stringify/);
+});
+
 test("l'export v5 est raccordé et une archive v5 restaure uniquement en prévisualisation", () => {
   assert.match(app, /createBackupArchiveManifest\(\{/);
   assert.match(app, /generateBackupZip\(archive, JSZip/);
   assert.match(app, /if \(archiveVersion === BACKUP_ARCHIVE_VERSION\)/);
   assert.match(app, /prepareBackupRestorePlan\(archive\.manifest/);
   assert.match(app, /aucune écriture ne sera exécutée depuis cette interface/i);
+});
+
+test("la fiche unifiée du document réutilise le viewer et affiche métadonnées, personnes et toutes les sources liées", () => {
+  const unified = app.match(/function renderUnifiedDocumentDetails\(item\)[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(unified.length > 500);
+  for (const field of ["item.type", "item.date", "item.place", "item.notes", "item.personIds"]) assert.ok(unified.includes(field), `champ documentaire absent : ${field}`);
+  assert.match(unified, /documentLinkedSources\(item\.id\)/);
+  assert.match(unified, /linkedSources\.map\(source/);
+  assert.match(unified, /sourceDetailFactsMarkup\(sourceData\)/);
+  assert.match(unified, /data-unified-source-open=/);
+  assert.match(unified, /data-unified-source-revise=/);
+  assert.doesNotMatch(unified, /JSON\.stringify/);
+  assert.match(app, /async function openStoredDocument\(item, returnContext = "previous"\)/);
+  assert.match(app, /readChunkedFile\(item\)/);
+  assert.match(app, /openStoredDocument\(item, "documents"\)/);
+});
+
+test("la fiche unifiée permet de modifier document, source et naviguer vers les personnes", () => {
+  assert.match(app, /data-unified-document-edit=/);
+  assert.match(app, /data-unified-person=/);
+  assert.match(app, /function openUnifiedDocumentEditor\(documentId\)/);
+  assert.match(app, /function openUnifiedSource\(documentId, sourceId, revise = false\)/);
+  assert.match(app, /openGenealogyContribution\(\{ official: true, reviseItem: \{ kind: "source"/);
+  assert.match(app, /reopenUnifiedDocumentAfter\("documentDialog"\)/);
+  assert.match(app, /reopenUnifiedDocumentAfter\("genealogyContributionDialog"\)/);
+  assert.match(html, /document-unified-layout/);
+  assert.match(html, /document-unified-details/);
+  assert.match(css, /\.document-unified-layout \{ display: grid; grid-template-columns: minmax\(0, 1\.2fr\) minmax\(19rem, \.8fr\)/);
+  assert.match(css, /\.viewer-dialog \.document-unified-layout \{ grid-template-columns: minmax\(0, 1fr\)/);
 });

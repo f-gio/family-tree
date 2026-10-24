@@ -150,6 +150,9 @@ let currentUserProfile = null, primaryAdminUid = "", adminUsersCache = [], curre
 let manualOffsets = readOffsets();
 let treeLayoutEngine = "hybrid";
 let activeViewerUrl = "";
+let activeViewerDocumentId = "";
+let unifiedViewerReturnDocumentId = "";
+let unifiedViewerReturnOnDialogClose = "";
 let activePersonSection = "identity";
 let activeGenealogyItem = null;
 let activeDocumentSourceManagerId = "";
@@ -3978,7 +3981,7 @@ function renderGenealogyWorkspace() {
   const items = genealogyWorkspaceItems().filter(item => {
     const sourceStatus = item.kind === "source" ? item.data.status || "active" : "";
     const sourceAssociated = item.kind === "source" ? sourceHasAnyAssociation(item.record) : false;
-    if (kind === "main" && !((item.kind === "source" && sourceStatus === "active" && sourceAssociated !== false)
+    if (kind === "main" && !((item.kind === "source" && sourceStatus === "active" && sourceAssociated === true)
       || item.kind === "transcription"
       || (item.kind === "proof" && item.data.technicalStatus !== "historical")
       || item.kind === "conclusion")) return false;
@@ -4067,7 +4070,7 @@ function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null) 
   activeDocumentSourceManagerId = "";
   const item = genealogyWorkspaceItems().find(value => value.kind === kind && value.record.id === id);
   if (!item) return toast("Cet élément n’est plus disponible.", "error");
-  if (kind === "legacy-source" && (item.record.chunkVersion || item.record.fileData?.startsWith("data:") || item.record.fileUrl || item.record.externalUrl)) return openStoredDocument(item.record);
+  if (kind === "legacy-source" && (item.record.chunkVersion || item.record.fileData?.startsWith("data:") || item.record.fileUrl || item.record.externalUrl)) return openStoredDocument(item.record, "archives");
   activeGenealogyItem = item;
   genealogyZoom = 1;
   const { record, data } = item;
@@ -5024,10 +5027,86 @@ async function restoreCompleteBackup(file) {
   }
 }
 
-async function openStoredDocument(item) {
+function renderUnifiedDocumentDetails(item) {
+  const facts = [];
+  if (item.type) facts.push(["Type", item.type]);
+  if (item.date) facts.push(["Date", formatGenealogyDate(null, item.date)]);
+  const place = formatCompactPlace(item.place, item.placeInfo);
+  if (place) facts.push(["Lieu", place]);
+  if (item.fileName) facts.push(["Fichier", item.fileName]);
+  if (item.notes) facts.push(["Notes", item.notes]);
+  const documentFacts = facts.length
+    ? `<div class="document-unified-facts">${facts.map(([label, value]) => `<div class="document-unified-fact"><strong>${esc(label)}</strong><span title="${esc(value)}">${esc(value)}</span></div>`).join("")}</div>`
+    : `<p class="document-unified-notice">Aucune métadonnée complémentaire n’est renseignée.</p>`;
+  const personIds = Array.isArray(item.personIds) ? item.personIds : [];
+  const relatedPeople = loadedPeople ? personIds.map(id => people.find(personItem => personItem.id === id)).filter(Boolean) : [];
+  const peopleMarkup = !loadedPeople
+    ? `<p class="document-unified-notice">Chargement des personnes associées…</p>`
+    : relatedPeople.length
+      ? `<ul class="document-unified-people">${relatedPeople.map(personItem => `<li><button class="btn small" type="button" data-unified-person="${esc(personItem.id)}">${esc(directoryPersonName(personItem))}</button></li>`).join("")}${relatedPeople.length < personIds.length ? `<li><span class="document-unified-notice">Certaines fiches associées sont indisponibles.</span></li>` : ""}</ul>`
+      : `<p class="document-unified-notice">Aucune personne n’est associée directement à cette fiche documentaire.</p>`;
+  const sourceState = genealogyCollectionsLoaded.has("sourceDocuments")
+    ? genealogyCollectionErrors.has("sourceDocuments") ? "unavailable" : "ready"
+    : "loading";
+  const linkedSources = sourceState === "ready" ? documentLinkedSources(item.id) : [];
+  const sourceMarkup = sourceState === "loading"
+    ? `<p class="document-unified-notice">Chargement des sources associées…</p>`
+    : sourceState === "unavailable"
+      ? `<p class="document-unified-notice">Les sources associées sont temporairement indisponibles.</p>`
+      : linkedSources.length ? linkedSources.map(source => {
+        const sourceData = genealogyRecordData(source);
+        const archived = sourceData.status === "archived";
+        return `<details class="document-unified-source"><summary class="document-unified-source-head"><strong>${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</strong><span class="genealogy-status-badge">${archived ? "Archivée" : "Active"}</span></summary>${sourceDetailFactsMarkup(sourceData)}<div class="document-unified-source-actions"><button class="btn small" type="button" data-unified-source-open="${esc(source.id)}">Consulter la source</button>${isAdminUser() ? `<button class="btn small" type="button" data-unified-source-revise="${esc(source.id)}">Modifier la source</button>` : ""}</div></details>`;
+      }).join("")
+        : `<p class="document-unified-notice">Aucune source officielle n’est associée à cette fiche.</p>`;
+  $("viewerDocumentDetails").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4>${documentFacts}<button class="btn small" type="button" data-unified-document-edit="${esc(item.id)}">Modifier les informations</button></section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}</section>`;
+}
+
+function reopenUnifiedDocumentAfter(dialogId) {
+  if (unifiedViewerReturnOnDialogClose !== dialogId || !unifiedViewerReturnDocumentId) return false;
+  const documentId = unifiedViewerReturnDocumentId;
+  unifiedViewerReturnOnDialogClose = "";
+  unifiedViewerReturnDocumentId = "";
+  setTimeout(() => {
+    const item = documents.find(documentItem => documentItem.id === documentId);
+    if (item) openStoredDocument(item, "documents");
+  }, 0);
+  return true;
+}
+
+function openUnifiedSource(documentId, sourceId, revise = false) {
+  const source = genealogyRecords.sourceDocuments.find(item => item.id === sourceId);
+  if (!source) return toast("Cette source n’est plus disponible.", "error");
+  unifiedViewerReturnDocumentId = documentId;
+  unifiedViewerReturnOnDialogClose = revise ? "genealogyContributionDialog" : "genealogyItemDialog";
+  close("documentViewerDialog");
+  if (revise) openGenealogyContribution({ official: true, reviseItem: { kind: "source", record: source, data: genealogyRecordData(source) } });
+  else openGenealogyItem("source", sourceId);
+}
+
+function openUnifiedDocumentEditor(documentId) {
+  const item = documents.find(documentItem => documentItem.id === documentId);
+  if (!item) return toast("Ce document n’est plus disponible.", "error");
+  unifiedViewerReturnDocumentId = documentId;
+  unifiedViewerReturnOnDialogClose = "documentDialog";
+  close("documentViewerDialog");
+  openDocument(item);
+}
+
+async function openStoredDocument(item, returnContext = "previous") {
   if (!item) return;
+  activeViewerDocumentId = item.id;
+  $("viewerBackBtn").textContent = returnContext === "documents" ? "Retour aux Documents" : "Retour";
+  $("viewerEditBtn").hidden = !isAdminUser();
+  renderUnifiedDocumentDetails(item);
   $("viewerTitle").textContent = documentDisplayLabel(item);
-  $("viewerSubtitle").textContent = item.fileName || "Aperçu dans Family Tree";
+  const headerMetadata = [
+    item.type || "",
+    item.date ? formatGenealogyDate(null, item.date) : "",
+    formatCompactPlace(item.place, item.placeInfo),
+    item.fileName || ""
+  ].filter(Boolean);
+  $("viewerSubtitle").textContent = headerMetadata.join(" · ") || "Aperçu dans Family Tree";
   $("viewerImage").hidden = true;
   $("viewerFrame").hidden = true;
   $("viewerMessage").hidden = false;
@@ -6005,6 +6084,8 @@ function startData() {
     loadedPeople = true;
     syncState();
     updateReadyViews();
+    const viewedDocument = documents.find(item => item.id === activeViewerDocumentId);
+    if ($("documentViewerDialog").open && viewedDocument) renderUnifiedDocumentDetails(viewedDocument);
   }, dataError));
   unsubs.push(onSnapshot(refs.families, snapshot => {
     families = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
@@ -6018,6 +6099,8 @@ function startData() {
     syncState();
     updateReadyViews();
     renderGenealogySourceDocumentPicker();
+    const viewedDocument = documents.find(item => item.id === activeViewerDocumentId);
+    if ($("documentViewerDialog").open && viewedDocument) renderUnifiedDocumentDetails(viewedDocument);
   }, dataError));
   unsubs.push(onSnapshot(refs.tasks, snapshot => {
     tasks = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
@@ -6046,6 +6129,8 @@ function startData() {
       if (collectionName === "sourceDocuments") {
         if (loadedPeople && loadedDocuments) renderDocuments();
         if (activeDocumentSourceManagerId && $("genealogyItemDialog").open) renderDocumentSourceManager(activeDocumentSourceManagerId);
+        const viewedDocument = documents.find(item => item.id === activeViewerDocumentId);
+        if ($("documentViewerDialog").open && viewedDocument) renderUnifiedDocumentDetails(viewedDocument);
       }
     }, error => {
       console.error(`Chargement de ${collectionName} impossible`, error);
@@ -6344,7 +6429,7 @@ document.addEventListener("click", event => {
   }
   if (miniDocument) {
     const item = documents.find(value => value.id === miniDocument.dataset.viewDocument);
-    openStoredDocument(item);
+    openStoredDocument(item, "person");
   }
 });
 document.addEventListener("keydown", event => {
@@ -6376,7 +6461,7 @@ $("documentsList").onclick = event => {
   const item = documents.find(value => value.id === tile.dataset.documentCard);
   if (!item) return;
   preparePrimaryTileActivation(event, tile, $("documentViewerDialog"));
-  openStoredDocument(item);
+  openStoredDocument(item, "documents");
 };
 $("documentsList").addEventListener("keydown", event => {
   const tile = event.target.closest(".document-card[data-document-card][data-document-openable='true']");
@@ -6384,7 +6469,7 @@ $("documentsList").addEventListener("keydown", event => {
   pendingPrimaryTilePointer = null;
   primaryTileFocusReturn.delete($("documentViewerDialog"));
   event.preventDefault();
-  openStoredDocument(documents.find(value => value.id === tile.dataset.documentCard));
+  openStoredDocument(documents.find(value => value.id === tile.dataset.documentCard), "documents");
 });
 
 $("directoryList").addEventListener("click", event => {
@@ -6415,13 +6500,13 @@ $("personDocumentsList").addEventListener("keydown", event => {
   if (!card) return;
   event.preventDefault();
   const item = documents.find(value => value.id === card.dataset.viewDocument);
-  openStoredDocument(item);
+  openStoredDocument(item, "person");
 });
 
 $("directoryDocumentsList").addEventListener("click", event => {
   const button = event.target.closest("[data-view-directory-document]");
   if (!button) return;
-  openStoredDocument(documents.find(item => item.id === button.dataset.viewDirectoryDocument));
+  openStoredDocument(documents.find(item => item.id === button.dataset.viewDirectoryDocument), "directory");
 });
 
 $("directoryAlphabet").addEventListener("click", event => {
@@ -6722,6 +6807,7 @@ $("restoreCurrentDocumentFileBtn").onclick = () => {
 };
 $("deleteDocumentBtn").onclick = () => runSafely(removeDocument, "Suppression du document impossible");
 $("documentDialog").addEventListener("close", () => {
+  if (reopenUnifiedDocumentAfter("documentDialog")) return;
   const context = documentReturnContext;
   documentReturnContext = null;
   if (!context) return;
@@ -6743,6 +6829,26 @@ document.addEventListener("click", event => {
   const button = event.target.closest("[data-open-genealogy]");
   if (button) openGenealogyItem(button.dataset.openGenealogy, button.dataset.genealogyId);
 });
+$("viewerBackBtn").addEventListener("click", () => close("documentViewerDialog"));
+$("viewerEditBtn").addEventListener("click", () => openUnifiedDocumentEditor(activeViewerDocumentId));
+$("viewerDocumentDetails").addEventListener("click", event => {
+  const editDocument = event.target.closest("[data-unified-document-edit]");
+  if (editDocument) return openUnifiedDocumentEditor(editDocument.dataset.unifiedDocumentEdit);
+  const personButton = event.target.closest("[data-unified-person]");
+  if (personButton) {
+    const personItem = person(personButton.dataset.unifiedPerson);
+    if (!personItem) return toast("Cette personne n’est plus disponible.", "error");
+    close("documentViewerDialog");
+    if (!$("personDialog").open) openPerson(personItem, "directory");
+    return;
+  }
+  const openSource = event.target.closest("[data-unified-source-open]");
+  if (openSource) return openUnifiedSource(activeViewerDocumentId, openSource.dataset.unifiedSourceOpen);
+  const reviseSource = event.target.closest("[data-unified-source-revise]");
+  if (reviseSource) return openUnifiedSource(activeViewerDocumentId, reviseSource.dataset.unifiedSourceRevise, true);
+});
+$("genealogyItemDialog").addEventListener("close", () => reopenUnifiedDocumentAfter("genealogyItemDialog"));
+$("genealogyContributionDialog").addEventListener("close", () => reopenUnifiedDocumentAfter("genealogyContributionDialog"));
 $("genealogyItemContent").addEventListener("click", event => {
   const managedSourceOpen = event.target.closest("[data-managed-source-open]");
   if (managedSourceOpen) {
@@ -6760,7 +6866,7 @@ $("genealogyItemContent").addEventListener("click", event => {
     if (!(linkedDocument.chunkVersion && linkedDocument.chunkCount) && !linkedDocument.fileData && !linkedDocument.fileUrl && !linkedDocument.externalUrl) {
       return toast("La fiche existe, mais aucun fichier ou lien consultable n’y est associé.", "error");
     }
-    return openStoredDocument(linkedDocument);
+    return openStoredDocument(linkedDocument, "archives");
   }
   const pageButton = event.target.closest("[data-genealogy-page]");
   if (pageButton) return openGenealogyPage(pageButton.dataset.genealogyPage);
@@ -6852,6 +6958,7 @@ $("clearTaskSearchBtn").onclick = () => {
 syncSearchClearBtn("directorySearch", "clearDirectorySearchBtn");
 syncSearchClearBtn("taskSearch", "clearTaskSearchBtn");
 $("documentViewerDialog").addEventListener("close", () => {
+  activeViewerDocumentId = "";
   if (!activeViewerUrl) return;
   URL.revokeObjectURL(activeViewerUrl);
   activeViewerUrl = "";
