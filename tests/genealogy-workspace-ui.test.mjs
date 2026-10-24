@@ -394,3 +394,14 @@ test("la fiche unifiée permet de modifier document, source et naviguer vers les
   assert.match(css, /\.document-unified-layout \{ display: grid; grid-template-columns: minmax\(0, 1\.2fr\) minmax\(19rem, \.8fr\)/);
   assert.match(css, /\.viewer-dialog \.document-unified-layout \{ grid-template-columns: minmax\(0, 1fr\)/);
 });
+
+test("le visualiseur branche le zoom image et réserve le menu d’actions du header", () => {
+  assert.match(app, /import \{ createDocumentImageViewer \} from "\.\/document-image-viewer\.js"/);
+  assert.match(html, /id="viewerActionsBtn"[^>]*aria-haspopup="menu"/);
+  assert.match(html, /id="viewerActionsMenu"[^>]*role="menu"/);
+  assert.match(html, /id="viewerImageControls"[^>]*role="group"/);
+  assert.match(app, /function setupViewerImage\(item\)[\s\S]*?createDocumentImageViewer\(/);
+  assert.match(app, /viewerImageControls"\)\.hidden = true/);
+  assert.match(app, /if \(mimeType\.startsWith\("image\/"\)\)[\s\S]*?setupViewerImage\(item\)/);
+  assert.match(app, /if \(window\.innerWidth <= 760\) collapsed = false/);
+});

@@ -12,6 +12,7 @@ import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree
 import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
 import { MAIN_TREE_ID, UNASSIGNED_TREE_STATE, UNASSIGNED_TREE_CHOICE, TREE_LIFECYCLE_ACTIVE, TREE_LIFECYCLE_DELETING, MAX_MULTI_TREE_TRANSFER_PEOPLE, MAX_MULTI_TREE_TRANSFER_READS, getTreeLifecycleState, getTreeDeletionMemberReport, getPersonTreeId, getPersonTreeMembership, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan, prepareMultipleTreeTransferPlan } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
+import { createDocumentImageViewer } from "./document-image-viewer.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
 import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel, DIRECTORY_UNASSIGNED_TREE_FILTER } from "./directory-advanced.js";
 import { filterAndSortProcedures, sortProcedureActions, procedureTypeLabel, procedureStatusLabel, procedureActionTypeLabel, isProcedureClosed, DOSSIER_MIN_QUERY_LENGTH } from "./procedures.js";
@@ -153,6 +154,9 @@ let activeViewerUrl = "";
 let activeViewerDocumentId = "";
 let unifiedViewerReturnDocumentId = "";
 let unifiedViewerReturnOnDialogClose = "";
+let activeViewerReturnContext = "previous";
+let viewerImageState = null;
+let viewerImageHandlersBound = false;
 let activePersonSection = "identity";
 let activeGenealogyItem = null;
 let activeDocumentSourceManagerId = "";
@@ -3621,6 +3625,18 @@ function bindModalActionMenu(dialogId, buttonId, menuId) {
 const taskActionMenu = bindModalActionMenu("taskDialog", "taskMenuBtn", "taskActionMenu");
 const documentActionMenu = bindModalActionMenu("documentDialog", "documentMenuBtn", "documentActionMenu");
 const procedureActionMenu = bindModalActionMenu("procedureActionDialog", "procedureActionMenuBtn", "procedureActionMenu");
+const viewerActionMenu = bindModalActionMenu("documentViewerDialog", "viewerActionsBtn", "viewerActionsMenu");
+$("viewerDetailsCollapseBtn").addEventListener("click", () => setUnifiedDetailsCollapsed(true));
+$("viewerDetailsExpandBtn").addEventListener("click", () => setUnifiedDetailsCollapsed(false));
+$("viewerBackBtn").addEventListener("click", () => close("documentViewerDialog"));
+$("viewerEditBtn").addEventListener("click", () => {
+  viewerActionMenu.close();
+  openUnifiedDocumentEditor(activeViewerDocumentId);
+});
+window.addEventListener("resize", () => {
+  if (window.innerWidth <= 760 && $("documentUnifiedLayout").classList.contains("is-details-collapsed")) setUnifiedDetailsCollapsed(false);
+  viewerImageState?.fit();
+});
 
 $("printPersonBtn").onclick = () => openPersonPrint();
 $("personPrintGoBtn").onclick = () => {
@@ -5059,7 +5075,7 @@ function renderUnifiedDocumentDetails(item) {
         return `<details class="document-unified-source"><summary class="document-unified-source-head"><strong>${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</strong><span class="genealogy-status-badge">${archived ? "Archivée" : "Active"}</span></summary>${sourceDetailFactsMarkup(sourceData)}<div class="document-unified-source-actions"><button class="btn small" type="button" data-unified-source-open="${esc(source.id)}">Consulter la source</button>${isAdminUser() ? `<button class="btn small" type="button" data-unified-source-revise="${esc(source.id)}">Modifier la source</button>` : ""}</div></details>`;
       }).join("")
         : `<p class="document-unified-notice">Aucune source officielle n’est associée à cette fiche.</p>`;
-  $("viewerDocumentDetails").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4>${documentFacts}<button class="btn small" type="button" data-unified-document-edit="${esc(item.id)}">Modifier les informations</button></section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}</section>`;
+  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4>${documentFacts}<button class="btn small" type="button" data-unified-document-edit="${esc(item.id)}">Modifier les informations</button></section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}</section>`;
 }
 
 function reopenUnifiedDocumentAfter(dialogId) {
@@ -5093,12 +5109,32 @@ function openUnifiedDocumentEditor(documentId) {
   openDocument(item);
 }
 
+function setupViewerImage(item) {
+  viewerImageState?.destroy();
+  const image = $("viewerImage");
+  if (!image.naturalWidth || !image.naturalHeight) return;
+  viewerImageState = createDocumentImageViewer({ viewport: $("viewerImageViewport"), image, controls: $("viewerImageControls"), zoomLabel: $("viewerImageZoomLevel") });
+  $("viewerImageControls").hidden = false;
+}
+
+function setUnifiedDetailsCollapsed(collapsed) {
+  const layout = $("documentUnifiedLayout");
+  const details = $("viewerDocumentDetails");
+  if (window.innerWidth <= 760) collapsed = false;
+  layout.classList.toggle("is-details-collapsed", collapsed);
+  details.hidden = collapsed;
+  $("viewerDetailsCollapseBtn").hidden = collapsed || window.innerWidth <= 760;
+  $("viewerDetailsExpandBtn").hidden = !collapsed || window.innerWidth <= 760;
+}
+
 async function openStoredDocument(item, returnContext = "previous") {
   if (!item) return;
   activeViewerDocumentId = item.id;
+  activeViewerReturnContext = returnContext;
   $("viewerBackBtn").textContent = returnContext === "documents" ? "Retour aux Documents" : "Retour";
-  $("viewerEditBtn").hidden = !isAdminUser();
+  $("viewerEditBtn").hidden = false;
   renderUnifiedDocumentDetails(item);
+  setUnifiedDetailsCollapsed(false);
   $("viewerTitle").textContent = documentDisplayLabel(item);
   const headerMetadata = [
     item.type || "",
@@ -5108,6 +5144,11 @@ async function openStoredDocument(item, returnContext = "previous") {
   ].filter(Boolean);
   $("viewerSubtitle").textContent = headerMetadata.join(" · ") || "Aperçu dans Family Tree";
   $("viewerImage").hidden = true;
+  $("viewerImageControls").hidden = true;
+  $("viewerImage").onload = null;
+  $("viewerImage").removeAttribute("style");
+  viewerImageState?.destroy();
+  viewerImageState = null;
   $("viewerFrame").hidden = true;
   $("viewerMessage").hidden = false;
   $("viewerMessage").textContent = "Chargement du document…";
@@ -5133,8 +5174,10 @@ async function openStoredDocument(item, returnContext = "previous") {
     $("viewerExternalBtn").hidden = false;
     $("viewerMessage").hidden = true;
     if (mimeType.startsWith("image/")) {
+      $("viewerImage").onload = () => setupViewerImage(item);
       $("viewerImage").src = source;
       $("viewerImage").hidden = false;
+      if ($("viewerImage").complete) setupViewerImage(item);
     } else {
       $("viewerFrame").src = source;
       $("viewerFrame").hidden = false;
@@ -6829,8 +6872,6 @@ document.addEventListener("click", event => {
   const button = event.target.closest("[data-open-genealogy]");
   if (button) openGenealogyItem(button.dataset.openGenealogy, button.dataset.genealogyId);
 });
-$("viewerBackBtn").addEventListener("click", () => close("documentViewerDialog"));
-$("viewerEditBtn").addEventListener("click", () => openUnifiedDocumentEditor(activeViewerDocumentId));
 $("viewerDocumentDetails").addEventListener("click", event => {
   const editDocument = event.target.closest("[data-unified-document-edit]");
   if (editDocument) return openUnifiedDocumentEditor(editDocument.dataset.unifiedDocumentEdit);

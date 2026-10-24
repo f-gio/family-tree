@@ -42,7 +42,7 @@ test("Viewer : règles statiques mobile (clamp, icône, safe-area, flex, pas de 
   assert.match(css, /@media \(max-width: 480px\) \{\s*\n\s*\.viewer-dialog #viewerExternalBtn \{/);
   assert.match(css, /\.viewer-dialog #viewerExternalBtn \.viewer-external-label \{ display: none; \}/);
   /* Accessible name conservé */
-  assert.match(html, /id="viewerExternalBtn"[^>]*aria-label="Ouvrir dans un nouvel onglet"[^>]*title="Ouvrir dans un nouvel onglet"/);
+  assert.match(html, /id="viewerExternalBtn"[^>]*aria-label="Ouvrir l’original dans un nouvel onglet"[^>]*title="Ouvrir dans un nouvel onglet"/);
   assert.match(html, /id="viewerExternalBtn"[^>]*><svg class="ui-icon"[^>]*><use href="#icon-link"><\/use><\/svg><span class="viewer-external-label">Nouvel onglet<\/span><\/a>/);
 });
 
@@ -85,7 +85,8 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     img.removeAttribute("src");
     document.getElementById("viewerMessage").hidden = true;
     document.getElementById("viewerExternalBtn").hidden = false;
-    document.getElementById("viewerDocumentDetails").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4><div class="document-unified-facts">${Array.from({ length: 4 }, (_, index) => `<div class="document-unified-fact"><strong>Métadonnée ${index + 1}</strong><span>Valeur de démonstration ${index + 1}</span></div>`).join("")}</div></section><section class="document-unified-section"><h4>Personnes concernées</h4><p>Marie Rossi et Jean Rossi</p></section><section class="document-unified-section"><h4>Sources et provenance</h4>${Array.from({ length: 2 }, (_, index) => `<details class="document-unified-source" open><summary>Source liée ${index + 1}</summary><p>Cote archivistique de démonstration</p></details>`).join("")}</section>`;
+    document.getElementById("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4><div class="document-unified-facts">${Array.from({ length: 4 }, (_, index) => `<div class="document-unified-fact"><strong>Métadonnée ${index + 1}</strong><span>Valeur de démonstration ${index + 1}</span></div>`).join("")}</div></section><section class="document-unified-section"><h4>Personnes concernées</h4><p>Marie Rossi et Jean Rossi</p></section><section class="document-unified-section"><h4>Sources et provenance</h4>${Array.from({ length: 2 }, (_, index) => `<details class="document-unified-source" open><summary>Source liée ${index + 1}</summary><p>Cote archivistique de démonstration</p></details>`).join("")}</section>`;
+    document.getElementById("viewerDetailsCollapseBtn").hidden = innerWidth <= 760;
     if (kind === "image") {
       img.src = src;
       img.hidden = false;
@@ -112,6 +113,7 @@ async function measureViewer(page) {
     const title = document.getElementById("viewerTitle");
     const subtitle = document.getElementById("viewerSubtitle");
     const external = document.getElementById("viewerExternalBtn");
+    const actionsButton = document.getElementById("viewerActionsBtn");
     const label = external.querySelector(".viewer-external-label");
     const closeBtn = head.querySelector("[data-close]");
     const backBtn = document.getElementById("viewerBackBtn");
@@ -146,11 +148,12 @@ async function measureViewer(page) {
       externalAriaLabel: external.getAttribute("aria-label"),
       externalTitle: external.getAttribute("title"),
       externalBtn: box(external),
+      actionsBtn: box(actionsButton),
       externalMinH: getComputedStyle(external).minHeight,
       closeBtn: box(closeBtn),
       backBtn: box(backBtn),
       backLabel: backBtn.textContent.trim(),
-      editBtn: box(editBtn),
+      editMinHeight: getComputedStyle(editBtn).minHeight,
       body: box(body),
       bodyDisplay: getComputedStyle(body).display,
       bodyFlex: getComputedStyle(body).flex,
@@ -160,6 +163,8 @@ async function measureViewer(page) {
       layoutColumns: getComputedStyle(layout).gridTemplateColumns,
       originalPanel: box(originalPanel),
       detailsPanel: box(detailsPanel),
+      detailsCollapseHidden: document.getElementById("viewerDetailsCollapseBtn").hidden,
+      detailsExpandHidden: document.getElementById("viewerDetailsExpandBtn").hidden,
       detailsOverflowY: getComputedStyle(detailsPanel).overflowY,
       sourceSections: detailsPanel.querySelectorAll(".document-unified-source").length,
       detailSectionCount: detailsPanel.querySelectorAll(".document-unified-section").length,
@@ -196,6 +201,7 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
               const headers = {};
               for (const [key, title] of Object.entries(TITLES)) {
                 await openViewer(page, { title, fileName: "acte-1891.pdf", src: portraitSvg });
+                await page.locator("#viewerActionsBtn").click();
                 const m = await measureViewer(page);
                 headers[key] = m;
                 const target = height * 0.92;
@@ -216,6 +222,7 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 if (width <= 760) {
                   assert.ok(m.originalPanel.y < m.detailsPanel.y, `${width}px : original avant les informations sur mobile`);
                   assert.equal(m.detailsOverflowY, "visible", `${width}px : défilement vertical unique de la fiche`);
+                  assert.equal(m.detailsCollapseHidden, true, `${width}px : aucun bouton de panneau desktop sur mobile`);
                 } else {
                   assert.ok(m.originalPanel.x < m.detailsPanel.x, `${width}px : original à gauche des informations`);
                   assert.ok(m.originalPanel.right <= m.detailsPanel.x + 1, `${width}px : panneaux desktop non chevauchés`);
@@ -224,9 +231,12 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 assert.equal(m.viewerOverflowY, width <= 760 ? "hidden" : "auto", `${key} : original contenu dans son panneau mobile`);
                 assert.equal(m.docOverflowX, 0, `${key} : aucun overflow horizontal`);
                 assert.ok(m.closeBtn && m.closeBtn.w >= 43.5 && m.closeBtn.h >= 43.5, `${key} : fermeture ≥44px`);
-                assert.ok(m.backBtn && m.editBtn, `${key} : retour et modification accessibles dans la fiche`);
-                if (width <= 760) assert.ok(m.backBtn.h >= 43.5 && m.editBtn.h >= 43.5, `${key} : cibles Retour/Modifier tactiles`);
-                assert.ok(m.externalAriaLabel === "Ouvrir dans un nouvel onglet", `${key} : aria-label conservé`);
+                assert.ok(m.backBtn && m.actionsBtn, `${key} : retour et menu d’actions accessibles dans la fiche`);
+                if (width <= 760) assert.ok(m.backBtn.h >= 43.5 && m.actionsBtn.h >= 43.5, `${key} : cibles Retour/Menu tactiles`);
+                assert.equal(await page.locator("#viewerActionsMenu").isVisible(), true, `${key} : menu d’actions ouvrable`);
+                assert.equal(await page.locator('#viewerActionsMenu [role="menuitem"]').count(), 2, `${key} : Modifier et Nouvel onglet accessibles dans le menu`);
+                await page.keyboard.press("Escape");
+                assert.ok(m.externalAriaLabel === "Ouvrir l’original dans un nouvel onglet", `${key} : aria-label conservé`);
                 assert.ok(m.externalTitle === "Ouvrir dans un nouvel onglet", `${key} : title conservé`);
                 /* sous-titre fileName visible tablette, masqué sur téléphone pour préserver l'espace de lecture */
                 if (width <= 560) assert.equal(m.subtitleDisplay, "none", `${key} : sous-titre masqué pour libérer l'espace mobile`);
@@ -251,15 +261,17 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
               for (const [vw, expectIcon] of [[320, true], [390, true], [480, true], [481, false], [560, false], [760, false]]) {
                 await page.setViewportSize({ width: vw, height: 844 });
                 await openViewer(page, { title: TITLES.short, fileName: "acte.pdf", src: portraitSvg });
+                await page.locator("#viewerActionsBtn").click();
                 const m = await measureViewer(page);
                 if (expectIcon) {
                   assert.equal(m.externalLabelDisplay, "none", `${vw}px : libellé masqué (icône seule)`);
                   assert.ok(m.externalBtn && m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, `${vw}px : cible ≥44px (${JSON.stringify(m.externalBtn)})`);
-                  assert.equal(m.externalAriaLabel, "Ouvrir dans un nouvel onglet", `${vw}px : accessible name`);
+                  assert.equal(m.externalAriaLabel, "Ouvrir l’original dans un nouvel onglet", `${vw}px : accessible name`);
                 } else {
                   assert.notEqual(m.externalLabelDisplay, "none", `${vw}px : libellé texte visible`);
                   assert.equal(m.externalLabelText, "Nouvel onglet", `${vw}px : libellé « Nouvel onglet »`);
                 }
+                await page.keyboard.press("Escape");
               }
               /* retour viewport de test pour les cas documents */
               await page.setViewportSize({ width, height });
@@ -334,6 +346,56 @@ test("Viewer desktop 1024×768 : inchangé (texte, titre, sous-titre, modale cen
   } finally { await browser.close(); await server.close(); }
 });
 
+test("Zoom tactile image : affichage ajusté, pincement, déplacement, reset et resize", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    const { context, page } = await createViewerPage(browser, server, 390, 844);
+    try {
+      const result = await page.evaluate(async () => {
+        document.body.insertAdjacentHTML("beforeend", `<div id="gestureViewport" style="position:relative;width:360px;height:280px;overflow:hidden;touch-action:pan-y"><img id="gestureImage" alt="Registre de test"></div><div id="gestureControls"><button type="button" data-viewer-image-zoom="out">−</button><span id="gestureZoomLabel"></span><button type="button" data-viewer-image-zoom="reset">Ajuster</button><button type="button" data-viewer-image-zoom="in">+</button></div>`);
+        const { createDocumentImageViewer } = await import("./js/document-image-viewer.js");
+        const image = document.getElementById("gestureImage");
+        image.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#b8c9be"/></svg>');
+        await image.decode();
+        const controller = createDocumentImageViewer({ viewport: document.getElementById("gestureViewport"), image, controls: document.getElementById("gestureControls"), zoomLabel: document.getElementById("gestureZoomLabel") });
+        const initial = controller.getState();
+        const viewport = document.getElementById("gestureViewport");
+        const touch = (identifier, clientX, clientY) => new Touch({ identifier, target: viewport, clientX, clientY });
+        const start = new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch(1, 120, 120), touch(2, 240, 120)] });
+        viewport.dispatchEvent(start);
+        const move = new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [touch(1, 60, 120), touch(2, 300, 120)] });
+        viewport.dispatchEvent(move);
+        const zoomed = controller.getState();
+        viewport.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [] }));
+        viewport.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch(3, 180, 120)] }));
+        viewport.dispatchEvent(new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [touch(3, 220, 140)] }));
+        const panned = controller.getState();
+        viewport.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [] }));
+        controller.reset();
+        const reset = controller.getState();
+        viewport.style.width = "300px";
+        await new Promise(resolve => setTimeout(resolve, 80));
+        const resized = controller.getState();
+        controller.destroy();
+        return { initial, zoomed, panned, reset, resized, prevented: move.defaultPrevented, natural: [image.naturalWidth, image.naturalHeight] };
+      });
+      assert.deepEqual(result.natural, [800, 200]);
+      assert.equal(result.initial.zoom, 1);
+      assert.ok(result.initial.fitWidth <= 360 && result.initial.fitHeight <= 280, "l’image entière tient dans le viewport au départ");
+      assert.ok(result.zoomed.zoom > 1.9, "le pincement à deux doigts zoome l’image");
+      assert.equal(result.prevented, true, "le pincement empêche le zoom de page pendant le geste image");
+      assert.ok(Math.abs(result.panned.offsetX) > 0 || Math.abs(result.panned.offsetY) > 0, "le déplacement tactile agit sur l’image agrandie");
+      assert.equal(result.reset.zoom, 1);
+      assert.equal(result.reset.offsetX, 0);
+      assert.equal(result.reset.offsetY, 0);
+      assert.equal(result.resized.fitWidth, 300, "ResizeObserver réajuste l’image à la nouvelle largeur disponible");
+    } finally { await context.close(); }
+  } finally { await browser.close(); await server.close(); }
+});
+
 test("Viewer : non-régression des sheets 92dvh (CSS inchangé)", () => {
   assert.match(css, /dialog#documentDialog\.modal-mobile-sheet,\s*\n\s*dialog#dossierDialog\.modal-mobile-sheet/);
   assert.match(css, /dialog\.modal-mobile-sheet--long-form \{ height: 92dvh; max-height: 92dvh; \}/);
@@ -342,4 +404,80 @@ test("Viewer : non-régression des sheets 92dvh (CSS inchangé)", () => {
   assert.match(css, /#procedureDetailDialog\.modal-mobile-sheet--stable \{\s*\n\s*height: 92dvh;/);
   /* viewer volontairement hors du pattern sheet */
   assert.doesNotMatch(html, /id="documentViewerDialog"[^>]*modal-mobile-sheet/);
+});
+
+test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptation au redimensionnement", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    const { context, page } = await createViewerPage(browser, server, 390, 844);
+    try {
+      const states = await page.evaluate(async () => {
+        document.body.insertAdjacentHTML("beforeend", `<div id="gestureViewport" style="position:fixed;left:10px;top:10px;width:360px;height:280px;overflow:hidden;touch-action:pan-y"><img id="gestureImage" alt="Photographie de registre"></div><div id="gestureControls"><button type="button" data-viewer-image-zoom="out">−</button><span id="gestureZoomLabel"></span><button type="button" data-viewer-image-zoom="reset">Ajuster à l’écran</button><button type="button" data-viewer-image-zoom="in">+</button></div>`);
+        const { createDocumentImageViewer } = await import("./js/document-image-viewer.js");
+        const image = document.getElementById("gestureImage");
+        image.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#b8c9be"/></svg>');
+        await image.decode();
+        const viewport = document.getElementById("gestureViewport");
+        const controller = createDocumentImageViewer({ viewport, image, controls: document.getElementById("gestureControls"), zoomLabel: document.getElementById("gestureZoomLabel") });
+        const initial = controller.getState();
+        const touch = (identifier, clientX, clientY) => new Touch({ identifier, target: viewport, clientX, clientY });
+        const pinchStart = new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch(1, 100, 120), touch(2, 220, 120)] });
+        viewport.dispatchEvent(pinchStart);
+        const pinchMove = new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [touch(1, 40, 120), touch(2, 280, 120)] });
+        viewport.dispatchEvent(pinchMove);
+        const zoomed = controller.getState();
+        viewport.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [] }));
+        viewport.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch(3, 150, 120)] }));
+        viewport.dispatchEvent(new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [touch(3, 185, 140)] }));
+        const panned = controller.getState();
+        viewport.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [] }));
+        controller.reset();
+        const reset = controller.getState();
+        viewport.style.width = "280px";
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const resized = controller.getState();
+        controller.destroy();
+        return { natural: [image.naturalWidth, image.naturalHeight], initial, zoomed, panned, reset, resized, pinchPrevented: pinchMove.defaultPrevented };
+      });
+      assert.deepEqual(states.natural, [800, 200]);
+      assert.equal(states.initial.zoom, 1);
+      assert.ok(states.initial.fitWidth <= 360 && states.initial.fitHeight <= 280, "image entière adaptée au départ");
+      assert.ok(states.zoomed.zoom >= 1.9 && states.pinchPrevented, "pincement à deux doigts intercepté et zoom appliqué");
+      assert.ok(Math.abs(states.panned.offsetX) > 0, "panoramique actif après agrandissement");
+      assert.equal(states.reset.zoom, 1);
+      assert.equal(states.reset.offsetX, 0);
+      assert.equal(states.reset.offsetY, 0);
+      assert.equal(states.resized.fitWidth, 280, "ResizeObserver recalcule l’échelle d’ajustement");
+    } finally { await context.close(); }
+  } finally { await browser.close(); await server.close(); }
+});
+
+test("Desktop : panneau d'informations repliable sans recharger ni réinitialiser le lecteur", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    const { context, page } = await createViewerPage(browser, server, 1280, 900);
+    try {
+      await openViewer(page, { title: TITLES.medium, fileName: "registre.jpg", src: landscapeSvg });
+      const initial = await page.locator(".document-original-panel").boundingBox();
+      const src = await page.locator("#viewerImage").getAttribute("src");
+      await page.locator("#viewerDetailsCollapseBtn").click();
+      await page.waitForFunction(() => document.getElementById("documentUnifiedLayout").classList.contains("is-details-collapsed"));
+      const collapsed = await page.locator(".document-original-panel").boundingBox();
+      assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true);
+      assert.ok(collapsed.width > initial.width + 100, "le panneau original gagne la largeur du panneau droit");
+      assert.equal(await page.locator("#viewerImage").getAttribute("src"), src, "le fichier n’est pas rechargé pendant le repli");
+      await page.locator("#viewerDetailsExpandBtn").click();
+      await page.waitForFunction(() => !document.getElementById("documentUnifiedLayout").classList.contains("is-details-collapsed"));
+      const restored = await page.locator(".document-original-panel").boundingBox();
+      assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true);
+      assert.ok(Math.abs(restored.width - initial.width) < 2, "la disposition initiale à deux panneaux est restaurée");
+      assert.equal(await page.locator("#viewerImage").getAttribute("src"), src, "le document reste chargé après réouverture");
+    } finally { await context.close(); }
+  } finally { await browser.close(); await server.close(); }
 });

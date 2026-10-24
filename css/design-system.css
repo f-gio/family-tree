@@ -2015,7 +2015,17 @@ label .field { margin-top: var(--space-2); }
 .document-original-panel { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 0; }
 .document-original-panel h4, .document-unified-details h4 { margin: 0; }
 .document-original-panel .viewer-body { width: 100%; height: auto; flex: 1 1 auto; min-height: 16rem; }
+.document-original-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.viewer-image-controls { display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: var(--space-2); }
+.viewer-image-controls[hidden] { display: none; }
+.viewer-image-controls .btn { min-height: var(--control-touch); }
+.viewer-image-zoom-level { min-width: 3.5rem; color: var(--color-text-muted); font-size: var(--text-xs); text-align: center; }
+.viewer-body { position: relative; touch-action: pan-y; }
+.viewer-body img { position: absolute; left: 50%; top: 50%; max-width: none; max-height: none; user-select: none; -webkit-user-drag: none; touch-action: pan-y; will-change: transform; }
 .document-unified-details { display: grid; align-content: start; gap: var(--space-3); min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-right: var(--space-1); }
+.document-unified-details[hidden] { display: none; }
+.document-unified-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
+.document-unified-layout.is-details-collapsed .document-original-panel { grid-column: 1; }
 .document-unified-section { display: grid; gap: var(--space-2); min-width: 0; padding: var(--space-3); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface-muted); }
 .document-unified-section > h4 { font-size: var(--text-md); }
 .document-unified-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2) var(--space-3); }
@@ -2037,6 +2047,7 @@ label .field { margin-top: var(--space-2); }
 @media (min-width: 761px) {
   #documentViewerDialog .modal-body { padding: var(--space-4); }
   #documentViewerDialog .document-unified-layout { grid-template-columns: minmax(0, 1.15fr) minmax(21rem, .85fr); }
+  #documentViewerDialog .document-unified-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
 }
 .admin-search-label { display: block; margin-block: var(--space-4); }
 
@@ -3146,6 +3157,9 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .viewer-dialog .document-original-panel .viewer-body { flex: 0 0 auto; height: min(42dvh, 22rem); min-height: 12rem; }
   .viewer-dialog .document-original-panel .viewer-body { overflow: hidden; }
   .viewer-dialog .document-unified-details { overflow: visible; padding-right: 0; }
+  .viewer-dialog .document-unified-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
+  .viewer-dialog .viewer-image-controls { gap: var(--space-1); }
+  .viewer-dialog .viewer-image-controls .btn { min-height: var(--control-touch); }
   .viewer-dialog .document-unified-facts { grid-template-columns: minmax(0, 1fr); }
   .viewer-dialog .document-unified-source .source-detail-fact { grid-template-columns: minmax(6.5rem, .7fr) minmax(0, 1.3fr); }
   .account-dropdown {
