@@ -1612,8 +1612,17 @@ test("LOT 6 : propositions, données officielles, historique immuable, notificat
     "la révision précédente reste immuable avec ses références originales");
   const revision = await getDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"));
   assert.equal(revision.data().previousRevisionId, "lot6-source-revision");
-  assert.deepEqual(revision.data().data.documentIds, [linkedDocumentIds[1]]);
-  await store.createOfficial({
+   assert.deepEqual(revision.data().data.documentIds, [linkedDocumentIds[1]]);
+   await store.reviseOfficial({
+     type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision-3", eventId: "lot6-source-unlinked-event",
+     data: { title: "Source corrigée", schemaVersion: 1, documentIds: [] }, reason: "Retrait du dernier document lié", actorUid: adminUid
+   });
+   assert.deepEqual((await getDoc(doc(db, "sourceDocuments", "lot6-official-source"))).data().data.documentIds, [],
+     "le dernier lien peut être retiré sans supprimer la source");
+   assert.deepEqual((await getDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"))).data().data.documentIds, [linkedDocumentIds[1]],
+     "la révision précédente reste immuable après le retrait du dernier lien");
+   assert.equal((await getDoc(doc(db, "genealogyEvents", "lot6-source-unlinked-event"))).data().eventType, "source.revised");
+   await store.createOfficial({
     type: "source", id: "lot6-official-source-second", revisionId: "lot6-source-second-revision",
     eventId: "lot6-source-second-event", data: { title: "Autre analyse du même document", schemaVersion: 1, documentIds: [linkedDocumentIds[0]] },
     reason: "Document réutilisé sans copie", actorUid: adminUid

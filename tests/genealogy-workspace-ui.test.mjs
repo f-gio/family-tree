@@ -69,14 +69,14 @@ test("le formulaire source officiel est guidé et réutilisable depuis Documents
 });
 
 test("Documents propose une source sans duplication et consulte les sources liées", () => {
-  assert.match(app, /data-create-source-from-document="\$\{esc\(item\.id\)\}"/);
-  assert.match(app, /Créer une source à partir de ce document/);
+  assert.match(app, /key: "create-source", label: "Créer une source à partir de ce document"/);
+  assert.match(app, /key: "manage-sources", label: "Gérer les sources liées"/);
   assert.doesNotMatch(app, /data-document-source-revise/);
   assert.match(app, /function openOfficialSourceFromDocument\(documentId\)/);
   assert.match(app, /if \(linkedSources\.length\) return toast\("Une source officielle référence déjà ce document/);
   assert.match(app, /openGenealogyContribution\(\{ official: true, sourceDocument: documentItem \}\)/);
   assert.match(app, /data-open-document-source/);
-  assert.match(app, /const createSourceButton = event\.target\.closest\("\[data-create-source-from-document\]"\)/);
+  assert.match(app, /action === "create-source"/);
 });
 
 test("le sélecteur de personnes est recherché, paginé et distinct des documents associés", () => {
@@ -98,7 +98,7 @@ test("la modale source est élargie seulement sur desktop et la liste Documents 
   assert.match(css, /#documentsList\.list-mode \.content-card \{[\s\S]*?grid-template-areas: "main meta actions" "details details actions"/);
   assert.match(css, /#documentsList\.list-mode \.document-card-details/);
   assert.match(css, /\.document-source-associations \{[\s\S]*?flex-wrap: wrap/);
-  assert.match(app, /\$\{linkedSources\.length \? `\$\{linkedSources\.length\} source/);
+  assert.match(app, /const linkedSourcesMarkup = sourceDocumentsLoaded && linkedSources\.length/);
   assert.doesNotMatch(app, /data-document-source-revise/);
 });
 
@@ -108,6 +108,17 @@ test("la création et la révision source utilisent le store officiel sans écra
   assert.match(app, /genealogySourceOriginalData = reviseItem\?\.kind === "source" \? structuredClone/);
   assert.match(app, /documentIds: \[\.\.\.selectedGenealogySourceDocumentIds\]/);
   assert.doesNotMatch(app.match(/if \(type === "source"\) \{[\s\S]*?\} else if \(type === "transcription"\)/)?.[0] || "", /writeFileChunks|setDoc\(doc\(db, "documents"/);
+});
+
+test("le retrait d'une association passe par une nouvelle révision officielle", () => {
+  assert.match(app, /function removeDocumentSourceAssociation\(documentId, sourceId\)/);
+  assert.match(app, /window\.confirm\("Retirer l’association entre ce document et cette source/);
+  assert.match(app, /const documentIds = Array\.isArray\(sourceData\.documentIds\) \? sourceData\.documentIds\.filter\(id => id !== documentId\) : \[\]/);
+  assert.match(app, /const revisedData = createSourceDocument\(\{ \.\.\.sourceData, documentIds \}\)/);
+  assert.match(app, /genealogyStore\.reviseOfficial\(\{ type: "source", id: sourceId, revisionId, eventId, data: revisedData/);
+  assert.match(app, /data-managed-source-remove/);
+  assert.match(app, /if \(!isAdminUser\(\)\) return toast\("La gestion des associations est réservée aux administrateurs/);
+  assert.doesNotMatch(app.match(/function removeDocumentSourceAssociation[\s\S]*?\n\}/)?.[0] || "", /deleteDoc|updateDoc\(doc\(db, "documents"/);
 });
 
 test("les textes, aides et statut readonly sont appliqués à chaque ouverture et changement de type", () => {
@@ -136,8 +147,8 @@ test("la source officielle référence des documents sélectionnés sans recopie
   assert.match(app, /Document référencé introuvable/);
   assert.match(app, /data-source-document-open=/);
   assert.match(app, /linkedDocumentButton\.dataset\.sourceDocumentOpen[\s\S]*?openStoredDocument\(linkedDocument\)/);
-  assert.match(app, /sourceData\.documentIds[\s\S]*?data-open-document-source=/);
-  assert.match(app, /openGenealogyItem\("source", sourceLink\.dataset\.openDocumentSource\)/);
+  assert.match(app, /data-managed-source-open=/);
+  assert.match(app, /openGenealogyItem\("source", managedSourceOpen\.dataset\.managedSourceOpen\)/);
   assert.match(app, /if \(collectionName === "sourceDocuments" && loadedPeople && loadedDocuments\) renderDocuments\(\)/);
   assert.match(app, /if \(!tile \|\| event\.target\.closest\("button, a, input, select, textarea, summary, \.tile-context-actions"\)\) return/);
   assert.doesNotMatch(app.match(/if \(type === "source"\) \{([\s\S]*?)\} else if \(type === "transcription"\)/)?.[1] || "", /writeFileChunks|setDoc\(doc\(db, "documents"/);
@@ -242,7 +253,7 @@ test("les deux espaces naviguent entre sources et documents, avec références a
   assert.match(app, /const linkedDocumentsBlock = kind === "source" \? linkedSourceDocumentsMarkup\(data\) : ""/);
   assert.match(app, /const linkedSources = sourceDocumentsLoaded \? genealogyRecords\.sourceDocuments\.filter/);
   assert.match(app, /sourceData\.documentIds\.includes\(item\.id\)/);
-  assert.match(app, /data-open-document-source="\$\{esc\(source\.id\)\}"/);
+  assert.match(app, /data-managed-source-open="\$\{esc\(source\.id\)\}"/);
   assert.match(app, /openGenealogyItem\("source", sourceLink\.dataset\.openDocumentSource\)/);
   assert.match(app, /data-source-document-open="\$\{esc\(link\.id\)\}"/);
   assert.match(app, /openStoredDocument\(linkedDocument\)/);

@@ -2393,6 +2393,10 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .document-source-associations li { min-width: 0; }
 .document-source-associations .btn { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .document-source-associations > p { margin: 0; }
+.document-source-manager { display: grid; gap: var(--space-3); }
+.document-source-manager h4 { margin: 0; }
+.document-source-manager ul { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.document-source-manager li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-2); border-radius: var(--radius-sm); background: var(--color-surface-muted); }
 .source-associated-subsection { display: grid; gap: var(--space-2); }
 .source-associated-subsection h5 { margin: 0; font-size: var(--text-sm); }
 .source-person-options { min-width: 0; }

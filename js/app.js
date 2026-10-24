@@ -152,6 +152,7 @@ let treeLayoutEngine = "hybrid";
 let activeViewerUrl = "";
 let activePersonSection = "identity";
 let activeGenealogyItem = null;
+let activeDocumentSourceManagerId = "";
 let genealogyZoom = 1;
 let activeGenealogyPageId = "";
 let activeGenealogyPhotoId = "";
@@ -466,6 +467,49 @@ function closeTileContextMenu(restoreFocus = false) {
   if (restoreFocus) toggle?.focus({ preventScroll: true });
 }
 
+function documentLinkedSources(documentId) {
+  return genealogyRecords.sourceDocuments.filter(source => {
+    const sourceData = genealogyRecordData(source);
+    return Array.isArray(sourceData.documentIds) && sourceData.documentIds.includes(documentId);
+  });
+}
+
+function renderDocumentSourceManager(documentId) {
+  const documentItem = documents.find(item => item.id === documentId);
+  const linkedSources = documentLinkedSources(documentId);
+  if (!documentItem) return;
+  activeDocumentSourceManagerId = documentId;
+  $("genealogyItemTitle").textContent = "Sources liées";
+  $("genealogyItemSubtitle").textContent = documentDisplayLabel(documentItem);
+  $("genealogyItemContent").innerHTML = `<section class="document-source-manager"><h4>${linkedSources.length} source${linkedSources.length > 1 ? "s" : ""} officielle${linkedSources.length > 1 ? "s" : ""} liée${linkedSources.length > 1 ? "s" : ""}</h4>${linkedSources.length ? `<ul>${linkedSources.map(source => {
+    const sourceData = genealogyRecordData(source);
+    return `<li><button class="btn small" type="button" data-managed-source-open="${esc(source.id)}">${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</button><button class="btn small danger" type="button" data-managed-source-remove="${esc(source.id)}">Retirer l’association</button></li>`;
+  }).join("")}</ul>` : `<p class="card-meta">Aucune source officielle ne référence ce document.</p>`}</section>`;
+  if (!$('genealogyItemDialog').open) $("genealogyItemDialog").showModal();
+}
+
+async function removeDocumentSourceAssociation(documentId, sourceId) {
+  if (!isAdminUser()) return toast("La gestion des associations est réservée aux administrateurs.", "error");
+  const source = genealogyRecords.sourceDocuments.find(item => item.id === sourceId);
+  if (!source) return toast("Cette source officielle n’est plus disponible.", "error");
+  const sourceData = genealogyRecordData(source);
+  const documentIds = Array.isArray(sourceData.documentIds) ? sourceData.documentIds.filter(id => id !== documentId) : [];
+  if (!window.confirm("Retirer l’association entre ce document et cette source ? La source et le document seront conservés.")) return;
+  const revisionId = createGenealogyId(refs.sourceRevisions);
+  const eventId = createGenealogyId(refs.genealogyEvents);
+  const revisedData = createSourceDocument({ ...sourceData, documentIds });
+  try {
+    await genealogyStore.reviseOfficial({ type: "source", id: sourceId, revisionId, eventId, data: revisedData, reason: "Association document retirée depuis Documents", actorUid: auth.currentUser.uid });
+    const index = genealogyRecords.sourceDocuments.findIndex(item => item.id === sourceId);
+    if (index >= 0) genealogyRecords.sourceDocuments[index] = { ...genealogyRecords.sourceDocuments[index], data: revisedData, revisionId };
+    renderDocuments();
+    renderDocumentSourceManager(documentId);
+    toast("Association retirée. Une nouvelle révision de la source a été enregistrée.");
+  } catch (error) {
+    toast(error.message || "Retrait de l’association impossible.", "error");
+  }
+}
+
 function showTileContextMenu(toggle) {
   const group = toggle.closest(".tile-context-actions");
   const menu = group?.querySelector(".tile-context-menu");
@@ -503,6 +547,14 @@ async function performTileContextAction(button) {
     if (!item) return false;
     openDocument(item);
     return true;
+  }
+  if (kind === "document" && action === "create-source") {
+    if (!isAdminUser()) return toast("La création de source est réservée aux administrateurs.", "error");
+    return openOfficialSourceFromDocument(id);
+  }
+  if (kind === "document" && action === "manage-sources") {
+    if (!isAdminUser()) return toast("La gestion des associations est réservée aux administrateurs.", "error");
+    return renderDocumentSourceManager(id);
   }
   if (kind === "document" && action === "delete") {
     return runSafely(() => removeDocument(id), "Suppression du document impossible");
@@ -3572,21 +3624,20 @@ function renderDocuments() {
       const sourceData = genealogyRecordData(source);
       return Array.isArray(sourceData.documentIds) && sourceData.documentIds.includes(item.id);
     }) : [];
-    const linkedSourcesMarkup = sourceDocumentsLoaded
-      ? `<div class="document-source-associations"><strong>${linkedSources.length ? `${linkedSources.length} source${linkedSources.length > 1 ? "s" : ""} liée${linkedSources.length > 1 ? "s" : ""}` : "Sources officielles"}</strong>${linkedSources.length
-        ? `<ul>${linkedSources.map(source => {
-          const sourceData = genealogyRecordData(source);
-          return `<li><button class="btn small" type="button" data-open-document-source="${esc(source.id)}">${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</button></li>`;
-        }).join("")}</ul>`
-        : `<p class="list-optional">Aucune source officielle ne référence ce document.</p><button class="btn small" type="button" data-create-source-from-document="${esc(item.id)}">Créer une source à partir de ce document</button>`}</div>`
-      : sourceDocumentsUnavailable ? `<p class="list-optional">Les sources associées ne sont pas disponibles actuellement.</p>` : "";
+    const linkedSourcesMarkup = sourceDocumentsLoaded && linkedSources.length
+      ? `<div class="document-source-associations"><strong>${linkedSources.length} source${linkedSources.length > 1 ? "s" : ""} liée${linkedSources.length > 1 ? "s" : ""}</strong></div>`
+      : sourceDocumentsUnavailable ? "" : "";
     const renditionStatus = item.compressed || item.mimeType === "image/webp"
       ? "Image historique optimisée (WebP) · pas un original"
       : item.chunkCount || item.fileData ? "Fichier historique · original non vérifié" : "Référence externe";
     const canOpen = !!(item.chunkCount || item.fileData || item.fileUrl || item.externalUrl);
     const tileSemantics = canOpen ? `data-primary-tile data-document-openable="true" tabindex="0" role="group" aria-label="Consulter ${esc(label)}" aria-keyshortcuts="Enter Space"` : `data-document-openable="false"`;
+    const sourceAction = sourceDocumentsLoaded && isAdminUser()
+      ? linkedSources.length ? { key: "manage-sources", label: "Gérer les sources liées", icon: "link" } : { key: "create-source", label: "Créer une source à partir de ce document", icon: "plus" }
+      : null;
     const menu = tileContextMenuMarkup("document", item.id, label, [
       { key: "edit", label: "Modifier", icon: "edit" },
+      ...(sourceAction ? [sourceAction] : []),
       { key: "delete", label: "Supprimer", icon: "trash", danger: true }
     ]);
     return `<article class="content-card document-card" data-document-card="${item.id}" ${tileSemantics}><div><span class="badge">${esc(item.type || "Document")}</span><h3>${esc(label)}</h3></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date non renseignée"}${compactPlace ? ` · ${esc(compactPlace)}` : ""}</p><div class="document-card-details"><p class="document-card-people">${(item.personIds || []).length ? `Associé à : ${esc(item.personIds.map(nameOf).join(", "))}` : "Aucune personne associée"}</p>${item.notes ? `<p class="card-description">${esc(item.notes)}</p>` : ""}${item.storedSize ? `<p class="list-optional">${esc(renditionStatus)} · ${formatBytes(item.storedSize)}</p>` : `<p class="list-optional">${esc(renditionStatus)}</p>`}${linkedSourcesMarkup}</div><div class="card-actions">${menu}</div></article>`;
@@ -6525,6 +6576,12 @@ document.addEventListener("click", event => {
   if (button) openGenealogyItem(button.dataset.openGenealogy, button.dataset.genealogyId);
 });
 $("genealogyItemContent").addEventListener("click", event => {
+  const managedSourceOpen = event.target.closest("[data-managed-source-open]");
+  if (managedSourceOpen) return openGenealogyItem("source", managedSourceOpen.dataset.managedSourceOpen);
+  const managedSourceRemove = event.target.closest("[data-managed-source-remove]");
+  if (managedSourceRemove) {
+    return runSafely(() => removeDocumentSourceAssociation(activeDocumentSourceManagerId, managedSourceRemove.dataset.managedSourceRemove), "Retrait de l’association impossible");
+  }
   const linkedDocumentButton = event.target.closest("[data-source-document-open]");
   if (linkedDocumentButton) {
     const linkedDocument = documents.find(item => item.id === linkedDocumentButton.dataset.sourceDocumentOpen);
