@@ -113,6 +113,12 @@ export function createSourceDocument({ id, ...metadata } = {}) {
   };
 }
 
+export function mergeSourceDocumentGuidedData(original = {}, guided = {}) {
+  if (!original || typeof original !== "object" || Array.isArray(original)) throw new TypeError("original doit être un objet");
+  if (!guided || typeof guided !== "object" || Array.isArray(guided)) throw new TypeError("guided doit être un objet");
+  return { ...structuredClone(original), ...structuredClone(guided) };
+}
+
 export function createDocumentPage({ id, order, label = "", side = null } = {}) {
   const idError = nonEmptyString(id, "id");
   if (idError) throw new TypeError(idError);

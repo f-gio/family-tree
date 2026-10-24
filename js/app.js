@@ -29,7 +29,7 @@ import { TRANSFER_DIAGNOSTIC_STAGES, resolveTransferDiagnosticEnabled, buildTran
 import { createGenealogyCollaborationStore } from "./genealogy-collaboration-firestore.js";
 import { createGenealogyProof, validateGenealogyProof } from "./genealogy-proofs.js";
 import { createConclusionRevision, createConclusionHead } from "./fact-conclusions.js";
-import { createSourceDocument, resolveSourceDocumentLinks, searchLinkedDocuments, SOURCE_DOCUMENT_PICKER_PAGE_SIZE } from "./source-document-model.js";
+import { createSourceDocument, mergeSourceDocumentGuidedData, resolveSourceDocumentLinks, searchLinkedDocuments, SOURCE_DOCUMENT_PICKER_PAGE_SIZE } from "./source-document-model.js";
 import { createPageTextRevision } from "./document-transcription.js";
 import { BACKUP_ARCHIVE_VERSION, createBackupArchiveManifest, compareBackupCaptureMarkers, generateBackupZip, readBackupZip, prepareBackupRestorePlan } from "./backup-archive.js";
 
@@ -109,6 +109,12 @@ let genealogyLoaded = false;
 let genealogyCollectionErrors = new Map();
 let genealogyCollectionsLoaded = new Set();
 let selectedGenealogySourceDocumentIds = new Set();
+let selectedGenealogySourcePersonIds = new Set();
+let genealogySourceOriginalData = null;
+let genealogySourceGuidedGrid = null;
+let genealogySourceTitleLabel = null;
+let genealogySourcePickerParent = null;
+let genealogySourcePickerNextSibling = null;
 let genealogySourceDocumentPagesShown = 1;
 let genealogySourceDocumentLastQuery = null;
 let treeMetadata = [];
@@ -3540,6 +3546,23 @@ function openDocument(item = null, preselectedPersonId = "", returnContext = nul
   $("documentDialog").showModal();
 }
 
+function openOfficialSourceFromDocument(documentId) {
+  const documentItem = documents.find(item => item.id === documentId);
+  if (!documentItem) return toast("Ce document n’est plus disponible.", "error");
+  const linkedSources = genealogyRecords.sourceDocuments.filter(source => {
+    const sourceData = genealogyRecordData(source);
+    return Array.isArray(sourceData.documentIds) && sourceData.documentIds.includes(documentId);
+  });
+  if (linkedSources.length) return toast("Une source officielle référence déjà ce document. Consultez ou révisez l’une des sources affichées.", "info");
+  openGenealogyContribution({ official: true, sourceDocument: documentItem });
+}
+
+function reviseOfficialSourceFromDocument(sourceId) {
+  const source = genealogyRecords.sourceDocuments.find(item => item.id === sourceId);
+  if (!source) return toast("Cette source officielle n’est plus disponible.", "error");
+  openGenealogyContribution({ official: true, reviseItem: { kind: "source", record: source, data: genealogyRecordData(source) } });
+}
+
 function renderDocuments() {
   const query = searchable($("documentSearch").value);
   const type = $("documentTypeFilter").value;
@@ -3557,9 +3580,9 @@ function renderDocuments() {
       ? `<div class="document-source-associations"><strong>Sources officielles</strong>${linkedSources.length
         ? `<ul>${linkedSources.map(source => {
           const sourceData = genealogyRecordData(source);
-          return `<li><button class="btn small" type="button" data-open-document-source="${esc(source.id)}">${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</button></li>`;
+          return `<li><button class="btn small" type="button" data-open-document-source="${esc(source.id)}">${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</button>${isAdminUser() ? `<button class="btn small" type="button" data-document-source-revise="${esc(source.id)}">Réviser</button>` : ""}</li>`;
         }).join("")}</ul>`
-        : `<p class="list-optional">Aucune source officielle ne référence ce document.</p>`}</div>`
+        : `<p class="list-optional">Aucune source officielle ne référence ce document.</p><button class="btn small" type="button" data-create-source-from-document="${esc(item.id)}">Créer une source à partir de ce document</button>`}</div>`
       : sourceDocumentsUnavailable ? `<p class="list-optional">Les sources associées ne sont pas disponibles actuellement.</p>` : "";
     const renditionStatus = item.compressed || item.mimeType === "image/webp"
       ? "Image historique optimisée (WebP) · pas un original"
@@ -4024,8 +4047,150 @@ function sourceDetailFactsMarkup(data) {
   return `<section class="genealogy-source-facts"><h4>Informations de la source</h4><div class="source-detail-facts">${facts.join("")}</div></section>`;
 }
 
+function sourceDateInfoFields(dateInfo, legacyDate = "") {
+  const value = dateInfo && typeof dateInfo === "object" ? dateInfo : null;
+  if (value?.type === "between") return {
+    type: "between", value: "", from: value.from ? `${value.from.year || ""}-${String(value.from.month || "").padStart(2, "0")}-${String(value.from.day || "").padStart(2, "0")}`.replace(/-+$/, "") : "",
+    to: value.to ? `${value.to.year || ""}-${String(value.to.month || "").padStart(2, "0")}-${String(value.to.day || "").padStart(2, "0")}`.replace(/-+$/, "") : ""
+  };
+  if (value?.type) return { type: value.type, value: value.value || value.year || "", from: "", to: "" };
+  if (/^\d{4}$/.test(String(legacyDate || "").trim())) return { type: "year", value: String(legacyDate).trim(), from: "", to: "" };
+  if (legacyDate) return { type: "exact", value: legacyDate, from: "", to: "" };
+  return { type: "unknown", value: "", from: "", to: "" };
+}
+
+function sourceGuidedDateInfo() {
+  const type = $("genealogySourceDateType")?.value || "unknown";
+  const value = $("genealogySourceDate")?.value.trim() || "";
+  if (type === "unknown" || (type !== "between" && !value)) return { type: "unknown" };
+  if (type === "between") {
+    const from = $("genealogySourceDateFrom")?.value.trim() || "";
+    const to = $("genealogySourceDateTo")?.value.trim() || "";
+    if (!from && !to) return { type: "unknown" };
+    const parseBoundary = boundary => {
+      const parts = boundary.split("-").map(Number);
+      return { year: parts[0], ...(parts[1] ? { month: parts[1] } : {}), ...(parts[2] ? { day: parts[2] } : {}) };
+    };
+    return { type, ...(from ? { from: parseBoundary(from) } : {}), ...(to ? { to: parseBoundary(to) } : {}) };
+  }
+  if (type === "year" || type === "about") return { type, year: Number(value) };
+  return { type, value };
+}
+
+function sourceGuidedArchivalReferences() {
+  const text = $("genealogySourceArchivalReferences").value.trim();
+  const original = genealogySourceOriginalData?.archivalReferences;
+  const originalText = Array.isArray(original)
+    ? original.map(reference => reference?.label ? `${reference.label}: ${reference.value || ""}` : reference?.value || "").join("\n").trim()
+    : "";
+  if (text === originalText && Array.isArray(original)) return structuredClone(original);
+  return text.split("\n").map(line => line.trim()).filter(Boolean).map(value => ({ value }));
+}
+
+function sourceGuidedPayload(title) {
+  const original = genealogySourceOriginalData && typeof genealogySourceOriginalData === "object" ? structuredClone(genealogySourceOriginalData) : {};
+  const researchNotes = $("genealogySourceResearchNotes").value.trim();
+  const hypotheses = $("genealogySourceHypotheses").value.trim();
+  const payload = mergeSourceDocumentGuidedData(original, {
+    title,
+    category: $("genealogySourceCategory").value.trim(),
+    dateInfo: sourceGuidedDateInfo(),
+    placeOrTerritory: $("genealogySourcePlace").value.trim(),
+    holdingOrganization: $("genealogySourceHoldingOrganization").value.trim(),
+    fondsSeries: $("genealogySourceFondsSeries").value.trim(),
+    cote: $("genealogySourceCote").value.trim(),
+    subCote: $("genealogySourceSubCote").value.trim(),
+    archivalReferences: sourceGuidedArchivalReferences(),
+    languages: $("genealogySourceLanguages").value.split("\n").map(value => value.trim()).filter(Boolean),
+    personIds: [...selectedGenealogySourcePersonIds],
+    documentIds: [...selectedGenealogySourceDocumentIds],
+    description: $("genealogySourceDescription").value.trim(),
+    researchNotes: [researchNotes, hypotheses && !Object.prototype.hasOwnProperty.call(original, "hypotheses") ? `Hypothèses et incertitudes : ${hypotheses}` : ""].filter(Boolean).join("\n\n"),
+    ...(Object.prototype.hasOwnProperty.call(original, "hypotheses") ? { hypotheses } : {})
+  });
+  return payload;
+}
+
+function renderGenealogySourcePersonOptions() {
+  const container = $("genealogySourcePersonOptions");
+  if (!container) return;
+  container.innerHTML = people.length
+    ? people.map(item => `<label class="source-person-option"><input type="checkbox" data-genealogy-source-person="${esc(item.id)}"${selectedGenealogySourcePersonIds.has(item.id) ? " checked" : ""}><span>${esc(nameOf(item.id))}</span></label>`).join("")
+    : `<p class="hint">Aucune personne n’est disponible dans l’annuaire.</p>`;
+}
+
+function ensureOfficialSourceGuidedFields() {
+  const grid = $("genealogyContributionPayload")?.closest(".grid");
+  if (!grid) return null;
+  if (genealogySourceGuidedGrid) return genealogySourceGuidedGrid;
+  genealogySourceGuidedGrid = document.createElement("section");
+  genealogySourceGuidedGrid.id = "genealogyOfficialSourceFields";
+  genealogySourceGuidedGrid.className = "wide genealogy-source-guided-fields";
+  genealogySourceGuidedGrid.innerHTML = `<section><h4>Identification</h4><div class="source-guided-grid"><label>Titre de la source<input class="field" id="genealogySourceTitle" maxlength="180" required></label><label>Catégorie ou type<input class="field" id="genealogySourceCategory" maxlength="160"></label><label>Type de date<select class="field" id="genealogySourceDateType"><option value="exact">Date exacte</option><option value="year">Année</option><option value="about">Date approximative</option><option value="between">Période</option><option value="unknown">Date inconnue</option></select></label><label>Date ou valeur<input class="field" id="genealogySourceDate" placeholder="AAAA-MM-JJ ou AAAA"></label><label>Date de début<input class="field" id="genealogySourceDateFrom" placeholder="AAAA-MM-JJ"></label><label>Date de fin<input class="field" id="genealogySourceDateTo" placeholder="AAAA-MM-JJ"></label><label>Lieu ou territoire<input class="field" id="genealogySourcePlace" maxlength="180"></label></div></section><section><h4>Provenance archivistique</h4><div class="source-guided-grid"><label>Institution de conservation<input class="field" id="genealogySourceHoldingOrganization"></label><label>Fonds ou série<input class="field" id="genealogySourceFondsSeries"></label><label>Cote<input class="field" id="genealogySourceCote"></label><label>Sous-cote<input class="field" id="genealogySourceSubCote"></label><label>Références archivistiques<textarea class="field" id="genealogySourceArchivalReferences" rows="3" placeholder="Une référence par ligne"></textarea></label><label>Langue(s)<textarea class="field" id="genealogySourceLanguages" rows="3" placeholder="Une langue par ligne"></textarea></label></div></section><section><h4>Éléments associés</h4><fieldset><legend>Personnes concernées</legend><div id="genealogySourcePersonOptions" class="source-person-options"></div></fieldset><p class="hint">Les documents sont sélectionnés dans la bibliothèque existante, sans recopier leurs fichiers.</p></section><section><h4>Observations</h4><div class="source-guided-grid"><label>Description<textarea class="field" id="genealogySourceDescription" rows="3"></textarea></label><label>Notes de recherche<textarea class="field" id="genealogySourceResearchNotes" rows="3"></textarea></label><label>Hypothèses et incertitudes<textarea class="field" id="genealogySourceHypotheses" rows="3"></textarea></label></div></section>`;
+  grid.append(genealogySourceGuidedGrid);
+  genealogySourceTitleLabel = $("genealogyContributionTitleField")?.closest("label");
+  const picker = $("genealogySourceDocumentPicker");
+  genealogySourcePickerParent = picker?.parentElement;
+  genealogySourcePickerNextSibling = picker?.nextSibling || null;
+  const associatedSection = [...genealogySourceGuidedGrid.querySelectorAll("section")].find(section => section.querySelector("h4")?.textContent === "Éléments associés");
+  if (picker && associatedSection) associatedSection.append(picker);
+  genealogySourceGuidedGrid.addEventListener("change", event => {
+    const checkbox = event.target.closest("[data-genealogy-source-person]");
+    if (checkbox) {
+      if (checkbox.checked) selectedGenealogySourcePersonIds.add(checkbox.dataset.genealogySourcePerson);
+      else selectedGenealogySourcePersonIds.delete(checkbox.dataset.genealogySourcePerson);
+    }
+  });
+  return genealogySourceGuidedGrid;
+}
+
+function fillOfficialSourceGuidedFields(data = {}, documentItem = null) {
+  ensureOfficialSourceGuidedFields();
+  const current = data && typeof data === "object" ? data : {};
+  const date = sourceDateInfoFields(current.dateInfo, current.date || documentItem?.date || "");
+  $("genealogySourceTitle").value = current.title || documentItem?.title || (documentItem ? documentDisplayLabel(documentItem) : "");
+  $("genealogySourceCategory").value = current.category || documentItem?.type || "";
+  $("genealogySourceDateType").value = date.type;
+  $("genealogySourceDate").value = date.value;
+  $("genealogySourceDateFrom").value = date.from;
+  $("genealogySourceDateTo").value = date.to;
+  $("genealogySourcePlace").value = current.placeOrTerritory || documentItem?.place || "";
+  $("genealogySourceHoldingOrganization").value = current.holdingOrganization || "";
+  $("genealogySourceFondsSeries").value = current.fondsSeries || "";
+  $("genealogySourceCote").value = current.cote || "";
+  $("genealogySourceSubCote").value = current.subCote || "";
+  $("genealogySourceArchivalReferences").value = (current.archivalReferences || []).map(reference => reference.label ? `${reference.label}: ${reference.value || ""}` : reference.value || "").join("\n");
+  $("genealogySourceLanguages").value = (current.languages || []).join("\n");
+  $("genealogySourceDescription").value = current.description || "";
+  $("genealogySourceResearchNotes").value = current.researchNotes || "";
+  $("genealogySourceHypotheses").value = current.hypotheses || "";
+  renderGenealogySourcePersonOptions();
+}
+
 function updateGenealogyContributionPresentation() {
   const dialog = $("genealogyContributionDialog");
+  const guidedSource = dialog.dataset.official === "true" && $("genealogyContributionType").value === "source";
+  const guidedFields = ensureOfficialSourceGuidedFields();
+  if (guidedFields) guidedFields.hidden = !guidedSource;
+  const genericTypeLabel = $("genealogyContributionType").closest("label");
+  const genericTargetLabel = $("genealogyContributionTarget").closest("label");
+  const genericTitleLabel = $("genealogyContributionTitleField").closest("label");
+  const genericPayloadLabel = $("genealogyContributionPayload").closest("label");
+  if (genericTypeLabel) genericTypeLabel.hidden = guidedSource;
+  if (genericTargetLabel) genericTargetLabel.hidden = guidedSource;
+  if (genericTitleLabel) genericTitleLabel.hidden = guidedSource;
+  if (genericPayloadLabel) genericPayloadLabel.hidden = guidedSource;
+  $("genealogyContributionPayload").required = !guidedSource;
+  $("genealogyContributionTitleField").required = !guidedSource;
+  const picker = $("genealogySourceDocumentPicker");
+  if (picker && genealogySourcePickerParent) {
+    if (guidedSource) {
+      const associatedSection = [...guidedFields.querySelectorAll("section")].find(section => section.querySelector("h4")?.textContent === "Éléments associés");
+      if (associatedSection) associatedSection.append(picker);
+    } else {
+      genealogySourcePickerParent.insertBefore(picker, genealogySourcePickerNextSibling && genealogySourcePickerNextSibling.parentNode === genealogySourcePickerParent ? genealogySourcePickerNextSibling : null);
+    }
+  }
   configureGenealogyContributionDialog({
     title: $("genealogyContributionTitle"),
     subtitle: $("genealogyContributionSubtitle"),
@@ -4041,7 +4206,7 @@ function updateGenealogyContributionPresentation() {
   renderGenealogySourceDocumentPicker();
 }
 
-function openGenealogyContribution({ official = false, reviseItem = null } = {}) {
+function openGenealogyContribution({ official = false, reviseItem = null, sourceDocument = null } = {}) {
   const officialMode = Boolean(official || reviseItem);
   if (officialMode && !isAdminUser()) return toast("La création des données officielles est réservée aux administrateurs.", "error");
   $("genealogyContributionForm").reset();
@@ -4055,9 +4220,13 @@ function openGenealogyContribution({ official = false, reviseItem = null } = {})
   const kindMap = { source: "source", transcription: "transcription", proof: "proof", conclusion: "conclusion" };
   $("genealogyContributionType").value = reviseItem ? (kindMap[reviseItem.kind] || "source") : "source";
   $("genealogyContributionTarget").value = reviseItem?.record.id || "";
+  genealogySourceOriginalData = reviseItem?.kind === "source" ? structuredClone(reviseItem.data || {}) : {};
   selectedGenealogySourceDocumentIds = new Set(Array.isArray(reviseItem?.data?.documentIds)
     ? reviseItem.data.documentIds.filter(documentId => typeof documentId === "string" && documentId.trim())
-    : []);
+    : sourceDocument ? [sourceDocument.id] : []);
+  selectedGenealogySourcePersonIds = new Set(Array.isArray(reviseItem?.data?.personIds)
+    ? reviseItem.data.personIds.filter(personId => typeof personId === "string" && personId.trim())
+    : sourceDocument?.personIds || []);
   genealogySourceDocumentPagesShown = 1;
   genealogySourceDocumentLastQuery = null;
   $("genealogyContributionDialog").dataset.official = String(officialMode);
@@ -4067,6 +4236,11 @@ function openGenealogyContribution({ official = false, reviseItem = null } = {})
     const current = reviseItem.data.revision || reviseItem.data;
     $("genealogyContributionTitleField").value = current.title || current.factType || reviseItem.record.id;
     $("genealogyContributionPayload").value = JSON.stringify(current, null, 2);
+  }
+  if (officialMode && $("genealogyContributionType").value === "source") {
+    fillOfficialSourceGuidedFields(genealogySourceOriginalData, sourceDocument);
+    $("genealogyContributionTitleField").value = $("genealogySourceTitle").value;
+    $("genealogyContributionPayload").value = "";
   }
   $("genealogyContributionDialog").showModal();
 }
@@ -4088,12 +4262,12 @@ async function saveGenealogyContribution(event) {
   const revise = $("genealogyContributionDialog").dataset.revision === "true";
   const type = $("genealogyContributionType").value;
   const title = $("genealogyContributionTitleField").value.trim();
-  const text = $("genealogyContributionPayload").value.trim();
+   const text = $("genealogyContributionPayload").value.trim();
   const targetId = $("genealogyContributionTarget").value.trim() || createGenealogyId(refs.documents);
   const actorUid = auth.currentUser?.uid;
   if (!actorUid) return toast("Votre session a expiré.", "error");
   try {
-    const payload = parseGenealogyPayload(text, title, type);
+     const payload = official && type === "source" ? sourceGuidedPayload($("genealogySourceTitle").value.trim()) : parseGenealogyPayload(text, title, type);
     const eventId = createGenealogyId(refs.genealogyEvents);
     if (official) {
       const revisionCollection = ({ source: "sourceRevisions", transcription: "transcriptionRevisions", proof: "genealogyProofRevisions", conclusion: "conclusionRevisions" })[type];
@@ -4105,7 +4279,7 @@ async function saveGenealogyContribution(event) {
       let officialData;
       if (type === "source") {
         officialData = createSourceDocument({
-          ...payload, id: officialId, title: payload.title || title,
+           ...payload, id: officialId, title: payload.title || title,
           documentIds: [...selectedGenealogySourceDocumentIds]
         });
       } else if (type === "transcription") {
@@ -5927,6 +6101,16 @@ document.addEventListener("keydown", event => {
 });
 
 $("documentsList").onclick = event => {
+  const createSourceButton = event.target.closest("[data-create-source-from-document]");
+  if (createSourceButton) {
+    openOfficialSourceFromDocument(createSourceButton.dataset.createSourceFromDocument);
+    return;
+  }
+  const reviseSourceButton = event.target.closest("[data-document-source-revise]");
+  if (reviseSourceButton) {
+    reviseOfficialSourceFromDocument(reviseSourceButton.dataset.documentSourceRevise);
+    return;
+  }
   const sourceLink = event.target.closest("[data-open-document-source]");
   if (sourceLink) {
     openGenealogyItem("source", sourceLink.dataset.openDocumentSource);

@@ -8,6 +8,7 @@ import {
   createPhotographAsset,
   createSourceDocument,
   findExactPhotographDuplicates,
+  mergeSourceDocumentGuidedData,
   normalizeSourceDocumentSearchText,
   reorderDocumentPages,
   resolveSourceDocumentLinks,
@@ -72,6 +73,28 @@ test("métadonnées partielles, champs inconnus et état archivé sont acceptés
   assert.equal(validateSourceDocument(document).valid, true);
   assert.equal(document.status, "archived");
   assert.equal(document.customLegacyField, "préservé");
+});
+
+test("le mapping guidé préserve les champs source existants non représentés", () => {
+  const original = createSourceDocument({
+    id: "source-revision",
+    title: "Ancien titre",
+    pages: [{ id: "page-native", order: 0, photographs: [] }],
+    externalUrl: "https://example.invalid/archive",
+    customLegacyField: "à préserver",
+    documentIds: ["document-ancien"]
+  });
+  const mapped = mergeSourceDocumentGuidedData(original, {
+    title: "Titre corrigé",
+    category: "Registre",
+    documentIds: ["document-nouveau"]
+  });
+  assert.equal(mapped.title, "Titre corrigé");
+  assert.equal(mapped.category, "Registre");
+  assert.equal(mapped.customLegacyField, "à préserver");
+  assert.equal(mapped.externalUrl, original.externalUrl);
+  assert.deepEqual(mapped.pages, original.pages);
+  assert.deepEqual(original.documentIds, ["document-ancien"], "le modèle original n’est pas muté");
 });
 
 test("documentIds est facultatif et conserve sans doublons les IDs stables de la bibliothèque", () => {

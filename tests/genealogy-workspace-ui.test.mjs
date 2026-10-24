@@ -55,6 +55,39 @@ test("les boutons contribution et officiel ouvrent les modes attendus, avec gard
   assert.match(app, /openGenealogyContribution\(\{ official: true, reviseItem: item \}\)/);
 });
 
+test("le formulaire source officiel est guidé et réutilisable depuis Documents", () => {
+  for (const id of ["genealogyOfficialSourceFields", "genealogySourceTitle", "genealogySourceCategory", "genealogySourceDateType", "genealogySourcePlace", "genealogySourceHoldingOrganization", "genealogySourceFondsSeries", "genealogySourceCote", "genealogySourceSubCote", "genealogySourceArchivalReferences", "genealogySourceLanguages", "genealogySourcePersonOptions", "genealogySourceDescription", "genealogySourceResearchNotes", "genealogySourceHypotheses"]) {
+    assert.match(app, new RegExp(id), `champ guidé absent : ${id}`);
+  }
+  for (const label of ["Identification", "Provenance archivistique", "Éléments associés", "Observations"]) assert.match(app, new RegExp(label));
+  assert.match(app, /function sourceGuidedPayload\(title\)/);
+  assert.match(app, /mergeSourceDocumentGuidedData\(original/);
+  assert.match(app, /const payload = official && type === "source" \? sourceGuidedPayload/);
+  assert.match(app, /if \(guidedFields\) guidedFields\.hidden = !guidedSource/);
+  assert.match(app, /\$\("genealogyContributionPayload"\)\.value = ""/);
+  assert.doesNotMatch(app.match(/function sourceGuidedPayload[\s\S]*?\n\}/)?.[0] || "", /JSON\.stringify/);
+});
+
+test("Documents propose une source sans duplication et permet la révision des sources liées", () => {
+  assert.match(app, /data-create-source-from-document="\$\{esc\(item\.id\)\}"/);
+  assert.match(app, /Créer une source à partir de ce document/);
+  assert.match(app, /data-document-source-revise="\$\{esc\(source\.id\)\}"/);
+  assert.match(app, /function openOfficialSourceFromDocument\(documentId\)/);
+  assert.match(app, /if \(linkedSources\.length\) return toast\("Une source officielle référence déjà ce document/);
+  assert.match(app, /openGenealogyContribution\(\{ official: true, sourceDocument: documentItem \}\)/);
+  assert.match(app, /function reviseOfficialSourceFromDocument\(sourceId\)/);
+  assert.match(app, /openGenealogyContribution\(\{ official: true, reviseItem: \{ kind: "source"/);
+  assert.match(app, /const createSourceButton = event\.target\.closest\("\[data-create-source-from-document\]"\)/);
+});
+
+test("la création et la révision source utilisent le store officiel sans écraser les révisions", () => {
+  assert.match(app, /genealogyStore\.createOfficial\(\{ type, id: officialId, revisionId, eventId, data: officialData/);
+  assert.match(app, /genealogyStore\.reviseOfficial\(\{ type, id: officialId, revisionId, eventId, data: officialData/);
+  assert.match(app, /genealogySourceOriginalData = reviseItem\?\.kind === "source" \? structuredClone/);
+  assert.match(app, /documentIds: \[\.\.\.selectedGenealogySourceDocumentIds\]/);
+  assert.doesNotMatch(app.match(/if \(type === "source"\) \{[\s\S]*?\} else if \(type === "transcription"\)/)?.[0] || "", /writeFileChunks|setDoc\(doc\(db, "documents"/);
+});
+
 test("les textes, aides et statut readonly sont appliqués à chaque ouverture et changement de type", () => {
   for (const id of ["genealogyContributionSubtitle", "genealogyContributionSubmitBtn", "genealogyContributionTargetHelp", "genealogyContributionPayloadHelp"]) {
     assert.ok(html.includes(`id="${id}"`), `élément de formulaire absent : ${id}`);
