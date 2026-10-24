@@ -2021,6 +2021,7 @@ label .field { margin-top: var(--space-2); }
 .viewer-image-controls .btn { min-height: var(--control-touch); }
 .viewer-image-zoom-level { min-width: 3.5rem; color: var(--color-text-muted); font-size: var(--text-xs); text-align: center; }
 .viewer-body { position: relative; touch-action: pan-y; }
+.viewer-body[data-viewer-fit-mode="width"] { display: block; overflow: auto; overscroll-behavior: contain; }
 .viewer-body img { position: absolute; left: 50%; top: 50%; max-width: none; max-height: none; user-select: none; -webkit-user-drag: none; touch-action: pan-y; will-change: transform; }
 .document-unified-details { display: grid; align-content: start; gap: var(--space-3); min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-right: var(--space-1); }
 .document-unified-details[hidden] { display: none; }
@@ -3156,6 +3157,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .viewer-dialog .modal-body { overflow: auto; }
   .viewer-dialog .document-original-panel .viewer-body { flex: 0 0 auto; height: min(42dvh, 22rem); min-height: 12rem; }
   .viewer-dialog .document-original-panel .viewer-body { overflow: hidden; }
+  .viewer-dialog .document-original-panel .viewer-body[data-viewer-fit-mode="width"] { overflow-x: hidden; overflow-y: auto; }
   .viewer-dialog .document-unified-details { overflow: visible; padding-right: 0; }
   .viewer-dialog .document-unified-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
   .viewer-dialog .viewer-image-controls { gap: var(--space-1); }

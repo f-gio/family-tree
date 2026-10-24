@@ -1,4 +1,9 @@
-export function createDocumentImageViewer({ viewport, image, controls, zoomLabel, minZoom = 1, maxZoom = 6 } = {}) {
+export function selectInitialDocumentImageMode({ naturalWidth, naturalHeight } = {}) {
+  if (!(naturalWidth > 0) || !(naturalHeight > 0)) return "fit";
+  return naturalHeight / naturalWidth >= 1.5 ? "width" : "fit";
+}
+
+export function createDocumentImageViewer({ viewport, image, controls, zoomLabel, modeButton, initialMode = "fit", minZoom = 1, maxZoom = 6 } = {}) {
   if (!viewport || !image || !controls) throw new TypeError("Les éléments du lecteur d’image sont requis");
   let zoom = minZoom;
   let offsetX = 0;
@@ -10,6 +15,11 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   let mousePan = null;
   let observer = null;
   let fallbackResize = null;
+  let mode = initialMode === "width" ? "width" : "fit";
+
+  function canCustomPan() {
+    return zoom > minZoom;
+  }
 
   function clampOffsets() {
     const maxX = Math.max(0, (fitWidth * zoom - viewport.clientWidth) / 2);
@@ -20,22 +30,25 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
 
   function render() {
     clampOffsets();
-    image.style.position = "absolute";
+    const nativeWidthScroll = mode === "width" && zoom === minZoom;
+    viewport.dataset.viewerFitMode = mode;
+    image.style.position = nativeWidthScroll ? "relative" : "absolute";
     image.style.width = `${fitWidth}px`;
     image.style.height = `${fitHeight}px`;
     image.style.maxWidth = "none";
     image.style.maxHeight = "none";
-    image.style.left = `calc(50% + ${offsetX}px)`;
-    image.style.top = `calc(50% + ${offsetY}px)`;
-    image.style.transform = `translate(-50%, -50%) scale(${zoom})`;
-    if (zoomLabel) zoomLabel.textContent = zoom <= minZoom ? "Ajusté" : `${Math.round(zoom * 100)} %`;
+    image.style.left = nativeWidthScroll ? "auto" : `calc(50% + ${offsetX}px)`;
+    image.style.top = nativeWidthScroll ? "auto" : `calc(50% + ${offsetY}px)`;
+    image.style.margin = nativeWidthScroll ? "0 auto" : "0";
+    image.style.transform = nativeWidthScroll ? "none" : `translate(-50%, -50%) scale(${zoom})`;
+    if (zoomLabel) zoomLabel.textContent = zoom <= minZoom ? (mode === "width" ? "Largeur" : "Ajusté") : `${Math.round(zoom * 100)} %`;
   }
 
   function fit() {
     if (!image.naturalWidth || !image.naturalHeight) return;
     const rect = viewport.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
-    const scale = Math.min(rect.width / image.naturalWidth, rect.height / image.naturalHeight);
+    const scale = mode === "width" ? rect.width / image.naturalWidth : Math.min(rect.width / image.naturalWidth, rect.height / image.naturalHeight);
     fitWidth = image.naturalWidth * scale;
     fitHeight = image.naturalHeight * scale;
     render();
@@ -44,12 +57,15 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   function setZoom(nextZoom, focal = null) {
     const next = Math.max(minZoom, Math.min(maxZoom, nextZoom));
     if (focal && next !== zoom) {
-      const imageCenterX = viewport.clientWidth / 2 + offsetX;
-      const imageCenterY = viewport.clientHeight / 2 + offsetY;
+      const viewportRect = viewport.getBoundingClientRect();
+      const imageRect = image.getBoundingClientRect();
+      const imageCenterX = imageRect.left - viewportRect.left + imageRect.width / 2;
+      const imageCenterY = imageRect.top - viewportRect.top + imageRect.height / 2;
       const imagePointX = (focal.x - imageCenterX) / zoom;
       const imagePointY = (focal.y - imageCenterY) / zoom;
       offsetX = focal.x - imagePointX * next - viewport.clientWidth / 2;
       offsetY = focal.y - imagePointY * next - viewport.clientHeight / 2;
+      if (mode === "width" && zoom === minZoom) viewport.scrollTop = 0;
     } else if (next === minZoom) {
       offsetX = 0;
       offsetY = 0;
@@ -69,10 +85,10 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
       pinch = {
         distance: distance(event.touches),
         zoom,
-        imageX: (midpoint.x - rect.left - (viewport.clientWidth / 2 + offsetX)) / zoom,
-        imageY: (midpoint.y - rect.top - (viewport.clientHeight / 2 + offsetY)) / zoom
+        imageX: (midpoint.x - rect.left - (image.getBoundingClientRect().left - rect.left + image.getBoundingClientRect().width / 2)) / zoom,
+        imageY: (midpoint.y - rect.top - (image.getBoundingClientRect().top - rect.top + image.getBoundingClientRect().height / 2)) / zoom
       };
-    } else if (zoom > minZoom && event.touches.length === 1) {
+    } else if (canCustomPan() && event.touches.length === 1) {
       panTouch = { x: event.touches[0].clientX, y: event.touches[0].clientY, offsetX, offsetY };
     }
   }
@@ -87,8 +103,9 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
       zoom = Math.max(minZoom, Math.min(maxZoom, pinch.zoom * distance(event.touches) / pinch.distance));
       offsetX = focalX - pinch.imageX * zoom - viewport.clientWidth / 2;
       offsetY = focalY - pinch.imageY * zoom - viewport.clientHeight / 2;
+      if (mode === "width" && zoom > minZoom) viewport.scrollTop = 0;
       render();
-    } else if (event.touches.length === 1 && zoom > minZoom && panTouch) {
+    } else if (event.touches.length === 1 && canCustomPan() && panTouch) {
       event.preventDefault();
       offsetX = panTouch.offsetX + event.touches[0].clientX - panTouch.x;
       offsetY = panTouch.offsetY + event.touches[0].clientY - panTouch.y;
@@ -99,7 +116,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   function onTouchEnd(event) {
     if (event.touches.length < 2) pinch = null;
     if (event.touches.length === 0) panTouch = null;
-    else if (event.touches.length === 1 && zoom > minZoom) {
+    else if (event.touches.length === 1 && canCustomPan()) {
       panTouch = { x: event.touches[0].clientX, y: event.touches[0].clientY, offsetX, offsetY };
     }
   }
@@ -112,7 +129,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   }
 
   function onPointerDown(event) {
-    if (event.pointerType !== "mouse" || zoom <= minZoom) return;
+    if (event.pointerType !== "mouse" || !canCustomPan()) return;
     mousePan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, offsetX, offsetY };
     viewport.setPointerCapture(event.pointerId);
   }
@@ -129,6 +146,17 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   }
 
   function onControlsClick(event) {
+    const modeToggle = event.target.closest("[data-viewer-image-mode-toggle]");
+    if (modeToggle) {
+      mode = mode === "fit" ? "width" : "fit";
+      zoom = minZoom;
+      offsetX = 0;
+      offsetY = 0;
+      viewport.scrollTop = 0;
+      fit();
+      updateModeButton();
+      return;
+    }
     const button = event.target.closest("[data-viewer-image-zoom]");
     if (!button) return;
     if (button.dataset.viewerImageZoom === "reset") setZoom(minZoom);
@@ -140,6 +168,13 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     event.preventDefault();
     if (event.key === "0") setZoom(minZoom);
     else setZoom(zoom * (event.key === "-" ? 1 / 1.25 : 1.25));
+  }
+
+  function updateModeButton() {
+    if (!modeButton) return;
+    modeButton.textContent = mode === "fit" ? "Ajuster à la largeur" : "Ajuster à la fenêtre";
+    modeButton.setAttribute("aria-pressed", String(mode === "width"));
+    modeButton.setAttribute("aria-label", mode === "fit" ? "Afficher l’image à la largeur du lecteur" : "Afficher l’image entière dans la fenêtre");
   }
 
   viewport.addEventListener("touchstart", onTouchStart, { passive: false });
@@ -161,6 +196,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     fallbackResize = fit;
     globalThis.addEventListener?.("resize", fallbackResize);
   }
+  updateModeButton();
   if (image.complete) fit();
 
   return Object.freeze({
@@ -168,7 +204,15 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     zoomIn: () => setZoom(zoom * 1.25),
     zoomOut: () => setZoom(zoom / 1.25),
     reset: () => setZoom(minZoom),
-    getState: () => ({ zoom, offsetX, offsetY, fitWidth, fitHeight }),
+    toggleFitMode() {
+      mode = mode === "fit" ? "width" : "fit";
+      zoom = minZoom;
+      offsetX = 0;
+      offsetY = 0;
+      fit();
+      updateModeButton();
+    },
+    getState: () => ({ zoom, offsetX, offsetY, fitWidth, fitHeight, mode }),
     destroy() {
       observer?.disconnect();
       if (fallbackResize) globalThis.removeEventListener?.("resize", fallbackResize);

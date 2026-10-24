@@ -396,7 +396,8 @@ test("la fiche unifiée permet de modifier document, source et naviguer vers les
 });
 
 test("le visualiseur branche le zoom image et réserve le menu d’actions du header", () => {
-  assert.match(app, /import \{ createDocumentImageViewer \} from "\.\/document-image-viewer\.js"/);
+  assert.match(app, /import \{ createDocumentImageViewer, selectInitialDocumentImageMode \} from "\.\/document-image-viewer\.js"/);
+  assert.match(app, /initialMode: selectInitialDocumentImageMode\(\{ naturalWidth: image\.naturalWidth, naturalHeight: image\.naturalHeight \}\)/);
   assert.match(html, /id="viewerActionsBtn"[^>]*aria-haspopup="menu"/);
   assert.match(html, /id="viewerActionsMenu"[^>]*role="menu"/);
   assert.match(html, /id="viewerImageControls"[^>]*role="group"/);

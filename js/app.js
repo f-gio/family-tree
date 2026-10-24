@@ -12,7 +12,7 @@ import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree
 import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
 import { MAIN_TREE_ID, UNASSIGNED_TREE_STATE, UNASSIGNED_TREE_CHOICE, TREE_LIFECYCLE_ACTIVE, TREE_LIFECYCLE_DELETING, MAX_MULTI_TREE_TRANSFER_PEOPLE, MAX_MULTI_TREE_TRANSFER_READS, getTreeLifecycleState, getTreeDeletionMemberReport, getPersonTreeId, getPersonTreeMembership, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan, prepareMultipleTreeTransferPlan } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
-import { createDocumentImageViewer } from "./document-image-viewer.js";
+import { createDocumentImageViewer, selectInitialDocumentImageMode } from "./document-image-viewer.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
 import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel, DIRECTORY_UNASSIGNED_TREE_FILTER } from "./directory-advanced.js";
 import { filterAndSortProcedures, sortProcedureActions, procedureTypeLabel, procedureStatusLabel, procedureActionTypeLabel, isProcedureClosed, DOSSIER_MIN_QUERY_LENGTH } from "./procedures.js";
@@ -5113,7 +5113,7 @@ function setupViewerImage(item) {
   viewerImageState?.destroy();
   const image = $("viewerImage");
   if (!image.naturalWidth || !image.naturalHeight) return;
-  viewerImageState = createDocumentImageViewer({ viewport: $("viewerImageViewport"), image, controls: $("viewerImageControls"), zoomLabel: $("viewerImageZoomLevel") });
+  viewerImageState = createDocumentImageViewer({ viewport: $("viewerImageViewport"), image, controls: $("viewerImageControls"), zoomLabel: $("viewerImageZoomLevel"), modeButton: $("viewerImageModeBtn"), initialMode: selectInitialDocumentImageMode({ naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight }) });
   $("viewerImageControls").hidden = false;
 }
 

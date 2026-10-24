@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { chromium, webkit } from "playwright";
 import { blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
+import { selectInitialDocumentImageMode } from "../js/document-image-viewer.js";
 
 const [html, css] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
@@ -19,6 +20,13 @@ const TITLES = {
   medium: "Acte de naissance de Carlo Alberti",
   long: "Acte de mariage des Alberti - Orino 1891 avec mention marginale et annotations du service d'état civil"
 };
+
+test("Le mode initial privilégie la largeur pour les photographies portrait très verticales", () => {
+  assert.equal(selectInitialDocumentImageMode({ naturalWidth: 200, naturalHeight: 800 }), "width");
+  assert.equal(selectInitialDocumentImageMode({ naturalWidth: 1000, naturalHeight: 1400 }), "fit");
+  assert.equal(selectInitialDocumentImageMode({ naturalWidth: 1200, naturalHeight: 600 }), "fit");
+  assert.equal(selectInitialDocumentImageMode({ naturalWidth: 0, naturalHeight: 600 }), "fit");
+});
 
 test("Viewer : règles statiques mobile (clamp, icône, safe-area, flex, pas de 92dvh)", () => {
   /* Fullscreen conservé */
@@ -415,14 +423,21 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
     const { context, page } = await createViewerPage(browser, server, 390, 844);
     try {
       const states = await page.evaluate(async () => {
-        document.body.insertAdjacentHTML("beforeend", `<div id="gestureViewport" style="position:fixed;left:10px;top:10px;width:360px;height:280px;overflow:hidden;touch-action:pan-y"><img id="gestureImage" alt="Photographie de registre"></div><div id="gestureControls"><button type="button" data-viewer-image-zoom="out">−</button><span id="gestureZoomLabel"></span><button type="button" data-viewer-image-zoom="reset">Ajuster à l’écran</button><button type="button" data-viewer-image-zoom="in">+</button></div>`);
+        document.body.insertAdjacentHTML("beforeend", `<div id="gestureViewport" style="position:fixed;left:10px;top:10px;width:360px;height:280px;overflow:auto;touch-action:pan-y"><img id="gestureImage" alt="Photographie de registre"></div><div id="gestureControls"><button type="button" data-viewer-image-zoom="out">−</button><span id="gestureZoomLabel"></span><button type="button" data-viewer-image-mode-toggle>Ajuster à la largeur</button><button type="button" data-viewer-image-zoom="reset">Réinitialiser le zoom</button><button type="button" data-viewer-image-zoom="in">+</button></div>`);
         const { createDocumentImageViewer } = await import("./js/document-image-viewer.js");
         const image = document.getElementById("gestureImage");
-        image.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#b8c9be"/></svg>');
+        image.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="800"><rect width="200" height="800" fill="#b8c9be"/></svg>');
         await image.decode();
         const viewport = document.getElementById("gestureViewport");
-        const controller = createDocumentImageViewer({ viewport, image, controls: document.getElementById("gestureControls"), zoomLabel: document.getElementById("gestureZoomLabel") });
+        const modeButton = document.querySelector("#gestureControls [data-viewer-image-mode-toggle]");
+        const controller = createDocumentImageViewer({ viewport, image, controls: document.getElementById("gestureControls"), zoomLabel: document.getElementById("gestureZoomLabel"), modeButton });
         const initial = controller.getState();
+        modeButton.click();
+        const widthMode = controller.getState();
+        const widthScrollRange = viewport.scrollHeight - viewport.clientHeight;
+        viewport.scrollTop = 80;
+        const widthScrollPosition = viewport.scrollTop;
+        viewport.scrollTop = 0;
         const touch = (identifier, clientX, clientY) => new Touch({ identifier, target: viewport, clientX, clientY });
         const pinchStart = new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch(1, 100, 120), touch(2, 220, 120)] });
         viewport.dispatchEvent(pinchStart);
@@ -439,18 +454,28 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
         viewport.style.width = "280px";
         await new Promise(resolve => setTimeout(resolve, 100));
         const resized = controller.getState();
+        modeButton.click();
+        const windowMode = controller.getState();
         controller.destroy();
-        return { natural: [image.naturalWidth, image.naturalHeight], initial, zoomed, panned, reset, resized, pinchPrevented: pinchMove.defaultPrevented };
+        return { natural: [image.naturalWidth, image.naturalHeight], initial, widthMode, widthModeLabel: modeButton.textContent, widthScrollRange, widthScrollPosition, zoomed, panned, reset, resized, windowMode, pinchPrevented: pinchMove.defaultPrevented };
       });
-      assert.deepEqual(states.natural, [800, 200]);
+      assert.deepEqual(states.natural, [200, 800]);
       assert.equal(states.initial.zoom, 1);
       assert.ok(states.initial.fitWidth <= 360 && states.initial.fitHeight <= 280, "image entière adaptée au départ");
+      assert.equal(states.initial.mode, "fit");
+      assert.equal(states.widthMode.mode, "width", `mode actif après toggle (${states.widthMode.mode}; label=${states.widthModeLabel})`);
+      assert.equal(states.widthMode.fitWidth, 360, "mode largeur utilise toute la largeur disponible");
+      assert.ok(states.widthMode.fitHeight > 280, "document vertical défile sans recadrage en mode largeur");
+      assert.ok(states.widthScrollRange > 0 && states.widthScrollPosition > 0, "le mode largeur permet le défilement vertical natif du document long");
       assert.ok(states.zoomed.zoom >= 1.9 && states.pinchPrevented, "pincement à deux doigts intercepté et zoom appliqué");
       assert.ok(Math.abs(states.panned.offsetX) > 0, "panoramique actif après agrandissement");
       assert.equal(states.reset.zoom, 1);
       assert.equal(states.reset.offsetX, 0);
       assert.equal(states.reset.offsetY, 0);
-      assert.equal(states.resized.fitWidth, 280, "ResizeObserver recalcule l’échelle d’ajustement");
+      assert.equal(states.resized.fitWidth, 280, "ResizeObserver recalcule l’échelle du mode largeur");
+      assert.equal(states.windowMode.mode, "fit");
+      assert.ok(states.windowMode.fitWidth <= 280 && states.windowMode.fitHeight <= 280, "mode fenêtre restaure l’image entière dans son ratio naturel");
+      t.diagnostic(`Portrait source 200×800, viewport 360×280 : fenêtre=${states.initial.fitWidth.toFixed(0)}×${states.initial.fitHeight.toFixed(0)} ; largeur=${states.widthMode.fitWidth.toFixed(0)}×${states.widthMode.fitHeight.toFixed(0)} ; viewport redimensionné=${states.resized.fitWidth.toFixed(0)}×${states.resized.fitHeight.toFixed(0)}`);
     } finally { await context.close(); }
   } finally { await browser.close(); await server.close(); }
 });
@@ -478,6 +503,7 @@ test("Desktop : panneau d'informations repliable sans recharger ni réinitialise
       assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true);
       assert.ok(Math.abs(restored.width - initial.width) < 2, "la disposition initiale à deux panneaux est restaurée");
       assert.equal(await page.locator("#viewerImage").getAttribute("src"), src, "le document reste chargé après réouverture");
+      t.diagnostic(`Desktop 1280×900 : panneau original initial=${initial.width.toFixed(0)}px ; replié=${collapsed.width.toFixed(0)}px ; restauré=${restored.width.toFixed(0)}px; URL d’image inchangée`);
     } finally { await context.close(); }
   } finally { await browser.close(); await server.close(); }
 });
