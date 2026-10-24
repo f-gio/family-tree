@@ -68,16 +68,38 @@ test("le formulaire source officiel est guidé et réutilisable depuis Documents
   assert.doesNotMatch(app.match(/function sourceGuidedPayload[\s\S]*?\n\}/)?.[0] || "", /JSON\.stringify/);
 });
 
-test("Documents propose une source sans duplication et permet la révision des sources liées", () => {
+test("Documents propose une source sans duplication et consulte les sources liées", () => {
   assert.match(app, /data-create-source-from-document="\$\{esc\(item\.id\)\}"/);
   assert.match(app, /Créer une source à partir de ce document/);
-  assert.match(app, /data-document-source-revise="\$\{esc\(source\.id\)\}"/);
+  assert.doesNotMatch(app, /data-document-source-revise/);
   assert.match(app, /function openOfficialSourceFromDocument\(documentId\)/);
   assert.match(app, /if \(linkedSources\.length\) return toast\("Une source officielle référence déjà ce document/);
   assert.match(app, /openGenealogyContribution\(\{ official: true, sourceDocument: documentItem \}\)/);
-  assert.match(app, /function reviseOfficialSourceFromDocument\(sourceId\)/);
-  assert.match(app, /openGenealogyContribution\(\{ official: true, reviseItem: \{ kind: "source"/);
+  assert.match(app, /data-open-document-source/);
   assert.match(app, /const createSourceButton = event\.target\.closest\("\[data-create-source-from-document\]"\)/);
+});
+
+test("le sélecteur de personnes est recherché, paginé et distinct des documents associés", () => {
+  for (const id of ["genealogySourcePersonSearch", "genealogySourcePersonEmpty", "genealogySourcePersonOptions", "genealogySourcePersonMore", "genealogySourcePersonSelection"]) {
+    assert.match(app, new RegExp(id), `sélecteur personne absent : ${id}`);
+  }
+  assert.match(app, /people\.filter\(item => searchable\(`\$\{item\.firstName \|\| ""\} \$\{item\.middleName \|\| ""\} \$\{item\.lastName \|\| ""\}`\)\.includes\(searchable\(rawQuery\)\)\)/);
+  assert.match(app, /const shown = 10 \* genealogySourcePersonPagesShown/);
+  assert.match(app, /matches\.slice\(0, shown\)/);
+  assert.match(app, /genealogySourcePersonPagesShown \+= 1/);
+  assert.match(app, /data-remove-genealogy-source-person/);
+  assert.match(app, /directoryPersonName\(item\)/);
+  assert.match(app, /formatDirectoryDate\(item\.birthDateInfo, item\.birthDate\)/);
+  assert.match(app, /<h5>Documents associés<\/h5>/);
+});
+
+test("la modale source est élargie seulement sur desktop et la liste Documents reste compacte", () => {
+  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?#genealogyContributionDialog \{ width: min\(68rem/);
+  assert.match(css, /#documentsList\.list-mode \.content-card \{[\s\S]*?grid-template-areas: "main meta actions" "details details actions"/);
+  assert.match(css, /#documentsList\.list-mode \.document-card-details/);
+  assert.match(css, /\.document-source-associations \{[\s\S]*?flex-wrap: wrap/);
+  assert.match(app, /\$\{linkedSources\.length \? `\$\{linkedSources\.length\} source/);
+  assert.doesNotMatch(app, /data-document-source-revise/);
 });
 
 test("la création et la révision source utilisent le store officiel sans écraser les révisions", () => {

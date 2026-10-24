@@ -147,3 +147,70 @@ test("tuiles et menus secondaires restent utilisables de 320 px au desktop", asy
   await browser.close();
   await server.close();
 });
+
+test("Documents : liste et tuiles restent compactes avec sources liées et action de création", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch { t.skip("Chromium Playwright indisponible"); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    const context = await browser.newContext({ locale: "fr-FR" });
+    await context.route("**/*", route => route.request().url().startsWith(server.baseURL) || route.request().url().includes("gstatic.com") ? route.continue() : route.abort("blockedbyclient"));
+    const page = await context.newPage();
+    await page.goto(server.baseURL, { waitUntil: "load" });
+    await page.waitForFunction(() => document.getElementById("documentsList") && document.getElementById("genealogyContributionDialog"));
+    for (const width of [390, 760, 1024, 1280]) {
+      await page.setViewportSize({ width, height: 800 });
+      for (const mode of ["list-mode", "cards-mode"]) {
+        await page.evaluate(currentMode => {
+          document.getElementById("authScreen").hidden = true;
+          document.getElementById("topbar").hidden = false;
+          for (const id of ["treeView", "directoryView", "documentsView", "tasksView", "dossiersView", "genealogyView"]) {
+            const view = document.getElementById(id);
+            if (view) view.hidden = id !== "documentsView";
+          }
+          const menu = `<div class="tile-context-actions"><button class="tile-context-toggle" type="button" aria-label="Actions secondaires"><span class="tile-context-glyph"><span class="tile-context-dot"></span><span class="tile-context-dot"></span><span class="tile-context-dot"></span></span></button></div>`;
+          document.getElementById("documentsList").className = `content-grid ${currentMode}`;
+          document.getElementById("documentsList").innerHTML = `<article class="content-card document-card"><div><span class="badge">Acte</span><h3>Acte familial long de démonstration</h3></div><p class="card-meta">12 mars 1900 · Turin</p><div class="document-card-details"><p class="document-card-people">Associé à : Marie Rossi, Jean Rossi</p><p class="list-optional">Fichier historique · original non vérifié</p><div class="document-source-associations"><strong>2 sources liées</strong><ul><li><button class="btn small" type="button">Source naissance</button></li><li><button class="btn small" type="button">Registre familial</button></li></ul></div></div><div class="card-actions">${menu}</div></article><article class="content-card document-card"><div><span class="badge">Photo</span><h3>Photographie sans source</h3></div><p class="card-meta">Date non renseignée</p><div class="document-card-details"><p class="document-card-people">Aucune personne associée</p><p class="list-optional">Référence externe</p><div class="document-source-associations"><strong>Sources officielles</strong><button class="btn small" type="button">Créer une source à partir de ce document</button></div></div><div class="card-actions">${menu}</div></article>`;
+        }, mode);
+        const metrics = await page.locator("#documentsList").evaluate(list => {
+          const cards = [...list.querySelectorAll(".document-card")];
+          return {
+            viewportWidth: document.documentElement.clientWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+            cards: cards.map(card => {
+              const rect = card.getBoundingClientRect();
+              const association = card.querySelector(".document-source-associations")?.getBoundingClientRect();
+              const actions = card.querySelector(".card-actions")?.getBoundingClientRect();
+              return { left: rect.left, right: rect.right, width: rect.width, associationRight: association?.right, actionsRight: actions?.right };
+            }),
+            linkedCount: list.querySelectorAll(".document-source-associations strong")[0]?.textContent,
+            createAction: list.querySelectorAll(".document-source-associations button")[2]?.textContent
+          };
+        });
+        assert.equal(metrics.scrollWidth, metrics.viewportWidth, `${width}px ${mode}: aucun débordement horizontal`);
+        assert.equal(metrics.cards.length, 2, `${width}px ${mode}: deux cartes rendues`);
+        for (const card of metrics.cards) {
+          assert.ok(card.left >= -1 && card.right <= metrics.viewportWidth + 1, `${width}px ${mode}: carte dans le viewport`);
+          assert.ok(card.associationRight === undefined || card.associationRight <= card.right + 1, `${width}px ${mode}: indicateur source contenu`);
+          assert.ok(card.actionsRight === undefined || card.actionsRight <= card.right + 1, `${width}px ${mode}: actions contenues`);
+        }
+        assert.equal(metrics.linkedCount, "2 sources liées", `${width}px ${mode}: indicateur compact des sources`);
+        assert.equal(metrics.createAction, "Créer une source à partir de ce document", `${width}px ${mode}: action de création accessible`);
+      }
+    }
+    for (const [width, expectedMin] of [[1024, 970], [1280, 1070], [390, 380]]) {
+      await page.setViewportSize({ width, height: 800 });
+      const dialog = page.locator("#genealogyContributionDialog");
+      await dialog.evaluate(element => { if (!element.open) element.showModal(); });
+      const box = await dialog.boundingBox();
+      assert.ok(box && box.width >= expectedMin, `${width}px : largeur modale source suffisante (${box?.width || 0}px)`);
+      assert.ok(box.x >= -1 && box.x + box.width <= width + 1, `${width}px : modale source dans le viewport (${JSON.stringify(box)})`);
+      await dialog.evaluate(element => element.close());
+    }
+    await context.close();
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});

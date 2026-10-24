@@ -115,6 +115,8 @@ let genealogySourceGuidedGrid = null;
 let genealogySourceTitleLabel = null;
 let genealogySourcePickerParent = null;
 let genealogySourcePickerNextSibling = null;
+let genealogySourcePersonPagesShown = 1;
+let genealogySourcePersonLastQuery = null;
 let genealogySourceDocumentPagesShown = 1;
 let genealogySourceDocumentLastQuery = null;
 let treeMetadata = [];
@@ -3557,12 +3559,6 @@ function openOfficialSourceFromDocument(documentId) {
   openGenealogyContribution({ official: true, sourceDocument: documentItem });
 }
 
-function reviseOfficialSourceFromDocument(sourceId) {
-  const source = genealogyRecords.sourceDocuments.find(item => item.id === sourceId);
-  if (!source) return toast("Cette source officielle n’est plus disponible.", "error");
-  openGenealogyContribution({ official: true, reviseItem: { kind: "source", record: source, data: genealogyRecordData(source) } });
-}
-
 function renderDocuments() {
   const query = searchable($("documentSearch").value);
   const type = $("documentTypeFilter").value;
@@ -3577,10 +3573,10 @@ function renderDocuments() {
       return Array.isArray(sourceData.documentIds) && sourceData.documentIds.includes(item.id);
     }) : [];
     const linkedSourcesMarkup = sourceDocumentsLoaded
-      ? `<div class="document-source-associations"><strong>Sources officielles</strong>${linkedSources.length
+      ? `<div class="document-source-associations"><strong>${linkedSources.length ? `${linkedSources.length} source${linkedSources.length > 1 ? "s" : ""} liée${linkedSources.length > 1 ? "s" : ""}` : "Sources officielles"}</strong>${linkedSources.length
         ? `<ul>${linkedSources.map(source => {
           const sourceData = genealogyRecordData(source);
-          return `<li><button class="btn small" type="button" data-open-document-source="${esc(source.id)}">${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</button>${isAdminUser() ? `<button class="btn small" type="button" data-document-source-revise="${esc(source.id)}">Réviser</button>` : ""}</li>`;
+          return `<li><button class="btn small" type="button" data-open-document-source="${esc(source.id)}">${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</button></li>`;
         }).join("")}</ul>`
         : `<p class="list-optional">Aucune source officielle ne référence ce document.</p><button class="btn small" type="button" data-create-source-from-document="${esc(item.id)}">Créer une source à partir de ce document</button>`}</div>`
       : sourceDocumentsUnavailable ? `<p class="list-optional">Les sources associées ne sont pas disponibles actuellement.</p>` : "";
@@ -4114,9 +4110,40 @@ function sourceGuidedPayload(title) {
 function renderGenealogySourcePersonOptions() {
   const container = $("genealogySourcePersonOptions");
   if (!container) return;
-  container.innerHTML = people.length
-    ? people.map(item => `<label class="source-person-option"><input type="checkbox" data-genealogy-source-person="${esc(item.id)}"${selectedGenealogySourcePersonIds.has(item.id) ? " checked" : ""}><span>${esc(nameOf(item.id))}</span></label>`).join("")
-    : `<p class="hint">Aucune personne n’est disponible dans l’annuaire.</p>`;
+  const rawQuery = $("genealogySourcePersonSearch")?.value.trim() || "";
+  if (genealogySourcePersonLastQuery !== rawQuery) {
+    genealogySourcePersonLastQuery = rawQuery;
+    genealogySourcePersonPagesShown = 1;
+  }
+  const matches = rawQuery ? people.filter(item => searchable(`${item.firstName || ""} ${item.middleName || ""} ${item.lastName || ""}`).includes(searchable(rawQuery))) : [];
+  const empty = $("genealogySourcePersonEmpty");
+  if (empty) {
+    empty.textContent = !people.length
+      ? "Aucune personne n’est disponible dans l’annuaire."
+      : !rawQuery ? "Saisissez un prénom ou un nom pour afficher les personnes."
+        : !matches.length ? "Aucune personne ne correspond à cette recherche." : "";
+    empty.hidden = Boolean(rawQuery && matches.length);
+  }
+  const shown = 10 * genealogySourcePersonPagesShown;
+  container.innerHTML = matches.slice(0, shown).map(item => {
+    const distinction = [formatDirectoryDate(item.birthDateInfo, item.birthDate) !== "—" ? `Naissance : ${formatDirectoryDate(item.birthDateInfo, item.birthDate)}` : "", item.birthPlace || item.place || ""].filter(Boolean).join(" · ");
+    return `<label class="source-person-option"><input type="checkbox" data-genealogy-source-person="${esc(item.id)}"${selectedGenealogySourcePersonIds.has(item.id) ? " checked" : ""}><span><strong>${esc(directoryPersonName(item))}</strong>${distinction ? `<small>${esc(distinction)}</small>` : ""}</span></label>`;
+  }).join("");
+  const more = $("genealogySourcePersonMore");
+  if (more) more.hidden = !(rawQuery && matches.length > shown);
+  renderGenealogySourcePersonSelection();
+}
+
+function renderGenealogySourcePersonSelection() {
+  const selection = $("genealogySourcePersonSelection");
+  if (!selection) return;
+  const selected = [...selectedGenealogySourcePersonIds];
+  $("genealogySourcePersonSelectionEmpty").hidden = selected.length > 0;
+  selection.innerHTML = selected.map(id => {
+    const item = people.find(value => value.id === id);
+    const label = item ? directoryPersonName(item) : `Personne référencée introuvable · ${id}`;
+    return `<span class="source-person-selection-item${item ? "" : " is-missing"}"><span>${esc(label)}</span><button type="button" data-remove-genealogy-source-person="${esc(id)}" aria-label="Retirer ${esc(label)}">×</button></span>`;
+  }).join("");
 }
 
 function ensureOfficialSourceGuidedFields() {
@@ -4126,7 +4153,7 @@ function ensureOfficialSourceGuidedFields() {
   genealogySourceGuidedGrid = document.createElement("section");
   genealogySourceGuidedGrid.id = "genealogyOfficialSourceFields";
   genealogySourceGuidedGrid.className = "wide genealogy-source-guided-fields";
-  genealogySourceGuidedGrid.innerHTML = `<section><h4>Identification</h4><div class="source-guided-grid"><label>Titre de la source<input class="field" id="genealogySourceTitle" maxlength="180" required></label><label>Catégorie ou type<input class="field" id="genealogySourceCategory" maxlength="160"></label><label>Type de date<select class="field" id="genealogySourceDateType"><option value="exact">Date exacte</option><option value="year">Année</option><option value="about">Date approximative</option><option value="between">Période</option><option value="unknown">Date inconnue</option></select></label><label>Date ou valeur<input class="field" id="genealogySourceDate" placeholder="AAAA-MM-JJ ou AAAA"></label><label>Date de début<input class="field" id="genealogySourceDateFrom" placeholder="AAAA-MM-JJ"></label><label>Date de fin<input class="field" id="genealogySourceDateTo" placeholder="AAAA-MM-JJ"></label><label>Lieu ou territoire<input class="field" id="genealogySourcePlace" maxlength="180"></label></div></section><section><h4>Provenance archivistique</h4><div class="source-guided-grid"><label>Institution de conservation<input class="field" id="genealogySourceHoldingOrganization"></label><label>Fonds ou série<input class="field" id="genealogySourceFondsSeries"></label><label>Cote<input class="field" id="genealogySourceCote"></label><label>Sous-cote<input class="field" id="genealogySourceSubCote"></label><label>Références archivistiques<textarea class="field" id="genealogySourceArchivalReferences" rows="3" placeholder="Une référence par ligne"></textarea></label><label>Langue(s)<textarea class="field" id="genealogySourceLanguages" rows="3" placeholder="Une langue par ligne"></textarea></label></div></section><section><h4>Éléments associés</h4><fieldset><legend>Personnes concernées</legend><div id="genealogySourcePersonOptions" class="source-person-options"></div></fieldset><p class="hint">Les documents sont sélectionnés dans la bibliothèque existante, sans recopier leurs fichiers.</p></section><section><h4>Observations</h4><div class="source-guided-grid"><label>Description<textarea class="field" id="genealogySourceDescription" rows="3"></textarea></label><label>Notes de recherche<textarea class="field" id="genealogySourceResearchNotes" rows="3"></textarea></label><label>Hypothèses et incertitudes<textarea class="field" id="genealogySourceHypotheses" rows="3"></textarea></label></div></section>`;
+  genealogySourceGuidedGrid.innerHTML = `<section><h4>Identification</h4><div class="source-guided-grid"><label>Titre de la source<input class="field" id="genealogySourceTitle" maxlength="180" required></label><label>Catégorie ou type<input class="field" id="genealogySourceCategory" maxlength="160"></label><label>Type de date<select class="field" id="genealogySourceDateType"><option value="exact">Date exacte</option><option value="year">Année</option><option value="about">Date approximative</option><option value="between">Période</option><option value="unknown">Date inconnue</option></select></label><label>Date ou valeur<input class="field" id="genealogySourceDate" placeholder="AAAA-MM-JJ ou AAAA"></label><label>Date de début<input class="field" id="genealogySourceDateFrom" placeholder="AAAA-MM-JJ"></label><label>Date de fin<input class="field" id="genealogySourceDateTo" placeholder="AAAA-MM-JJ"></label><label>Lieu ou territoire<input class="field" id="genealogySourcePlace" maxlength="180"></label></div></section><section><h4>Provenance archivistique</h4><div class="source-guided-grid"><label>Institution de conservation<input class="field" id="genealogySourceHoldingOrganization"></label><label>Fonds ou série<input class="field" id="genealogySourceFondsSeries"></label><label>Cote<input class="field" id="genealogySourceCote"></label><label>Sous-cote<input class="field" id="genealogySourceSubCote"></label><label>Références archivistiques<textarea class="field" id="genealogySourceArchivalReferences" rows="3" placeholder="Une référence par ligne"></textarea></label><label>Langue(s)<textarea class="field" id="genealogySourceLanguages" rows="3" placeholder="Une langue par ligne"></textarea></label></div></section><section><h4>Éléments associés</h4><div class="source-associated-subsection"><h5>Personnes concernées</h5><label for="genealogySourcePersonSearch">Rechercher une personne<input class="field" id="genealogySourcePersonSearch" type="search" autocomplete="off" placeholder="Prénom ou nom"></label><p class="hint" id="genealogySourcePersonEmpty"></p><div id="genealogySourcePersonOptions" class="source-person-options"></div><button class="btn small" type="button" id="genealogySourcePersonMore" hidden>Afficher plus de personnes</button><div class="source-person-selection"><strong>Personnes sélectionnées</strong><p class="hint" id="genealogySourcePersonSelectionEmpty">Aucune personne sélectionnée.</p><div id="genealogySourcePersonSelection" class="person-multiselect-chips"></div></div></div><h5>Documents associés</h5></section><section><h4>Observations</h4><div class="source-guided-grid"><label>Description<textarea class="field" id="genealogySourceDescription" rows="3"></textarea></label><label>Notes de recherche<textarea class="field" id="genealogySourceResearchNotes" rows="3"></textarea></label><label>Hypothèses et incertitudes<textarea class="field" id="genealogySourceHypotheses" rows="3"></textarea></label></div></section>`;
   grid.append(genealogySourceGuidedGrid);
   genealogySourceTitleLabel = $("genealogyContributionTitleField")?.closest("label");
   const picker = $("genealogySourceDocumentPicker");
@@ -4139,7 +4166,19 @@ function ensureOfficialSourceGuidedFields() {
     if (checkbox) {
       if (checkbox.checked) selectedGenealogySourcePersonIds.add(checkbox.dataset.genealogySourcePerson);
       else selectedGenealogySourcePersonIds.delete(checkbox.dataset.genealogySourcePerson);
+      renderGenealogySourcePersonSelection();
     }
+  });
+  $("genealogySourcePersonSearch").addEventListener("input", renderGenealogySourcePersonOptions);
+  $("genealogySourcePersonMore").addEventListener("click", () => {
+    genealogySourcePersonPagesShown += 1;
+    renderGenealogySourcePersonOptions();
+  });
+  $("genealogySourcePersonSelection").addEventListener("click", event => {
+    const remove = event.target.closest("[data-remove-genealogy-source-person]");
+    if (!remove) return;
+    selectedGenealogySourcePersonIds.delete(remove.dataset.removeGenealogySourcePerson);
+    renderGenealogySourcePersonOptions();
   });
   return genealogySourceGuidedGrid;
 }
@@ -4229,6 +4268,8 @@ function openGenealogyContribution({ official = false, reviseItem = null, source
     : sourceDocument?.personIds || []);
   genealogySourceDocumentPagesShown = 1;
   genealogySourceDocumentLastQuery = null;
+  genealogySourcePersonPagesShown = 1;
+  genealogySourcePersonLastQuery = null;
   $("genealogyContributionDialog").dataset.official = String(officialMode);
   $("genealogyContributionDialog").dataset.revision = String(!!reviseItem);
   updateGenealogyContributionPresentation();
@@ -6104,11 +6145,6 @@ $("documentsList").onclick = event => {
   const createSourceButton = event.target.closest("[data-create-source-from-document]");
   if (createSourceButton) {
     openOfficialSourceFromDocument(createSourceButton.dataset.createSourceFromDocument);
-    return;
-  }
-  const reviseSourceButton = event.target.closest("[data-document-source-revise]");
-  if (reviseSourceButton) {
-    reviseOfficialSourceFromDocument(reviseSourceButton.dataset.documentSourceRevise);
     return;
   }
   const sourceLink = event.target.closest("[data-open-document-source]");
