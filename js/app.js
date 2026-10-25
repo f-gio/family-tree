@@ -3629,8 +3629,7 @@ const taskActionMenu = bindModalActionMenu("taskDialog", "taskMenuBtn", "taskAct
 const documentActionMenu = bindModalActionMenu("documentDialog", "documentMenuBtn", "documentActionMenu");
 const procedureActionMenu = bindModalActionMenu("procedureActionDialog", "procedureActionMenuBtn", "procedureActionMenu");
 const viewerActionMenu = bindModalActionMenu("documentViewerDialog", "viewerActionsBtn", "viewerActionsMenu");
-$("viewerDetailsCollapseBtn").addEventListener("click", () => setUnifiedDetailsCollapsed(true));
-$("viewerDetailsExpandBtn").addEventListener("click", () => setUnifiedDetailsCollapsed(false));
+$("viewerDetailsExpandBtn").addEventListener("click", () => setUnifiedDetailsCollapsed(!$("documentUnifiedLayout").classList.contains("is-details-collapsed")));
 $("viewerEditBtn").addEventListener("click", () => {
   viewerActionMenu.close();
   openUnifiedDocumentEditor(activeViewerDocumentId);
@@ -5144,7 +5143,6 @@ function arrangeViewerImageChrome() {
   const fullscreenButton = $("viewerFullscreenBtn");
   const externalButton = $("viewerExternalBtn");
   const expandButton = $("viewerDetailsExpandBtn");
-  const collapseButton = $("viewerDetailsCollapseBtn");
   const detailsToggle = $("viewerDetailsBtn");
   const panelToggles = $("pdfPanelToggles");
   const thumbnailsButton = $("pdfThumbnailsBtn");
@@ -5166,7 +5164,7 @@ function arrangeViewerImageChrome() {
     thumbnailsButton.hidden = false;
     panelToggles.classList.remove("viewer-image-panel-toggles");
     panelToggles.hidden = true;
-    controls.append(fullscreenButton, externalButton, expandButton, collapseButton);
+    controls.append(fullscreenButton, externalButton, expandButton);
   }
 }
 
@@ -5190,6 +5188,12 @@ function arrangePdfChrome() {
   if (isNarrow) {
     pagination.append($("pdfPreviousPageBtn"), $("pdfPageStatus"), $("pdfNextPageBtn"));
     toggles.prepend($("pdfThumbnailsBtn"));
+    const viewerBody = $("viewerImageViewport");
+    const rail = $("viewerPdfThumbnails");
+    toolbar.after(viewerBody);
+    viewerBody.after(pagination);
+    pagination.after(toggles);
+    toggles.after(rail);
     const originalHead = document.querySelector("#documentViewerDialog .document-original-head");
     if (originalHead && $("viewerDetailsExpandBtn").parentElement !== originalHead) originalHead.append($("viewerDetailsExpandBtn"));
     for (const id of ["pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn"]) toolbar.append($(id));
@@ -5288,8 +5292,8 @@ function setUnifiedDetailsCollapsed(collapsed) {
   const details = $("viewerDocumentDetails");
   layout.classList.toggle("is-details-collapsed", collapsed);
   details.hidden = collapsed;
-  $("viewerDetailsCollapseBtn").hidden = collapsed;
-  $("viewerDetailsExpandBtn").hidden = !collapsed;
+  $("viewerDetailsCollapseBtn").hidden = true;
+  $("viewerDetailsExpandBtn").hidden = false;
   $("viewerDetailsCollapseBtn").setAttribute("aria-expanded", String(!collapsed));
   $("viewerDetailsExpandBtn").setAttribute("aria-expanded", String(!collapsed));
   const detailsToggle = $("viewerDetailsBtn");
@@ -5299,12 +5303,10 @@ function setUnifiedDetailsCollapsed(collapsed) {
     detailsToggle.setAttribute("aria-label", toggleLabel);
     detailsToggle.title = toggleLabel;
   }
-  $("viewerDetailsCollapseBtn").setAttribute("aria-label", "Masquer les informations");
-  $("viewerDetailsCollapseBtn").title = "Masquer les informations";
-  $("viewerDetailsExpandBtn").setAttribute("aria-label", "Afficher les informations");
-  $("viewerDetailsExpandBtn").title = "Afficher les informations";
-  $("viewerDetailsCollapseBtn").querySelector("use")?.setAttribute("href", "#icon-panel-collapse");
-  $("viewerDetailsExpandBtn").querySelector("use")?.setAttribute("href", "#icon-panel-expand");
+  const detailsActionLabel = collapsed ? "Afficher les informations" : "Masquer les informations";
+  $("viewerDetailsExpandBtn").setAttribute("aria-label", detailsActionLabel);
+  $("viewerDetailsExpandBtn").title = detailsActionLabel;
+  $("viewerDetailsExpandBtn").querySelector("use")?.setAttribute("href", collapsed ? "#icon-panel-expand" : "#icon-panel-collapse");
 }
 
 async function openStoredDocument(item, returnContext = "previous") {

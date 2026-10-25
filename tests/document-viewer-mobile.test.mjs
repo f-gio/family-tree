@@ -122,26 +122,15 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     const detailsToggle = document.getElementById("viewerDetailsBtn");
     layout.classList.toggle("is-details-collapsed", detailsCollapsed);
     details.hidden = detailsCollapsed;
-    collapseButton.hidden = detailsCollapsed;
-    expandButton.hidden = !detailsCollapsed;
+    collapseButton.hidden = true;
+    expandButton.hidden = false;
     detailsToggle.setAttribute("aria-expanded", String(!detailsCollapsed));
     collapseButton.setAttribute("aria-expanded", String(!detailsCollapsed));
     expandButton.setAttribute("aria-expanded", String(!detailsCollapsed));
-    if (!expandButton.dataset.testBound) {
-      const setCollapsed = collapsed => {
-        layout.classList.toggle("is-details-collapsed", collapsed);
-        details.hidden = collapsed;
-        collapseButton.hidden = collapsed;
-        expandButton.hidden = !collapsed;
-        collapseButton.setAttribute("aria-expanded", String(!collapsed));
-        expandButton.setAttribute("aria-expanded", String(!collapsed));
-        detailsToggle.setAttribute("aria-expanded", String(!collapsed));
-      };
-      expandButton.addEventListener("click", () => setCollapsed(false));
-      collapseButton.addEventListener("click", () => setCollapsed(true));
-      detailsToggle.onclick = () => setCollapsed(detailsToggle.getAttribute("aria-expanded") === "true");
-      expandButton.dataset.testBound = "true";
-    }
+    const detailsLabel = detailsCollapsed ? "Afficher les informations" : "Masquer les informations";
+    expandButton.setAttribute("aria-label", detailsLabel);
+    expandButton.title = detailsLabel;
+    expandButton.querySelector("use")?.setAttribute("href", detailsCollapsed ? "#icon-panel-expand" : "#icon-panel-collapse");
     if (kind === "image") {
       img.src = src;
       img.hidden = false;
@@ -191,7 +180,7 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
           thumbnails.hidden = false;
           toggles.classList.remove("viewer-image-panel-toggles");
           toggles.hidden = true;
-          controls.append(fullscreen, external, expandButton, collapseButton);
+          controls.append(fullscreen, external, expandButton);
         }
       };
       const imageViewerMedia = matchMedia("(max-width: 760px)");
@@ -357,8 +346,8 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 if (width <= 760) {
                   assert.ok(m.originalPanel.y < m.detailsPanel.y, `${width}px : original avant les informations sur mobile`);
                   assert.equal(m.detailsOverflowY, "visible", `${width}px : défilement vertical unique de la fiche`);
-                  assert.equal(m.detailsCollapseHidden, false, `${width}px : Masquer les informations est disponible quand elles sont ouvertes`);
-                  assert.equal(m.detailsExpandHidden, true, `${width}px : la commande d’ouverture est masquée lorsque les informations sont visibles`);
+                  assert.equal(m.detailsCollapseHidden, true, `${width}px : aucun bouton secondaire Masquer n’est affiché`);
+                  assert.equal(m.detailsExpandHidden, false, `${width}px : le bouton unique reste monté lorsque les informations sont visibles`);
                 } else {
                   assert.ok(m.originalPanel.x < m.detailsPanel.x, `${width}px : original à gauche des informations`);
                   assert.ok(m.originalPanel.right <= m.detailsPanel.x + 1, `${width}px : panneaux desktop non chevauchés`);
@@ -666,7 +655,7 @@ test("Desktop : panneau d'informations repliable sans recharger ni réinitialise
           controls: rect("#viewerImageControls"), reader: rect("#viewerImageViewport"),
           zoom: rect(".viewer-image-zoom-group"), fit: rect("#viewerImageModeBtn"),
           fullscreen: rect("#viewerFullscreenBtn"), external: rect("#viewerExternalBtn"),
-          info: rect("#viewerDetailsCollapseBtn"), originalHeadDisplay: getComputedStyle(document.querySelector(".document-original-head")).display,
+          info: rect("#viewerDetailsExpandBtn"), originalHeadDisplay: getComputedStyle(document.querySelector(".document-original-head")).display,
           documentWidth: document.documentElement.scrollWidth, viewportWidth: innerWidth
         };
       });
@@ -674,19 +663,36 @@ test("Desktop : panneau d'informations repliable sans recharger ni réinitialise
       assert.ok(imageToolbar.zoom.x < imageToolbar.fit.x && imageToolbar.fit.right < imageToolbar.fullscreen.x && imageToolbar.fullscreen.right < imageToolbar.external.x, "zoom, ajustement, plein écran et nouvel onglet sont groupés à gauche");
       assert.ok(imageToolbar.external.right < imageToolbar.info.x, "Informations est séparé des commandes de lecture");
       assert.ok(imageToolbar.info.right >= imageToolbar.controls.right - 2, "Informations est aligné tout à droite de la barre");
-      assert.ok(imageToolbar.reader.y >= imageToolbar.controls.bottom - 1 && imageToolbar.reader.y <= imageToolbar.controls.bottom + 1, "l’image commence immédiatement sous la barre");
+      assert.ok(Math.abs(imageToolbar.reader.y - imageToolbar.controls.bottom - 12) <= 1, "l’image est séparée de la barre par l’espacement desktop standard de 12px");
       assert.equal(imageToolbar.documentWidth, imageToolbar.viewportWidth, "aucun débordement horizontal desktop");
       const initial = await page.locator(".document-original-panel").boundingBox();
       const src = await page.locator("#viewerImage").getAttribute("src");
-      await page.locator("#viewerDetailsCollapseBtn").click();
+      const infoButton = page.locator("#viewerDetailsExpandBtn");
+      assert.equal(await infoButton.isVisible(), true, "le bouton unique reste visible lorsque Informations est ouvert");
+      assert.equal(await infoButton.getAttribute("aria-expanded"), "true");
+      assert.equal(await infoButton.getAttribute("aria-label"), "Masquer les informations");
+      const openInfoBox = await infoButton.boundingBox();
+      const openControlsBox = await page.locator("#viewerImageControls").boundingBox();
+      assert.ok(openInfoBox.x + openInfoBox.width >= openControlsBox.x + openControlsBox.width - 2, `le bouton Informations reste à droite panneau ouvert (${JSON.stringify({ openInfoBox, openControlsBox })})`);
+      await infoButton.click();
       await page.waitForFunction(() => document.getElementById("documentUnifiedLayout").classList.contains("is-details-collapsed"));
       const collapsed = await page.locator(".document-original-panel").boundingBox();
       assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true);
+      assert.equal(await infoButton.isVisible(), true, "le bouton unique reste visible panneau fermé");
+      assert.equal(await infoButton.getAttribute("aria-expanded"), "false");
+      const closedInfoBox = await infoButton.boundingBox();
+      const closedControlsBox = await page.locator("#viewerImageControls").boundingBox();
+      assert.ok(closedInfoBox.x + closedInfoBox.width >= closedControlsBox.x + closedControlsBox.width - 2, "le bouton Informations reste à droite panneau fermé");
       assert.ok(collapsed.width > initial.width + 100, "le panneau original gagne la largeur du panneau droit");
       assert.equal(await page.locator("#viewerImage").getAttribute("src"), src, "le fichier n’est pas rechargé pendant le repli");
-      await page.locator("#viewerDetailsExpandBtn").click();
+      await infoButton.click();
       await page.waitForFunction(() => !document.getElementById("documentUnifiedLayout").classList.contains("is-details-collapsed"));
       const restored = await page.locator(".document-original-panel").boundingBox();
+      assert.equal(await infoButton.isVisible(), true, "le même bouton est cliquable à la réouverture");
+      assert.equal(await infoButton.getAttribute("aria-expanded"), "true");
+      const reopenedInfoBox = await infoButton.boundingBox();
+      const reopenedControlsBox = await page.locator("#viewerImageControls").boundingBox();
+      assert.ok(reopenedInfoBox.x + reopenedInfoBox.width >= reopenedControlsBox.x + reopenedControlsBox.width - 2, "le bouton Informations reste à droite après réouverture");
       assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true);
       assert.ok(Math.abs(restored.width - initial.width) < 2, "la disposition initiale à deux panneaux est restaurée");
       assert.equal(await page.locator("#viewerImage").getAttribute("src"), src, "le document reste chargé après réouverture");
@@ -728,7 +734,7 @@ test("Informations repliées par défaut sur desktop, tablette et mobile; dispos
           assert.ok(expanded.fileNameFact && expanded.fileNameFact.w > 0, `${width}px : le nom long occupe la carte documentaire`);
           assert.equal(expanded.docOverflowX, 0, `${width}px : le nom long ne déborde pas horizontalement`);
           if (width > 760) assert.ok(expanded.originalPanel.x < expanded.detailsPanel.x, `${width}px : Original à gauche et Informations à droite`);
-          await page.locator(width <= 760 ? "#viewerDetailsBtn" : "#viewerDetailsCollapseBtn").click();
+          await page.locator(width <= 760 ? "#viewerDetailsBtn" : "#viewerDetailsExpandBtn").click();
           assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, `${width}px : volet replié à nouveau (${iteration + 1})`);
           assert.equal(await page.locator("#viewerImage").evaluate(image => image.currentSrc), source, `${width}px : la source est conservée après le repli`);
         }
