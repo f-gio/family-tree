@@ -408,6 +408,9 @@ test("le visualiseur branche le zoom image et réserve le menu d’actions du he
   assert.match(html, /id="viewerActionsMenu"[^>]*role="menu"/);
   assert.match(html, /id="viewerImageControls"[^>]*role="group"/);
   assert.match(app, /function setupViewerImage\(item\)[\s\S]*?createDocumentImageViewer\(/);
+  assert.match(app, /zoomIndicator: \$\("viewerZoomIndicator"\)/);
+  assert.match(app, /fullscreenButton: \$\("viewerFullscreenBtn"\)/);
+  assert.match(app, /fullscreenHost: \$\("documentViewerDialog"\)\.querySelector\("\.document-original-panel"\)/);
   assert.match(app, /viewerImageControls"\)\.hidden = true/);
   assert.match(app, /if \(mimeType\.startsWith\("image\/"\)\)[\s\S]*?setupViewerImage\(item\)/);
   assert.match(app, /function setUnifiedDetailsCollapsed\(collapsed\)[\s\S]*?details\.hidden = collapsed/);
@@ -432,4 +435,23 @@ test("les informations du viewer gardent leur repli unique et une mise en page m
   assert.match(css, /\.document-unified-layout\.is-details-collapsed \.document-original-panel \.viewer-body \{ height: min\(68dvh, calc\(100dvh - 13rem\)\)/);
   assert.match(css, /\.document-unified-fact--wide \{ grid-column: 1 \/ -1; \}/);
   assert.match(css, /\.viewer-dialog \.document-unified-source-actions \.btn \{ width: 100%; \}/);
+  assert.match(html, /class="btn icon-btn viewer-details-toggle"[^>]*id="viewerDetailsCollapseBtn"/);
+  assert.match(html, /class="btn icon-btn viewer-details-toggle"[^>]*id="viewerDetailsExpandBtn"/);
+});
+
+test("le viewer expose l’indicateur de zoom et les commandes de plein écran accessibles", () => {
+  assert.match(html, /class="viewer-image-zoom-group viewer-image-only" role="group" aria-label="Zoom"/);
+  assert.match(html, /id="viewerZoomIndicator" aria-hidden="true"/);
+  assert.match(html, /id="viewerFullscreenBtn"[^>]*aria-label="Afficher en plein écran"/);
+  assert.match(html, /<symbol id="icon-maximize"/);
+  assert.match(html, /<symbol id="icon-minimize"/);
+  assert.match(html, /<symbol id="icon-external-link"/);
+  assert.match(imageViewer, /function showZoomIndicator\(\)/);
+  assert.match(imageViewer, /Math\.round\(zoom \/ minZoom \* 100\)/);
+  assert.match(imageViewer, /zoomIndicatorDuration = 1500/);
+  assert.match(imageViewer, /fullscreenHost\?\.requestFullscreen/);
+  assert.match(imageViewer, /setFullscreenState\(true, true\)/);
+  assert.match(imageViewer, /zoomIndicatorTimer !== null\) globalThis\.clearTimeout/);
+  assert.match(css, /\.viewer-zoom-indicator \{[\s\S]*?pointer-events: none/);
+  assert.match(css, /#documentViewerDialog\.is-viewer-fullscreen \.document-original-panel \.viewer-body/);
 });

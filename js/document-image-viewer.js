@@ -3,7 +3,7 @@ export function selectInitialDocumentImageMode({ naturalWidth, naturalHeight } =
   return naturalHeight / naturalWidth >= 1.5 ? "width" : "fit";
 }
 
-export function createDocumentImageViewer({ viewport, image, controls, zoomLabel, modeButton, initialMode = "fit", minZoom = 1, maxZoom = 6 } = {}) {
+export function createDocumentImageViewer({ viewport, image, controls, zoomLabel, zoomIndicator, zoomIndicatorDuration = 1500, modeButton, fullscreenButton, fullscreenHost, fullscreenRoot, initialMode = "fit", minZoom = 1, maxZoom = 6 } = {}) {
   if (!viewport || !image || !controls) throw new TypeError("Les éléments du lecteur d’image sont requis");
   let zoom = minZoom;
   let offsetX = 0;
@@ -15,7 +15,12 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   let mousePan = null;
   let observer = null;
   let fallbackResize = null;
+  let zoomIndicatorTimer = null;
+  let fullscreenStyleSnapshots = null;
   let mode = initialMode === "width" ? "width" : "fit";
+
+  const fullscreenDocument = fullscreenHost?.ownerDocument || null;
+  const fullscreenElement = fullscreenRoot || fullscreenHost;
 
   function canCustomPan() {
     return zoom > minZoom;
@@ -48,6 +53,101 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     if (zoomLabel) zoomLabel.textContent = zoom <= minZoom ? (mode === "width" ? "Largeur" : "Ajusté") : `${Math.round(zoom * 100)} %`;
   }
 
+  function showZoomIndicator() {
+    if (!zoomIndicator) return;
+    if (zoomIndicatorTimer !== null) globalThis.clearTimeout(zoomIndicatorTimer);
+    zoomIndicator.textContent = `${Math.round(zoom / minZoom * 100)} %`;
+    zoomIndicator.classList.add("is-visible");
+    zoomIndicatorTimer = globalThis.setTimeout(() => {
+      zoomIndicator.classList.remove("is-visible");
+      zoomIndicatorTimer = null;
+    }, zoomIndicatorDuration);
+  }
+
+  function nativeFullscreenActive() {
+    return !!fullscreenHost && (fullscreenDocument?.fullscreenElement === fullscreenHost || fullscreenDocument?.webkitFullscreenElement === fullscreenHost);
+  }
+
+  function setFullscreenLayout(active) {
+    const nodes = [fullscreenElement, fullscreenElement?.querySelector(".modal-body"), fullscreenElement?.querySelector(".document-unified-layout"), fullscreenElement?.querySelector(".document-original-panel"), viewport];
+    const properties = ["position", "inset", "width", "height", "max-width", "max-height", "margin", "padding", "overflow", "display", "flex", "flex-direction", "min-height", "grid-template-columns", "grid-template-rows", "gap"];
+    if (active) {
+      if (!fullscreenStyleSnapshots) fullscreenStyleSnapshots = nodes.map(node => node ? [node, properties.map(property => [property, node.style.getPropertyValue(property), node.style.getPropertyPriority(property)])] : null);
+      const set = (node, values) => {
+        if (!node) return;
+        for (const [property, value] of Object.entries(values)) node.style.setProperty(property, value, "important");
+      };
+      set(nodes[0], { position: "fixed", inset: "0", width: "100vw", height: "100dvh", "max-width": "none", "max-height": "none", margin: "0", padding: "0", overflow: "hidden" });
+      set(nodes[1], { display: "flex", flex: "1 1 auto", "flex-direction": "column", "min-height": "0", padding: "0", overflow: "hidden" });
+      set(nodes[2], { display: "grid", "grid-template-columns": "minmax(0, 1fr)", "grid-template-rows": "minmax(0, 1fr)", flex: "1 1 auto", width: "100%", height: "100%", "min-height": "0", gap: "0" });
+      set(nodes[3], { display: "flex", flex: "1 1 auto", height: "100%", "min-height": "0" });
+      set(nodes[4], { flex: "1 1 auto", height: "auto", "min-height": "0" });
+      return;
+    }
+    if (!fullscreenStyleSnapshots) return;
+    for (const snapshot of fullscreenStyleSnapshots) {
+      if (!snapshot) continue;
+      const [node, entries] = snapshot;
+      for (const [property, value, priority] of entries) {
+        if (value) node.style.setProperty(property, value, priority);
+        else node.style.removeProperty(property);
+      }
+    }
+    fullscreenStyleSnapshots = null;
+  }
+
+  function setFullscreenState(active, fallback = false) {
+    setFullscreenLayout(active);
+    fullscreenElement?.classList.toggle("is-viewer-fullscreen", active);
+    fullscreenElement?.classList.toggle("is-viewer-fullscreen-fallback", active && fallback);
+    fullscreenElement?.ownerDocument?.documentElement.classList.toggle("viewer-fullscreen-active", active && fallback);
+    if (fullscreenButton) {
+      fullscreenButton.setAttribute("aria-label", active ? "Quitter le plein écran" : "Afficher en plein écran");
+      fullscreenButton.title = active ? "Quitter le plein écran" : "Afficher en plein écran";
+      fullscreenButton.querySelector("use")?.setAttribute("href", active ? "#icon-minimize" : "#icon-maximize");
+    }
+  }
+
+  async function exitFullscreen() {
+    if (nativeFullscreenActive()) {
+      const exit = fullscreenDocument.exitFullscreen || fullscreenDocument.webkitExitFullscreen;
+      if (typeof exit === "function") {
+        try { await exit.call(fullscreenDocument); }
+        catch { return false; }
+      }
+    }
+    setFullscreenState(false);
+    return true;
+  }
+
+  async function toggleFullscreen() {
+    if (!fullscreenElement) return false;
+    if (fullscreenElement.classList.contains("is-viewer-fullscreen")) return exitFullscreen();
+    const request = fullscreenHost?.requestFullscreen || fullscreenHost?.webkitRequestFullscreen;
+    if (typeof request === "function") {
+      try {
+        if (request === fullscreenHost.webkitRequestFullscreen) await request.call(fullscreenHost);
+        else await request.call(fullscreenHost, { navigationUI: "hide" });
+        setFullscreenState(true);
+        return true;
+      } catch { /* Le lecteur passe en mode plein viewport si le navigateur refuse l’API. */ }
+    }
+    setFullscreenState(true, true);
+    return true;
+  }
+
+  function onFullscreenChange() {
+    if (nativeFullscreenActive()) setFullscreenState(true);
+    else if (fullscreenElement?.classList.contains("is-viewer-fullscreen") && !fullscreenElement.classList.contains("is-viewer-fullscreen-fallback")) setFullscreenState(false);
+  }
+
+  function onFullscreenKeydown(event) {
+    if (event.key !== "Escape" || !fullscreenElement?.classList.contains("is-viewer-fullscreen")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void exitFullscreen();
+  }
+
   function fit() {
     if (!image.naturalWidth || !image.naturalHeight) return;
     const rect = viewport.getBoundingClientRect();
@@ -77,6 +177,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     }
     zoom = next;
     render();
+    showZoomIndicator();
   }
 
   const distance = touches => Math.hypot(touches[1].clientX - touches[0].clientX, touches[1].clientY - touches[0].clientY);
@@ -110,6 +211,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
       offsetY = focalY - pinch.imageY * zoom - viewport.clientHeight / 2;
       if (mode === "width" && zoom > minZoom) viewport.scrollTop = 0;
       render();
+      showZoomIndicator();
     } else if (event.touches.length === 1 && canCustomPan() && panTouch) {
       event.preventDefault();
       offsetX = panTouch.offsetX + event.touches[0].clientX - panTouch.x;
@@ -160,6 +262,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
       viewport.scrollTop = 0;
       fit();
       updateModeButton();
+      showZoomIndicator();
       return;
     }
     const button = event.target.closest("[data-viewer-image-zoom]");
@@ -182,6 +285,14 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     modeButton.setAttribute("aria-label", mode === "fit" ? "Afficher l’image à la largeur du lecteur" : "Afficher l’image entière dans la fenêtre");
   }
 
+  function onFullscreenButtonClick() {
+    void toggleFullscreen();
+  }
+
+  function onFullscreenRootKeydown(event) {
+    onFullscreenKeydown(event);
+  }
+
   viewport.addEventListener("touchstart", onTouchStart, { passive: false });
   viewport.addEventListener("touchmove", onTouchMove, { passive: false });
   viewport.addEventListener("touchend", onTouchEnd);
@@ -193,6 +304,10 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   viewport.addEventListener("pointercancel", onPointerEnd);
   controls.addEventListener("click", onControlsClick);
   controls.addEventListener("keydown", onControlsKeydown);
+  fullscreenButton?.addEventListener("click", onFullscreenButtonClick);
+  fullscreenElement?.addEventListener("keydown", onFullscreenRootKeydown);
+  fullscreenDocument?.addEventListener("fullscreenchange", onFullscreenChange);
+  fullscreenDocument?.addEventListener("webkitfullscreenchange", onFullscreenChange);
   image.addEventListener("load", fit);
   if (typeof ResizeObserver === "function") {
     observer = new ResizeObserver(fit);
@@ -209,6 +324,8 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     zoomIn: () => setZoom(zoom * 1.25),
     zoomOut: () => setZoom(zoom / 1.25),
     reset: () => setZoom(minZoom),
+    toggleFullscreen,
+    exitFullscreen,
     toggleFitMode() {
       mode = mode === "fit" ? "width" : "fit";
       zoom = minZoom;
@@ -216,9 +333,18 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
       offsetY = 0;
       fit();
       updateModeButton();
+      showZoomIndicator();
     },
     getState: () => ({ zoom, offsetX, offsetY, fitWidth, fitHeight, mode }),
     destroy() {
+      if (zoomIndicatorTimer !== null) globalThis.clearTimeout(zoomIndicatorTimer);
+      zoomIndicatorTimer = null;
+      zoomIndicator?.classList.remove("is-visible");
+      if (nativeFullscreenActive()) {
+        const exit = fullscreenDocument.exitFullscreen || fullscreenDocument.webkitExitFullscreen;
+        if (typeof exit === "function") Promise.resolve(exit.call(fullscreenDocument)).catch(() => {});
+      }
+      setFullscreenState(false);
       observer?.disconnect();
       if (fallbackResize) globalThis.removeEventListener?.("resize", fallbackResize);
       viewport.removeEventListener("touchstart", onTouchStart);
@@ -232,6 +358,10 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
       viewport.removeEventListener("pointercancel", onPointerEnd);
       controls.removeEventListener("click", onControlsClick);
       controls.removeEventListener("keydown", onControlsKeydown);
+      fullscreenButton?.removeEventListener("click", onFullscreenButtonClick);
+      fullscreenElement?.removeEventListener("keydown", onFullscreenRootKeydown);
+      fullscreenDocument?.removeEventListener("fullscreenchange", onFullscreenChange);
+      fullscreenDocument?.removeEventListener("webkitfullscreenchange", onFullscreenChange);
       image.removeEventListener("load", fit);
       image.removeAttribute("style");
     }

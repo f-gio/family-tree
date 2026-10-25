@@ -28,7 +28,7 @@ test("Le mode initial privilégie la largeur pour les photographies portrait tr�
   assert.equal(selectInitialDocumentImageMode({ naturalWidth: 0, naturalHeight: 600 }), "fit");
 });
 
-test("Viewer : règles statiques mobile (clamp, icône, safe-area, flex, pas de 92dvh)", () => {
+test("Viewer : règles statiques mobile, commandes compactes, plein écran et safe-area", () => {
   /* Fullscreen conservé */
   assert.match(html, /\.viewer-dialog\{width:min\(calc\(100vw - 3rem\),94vw\);height:min\(calc\(100dvh - 3rem\),92dvh\)\}/);
   assert.match(html, /\.viewer-dialog\{width:calc\(100% - 12px\);height:calc\(100dvh - 12px\)\}/);
@@ -46,14 +46,17 @@ test("Viewer : règles statiques mobile (clamp, icône, safe-area, flex, pas de 
   assert.match(css, /\.viewer-dialog \.modal-head p \{\s*\n\s*display: block;[\s\S]*?text-overflow: ellipsis;/);
   /* Safe-area basse */
   assert.match(css, /\.viewer-dialog \.modal-body \{\s*\n\s*padding-bottom: max\(12px, env\(safe-area-inset-bottom\)\);\s*\n\s*\}/);
-  /* Icône Nouvel onglet ≤480 */
-  assert.match(css, /@media \(max-width: 480px\) \{\s*\n\s*\.viewer-dialog #viewerExternalBtn \{/);
-  assert.match(css, /\.viewer-dialog #viewerExternalBtn \.viewer-external-label \{ display: none; \}/);
-  /* Accessible name conservé */
-  assert.match(html, /id="viewerExternalBtn"[^>]*aria-label="Ouvrir l’original dans un nouvel onglet"[^>]*title="Ouvrir dans un nouvel onglet"/);
-  assert.match(html, /class="viewer-image-controls"[\s\S]*?id="viewerImageModeBtn"[\s\S]*?id="viewerExternalBtn"/);
+  assert.match(html, /class="viewer-image-zoom-group viewer-image-only"[\s\S]*?data-viewer-image-zoom="out"[\s\S]*?data-viewer-image-zoom="in"[\s\S]*?id="viewerImageModeBtn"[\s\S]*?id="viewerExternalBtn"/);
+  assert.match(html, /id="viewerExternalBtn"[^>]*aria-label="Ouvrir dans un nouvel onglet"[^>]*title="Ouvrir dans un nouvel onglet"/);
+  assert.match(html, /id="viewerExternalBtn"[^>]*><svg class="ui-icon"[^>]*><use href="#icon-external-link"><\/use><\/svg><\/a>/);
+  assert.doesNotMatch(html, /viewer-external-label/);
   assert.doesNotMatch(html.match(/id="viewerActionsMenu"[\s\S]*?<\/div>/)?.[0] || "", /viewerExternalBtn/);
-  assert.match(html, /id="viewerExternalBtn"[^>]*><svg class="ui-icon"[^>]*><use href="#icon-link"><\/use><\/svg><span class="viewer-external-label">Nouvel onglet<\/span><\/a>/);
+  assert.match(html, /id="viewerZoomIndicator" aria-hidden="true"/);
+  assert.match(html, /id="viewerFullscreenBtn"[^>]*aria-label="Afficher en plein écran"[^>]*title="Afficher en plein écran"/);
+  assert.match(css, /\.viewer-fullscreen-control \{ position: absolute;/);
+  assert.match(css, /\.viewer-zoom-indicator \{[\s\S]*?pointer-events: none/);
+  assert.match(css, /#documentViewerDialog\.is-viewer-fullscreen \{/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.viewer-zoom-indicator/);
 });
 
 async function createViewerPage(browser, server, width, height) {
@@ -81,16 +84,24 @@ async function createViewerPage(browser, server, width, height) {
   return { context, page };
 }
 
-async function openViewer(page, { title, fileName, kind = "image", src = portraitSvg, detailsCollapsed = false }) {
-  await page.evaluate(async ({ title, fileName, kind, src, detailsCollapsed }) => {
+async function openViewer(page, { title, fileName, kind = "image", src = portraitSvg, detailsCollapsed = false, zoomIndicatorDuration = 1500, forceFullscreenFallback = false }) {
+  await page.evaluate(async ({ title, fileName, kind, src, detailsCollapsed, zoomIndicatorDuration, forceFullscreenFallback }) => {
     const dialog = document.getElementById("documentViewerDialog");
-    if (dialog.open) dialog.close();
+    const fullscreenPanel = dialog.querySelector(".document-original-panel");
     window.__viewerImageController?.destroy();
     window.__viewerImageController = null;
+    if (dialog.open) await new Promise(resolve => {
+      dialog.addEventListener("close", resolve, { once: true });
+      dialog.close();
+    });
     document.getElementById("viewerTitle").textContent = title;
     document.getElementById("viewerSubtitle").textContent = fileName;
     const img = document.getElementById("viewerImage");
     const frame = document.getElementById("viewerFrame");
+    if (forceFullscreenFallback) {
+      Object.defineProperty(fullscreenPanel, "requestFullscreen", { configurable: true, value: undefined });
+      Object.defineProperty(fullscreenPanel, "webkitRequestFullscreen", { configurable: true, value: undefined });
+    }
     document.getElementById("viewerImageViewport").removeAttribute("data-viewer-fit-mode");
     img.hidden = true;
     frame.hidden = true;
@@ -98,7 +109,7 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     img.removeAttribute("src");
     document.getElementById("viewerMessage").hidden = true;
     document.getElementById("viewerImageControls").hidden = false;
-    document.querySelectorAll("#viewerImageControls .viewer-image-only").forEach(control => { control.hidden = kind !== "image"; });
+    document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = kind !== "image"; });
     document.getElementById("viewerExternalBtn").hidden = false;
     document.getElementById("viewerExternalBtn").href = src;
     document.getElementById("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4><div class="document-unified-facts">${Array.from({ length: 4 }, (_, index) => `<div class="document-unified-fact"><strong>Métadonnée ${index + 1}</strong><span>Valeur de démonstration ${index + 1}</span></div>`).join("")}</div></section><section class="document-unified-section"><h4>Personnes concernées</h4><p>Marie Rossi et Jean Rossi</p></section><section class="document-unified-section"><h4>Sources et provenance</h4>${Array.from({ length: 2 }, (_, index) => `<details class="document-unified-source" open><summary>Source liée ${index + 1}</summary><p>Cote archivistique de démonstration</p></details>`).join("")}</section>`;
@@ -142,13 +153,17 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
         viewport: document.getElementById("viewerImageViewport"),
         image: img,
         controls: document.getElementById("viewerImageControls"),
-        zoomLabel: document.getElementById("viewerImageZoomLevel"),
+        zoomIndicator: document.getElementById("viewerZoomIndicator"),
+        zoomIndicatorDuration,
         modeButton: document.getElementById("viewerImageModeBtn"),
+        fullscreenButton: document.getElementById("viewerFullscreenBtn"),
+        fullscreenHost: fullscreenPanel,
+        fullscreenRoot: dialog,
         initialMode: selectInitialDocumentImageMode({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight })
       });
-      document.querySelectorAll("#viewerImageControls .viewer-image-only").forEach(control => { control.hidden = false; });
+      document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = false; });
     }
-  }, { title, fileName, kind, src, detailsCollapsed });
+  }, { title, fileName, kind, src, detailsCollapsed, zoomIndicatorDuration, forceFullscreenFallback });
   await page.waitForTimeout(80);
 }
 
@@ -165,7 +180,7 @@ async function measureViewer(page) {
     const subtitle = document.getElementById("viewerSubtitle");
     const external = document.getElementById("viewerExternalBtn");
     const actionsButton = document.getElementById("viewerActionsBtn");
-    const label = external.querySelector(".viewer-external-label");
+    const externalIcon = external.querySelector("use");
     const closeBtn = head.querySelector("[data-close]");
     const editBtn = document.getElementById("viewerEditBtn");
     const img = document.getElementById("viewerImage");
@@ -193,8 +208,8 @@ async function measureViewer(page) {
       subtitleEllipsis: subtitleStyle.textOverflow,
       subtitleText: subtitle.textContent,
       externalHidden: external.hidden,
-      externalLabelDisplay: label ? getComputedStyle(label).display : null,
-      externalLabelText: label ? label.textContent : null,
+      externalIconHref: externalIcon?.getAttribute("href") || null,
+      externalText: external.textContent.trim(),
       externalAriaLabel: external.getAttribute("aria-label"),
       externalTitle: external.getAttribute("title"),
       externalBtn: box(external),
@@ -302,9 +317,11 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 assert.doesNotMatch(m.imageTransform, /scale\(/, `${key} : aucune mise à l’échelle par transform`);
                 assert.equal(await page.locator("#viewerActionsMenu").isVisible(), true, `${key} : menu d’actions ouvrable`);
                 assert.equal(await page.locator('#viewerActionsMenu [role="menuitem"]').count(), 1, `${key} : Modifier seule reste dans le menu`);
-                assert.ok(m.externalBtn, `${key} : Nouvel onglet est accessible dans la barre du lecteur`);
+                assert.equal(m.externalText, "", `${key} : l’action externe est représentée par l’icône seule`);
+                assert.equal(m.externalIconHref, "#icon-external-link", `${key} : icône externe dédiée`);
+                assert.ok(m.externalBtn && m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, `${key} : cible externe ≥44px`);
                 await page.keyboard.press("Escape");
-                assert.ok(m.externalAriaLabel === "Ouvrir l’original dans un nouvel onglet", `${key} : aria-label conservé`);
+                assert.ok(m.externalAriaLabel === "Ouvrir dans un nouvel onglet", `${key} : aria-label conservé`);
                 assert.ok(m.externalTitle === "Ouvrir dans un nouvel onglet", `${key} : title conservé`);
                 /* sous-titre fileName visible tablette, masqué sur téléphone pour préserver l'espace de lecture */
                 if (width <= 560) assert.equal(m.subtitleDisplay, "none", `${key} : sous-titre masqué pour libérer l'espace mobile`);
@@ -326,20 +343,15 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
               /* la zone document reste majoritaire même avec un titre long */
                 assert.ok(headers.long.viewer.h >= height * 0.38, `original suffisamment grand avant les informations documentaires (${headers.long.viewer.h} / ${height})`);
 
-              /* --- responsive Nouvel onglet --- */
-              for (const [vw, expectIcon] of [[320, true], [390, true], [480, true], [481, false], [560, false], [760, false]]) {
+              /* --- responsive Nouvel onglet : icône seule à toutes les largeurs --- */
+              for (const vw of [320, 390, 480, 481, 560, 760]) {
                 await page.setViewportSize({ width: vw, height: 844 });
                 await openViewer(page, { title: TITLES.short, fileName: "acte.pdf", src: portraitSvg });
                 await page.locator("#viewerActionsBtn").click();
                 const m = await measureViewer(page);
-                if (expectIcon) {
-                  assert.equal(m.externalLabelDisplay, "none", `${vw}px : libellé masqué (icône seule)`);
-                  assert.ok(m.externalBtn && m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, `${vw}px : cible ≥44px (${JSON.stringify(m.externalBtn)})`);
-                  assert.equal(m.externalAriaLabel, "Ouvrir l’original dans un nouvel onglet", `${vw}px : accessible name`);
-                } else {
-                  assert.notEqual(m.externalLabelDisplay, "none", `${vw}px : libellé texte visible`);
-                  assert.equal(m.externalLabelText, "Nouvel onglet", `${vw}px : libellé « Nouvel onglet »`);
-                }
+                assert.equal(m.externalText, "", `${vw}px : icône seule, sans texte visible`);
+                assert.ok(m.externalBtn && m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, `${vw}px : cible ≥44px (${JSON.stringify(m.externalBtn)})`);
+                assert.equal(m.externalAriaLabel, "Ouvrir dans un nouvel onglet", `${vw}px : nom accessible explicite`);
                 await page.keyboard.press("Escape");
               }
               /* retour viewport de test pour les cas documents */
@@ -400,8 +412,9 @@ test("Viewer desktop 1024×768 : inchangé (texte, titre, sous-titre, modale cen
       await openViewer(page, { title: TITLES.medium, fileName: "acte-1891.pdf", src: landscapeSvg });
       const m = await measureViewer(page);
       assert.ok(m.open, "viewer ouvert");
-      assert.notEqual(m.externalLabelDisplay, "none", "texte « Nouvel onglet » visible sur desktop");
-      assert.equal(m.externalLabelText, "Nouvel onglet");
+      assert.equal(m.externalText, "", "l’action externe reste une icône seule sur desktop");
+      assert.equal(m.externalIconHref, "#icon-external-link");
+      assert.ok(m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, "cible externe ≥44px sur desktop");
       assert.equal(m.subtitleDisplay, "block", "sous-titre visible sur desktop");
       assert.equal(m.titleClamp, "none", "pas de clamp 2 lignes sur desktop");
       /* modale centrée et non plein écran */
@@ -410,7 +423,7 @@ test("Viewer desktop 1024×768 : inchangé (texte, titre, sous-titre, modale cen
       assert.ok(parseFloat(m.radius) > 0, `radius desktop conservé (${m.radius})`);
       assert.ok(m.imgFit === "contain", "ratio conservé desktop");
       assert.equal(m.docOverflowX, 0);
-      t.diagnostic(`desktop 1024×768: dialog=${m.dialog.w}×${m.dialog.h} y=${m.dialog.y} head=${m.head.h} external=${m.externalLabelDisplay}`);
+      t.diagnostic(`desktop 1024×768: dialog=${m.dialog.w}×${m.dialog.h} y=${m.dialog.y} head=${m.head.h} ; action externe icône seule ${m.externalBtn.w}×${m.externalBtn.h}`);
     } finally { await context.close(); }
   } finally { await browser.close(); await server.close(); }
 });
@@ -484,7 +497,7 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
     const { context, page } = await createViewerPage(browser, server, 390, 844);
     try {
       const states = await page.evaluate(async () => {
-        document.body.insertAdjacentHTML("beforeend", `<div id="gestureViewport" style="position:fixed;left:10px;top:10px;width:360px;height:280px;overflow:auto;touch-action:pan-y"><img id="gestureImage" alt="Photographie de registre"></div><div id="gestureControls"><button type="button" data-viewer-image-zoom="out">−</button><span id="gestureZoomLabel"></span><button type="button" data-viewer-image-mode-toggle>Ajuster à la largeur</button><button type="button" data-viewer-image-zoom="reset">Réinitialiser le zoom</button><button type="button" data-viewer-image-zoom="in">+</button></div>`);
+        document.body.insertAdjacentHTML("beforeend", `<div id="gestureViewport" style="position:fixed;left:10px;top:10px;width:360px;height:280px;overflow:auto;touch-action:pan-y"><img id="gestureImage" alt="Photographie de registre"><span id="gestureIndicator" class="viewer-zoom-indicator" aria-hidden="true"></span></div><div id="gestureControls"><button type="button" data-viewer-image-zoom="out">−</button><button type="button" data-viewer-image-mode-toggle>Ajuster à la largeur</button><button type="button" data-viewer-image-zoom="reset">Réinitialiser le zoom</button><button type="button" data-viewer-image-zoom="in">+</button></div>`);
         const { createDocumentImageViewer, selectInitialDocumentImageMode } = await import("./js/document-image-viewer.js");
         const image = document.getElementById("gestureImage");
         image.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="800"><rect width="200" height="800" fill="#b8c9be"/></svg>');
@@ -492,7 +505,8 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
         const viewport = document.getElementById("gestureViewport");
         const modeButton = document.querySelector("#gestureControls [data-viewer-image-mode-toggle]");
         const initialMode = selectInitialDocumentImageMode({ naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight });
-        const controller = createDocumentImageViewer({ viewport, image, controls: document.getElementById("gestureControls"), zoomLabel: document.getElementById("gestureZoomLabel"), modeButton, initialMode });
+        const indicator = document.getElementById("gestureIndicator");
+        const controller = createDocumentImageViewer({ viewport, image, controls: document.getElementById("gestureControls"), zoomIndicator: indicator, modeButton, initialMode });
         const initial = controller.getState();
         modeButton.click();
         const windowFit = controller.getState();
@@ -509,6 +523,7 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
         viewport.dispatchEvent(pinchMove);
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const zoomed = controller.getState();
+        const pinchIndicator = indicator.textContent;
         const zoomRender = { layoutWidth: Number.parseFloat(image.style.width), layoutHeight: Number.parseFloat(image.style.height), cssWidth: image.style.width, cssHeight: image.style.height, cssTransform: image.style.transform };
         viewport.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [] }));
         viewport.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch(3, 150, 120)] }));
@@ -517,13 +532,15 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
         viewport.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [] }));
         controller.reset();
         const reset = controller.getState();
+        const resetIndicator = indicator.textContent;
         viewport.style.width = "280px";
         await new Promise(resolve => setTimeout(resolve, 100));
         const resized = controller.getState();
         modeButton.click();
         const windowMode = controller.getState();
+        const modeIndicator = indicator.textContent;
         controller.destroy();
-        return { natural: [image.naturalWidth, image.naturalHeight], initial, initialMode, windowFit, widthMode, widthModeLabel: modeButton.textContent, widthScrollRange, widthScrollPosition, zoomed, zoomRender, panned, reset, resized, windowMode, pinchPrevented: pinchMove.defaultPrevented };
+        return { natural: [image.naturalWidth, image.naturalHeight], initial, initialMode, windowFit, widthMode, widthModeLabel: modeButton.textContent, widthScrollRange, widthScrollPosition, zoomed, zoomRender, pinchIndicator, panned, reset, resetIndicator, resized, windowMode, modeIndicator, indicatorHiddenAfterDestroy: !indicator.classList.contains("is-visible"), pinchPrevented: pinchMove.defaultPrevented };
       });
       assert.deepEqual(states.natural, [200, 800]);
       assert.equal(states.initialMode, "width", "le portrait long démarre en mode largeur");
@@ -539,15 +556,19 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
       assert.ok(states.widthMode.fitHeight > 280, "document vertical défile sans recadrage en mode largeur");
       assert.ok(states.widthScrollRange > 0 && states.widthScrollPosition > 0, "le mode largeur permet le défilement vertical natif du document long");
       assert.ok(states.zoomed.zoom >= 1.9 && states.pinchPrevented, "pincement à deux doigts intercepté et zoom appliqué");
+      assert.equal(states.pinchIndicator, "200 %", "l’indicateur suit le pincement à l’échelle courante");
       assert.ok(states.zoomRender.layoutWidth >= states.widthMode.fitWidth * states.zoomed.zoom - 1, `la boîte de layout est rasterisée à sa dimension zoomée à partir de l’image source (${JSON.stringify(states.zoomRender)}; zoom=${states.zoomed.zoom}; fit=${states.widthMode.fitWidth})`);
       assert.ok(states.zoomRender.layoutHeight >= states.widthMode.fitHeight * states.zoomed.zoom - 1, "la hauteur de layout suit aussi la résolution d’affichage zoomée");
       assert.doesNotMatch(states.zoomRender.cssTransform, /scale\(/, "aucun agrandissement de texture CSS par scale() au zoom");
       assert.ok(Math.abs(states.panned.offsetX) > 0, "panoramique actif après agrandissement");
       assert.equal(states.reset.zoom, 1);
+      assert.equal(states.resetIndicator, "100 %", "la réinitialisation affiche l’échelle de base relative");
       assert.equal(states.reset.offsetX, 0);
       assert.equal(states.reset.offsetY, 0);
       assert.equal(states.resized.fitWidth, 280, "ResizeObserver recalcule l’échelle du mode largeur");
       assert.equal(states.windowMode.mode, "fit");
+      assert.equal(states.modeIndicator, "100 %", "le changement d’ajustement remet l’indicateur au niveau de base");
+      assert.equal(states.indicatorHiddenAfterDestroy, true, "la destruction retire l’indicateur et sa temporisation");
       assert.ok(states.windowMode.fitWidth <= 280 && states.windowMode.fitHeight <= 280, "mode fenêtre restaure l’image entière dans son ratio naturel");
       t.diagnostic(`Zoom 2× : boîte CSS explicitement portée à ${states.zoomRender.cssWidth} × ${states.zoomRender.cssHeight}, transform=${states.zoomRender.cssTransform}; natural=${states.natural.join("×")}`);
       t.diagnostic(`Portrait source 200×800, viewport 360×280 : largeur initiale=${states.initial.fitWidth.toFixed(0)}×${states.initial.fitHeight.toFixed(0)} ; fenêtre=${states.windowFit.fitWidth.toFixed(0)}×${states.windowFit.fitHeight.toFixed(0)} ; largeur=${states.widthMode.fitWidth.toFixed(0)}×${states.widthMode.fitHeight.toFixed(0)} ; viewport redimensionné=${states.resized.fitWidth.toFixed(0)}×${states.resized.fitHeight.toFixed(0)}`);
@@ -658,7 +679,94 @@ test("Mobile : les informations se replient sous le lecteur sans recharger l’i
       assert.equal(await page.locator("#viewerImage").isHidden(), true, "un PDF ne passe pas par le rendu image");
       const pdfFrame = await page.locator("#viewerFrame").boundingBox();
       assert.ok(pdfFrame && pdfFrame.width > 100 && pdfFrame.height > 100, "le lecteur PDF reste visible dans la zone prioritaire");
+      assert.ok(await page.locator("#viewerExternalBtn").evaluate(anchor => !anchor.hidden && getComputedStyle(anchor).display !== "none"), "le lien PDF reste présent dans le DOM et affiché");
       assert.equal(await page.locator("#viewerExternalBtn").isVisible(), true, "l’ouverture externe du PDF reste disponible");
     } finally { await context.close(); }
+  } finally { await browser.close(); await server.close(); }
+});
+
+test("Le pourcentage de zoom réagit aux actions, se prolonge et ne capte pas les gestes", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    const { context, page } = await createViewerPage(browser, server, 390, 844);
+    try {
+      await openViewer(page, { title: "Image de test", fileName: "registre.svg", src: landscapeSvg, zoomIndicatorDuration: 180 });
+      const indicator = page.locator("#viewerZoomIndicator");
+      assert.equal(await indicator.evaluate(el => getComputedStyle(el).pointerEvents), "none");
+
+      await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
+      assert.equal(await indicator.textContent(), "125 %");
+      assert.equal(await indicator.evaluate(el => el.classList.contains("is-visible")), true);
+      await page.waitForTimeout(100);
+      await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
+      assert.equal(await indicator.textContent(), "156 %", "le pourcentage est recalculé après une nouvelle action");
+      await page.waitForTimeout(100);
+      assert.equal(await indicator.evaluate(el => el.classList.contains("is-visible")), true, "une action successive prolonge l’affichage");
+      await page.waitForTimeout(120);
+      assert.equal(await indicator.evaluate(el => el.classList.contains("is-visible")), false, "l’indicateur disparaît après la dernière interaction");
+
+      await page.locator("#viewerImageModeBtn").click();
+      assert.equal(await indicator.textContent(), "100 %", "le changement de mode affiche le niveau de base relatif");
+      await page.evaluate(() => window.__viewerImageController.reset());
+      assert.equal(await indicator.textContent(), "100 %", "la réinitialisation affiche 100 %");
+      await page.locator("#viewerImageModeBtn").focus();
+      await page.keyboard.press("+");
+      assert.equal(await indicator.textContent(), "125 %", "la commande clavier met aussi l’indicateur à jour");
+      await page.evaluate(() => window.__viewerImageController.destroy());
+      assert.equal(await indicator.evaluate(el => el.classList.contains("is-visible")), false, "destroy nettoie l’affichage temporaire");
+    } finally { await context.close(); }
+  } finally { await browser.close(); await server.close(); }
+});
+
+test("Plein écran image : API native ou repli viewport, sortie Échap sans rechargement", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    for (const forceFullscreenFallback of [false, true]) {
+      const { context, page } = await createViewerPage(browser, server, 390, 844);
+      try {
+        await openViewer(page, { title: "Registre plein écran", fileName: "registre.svg", src: landscapeSvg, detailsCollapsed: true, forceFullscreenFallback });
+        const source = await page.locator("#viewerImage").evaluate(image => image.currentSrc);
+        await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
+        const zoom = await page.evaluate(() => window.__viewerImageController.getState().zoom);
+        await page.locator("#viewerFullscreenBtn").click();
+        await page.waitForFunction(() => document.getElementById("documentViewerDialog").classList.contains("is-viewer-fullscreen"));
+        await page.waitForTimeout(80);
+        const state = await page.evaluate(() => {
+          const dialog = document.getElementById("documentViewerDialog");
+          const imagePanel = document.querySelector(".document-original-panel");
+          const reader = document.getElementById("viewerImageViewport");
+          return {
+            fallback: dialog.classList.contains("is-viewer-fullscreen-fallback"),
+            nativeFullscreen: document.fullscreenElement === imagePanel,
+            headerHidden: getComputedStyle(dialog.querySelector(":scope > .modal-head")).display === "none",
+            detailsHidden: getComputedStyle(document.getElementById("viewerDocumentDetails")).display === "none",
+            viewport: [innerWidth, innerHeight],
+            panel: [imagePanel.getBoundingClientRect().width, imagePanel.getBoundingClientRect().height],
+            reader: [reader.getBoundingClientRect().width, reader.getBoundingClientRect().height],
+            exitLabel: document.getElementById("viewerFullscreenBtn").getAttribute("aria-label"),
+            zoom: window.__viewerImageController.getState().zoom
+          };
+        });
+        t.diagnostic(`plein écran fallback forcé=${forceFullscreenFallback} ; état=${JSON.stringify(state)}`);
+        if (forceFullscreenFallback) assert.equal(state.fallback, true, "le repli viewport est utilisé sans API native");
+        else assert.ok(state.nativeFullscreen || state.fallback, "la Fullscreen API native ou son repli est utilisé");
+        assert.equal(state.headerHidden, true, "l’en-tête non essentiel est masqué en plein écran");
+        assert.equal(state.detailsHidden, true, "le panneau d’informations ne réduit pas la surface de lecture");
+        assert.ok(state.panel[0] >= state.viewport[0] - 1 && state.panel[1] >= state.viewport[1] - 1, "le panneau lecteur occupe le viewport");
+        assert.equal(state.exitLabel, "Quitter le plein écran", "la commande de sortie est annoncée");
+        assert.equal(state.zoom, zoom, "le niveau de zoom est conservé à l’entrée");
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => !document.getElementById("documentViewerDialog").classList.contains("is-viewer-fullscreen"));
+        assert.equal(await page.locator("#documentViewerDialog").evaluate(dialog => dialog.open), true, "Échap quitte seulement le plein écran");
+        assert.equal(await page.locator("#viewerImage").evaluate(image => image.currentSrc), source, "la sortie ne recharge pas l’image");
+        assert.equal(await page.evaluate(() => window.__viewerImageController.getState().zoom), zoom, "le niveau de zoom reste identique après la sortie");
+      } finally { await context.close(); }
+    }
   } finally { await browser.close(); await server.close(); }
 });

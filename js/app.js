@@ -5120,8 +5120,18 @@ function setupViewerImage(item) {
   viewerImageState?.destroy();
   const image = $("viewerImage");
   if (!image.naturalWidth || !image.naturalHeight) return;
-  viewerImageState = createDocumentImageViewer({ viewport: $("viewerImageViewport"), image, controls: $("viewerImageControls"), zoomLabel: $("viewerImageZoomLevel"), modeButton: $("viewerImageModeBtn"), initialMode: selectInitialDocumentImageMode({ naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight }) });
-  document.querySelectorAll("#viewerImageControls .viewer-image-only").forEach(control => { control.hidden = false; });
+  viewerImageState = createDocumentImageViewer({
+    viewport: $("viewerImageViewport"),
+    image,
+    controls: $("viewerImageControls"),
+    zoomIndicator: $("viewerZoomIndicator"),
+    modeButton: $("viewerImageModeBtn"),
+    fullscreenButton: $("viewerFullscreenBtn"),
+    fullscreenHost: $("documentViewerDialog").querySelector(".document-original-panel"),
+    fullscreenRoot: $("documentViewerDialog"),
+    initialMode: selectInitialDocumentImageMode({ naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight })
+  });
+  document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = false; });
   $("viewerImageControls").hidden = false;
 }
 
@@ -5134,6 +5144,12 @@ function setUnifiedDetailsCollapsed(collapsed) {
   $("viewerDetailsExpandBtn").hidden = !collapsed;
   $("viewerDetailsCollapseBtn").setAttribute("aria-expanded", String(!collapsed));
   $("viewerDetailsExpandBtn").setAttribute("aria-expanded", String(!collapsed));
+  $("viewerDetailsCollapseBtn").setAttribute("aria-label", "Masquer les informations");
+  $("viewerDetailsCollapseBtn").title = "Masquer les informations";
+  $("viewerDetailsExpandBtn").setAttribute("aria-label", "Afficher les informations");
+  $("viewerDetailsExpandBtn").title = "Afficher les informations";
+  $("viewerDetailsCollapseBtn").querySelector("use")?.setAttribute("href", "#icon-panel-collapse");
+  $("viewerDetailsExpandBtn").querySelector("use")?.setAttribute("href", "#icon-panel-expand");
 }
 
 async function openStoredDocument(item, returnContext = "previous") {
@@ -5153,7 +5169,7 @@ async function openStoredDocument(item, returnContext = "previous") {
   $("viewerSubtitle").textContent = headerMetadata.join(" · ") || "Aperçu dans Family Tree";
   $("viewerImage").hidden = true;
   $("viewerImageControls").hidden = true;
-  document.querySelectorAll("#viewerImageControls .viewer-image-only").forEach(control => { control.hidden = true; });
+  document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = true; });
   $("viewerImage").onload = null;
   $("viewerImage").removeAttribute("style");
   viewerImageState?.destroy();
@@ -7011,8 +7027,11 @@ syncSearchClearBtn("directorySearch", "clearDirectorySearchBtn");
 syncSearchClearBtn("taskSearch", "clearTaskSearchBtn");
 $("documentViewerDialog").addEventListener("close", () => {
   activeViewerDocumentId = "";
-  if (!activeViewerUrl) return;
-  URL.revokeObjectURL(activeViewerUrl);
+  viewerImageState?.destroy();
+  viewerImageState = null;
+  $("viewerImageControls").hidden = true;
+  document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = true; });
+  if (activeViewerUrl) URL.revokeObjectURL(activeViewerUrl);
   activeViewerUrl = "";
   $("viewerFrame").removeAttribute("src");
   $("viewerImage").removeAttribute("src");
