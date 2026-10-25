@@ -978,6 +978,23 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   color: var(--color-brand);
 }
 
+#personDocumentsPanel:not([hidden]) {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+}
+#personDocumentsPanel .person-documents {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+#personDocumentsPanel .person-documents > h4 { margin: 0; }
+#personDocumentsPanel #linkDocumentBtn { justify-self: start; margin-top: 0 !important; }
+
 @media (max-width: 760px) {
   .person-doc-gallery { grid-template-columns: repeat(auto-fit, minmax(min(10.5rem, 100%), 1fr)); gap: var(--space-2); }
 }
@@ -2038,6 +2055,34 @@ label .field { margin-top: var(--space-2); }
 .viewer-fullscreen-control[hidden] { display: none; }
 .viewer-details-toggle { flex: 0 0 auto; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); padding: 0; }
 .viewer-details-toggle .ui-icon { width: 1.25rem; height: 1.25rem; }
+.pdf-viewer-controls { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-1); width: 100%; }
+.pdf-viewer-controls .btn { min-height: var(--control-touch); }
+.pdf-viewer-controls [hidden], .pdf-viewer-surface[hidden] { display: none !important; }
+.pdf-page-status { min-width: 6.5rem; text-align: center; font-size: var(--text-sm); }
+.pdf-zoom-indicator { min-width: 3.5rem; text-align: center; font-size: var(--text-sm); }
+.pdf-viewer-surface { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: var(--space-3); flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; }
+.pdf-thumbnail-rail { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.pdf-thumbnail-list { display: grid; justify-items: center; gap: var(--space-2); padding: var(--space-1); }
+.pdf-thumbnail { display: grid; justify-items: center; gap: var(--space-1); width: 100%; min-height: var(--control-touch); padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); }
+.pdf-thumbnail[aria-current="page"] { outline: 2px solid var(--color-brand); outline-offset: 1px; }
+.pdf-thumbnail canvas { max-width: 100%; object-fit: contain; background: white; box-shadow: var(--shadow-low); }
+.pdf-thumbnail span { font-size: var(--text-xs); }
+.pdf-page-viewport { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; background: var(--color-surface-muted); }
+.pdf-page-canvas { display: block; flex: 0 0 auto; max-width: none; background: white; box-shadow: var(--shadow-low); }
+.pdf-viewer-surface .pdf-thumbnail-rail[hidden] { display: none; }
+.pdf-viewer-surface:has(.pdf-thumbnail-rail[hidden]) { grid-template-columns: minmax(0, 1fr); }
+#documentViewerDialog.is-viewer-fullscreen .pdf-viewer-controls { position: relative; z-index: 2; }
+#documentViewerDialog.is-viewer-fullscreen .pdf-viewer-surface { flex: 1 1 auto; }
+@media (max-width: 600px) {
+  .pdf-viewer-controls { gap: 2px; }
+  .pdf-viewer-controls .btn { min-width: var(--control-touch); padding-inline: var(--space-2); }
+  .pdf-viewer-surface { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: var(--space-1); }
+  .pdf-page-viewport { grid-column: 1; grid-row: 1; }
+  .pdf-thumbnail-rail { grid-column: 1; grid-row: 2; max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+  .pdf-thumbnail-list { display: flex; align-items: start; justify-items: initial; width: max-content; min-width: 100%; gap: var(--space-2); }
+  .pdf-thumbnail { flex: 0 0 4rem; width: 4rem; }
+  .pdf-thumbnail canvas { max-height: 4.75rem; }
+}
 #documentViewerDialog.is-viewer-fullscreen { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100dvh !important; max-width: none !important; max-height: none !important; margin: 0 !important; padding: 0 !important; overflow: hidden; border: 0; border-radius: 0; }
 #documentViewerDialog.is-viewer-fullscreen .modal-head { display: none; }
 #documentViewerDialog.is-viewer-fullscreen .modal-body { display: flex !important; flex: 1 1 auto !important; min-height: 0 !important; padding: 0 !important; overflow: hidden !important; }

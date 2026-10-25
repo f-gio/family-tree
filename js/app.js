@@ -13,6 +13,7 @@ import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
 import { MAIN_TREE_ID, UNASSIGNED_TREE_STATE, UNASSIGNED_TREE_CHOICE, TREE_LIFECYCLE_ACTIVE, TREE_LIFECYCLE_DELETING, MAX_MULTI_TREE_TRANSFER_PEOPLE, MAX_MULTI_TREE_TRANSFER_READS, getTreeLifecycleState, getTreeDeletionMemberReport, getPersonTreeId, getPersonTreeMembership, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan, prepareMultipleTreeTransferPlan } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
 import { createDocumentImageViewer, selectInitialDocumentImageMode } from "./document-image-viewer.js";
+import { createDocumentPdfViewer } from "./document-pdf-viewer.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
 import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel, DIRECTORY_UNASSIGNED_TREE_FILTER } from "./directory-advanced.js";
 import { filterAndSortProcedures, sortProcedureActions, procedureTypeLabel, procedureStatusLabel, procedureActionTypeLabel, isProcedureClosed, DOSSIER_MIN_QUERY_LENGTH } from "./procedures.js";
@@ -157,6 +158,7 @@ let unifiedViewerReturnOnDialogClose = "";
 let unifiedViewerReopenContext = "documents";
 let activeViewerReturnContext = "previous";
 let viewerImageState = null;
+let viewerPdfState = null;
 let viewerImageHandlersBound = false;
 let activePersonSection = "identity";
 let activeGenealogyItem = null;
@@ -5135,6 +5137,98 @@ function setupViewerImage(item) {
   $("viewerImageControls").hidden = false;
 }
 
+function createPdfViewerElements() {
+  const controls = $("viewerImageControls");
+  let toolbar = $("viewerPdfControls");
+  let rail = $("viewerPdfThumbnails");
+  let list = $("viewerPdfThumbnailList");
+  let pageViewport = $("viewerPdfPageViewport");
+  let canvas = $("viewerPdfPageCanvas");
+  if (!toolbar) {
+    toolbar = document.createElement("div");
+    toolbar.id = "viewerPdfControls";
+    toolbar.className = "pdf-viewer-controls";
+    toolbar.setAttribute("role", "group");
+    toolbar.setAttribute("aria-label", "Commandes PDF");
+    toolbar.innerHTML = `<button class="btn small" type="button" id="pdfThumbnailsBtn" aria-expanded="true" aria-label="Masquer les miniatures" title="Masquer les miniatures">Miniatures</button><button class="btn small" type="button" id="pdfPreviousPageBtn" aria-label="Page précédente" title="Page précédente">‹</button><output id="pdfPageStatus" class="pdf-page-status" aria-live="polite"></output><button class="btn small" type="button" id="pdfNextPageBtn" aria-label="Page suivante" title="Page suivante">›</button><button class="btn small" type="button" id="pdfZoomOutBtn" aria-label="Dézoomer" title="Dézoomer">−</button><span id="pdfZoomIndicator" class="pdf-zoom-indicator" aria-live="polite"></span><button class="btn small" type="button" id="pdfZoomInBtn" aria-label="Zoomer" title="Zoomer">+</button><button class="btn small" type="button" id="pdfFitModeBtn" aria-label="Ajuster à la largeur" title="Ajuster à la largeur">Adapter</button><button class="btn small" type="button" id="pdfFullscreenBtn" aria-label="Afficher en plein écran" title="Afficher en plein écran">Plein écran</button>`;
+    controls.append(toolbar);
+  }
+  if (toolbar.parentElement !== controls) controls.append(toolbar);
+  const viewport = $("viewerImageViewport");
+  let surface = $("viewerPdfSurface");
+  if (!surface) {
+    surface = document.createElement("div");
+    surface.id = "viewerPdfSurface";
+    surface.className = "pdf-viewer-surface";
+    rail = document.createElement("aside");
+    rail.id = "viewerPdfThumbnails";
+    rail.className = "pdf-thumbnail-rail";
+    rail.setAttribute("aria-label", "Miniatures des pages");
+    list = document.createElement("div");
+    list.id = "viewerPdfThumbnailList";
+    list.className = "pdf-thumbnail-list";
+    rail.append(list);
+    pageViewport = document.createElement("div");
+    pageViewport.id = "viewerPdfPageViewport";
+    pageViewport.className = "pdf-page-viewport";
+    pageViewport.tabIndex = 0;
+    pageViewport.setAttribute("aria-label", "Page PDF");
+    canvas = document.createElement("canvas");
+    canvas.id = "viewerPdfPageCanvas";
+    canvas.className = "pdf-page-canvas";
+    pageViewport.append(canvas);
+    surface.append(rail, pageViewport);
+    viewport.append(surface);
+  }
+  if (surface.parentElement !== viewport) viewport.append(surface);
+  return { toolbar, rail, list, pageViewport, canvas, surface };
+}
+
+async function setupViewerPdf(source, documentId) {
+  const { toolbar, rail, list, pageViewport, canvas, surface } = createPdfViewerElements();
+  const ids = id => $(id);
+  surface.hidden = false;
+  $("viewerImageControls").hidden = false;
+  document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = true; });
+  $("viewerFrame").hidden = true;
+  $("viewerImage").hidden = true;
+  $("viewerMessage").hidden = true;
+  toolbar.hidden = false;
+  const result = await createDocumentPdfViewer({
+    source,
+    viewer: surface,
+    loadingMessage: $("viewerMessage"),
+    thumbnailRail: rail,
+    thumbnailList: list,
+    pageViewport,
+    pageCanvas: canvas,
+    pageStatus: ids("pdfPageStatus"),
+    previousButton: ids("pdfPreviousPageBtn"),
+    nextButton: ids("pdfNextPageBtn"),
+    zoomOutButton: ids("pdfZoomOutBtn"),
+    zoomInButton: ids("pdfZoomInBtn"),
+    fitModeButton: ids("pdfFitModeBtn"),
+    thumbnailsButton: ids("pdfThumbnailsBtn"),
+    fullscreenButton: ids("pdfFullscreenBtn"),
+    fullscreenHost: $("documentViewerDialog").querySelector(".document-original-panel"),
+    fullscreenRoot: $("documentViewerDialog"),
+    zoomIndicator: ids("pdfZoomIndicator")
+  });
+  if (activeViewerDocumentId !== documentId || !$("documentViewerDialog").open) {
+    result.destroy();
+    return null;
+  }
+  if (result.fallback) {
+    toolbar.hidden = true;
+    surface.hidden = true;
+    $("viewerMessage").hidden = true;
+    $("viewerFrame").src = source;
+    $("viewerFrame").hidden = false;
+    return null;
+  }
+  return result;
+}
+
 function setUnifiedDetailsCollapsed(collapsed) {
   const layout = $("documentUnifiedLayout");
   const details = $("viewerDocumentDetails");
@@ -5174,6 +5268,12 @@ async function openStoredDocument(item, returnContext = "previous") {
   $("viewerImage").removeAttribute("style");
   viewerImageState?.destroy();
   viewerImageState = null;
+  viewerPdfState?.destroy();
+  viewerPdfState = null;
+  const pdfControls = $("viewerPdfControls");
+  if (pdfControls) pdfControls.hidden = true;
+  const pdfSurface = $("viewerPdfSurface");
+  if (pdfSurface) pdfSurface.hidden = true;
   $("viewerFrame").hidden = true;
   $("viewerMessage").hidden = false;
   $("viewerMessage").textContent = "Chargement du document…";
@@ -5199,11 +5299,14 @@ async function openStoredDocument(item, returnContext = "previous") {
     $("viewerExternalBtn").hidden = false;
     $("viewerImageControls").hidden = false;
     $("viewerMessage").hidden = true;
+    const isPdf = mimeType.toLowerCase().includes("pdf") || /\.pdf(?:$|[?#])/i.test(item.fileName || source);
     if (mimeType.startsWith("image/")) {
       $("viewerImage").onload = () => setupViewerImage(item);
       $("viewerImage").src = source;
       $("viewerImage").hidden = false;
       if ($("viewerImage").complete) setupViewerImage(item);
+    } else if (isPdf) {
+      viewerPdfState = await setupViewerPdf(source, item.id);
     } else {
       $("viewerImageControls").hidden = false;
       $("viewerFrame").src = source;
@@ -7029,6 +7132,12 @@ $("documentViewerDialog").addEventListener("close", () => {
   activeViewerDocumentId = "";
   viewerImageState?.destroy();
   viewerImageState = null;
+  viewerPdfState?.destroy();
+  viewerPdfState = null;
+  const pdfControls = $("viewerPdfControls");
+  if (pdfControls) pdfControls.hidden = true;
+  const pdfSurface = $("viewerPdfSurface");
+  if (pdfSurface) pdfSurface.hidden = true;
   $("viewerImageControls").hidden = true;
   document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = true; });
   if (activeViewerUrl) URL.revokeObjectURL(activeViewerUrl);

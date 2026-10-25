@@ -7,6 +7,8 @@ import { buildRecetteOnlyEnvironment } from "./build-recette-environment.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT = resolve(ROOT, "dist-recette");
+const PDFJS_PACKAGE = resolve(ROOT, "node_modules/pdfjs-dist");
+const PDFJS_OUTPUT_PREFIX = "vendor/pdfjs/";
 const ENTRYPOINTS = ["index.html"];
 const BLOCKED_SEGMENTS = new Set([
   ".git", ".firebase", "node_modules", "tests", "scripts", "dist-recette",
@@ -56,6 +58,7 @@ function javascriptReferences(source) {
   const references = [];
   for (const match of source.matchAll(/\bfrom\s*(["'])(.*?)\1/g)) references.push(match[2]);
   for (const match of source.matchAll(/\bimport\s*(["'])(.*?)\1/g)) references.push(match[2]);
+  for (const match of source.matchAll(/\bimport\s*\(\s*(["'])(.*?)\1\s*\)/g)) references.push(match[2]);
   return references;
 }
 
@@ -79,6 +82,11 @@ async function collectFrontendFiles(sourceRoot) {
       const reference = localReference(rawReference);
       if (!reference) continue;
       const child = assertInside(root, resolve(dirname(sourcePath), reference), `Dépendance de ${rel}`);
+      const childRel = relative(root, child).split(sep).join("/");
+      if (childRel.startsWith(PDFJS_OUTPUT_PREFIX)) {
+        collected.add(assertAllowedAsset(childRel));
+        continue;
+      }
       pending.push(relative(root, child));
     }
   }
@@ -95,6 +103,15 @@ async function listFiles(directory, base = directory) {
     else throw new Error(`Entrée spéciale inattendue dans l’artefact : ${absolute}`);
   }
   return files;
+}
+
+async function collectPdfJsAssets() {
+  const files = ["build/pdf.mjs", "build/pdf.worker.mjs", "LICENSE"];
+  for (const directory of ["cmaps", "standard_fonts", "wasm", "iccs"]) {
+    const root = assertInside(PDFJS_PACKAGE, join(PDFJS_PACKAGE, directory), "Ressources PDF.js");
+    files.push(...await listFiles(root).then(entries => entries.map(entry => `${directory}/${entry}`)));
+  }
+  return files.map(file => `${PDFJS_OUTPUT_PREFIX}${file}`).sort();
 }
 
 async function verifyServedFiles(outputRoot, files) {
@@ -136,7 +153,9 @@ async function verifyServedFiles(outputRoot, files) {
   }
 }
 
-const files = await collectFrontendFiles(ROOT);
+const frontendFiles = await collectFrontendFiles(ROOT);
+const pdfJsAssets = await collectPdfJsAssets();
+const files = [...new Set([...frontendFiles, ...pdfJsAssets])].sort();
 assert.ok(files.includes("index.html"), "index.html doit être l’entrée de l’artefact");
 assert.ok(files.includes("css/design-system.css"), "la feuille de style commune doit être incluse");
 assert.ok(files.includes("js/firebase-environment.js"), "le résolveur d’environnement doit être inclus");
@@ -154,7 +173,9 @@ const previousOutput = await (async () => {
 if (previousOutput) await rm(OUTPUT, { recursive: true, force: true });
 await mkdir(OUTPUT, { recursive: true });
 for (const file of files) {
-  const source = assertInside(ROOT, join(ROOT, file), "Source frontend");
+  const source = file.startsWith(PDFJS_OUTPUT_PREFIX)
+    ? assertInside(PDFJS_PACKAGE, join(PDFJS_PACKAGE, file.slice(PDFJS_OUTPUT_PREFIX.length)), "Ressource PDF.js")
+    : assertInside(ROOT, join(ROOT, file), "Source frontend");
   const target = assertInside(OUTPUT, join(OUTPUT, file), "Destination frontend");
   await mkdir(dirname(target), { recursive: true });
   if (file === "js/firebase-environment.js") {

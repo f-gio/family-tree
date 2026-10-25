@@ -13,6 +13,7 @@
   "devDependencies": {
     "firebase": "12.2.1",
     "firebase-tools": "^15.32.1",
+    "pdfjs-dist": "^6.4.299",
     "playwright": "^1.63.0"
   }
 }
