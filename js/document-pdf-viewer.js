@@ -145,7 +145,8 @@ export async function createDocumentPdfViewer({
 
   function updatePageControls() {
     if (!pdfDocument) return;
-    pageStatus.value = `Page ${currentPage} / ${pdfDocument.numPages}`;
+    pageStatus.value = `${currentPage} / ${pdfDocument.numPages}`;
+    pageStatus.setAttribute("aria-label", `Page ${currentPage} sur ${pdfDocument.numPages}`);
     pageStatus.textContent = pageStatus.value;
     previousButton.disabled = currentPage <= 1;
     nextButton.disabled = currentPage >= pdfDocument.numPages;
@@ -498,7 +499,8 @@ export async function createDocumentPdfViewer({
 
   viewer.hidden = false;
   loadingMessage.hidden = true;
-  pageStatus.value = `Page ${currentPage} / ${pdfDocument.numPages}`;
+  pageStatus.setAttribute("aria-label", `Page ${currentPage} sur ${pdfDocument.numPages}`);
+  pageStatus.value = `${currentPage} / ${pdfDocument.numPages}`;
   pageStatus.textContent = pageStatus.value;
   buildThumbnails();
   updatePageControls();
