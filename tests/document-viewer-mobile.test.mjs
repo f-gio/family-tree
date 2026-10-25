@@ -4,9 +4,10 @@ import test from "node:test";
 import { chromium, webkit } from "playwright";
 import { blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
-const [html, css] = await Promise.all([
+const [html, css, app] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
-  readFile(new URL("../css/design-system.css", import.meta.url), "utf8")
+  readFile(new URL("../css/design-system.css", import.meta.url), "utf8"),
+  readFile(new URL("../js/app.js", import.meta.url), "utf8")
 ]);
 
 const portraitSvg = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="800"><rect width="200" height="800" fill="#c4b5a0"/></svg>');
@@ -72,26 +73,113 @@ async function createViewerPage(browser, server, width, height) {
 }
 
 async function openViewer(page, { title, fileName, kind = "image", src = portraitSvg }) {
-  await page.evaluate(({ title, fileName, kind, src }) => {
+  await page.evaluate(async ({ title, fileName, kind, src }) => {
     const dialog = document.getElementById("documentViewerDialog");
-    if (dialog.open) dialog.close();
+    window.__viewerImageController?.destroy();
+    window.__viewerImageController = null;
+    if (dialog.open) await new Promise(resolveClose => {
+      dialog.addEventListener("close", resolveClose, { once: true });
+      dialog.close();
+    });
     document.getElementById("viewerTitle").textContent = title;
     document.getElementById("viewerSubtitle").textContent = fileName;
     const img = document.getElementById("viewerImage");
     const frame = document.getElementById("viewerFrame");
+    const controls = document.getElementById("viewerImageControls");
+    const viewport = document.getElementById("viewerImageViewport");
+    const layout = document.getElementById("documentUnifiedLayout");
+    const details = document.getElementById("viewerDocumentDetails");
+    const expandButton = document.getElementById("viewerDetailsExpandBtn");
+    const collapseButton = document.getElementById("viewerDetailsCollapseBtn");
+    const detailsToggle = document.getElementById("viewerDetailsBtn");
+    const external = document.getElementById("viewerExternalBtn");
+    const toggles = document.getElementById("pdfPanelToggles");
+    const thumbnails = document.getElementById("pdfThumbnailsBtn");
     img.hidden = true;
     frame.hidden = true;
     frame.removeAttribute("src");
     img.removeAttribute("src");
+    viewport.classList.remove("viewer-pdf-active");
     document.getElementById("viewerMessage").hidden = true;
-    document.getElementById("viewerExternalBtn").hidden = false;
+    details.hidden = true;
+    layout.classList.add("is-details-collapsed");
+    expandButton.hidden = false;
+    collapseButton.hidden = true;
+    expandButton.setAttribute("aria-expanded", "false");
+    expandButton.setAttribute("aria-label", "Afficher les informations");
+    detailsToggle.setAttribute("aria-expanded", "false");
+    detailsToggle.setAttribute("aria-label", "Afficher les informations");
+    document.getElementById("viewerDocumentDetailsContent").innerHTML = "<section class=\"document-unified-section\"><h4>Informations documentaires</h4><div class=\"document-unified-facts\"><div class=\"document-unified-fact\"><strong>Fichier</strong><span>Test.pdf</span></div></div></section>";
+    external.href = src;
+    external.hidden = false;
+    controls.hidden = kind !== "image";
+    document.getElementById("viewerPdfToolbar").hidden = true;
+    document.getElementById("pdfPageNav").hidden = true;
+    toggles.hidden = true;
+    thumbnails.hidden = false;
+    if (!expandButton.dataset.testBound) {
+      const setCollapsed = collapsed => {
+        layout.classList.toggle("is-details-collapsed", collapsed);
+        details.hidden = collapsed;
+        expandButton.hidden = false;
+        collapseButton.hidden = true;
+        expandButton.setAttribute("aria-expanded", String(!collapsed));
+        detailsToggle.setAttribute("aria-expanded", String(!collapsed));
+        const label = collapsed ? "Afficher les informations" : "Masquer les informations";
+        expandButton.setAttribute("aria-label", label);
+        expandButton.title = label;
+        detailsToggle.setAttribute("aria-label", label);
+        detailsToggle.title = label;
+      };
+      detailsToggle.onclick = () => setCollapsed(detailsToggle.getAttribute("aria-expanded") === "true");
+      expandButton.dataset.testBound = "true";
+    }
     if (kind === "image") {
       img.src = src;
       img.hidden = false;
+      await img.decode();
+      const originalHead = document.querySelector(".document-original-head");
+      document.getElementById("viewerFullscreenBtn").hidden = false;
+      document.getElementById("viewerImageModeBtn").hidden = false;
+      let arrangeImageChrome = window.__viewerImageChromeArrange;
+      if (!arrangeImageChrome) {
+        arrangeImageChrome = () => {
+          if (matchMedia("(max-width: 760px)").matches) {
+            controls.append(document.getElementById("viewerFullscreenBtn"), external);
+            originalHead.append(expandButton);
+            document.getElementById("viewerPdfToolbar").append(thumbnails);
+            thumbnails.hidden = true;
+            toggles.append(detailsToggle);
+            toggles.classList.add("viewer-image-panel-toggles");
+            toggles.hidden = false;
+            viewport.after(toggles);
+          } else {
+            document.getElementById("viewerPdfToolbar").append(thumbnails);
+            thumbnails.hidden = false;
+            toggles.classList.remove("viewer-image-panel-toggles");
+            toggles.hidden = true;
+            controls.append(document.getElementById("viewerFullscreenBtn"), external, expandButton);
+          }
+        };
+        window.__viewerImageChromeArrange = arrangeImageChrome;
+        const media = matchMedia("(max-width: 760px)");
+        if (typeof media.addEventListener === "function") media.addEventListener("change", arrangeImageChrome);
+        else if (typeof media.addListener === "function") media.addListener(arrangeImageChrome);
+      }
+      arrangeImageChrome();
+      const { createDocumentImageViewer, selectInitialDocumentImageMode } = await import("./js/document-image-viewer.js");
+      window.__viewerImageController = createDocumentImageViewer({
+        viewport, image: img, controls, zoomIndicator: document.getElementById("viewerZoomIndicator"),
+        modeButton: document.getElementById("viewerImageModeBtn"), fullscreenButton: document.getElementById("viewerFullscreenBtn"),
+        fullscreenHost: document.querySelector(".document-original-panel"), fullscreenRoot: dialog,
+        initialMode: selectInitialDocumentImageMode({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight })
+      });
     } else {
+      toggles.classList.remove("viewer-image-panel-toggles");
       const blob = new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a])], { type: "application/pdf" });
       frame.src = URL.createObjectURL(blob);
       frame.hidden = false;
+      document.querySelector(".viewer-head-actions").append(external);
     }
     dialog.showModal();
     dialog.getAnimations({ subtree: true }).forEach(a => a.finish());
@@ -265,7 +353,7 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
               });
               assert.ok(afterScroll.viewerTop > 0, "scroll sur viewer-body");
               assert.equal(afterScroll.bodyTop, 0, "pas de scroll sur modal-body");
-              assert.equal(afterScroll.bodyOverflow, "hidden", "modal-body overflow hidden (scroller unique)");
+              assert.equal(afterScroll.bodyOverflow, "auto", "le modal-body peut défiler pour les informations sans empêcher le défilement du document");
               assert.deepEqual(before.head, (await measureViewer(page)).head, "header stable pendant le scroll");
             } finally { await context.close(); }
           });
@@ -309,4 +397,83 @@ test("Viewer : non-régression des sheets 92dvh (CSS inchangé)", () => {
   assert.match(css, /#procedureDetailDialog\.modal-mobile-sheet--stable \{\s*\n\s*height: 92dvh;/);
   /* viewer volontairement hors du pattern sheet */
   assert.doesNotMatch(html, /id="documentViewerDialog"[^>]*modal-mobile-sheet/);
+});
+
+test("Les points d’ouverture des documents existants conservent le flux vers la visionneuse", () => {
+  assert.match(app, /function renderDocuments\(\)[\s\S]*?data-document-card/);
+  assert.match(app, /function setupViewerImage\(item\)[\s\S]*?createDocumentImageViewer/);
+  assert.match(app, /async function openStoredDocument\(item\)[\s\S]*?readChunkedFile\(item\)[\s\S]*?setupViewerImage\(item\)/);
+  assert.match(app, /const isPdf = mimeType\.toLowerCase\(\)\.includes\("pdf"\)[\s\S]*?setupViewerPdf\(source, item\.id\)/);
+  assert.match(app, /\$\("documentsList"\)\.onclick = event => \{[\s\S]*?openStoredDocument\(item\);/);
+  assert.match(app, /\$\("personDocumentsList"\)\.addEventListener\("keydown",[\s\S]*?openStoredDocument\(item\);/);
+  assert.match(app, /\$\("directoryDocumentsList"\)\.addEventListener\("click",[\s\S]*?openStoredDocument\(documents\.find/);
+});
+
+test("JPEG/PNG : contrôles réels, Informations et plein écran desktop/mobile", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    for (const [width, height] of [[1280, 900], [375, 812]]) {
+      const { context, page } = await createViewerPage(browser, server, width, height);
+      try {
+        await openViewer(page, { title: "Acte de naissance", fileName: "acte-1891.svg", src: landscapeSvg });
+        const measurements = await page.evaluate(isNarrow => {
+          const rect = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
+          const controls = document.getElementById("viewerImageControls");
+          const reader = document.getElementById("viewerImageViewport");
+          return {
+            controls: rect("#viewerImageControls"), reader: rect("#viewerImageViewport"),
+            zoomOut: rect('[data-viewer-image-zoom="out"]'), zoomIn: rect('[data-viewer-image-zoom="in"]'),
+            fit: rect("#viewerImageModeBtn"), fullscreen: rect("#viewerFullscreenBtn"), external: rect("#viewerExternalBtn"),
+            info: rect(isNarrow ? "#viewerDetailsBtn" : "#viewerDetailsExpandBtn"),
+            scrollWidth: document.documentElement.scrollWidth, viewportWidth: innerWidth,
+            readerOverflow: getComputedStyle(reader).overflowY, controlsWidth: controls.getBoundingClientRect().width
+          };
+        }, width <= 760);
+        const infoButton = page.locator(width <= 760 ? "#viewerDetailsBtn" : "#viewerDetailsExpandBtn");
+        const readControls = await page.locator("#viewerImageControls .btn:visible:not(#viewerDetailsExpandBtn)").all();
+        assert.equal(readControls.length, 5, `${width}px : zoom −/+, Ajuster, Plein écran et Nouvel onglet visibles`);
+        assert.ok(Math.abs(measurements.zoomIn.x - measurements.zoomOut.right + 1) <= 1, `${width}px : boutons de zoom JPEG/PNG accolés`);
+        assert.ok(measurements.fit.x > measurements.zoomIn.x && measurements.fullscreen.x > measurements.fit.x && measurements.external.x > measurements.fullscreen.x, `${width}px : commandes accessibles dans l’ordre`);
+        assert.ok(measurements.external.width >= 43.5 && measurements.external.height >= 43.5, `${width}px : Nouvel onglet reste une cible tactile`);
+        assert.equal(measurements.scrollWidth, measurements.viewportWidth, `${width}px : aucun débordement horizontal`);
+        if (width > 760) {
+          assert.ok(measurements.info.right >= measurements.controls.right - 2, "Informations reste à droite de la barre desktop");
+          assert.ok(Math.abs(measurements.reader.y - measurements.controls.bottom - 12) <= 1, "espacement image desktop de 12px inchangé");
+        } else {
+          assert.ok(measurements.info.width >= measurements.controlsWidth - 2 && measurements.info.height >= 43.5, "bouton Informations mobile large et tactile");
+          assert.ok(measurements.info.y >= measurements.reader.bottom - 1, "bouton Informations sous l’image");
+        }
+        const zoomStart = await page.evaluate(() => window.__viewerImageController.getState().zoom);
+        await page.locator('[data-viewer-image-zoom="in"]').click();
+        assert.equal(await page.evaluate(() => window.__viewerImageController.getState().zoom), zoomStart * 1.25, `${width}px : Zoom + fonctionne`);
+        await page.locator('[data-viewer-image-zoom="out"]').click();
+        assert.equal(await page.evaluate(() => window.__viewerImageController.getState().zoom), zoomStart, `${width}px : Zoom − fonctionne indépendamment`);
+        await page.locator("#viewerImageModeBtn").click();
+        assert.equal(await page.evaluate(() => window.__viewerImageController.getState().mode), "width", `${width}px : Ajuster fonctionne`);
+        await infoButton.click();
+        assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, `${width}px : Informations s’ouvre`);
+        await infoButton.click();
+        assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, `${width}px : le même bouton ferme Informations`);
+        await infoButton.click();
+        assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, `${width}px : Informations se rouvre`);
+        if (width <= 760) {
+          await page.setViewportSize({ width: 844, height: 390 });
+          await page.waitForTimeout(80);
+          assert.equal(await page.locator("#pdfPanelToggles").isHidden(), true, "en paysage, le dépliant mobile quitte la ligne de lecture");
+          assert.equal(await page.locator("#viewerDetailsExpandBtn").isVisible(), true, "en paysage, le bouton desktop Informations revient dans la barre");
+          await page.setViewportSize({ width: 375, height: 812 });
+          await page.waitForTimeout(80);
+          assert.equal(await page.locator("#viewerDetailsBtn").isVisible(), true, "en portrait, le bouton dépliant Informations revient sous l’image");
+        }
+        await page.locator("#viewerFullscreenBtn").click();
+        await page.waitForFunction(() => document.getElementById("documentViewerDialog").classList.contains("is-viewer-fullscreen"));
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => !document.getElementById("documentViewerDialog").classList.contains("is-viewer-fullscreen"));
+        assert.equal(await page.locator("#viewerImage").evaluate(image => image.naturalWidth / image.naturalHeight), 4, `${width}px : proportions originales conservées`);
+      } finally { await context.close(); }
+    }
+  } finally { await browser.close(); await server.close(); }
 });

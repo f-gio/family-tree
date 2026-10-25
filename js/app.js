@@ -12,6 +12,8 @@ import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree
 import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
 import { MAIN_TREE_ID, UNASSIGNED_TREE_STATE, UNASSIGNED_TREE_CHOICE, TREE_LIFECYCLE_ACTIVE, TREE_LIFECYCLE_DELETING, MAX_MULTI_TREE_TRANSFER_PEOPLE, MAX_MULTI_TREE_TRANSFER_READS, getTreeLifecycleState, getTreeDeletionMemberReport, getPersonTreeId, getPersonTreeMembership, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan, prepareMultipleTreeTransferPlan } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
+import { createDocumentImageViewer, selectInitialDocumentImageMode } from "./document-image-viewer.js";
+import { createDocumentPdfViewer } from "./document-pdf-viewer.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
 import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel, DIRECTORY_UNASSIGNED_TREE_FILTER } from "./directory-advanced.js";
 import { filterAndSortProcedures, sortProcedureActions, procedureTypeLabel, procedureStatusLabel, procedureActionTypeLabel, isProcedureClosed, DOSSIER_MIN_QUERY_LENGTH } from "./procedures.js";
@@ -112,6 +114,9 @@ let currentUserProfile = null, primaryAdminUid = "", adminUsersCache = [], curre
 let manualOffsets = readOffsets();
 let treeLayoutEngine = "hybrid";
 let activeViewerUrl = "";
+let activeViewerDocumentId = "";
+let viewerImageState = null;
+let viewerPdfState = null;
 let activePersonSection = "identity";
 let documentReturnContext = null;
 let documentFileMarkedForRemoval = false;
@@ -3785,11 +3790,207 @@ async function restoreCompleteBackup(file) {
   }
 }
 
+function renderViewerDocumentDetails(item) {
+  const fields = [];
+  if (item.type) fields.push(["Type", item.type]);
+  if (item.date) fields.push(["Date", formatGenealogyDate(null, item.date)]);
+  const place = formatCompactPlace(item.place, item.placeInfo);
+  if (place) fields.push(["Lieu", place]);
+  if (item.fileName) fields.push(["Fichier", item.fileName]);
+  if (item.notes) fields.push(["Notes", item.notes]);
+  if (item.storedSize) fields.push(["Taille", `${formatBytes(item.storedSize)}${item.compressed ? " optimisés" : ""}`]);
+  const facts = fields.length
+    ? `<div class="document-unified-facts">${fields.map(([label, value]) => `<div class="document-unified-fact"><strong>${esc(label)}</strong><span title="${esc(value)}">${esc(value)}</span></div>`).join("")}</div>`
+    : `<p class="document-unified-notice">Aucune information complémentaire n’est renseignée.</p>`;
+  const relatedPeople = (item.personIds || []).map(id => nameOf(id)).filter(Boolean);
+  const peopleMarkup = relatedPeople.length
+    ? `<p>${relatedPeople.map(esc).join(", ")}</p>`
+    : `<p class="document-unified-notice">Aucune personne n’est associée à ce document.</p>`;
+  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4>${facts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section>`;
+}
+
+function setUnifiedDetailsCollapsed(collapsed) {
+  const layout = $("documentUnifiedLayout");
+  const details = $("viewerDocumentDetails");
+  layout.classList.toggle("is-details-collapsed", collapsed);
+  details.hidden = collapsed;
+  $("viewerDetailsCollapseBtn").hidden = true;
+  $("viewerDetailsExpandBtn").hidden = false;
+  const expanded = String(!collapsed);
+  $("viewerDetailsExpandBtn").setAttribute("aria-expanded", expanded);
+  const actionLabel = collapsed ? "Afficher les informations" : "Masquer les informations";
+  $("viewerDetailsExpandBtn").setAttribute("aria-label", actionLabel);
+  $("viewerDetailsExpandBtn").title = actionLabel;
+  $("viewerDetailsExpandBtn").querySelector("use")?.setAttribute("href", collapsed ? "#icon-info" : "#icon-panel-collapse");
+  const detailsToggle = $("viewerDetailsBtn");
+  detailsToggle.setAttribute("aria-expanded", expanded);
+  detailsToggle.setAttribute("aria-label", actionLabel);
+  detailsToggle.title = actionLabel;
+}
+
+function arrangeViewerImageChrome() {
+  const panel = $("documentViewerDialog").querySelector(".document-original-panel");
+  const controls = $("viewerImageControls");
+  const viewport = $("viewerImageViewport");
+  const expandButton = $("viewerDetailsExpandBtn");
+  const externalButton = $("viewerExternalBtn");
+  const detailsToggle = $("viewerDetailsBtn");
+  const panelToggles = $("pdfPanelToggles");
+  const thumbnailsButton = $("pdfThumbnailsBtn");
+  const pdfToolbar = $("viewerPdfToolbar");
+  if (window.matchMedia("(max-width: 760px)").matches) {
+    panel.querySelector(".document-original-head").append(expandButton);
+    controls.append($("viewerFullscreenBtn"), externalButton);
+    pdfToolbar.append(thumbnailsButton);
+    thumbnailsButton.hidden = true;
+    panelToggles.append(detailsToggle);
+    panelToggles.classList.add("viewer-image-panel-toggles");
+    panelToggles.hidden = false;
+    viewport.after(panelToggles);
+  } else {
+    pdfToolbar.append(thumbnailsButton);
+    thumbnailsButton.hidden = false;
+    panelToggles.classList.remove("viewer-image-panel-toggles");
+    panelToggles.hidden = true;
+    controls.append($("viewerFullscreenBtn"), externalButton, expandButton);
+  }
+}
+
+function createPdfViewerElements() {
+  const toolbar = $("viewerPdfToolbar");
+  const pagination = $("pdfPageNav");
+  const toggles = $("pdfPanelToggles");
+  const rail = $("viewerPdfThumbnails");
+  const list = $("viewerPdfThumbnailList");
+  const surface = $("viewerPdfSurface");
+  const pageViewport = $("viewerPdfPageViewport");
+  const canvas = $("viewerPdfPageCanvas");
+  if (!toolbar || !pagination || !toggles || !rail || !list || !surface || !pageViewport || !canvas) {
+    throw new TypeError("Les éléments du lecteur PDF sont requis");
+  }
+  return { toolbar, pagination, toggles, rail, list, surface, pageViewport, canvas };
+}
+
+function arrangePdfChrome() {
+  const isNarrow = window.matchMedia("(max-width: 760px)").matches;
+  const { toolbar, pagination, toggles, rail } = createPdfViewerElements();
+  const viewerBody = $("viewerImageViewport");
+  const detailsButton = $("viewerDetailsExpandBtn");
+  toggles.classList.remove("viewer-image-panel-toggles");
+  $("pdfThumbnailsBtn").hidden = false;
+  if (isNarrow) {
+    pagination.append($("pdfPreviousPageBtn"), $("pdfPageStatus"), $("pdfNextPageBtn"));
+    toggles.prepend($("pdfThumbnailsBtn"));
+    $("documentViewerDialog").querySelector(".document-original-head").append(detailsButton);
+    for (const id of ["pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn"]) toolbar.append($(id));
+    toolbar.after(viewerBody);
+    viewerBody.after(pagination);
+    pagination.after(toggles);
+    toggles.after(rail);
+    pagination.hidden = false;
+    toggles.hidden = false;
+  } else {
+    pagination.hidden = true;
+    toggles.hidden = true;
+    for (const id of ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn", "viewerDetailsExpandBtn"]) {
+      toolbar.append($(id));
+    }
+  }
+}
+
+async function setupViewerImage(item) {
+  const image = $("viewerImage");
+  if (!image.naturalWidth || !image.naturalHeight) return;
+  viewerImageState?.destroy();
+  viewerImageState = createDocumentImageViewer({
+    viewport: $("viewerImageViewport"),
+    image,
+    controls: $("viewerImageControls"),
+    zoomIndicator: $("viewerZoomIndicator"),
+    modeButton: $("viewerImageModeBtn"),
+    fullscreenButton: $("viewerFullscreenBtn"),
+    fullscreenHost: $("documentViewerDialog").querySelector(".document-original-panel"),
+    fullscreenRoot: $("documentViewerDialog"),
+    initialMode: selectInitialDocumentImageMode({ naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight })
+  });
+  document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = false; });
+  $("viewerImageControls").hidden = false;
+  arrangeViewerImageChrome();
+}
+
+async function setupViewerPdf(source, documentId) {
+  const { toolbar, rail, list, pageViewport, canvas, surface } = createPdfViewerElements();
+  $("viewerImageViewport").classList.add("viewer-pdf-active");
+  $("viewerImageControls").hidden = true;
+  $("viewerFrame").hidden = true;
+  $("viewerImage").hidden = true;
+  $("viewerMessage").hidden = true;
+  surface.hidden = false;
+  toolbar.hidden = false;
+  rail.hidden = window.matchMedia("(max-width: 760px)").matches;
+  arrangePdfChrome();
+  const result = await createDocumentPdfViewer({
+    source,
+    viewer: surface,
+    loadingMessage: $("viewerMessage"),
+    thumbnailRail: rail,
+    thumbnailList: list,
+    pageViewport,
+    pageCanvas: canvas,
+    pageStatus: $("pdfPageStatus"),
+    previousButton: $("pdfPreviousPageBtn"),
+    nextButton: $("pdfNextPageBtn"),
+    zoomOutButton: $("pdfZoomOutBtn"),
+    zoomInButton: $("pdfZoomInBtn"),
+    fitModeButton: $("pdfFitModeBtn"),
+    thumbnailsButton: $("pdfThumbnailsBtn"),
+    fullscreenButton: $("pdfFullscreenBtn"),
+    fullscreenHost: $("documentViewerDialog").querySelector(".document-original-panel"),
+    fullscreenRoot: $("documentViewerDialog"),
+    zoomIndicator: $("pdfZoomIndicator"),
+    bindingRoot: $("documentViewerDialog")
+  });
+  if (activeViewerDocumentId !== documentId || !$("documentViewerDialog").open) {
+    result.destroy();
+    return null;
+  }
+  if (result.fallback) {
+    toolbar.hidden = true;
+    surface.hidden = true;
+    $("pdfPageNav").hidden = true;
+    $("pdfPanelToggles").hidden = true;
+    $("viewerMessage").hidden = true;
+    $("documentViewerDialog").querySelector(".viewer-head-actions").append($("viewerExternalBtn"));
+    $("viewerFrame").src = source;
+    $("viewerFrame").hidden = false;
+    return null;
+  }
+  return result;
+}
+
 async function openStoredDocument(item) {
   if (!item) return;
+  activeViewerDocumentId = item.id;
+  renderViewerDocumentDetails(item);
+  setUnifiedDetailsCollapsed(true);
   $("viewerTitle").textContent = documentDisplayLabel(item);
-  $("viewerSubtitle").textContent = item.fileName || "Aperçu dans Family Tree";
+  $("viewerSubtitle").textContent = [item.type || "", item.fileName || ""].filter(Boolean).join(" · ") || "Aperçu dans Family Tree";
+  viewerImageState?.destroy();
+  viewerImageState = null;
+  viewerPdfState?.destroy();
+  viewerPdfState = null;
   $("viewerImage").hidden = true;
+  $("viewerImage").onload = null;
+  $("viewerImage").removeAttribute("style");
+  $("viewerImageViewport").classList.remove("viewer-pdf-active");
+  $("viewerImageControls").hidden = true;
+  $("viewerPdfToolbar").hidden = true;
+  $("pdfPageNav").hidden = true;
+  $("pdfPanelToggles").hidden = true;
+  $("viewerPdfThumbnails").hidden = true;
+  $("viewerPdfSurface").hidden = true;
+  $("pdfThumbnailsBtn").hidden = false;
+  arrangeViewerImageChrome();
   $("viewerFrame").hidden = true;
   $("viewerMessage").hidden = false;
   $("viewerMessage").textContent = "Chargement du document…";
@@ -3814,10 +4015,18 @@ async function openStoredDocument(item) {
     $("viewerExternalBtn").href = source;
     $("viewerExternalBtn").hidden = false;
     $("viewerMessage").hidden = true;
-    if (mimeType.startsWith("image/")) {
+    const isPdf = mimeType.toLowerCase().includes("pdf") || /\.pdf(?:$|[?#])/i.test(item.fileName || source);
+    const isImage = mimeType.startsWith("image/") || /\.(?:png|jpe?g|gif|svg|webp|avif|bmp)(?:$|[?#])/i.test(item.fileName || source);
+    if (isImage) {
+      $("viewerImage").onload = () => { void setupViewerImage(item); };
       $("viewerImage").src = source;
       $("viewerImage").hidden = false;
+      if ($("viewerImage").complete) void setupViewerImage(item);
+    } else if (isPdf) {
+      viewerPdfState = await setupViewerPdf(source, item.id);
     } else {
+      $("documentViewerDialog").querySelector(".viewer-head-actions").append($("viewerExternalBtn"));
+      $("viewerImageControls").hidden = true;
       $("viewerFrame").src = source;
       $("viewerFrame").hidden = false;
     }
@@ -5464,12 +5673,37 @@ $("clearTaskSearchBtn").onclick = () => {
 };
 syncSearchClearBtn("directorySearch", "clearDirectorySearchBtn");
 syncSearchClearBtn("taskSearch", "clearTaskSearchBtn");
+$("viewerDetailsExpandBtn").addEventListener("click", () => setUnifiedDetailsCollapsed(!$("documentUnifiedLayout").classList.contains("is-details-collapsed")));
+$("viewerDetailsBtn").onclick = () => setUnifiedDetailsCollapsed($("viewerDetailsBtn").getAttribute("aria-expanded") === "true");
+const viewerImageMedia = window.matchMedia("(max-width: 760px)");
+const onViewerImageMediaChange = () => { if (viewerImageState && !$("viewerImage").hidden) arrangeViewerImageChrome(); };
+if (typeof viewerImageMedia.addEventListener === "function") viewerImageMedia.addEventListener("change", onViewerImageMediaChange);
+else if (typeof viewerImageMedia.addListener === "function") viewerImageMedia.addListener(onViewerImageMediaChange);
+const viewerPdfMedia = window.matchMedia("(max-width: 760px)");
+const onViewerPdfMediaChange = () => { if (viewerPdfState) arrangePdfChrome(); };
+if (typeof viewerPdfMedia.addEventListener === "function") viewerPdfMedia.addEventListener("change", onViewerPdfMediaChange);
+else if (typeof viewerPdfMedia.addListener === "function") viewerPdfMedia.addListener(onViewerPdfMediaChange);
 $("documentViewerDialog").addEventListener("close", () => {
-  if (!activeViewerUrl) return;
-  URL.revokeObjectURL(activeViewerUrl);
+  activeViewerDocumentId = "";
+  viewerImageState?.destroy();
+  viewerImageState = null;
+  viewerPdfState?.destroy();
+  viewerPdfState = null;
+  $("viewerImageViewport").classList.remove("viewer-pdf-active");
+  $("viewerImageControls").hidden = true;
+  $("viewerPdfToolbar").hidden = true;
+  $("pdfPageNav").hidden = true;
+  $("pdfPanelToggles").hidden = true;
+  $("viewerPdfThumbnails").hidden = true;
+  $("viewerPdfSurface").hidden = true;
+  $("viewerDocumentDetails").hidden = true;
+  $("documentUnifiedLayout").classList.add("is-details-collapsed");
+  if (activeViewerUrl) URL.revokeObjectURL(activeViewerUrl);
   activeViewerUrl = "";
   $("viewerFrame").removeAttribute("src");
   $("viewerImage").removeAttribute("src");
+  $("viewerImage").onload = null;
+  $("viewerImage").removeAttribute("style");
   $("viewerExternalBtn").removeAttribute("href");
   $("viewerExternalBtn").hidden = true;
 });

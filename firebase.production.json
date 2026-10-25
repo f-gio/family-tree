@@ -1,0 +1,14 @@
+{
+  "hosting": {
+    "public": "dist-production",
+    "headers": [
+      { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/js/**/*.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/css/**/*.css", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/La_Nostra_Storia_icons/**", "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }] }
+    ],
+    "ignore": ["firebase.production.json", "**/.*", "**/node_modules/**", "**/.git/**", "**/tests/**", "**/*.log"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+  }
+}

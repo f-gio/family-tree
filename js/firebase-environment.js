@@ -77,6 +77,9 @@ export function resolveFirebaseEnvironment(locationLike) {
     const isProjectPath = pathname === "/family-tree" || pathname.startsWith("/family-tree/");
     return protocol === "https:" && isProjectPath ? allow("production") : denied("production-origin-or-path-mismatch");
   }
+  if (hostname === "family-tree-c2fe2.web.app") {
+    return protocol === "https:" ? allow("production") : denied("production-requires-https");
+  }
   if (hostname === "la-nostra-storia-recette.web.app") {
     return protocol === "https:" ? allow("recette") : denied("recette-requires-https");
   }

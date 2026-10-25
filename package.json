@@ -6,6 +6,7 @@
   "description": "Infrastructure de test navigateur (responsive) et d'intégration Firestore via l'émulateur local. La suite standard reste 'node --test' et ne dépend pas de npm.",
   "scripts": {
     "build:recette": "node scripts/build-recette.mjs",
+    "build:production": "node scripts/build-production.mjs",
     "test:responsive": "node tests/responsive-real.mjs",
     "test:firestore": "firebase emulators:exec --only firestore,auth \"npm run test:firestore:run\"",
     "test:firestore:run": "node --test tests/firestore-emulator.mjs"
@@ -13,6 +14,7 @@
   "devDependencies": {
     "firebase": "12.2.1",
     "firebase-tools": "^15.32.1",
+    "pdfjs-dist": "^6.4.299",
     "playwright": "^1.63.0"
   }
 }

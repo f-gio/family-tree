@@ -10,7 +10,7 @@ const [appSource, html, css] = await Promise.all([
   readFile(new URL("css/design-system.css", root), "utf8")
 ]);
 
-test("Production est autorisée uniquement sur GitHub Pages et son chemin projet HTTPS", () => {
+test("Production est autorisée uniquement sur GitHub Pages ou Hosting HTTPS du projet", () => {
   const production = resolveFirebaseEnvironment({ protocol: "https:", hostname: "f-gio.github.io", pathname: "/family-tree/" });
   assert.equal(production.allowed, true);
   assert.equal(production.environment, "production");
@@ -20,6 +20,13 @@ test("Production est autorisée uniquement sur GitHub Pages et son chemin projet
     assert.equal(resolveFirebaseEnvironment({ protocol: "https:", hostname: "f-gio.github.io", pathname }).allowed, false, `${pathname} refusé`);
   }
   assert.equal(resolveFirebaseEnvironment({ protocol: "http:", hostname: "f-gio.github.io", pathname: "/family-tree/" }).allowed, false, "HTTP Production refusé");
+  const hosting = resolveFirebaseEnvironment({ protocol: "https:", hostname: "family-tree-c2fe2.web.app", pathname: "/" });
+  assert.equal(hosting.allowed, true);
+  assert.equal(hosting.environment, "production");
+  assert.equal(hosting.firebaseConfig.projectId, "family-tree-c2fe2");
+  assert.equal(firebaseConfigurationMatchesEnvironment("production", hosting.firebaseConfig), true);
+  assert.equal(resolveFirebaseEnvironment({ protocol: "http:", hostname: "family-tree-c2fe2.web.app", pathname: "/" }).allowed, false, "HTTP Hosting Production refusé");
+  assert.equal(resolveFirebaseEnvironment({ protocol: "https:", hostname: "family-tree-c2fe2.web.app.evil.test", pathname: "/" }).allowed, false, "sous-domaine malveillant refusé");
 });
 
 test("Recette est autorisée uniquement sur son hostname HTTPS exact", () => {
