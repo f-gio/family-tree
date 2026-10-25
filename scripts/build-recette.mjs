@@ -106,7 +106,7 @@ async function listFiles(directory, base = directory) {
 }
 
 async function collectPdfJsAssets() {
-  const files = ["build/pdf.mjs", "build/pdf.worker.mjs", "LICENSE"];
+  const files = ["pdf.mjs", "pdf.worker.mjs", "LICENSE"];
   for (const directory of ["cmaps", "standard_fonts", "wasm", "iccs"]) {
     const root = assertInside(PDFJS_PACKAGE, join(PDFJS_PACKAGE, directory), "Ressources PDF.js");
     files.push(...await listFiles(root).then(entries => entries.map(entry => `${directory}/${entry}`)));
@@ -173,9 +173,14 @@ const previousOutput = await (async () => {
 if (previousOutput) await rm(OUTPUT, { recursive: true, force: true });
 await mkdir(OUTPUT, { recursive: true });
 for (const file of files) {
-  const source = file.startsWith(PDFJS_OUTPUT_PREFIX)
-    ? assertInside(PDFJS_PACKAGE, join(PDFJS_PACKAGE, file.slice(PDFJS_OUTPUT_PREFIX.length)), "Ressource PDF.js")
-    : assertInside(ROOT, join(ROOT, file), "Source frontend");
+  let source;
+  if (file.startsWith(PDFJS_OUTPUT_PREFIX)) {
+    const pdfJsRelativePath = file.slice(PDFJS_OUTPUT_PREFIX.length);
+    const packageRelativePath = ["pdf.mjs", "pdf.worker.mjs"].includes(pdfJsRelativePath)
+      ? join("build", pdfJsRelativePath)
+      : pdfJsRelativePath;
+    source = assertInside(PDFJS_PACKAGE, join(PDFJS_PACKAGE, packageRelativePath), "Ressource PDF.js");
+  } else source = assertInside(ROOT, join(ROOT, file), "Source frontend");
   const target = assertInside(OUTPUT, join(OUTPUT, file), "Destination frontend");
   await mkdir(dirname(target), { recursive: true });
   if (file === "js/firebase-environment.js") {

@@ -113,7 +113,7 @@ test("PDF.js : rendu multipage, commandes, responsive, erreurs et nettoyage Chro
       const { browser, page, result } = await makeViewer(engine, viewport);
       try {
         assert.equal(result.numPages, 24, "PDF volumineux de test chargé");
-        assert.ok(requestedPaths.includes("/vendor/pdfjs/build/pdf.worker.mjs"), "worker PDF.js chargé depuis l’artefact local");
+        assert.ok(requestedPaths.includes("/vendor/pdfjs/pdf.worker.mjs"), "worker PDF.js chargé depuis l’artefact local");
         assert.ok(requestedPaths.includes("/fixture.pdf"), "PDF de test chargé depuis la même origine");
         await page.waitForFunction(() => document.querySelector("#viewerPdfPageCanvas").width > 0);
         assert.equal(await page.locator(".pdf-thumbnail").count(), 24);

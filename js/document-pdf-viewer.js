@@ -1,5 +1,5 @@
-const PDFJS_MODULE_URL = new URL("../vendor/pdfjs/build/pdf.mjs", import.meta.url);
-const PDFJS_WORKER_URL = new URL("../vendor/pdfjs/build/pdf.worker.mjs", import.meta.url);
+const PDFJS_MODULE_URL = new URL("../vendor/pdfjs/pdf.mjs", import.meta.url);
+const PDFJS_WORKER_URL = new URL("../vendor/pdfjs/pdf.worker.mjs", import.meta.url);
 const PDFJS_CMAPS_URL = new URL("../vendor/pdfjs/cmaps/", import.meta.url).href;
 const PDFJS_FONTS_URL = new URL("../vendor/pdfjs/standard_fonts/", import.meta.url).href;
 const PDFJS_WASM_URL = new URL("../vendor/pdfjs/wasm/", import.meta.url).href;
