@@ -464,6 +464,7 @@ export async function createDocumentPdfViewer({
     pageCanvas.width = 0;
     pageCanvas.height = 0;
     thumbnailList.replaceChildren();
+    viewer.parentElement?.classList.remove("viewer-pdf-active");
     if (loadingTask) void loadingTask.destroy().catch(() => {});
     else if (pdfDocument) void pdfDocument.destroy().catch(() => {});
     pdfDocument = null;

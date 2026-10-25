@@ -5150,7 +5150,7 @@ function createPdfViewerElements() {
     toolbar.className = "pdf-viewer-controls";
     toolbar.setAttribute("role", "group");
     toolbar.setAttribute("aria-label", "Commandes PDF");
-    toolbar.innerHTML = `<button class="btn small" type="button" id="pdfThumbnailsBtn" aria-expanded="true" aria-label="Masquer les miniatures" title="Masquer les miniatures">Miniatures</button><button class="btn small" type="button" id="pdfPreviousPageBtn" aria-label="Page précédente" title="Page précédente">‹</button><output id="pdfPageStatus" class="pdf-page-status" aria-live="polite"></output><button class="btn small" type="button" id="pdfNextPageBtn" aria-label="Page suivante" title="Page suivante">›</button><button class="btn small" type="button" id="pdfZoomOutBtn" aria-label="Dézoomer" title="Dézoomer">−</button><span id="pdfZoomIndicator" class="pdf-zoom-indicator" aria-live="polite"></span><button class="btn small" type="button" id="pdfZoomInBtn" aria-label="Zoomer" title="Zoomer">+</button><button class="btn small" type="button" id="pdfFitModeBtn" aria-label="Ajuster à la largeur" title="Ajuster à la largeur">Adapter</button><button class="btn small" type="button" id="pdfFullscreenBtn" aria-label="Afficher en plein écran" title="Afficher en plein écran">Plein écran</button>`;
+    toolbar.innerHTML = `<button class="btn" type="button" id="pdfThumbnailsBtn" aria-expanded="true" aria-label="Masquer les miniatures" title="Masquer les miniatures"><svg class="ui-icon" aria-hidden="true"><use href="#icon-panel-collapse"></use></svg></button><button class="btn" type="button" id="pdfPreviousPageBtn" aria-label="Page précédente" title="Page précédente"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button><output id="pdfPageStatus" class="pdf-page-status" aria-live="polite"></output><button class="btn" type="button" id="pdfNextPageBtn" aria-label="Page suivante" title="Page suivante"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-right"></use></svg></button><button class="btn" type="button" id="pdfZoomOutBtn" aria-label="Dézoomer" title="Dézoomer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-zoom-out"></use></svg></button><span id="pdfZoomIndicator" class="pdf-zoom-indicator" aria-live="polite"></span><button class="btn" type="button" id="pdfZoomInBtn" aria-label="Zoomer" title="Zoomer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-zoom-in"></use></svg></button><button class="btn" type="button" id="pdfFitModeBtn" aria-label="Ajuster à la largeur" title="Ajuster à la largeur"><svg class="ui-icon" aria-hidden="true"><use href="#icon-fit"></use></svg></button><button class="btn" type="button" id="pdfFullscreenBtn" aria-label="Afficher en plein écran" title="Afficher en plein écran"><svg class="ui-icon" aria-hidden="true"><use href="#icon-maximize"></use></svg></button>`;
     controls.append(toolbar);
   }
   if (toolbar.parentElement !== controls) controls.append(toolbar);
@@ -5194,6 +5194,8 @@ async function setupViewerPdf(source, documentId) {
   $("viewerImage").hidden = true;
   $("viewerMessage").hidden = true;
   toolbar.hidden = false;
+  $("viewerImageControls").append($("viewerExternalBtn"));
+  $("viewerImageViewport").classList.add("viewer-pdf-active");
   const result = await createDocumentPdfViewer({
     source,
     viewer: surface,
@@ -5216,9 +5218,11 @@ async function setupViewerPdf(source, documentId) {
   });
   if (activeViewerDocumentId !== documentId || !$("documentViewerDialog").open) {
     result.destroy();
+    $("viewerImageViewport").classList.remove("viewer-pdf-active");
     return null;
   }
   if (result.fallback) {
+    $("viewerImageViewport").classList.remove("viewer-pdf-active");
     toolbar.hidden = true;
     surface.hidden = true;
     $("viewerMessage").hidden = true;
@@ -5270,6 +5274,7 @@ async function openStoredDocument(item, returnContext = "previous") {
   viewerImageState = null;
   viewerPdfState?.destroy();
   viewerPdfState = null;
+  $("viewerImageViewport").classList.remove("viewer-pdf-active");
   const pdfControls = $("viewerPdfControls");
   if (pdfControls) pdfControls.hidden = true;
   const pdfSurface = $("viewerPdfSurface");
@@ -7134,6 +7139,7 @@ $("documentViewerDialog").addEventListener("close", () => {
   viewerImageState = null;
   viewerPdfState?.destroy();
   viewerPdfState = null;
+  $("viewerImageViewport").classList.remove("viewer-pdf-active");
   const pdfControls = $("viewerPdfControls");
   if (pdfControls) pdfControls.hidden = true;
   const pdfSurface = $("viewerPdfSurface");
