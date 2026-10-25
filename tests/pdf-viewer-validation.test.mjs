@@ -302,9 +302,10 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
       moveTo("pdfNextPageBtn", pagination);
       toggles.prepend(get("pdfThumbnailsBtn"));
     } else {
-      for (const id of ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "viewerDetailsExpandBtn", "pdfFullscreenBtn"]) toolbar.append(get(id));
+      for (const id of ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn"]) toolbar.append(get(id));
     }
     toolbar.append(get("viewerExternalBtn"));
+    if (!isNarrow) toolbar.append(get("viewerDetailsExpandBtn"));
     const viewerBody = get("viewerImageViewport");
     viewerBody.classList.add("viewer-pdf-active");
     get("viewerImageControls").hidden = true;
@@ -351,8 +352,10 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     assert.ok(desktop.viewerPdfPageCanvas.height >= 200 && desktop.viewerPdfPageCanvas.width >= 200, "page principale lisible");
     assert.ok(desktop.viewerPdfToolbar.bottom <= desktop.viewerPdfPageViewport.y + 1, "barre d’outils au-dessus de la page");
     assert.ok(desktop.viewerPdfToolbar.height <= 60, `barre d’outils desktop sur une seule ligne (${desktop.viewerPdfToolbar.height}px)`);
-    const orderX = ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "viewerDetailsExpandBtn", "pdfFullscreenBtn", "viewerExternalBtn"].map(id => desktop[id].x);
-    assert.deepEqual(orderX, [...orderX].sort((a, b) => a - b), "ordre desktop : miniatures, navigation, zoom, ajustement, informations, plein écran, nouvel onglet");
+    const orderX = ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn", "viewerDetailsExpandBtn"].map(id => desktop[id].x);
+    assert.deepEqual(orderX, [...orderX].sort((a, b) => a - b), "ordre desktop : miniatures, navigation, lecture puis Informations isolée à droite");
+    assert.ok(desktop.pdfFitModeBtn.right < desktop.viewerDetailsExpandBtn.x, "les commandes de lecture restent groupées avant Informations");
+    assert.ok(desktop.viewerDetailsExpandBtn.right >= desktop.viewerPdfToolbar.right - 2, "Informations est placée complètement à droite de la barre");
     assert.ok(desktop.pdfFitModeBtn.x - desktop.pdfZoomInBtn.right >= 14, "espacement visuel entre le groupe zoom et les actions de lecture");
     const thumbnailsCenter = (desktop.pdfThumbnailsBtn.y + desktop.pdfThumbnailsBtn.bottom) / 2;
     const detailsCenter = (desktop.viewerDetailsExpandBtn.y + desktop.viewerDetailsExpandBtn.bottom) / 2;
@@ -371,13 +374,18 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     assert.equal(desktopNoRail.toolbar.gridColumn, "1", "toolbar déplacée dans l'unique colonne quand le rail est masqué");
     assert.ok(desktopNoRail.page.width > desktop.viewerPdfPageViewport.width + 150, "le lecteur récupère la largeur du rail masqué");
     assert.ok(Math.abs(desktopNoRail.canvas.center - desktopNoRail.page.center) < 2, "la page reste centrée dans l'espace élargi");
-    assert.equal(desktopNoRail.toolbar.justify, "center", "les commandes restent alignées au-dessus du lecteur élargi");
+    assert.equal(desktopNoRail.toolbar.justify, "flex-start", "les commandes restent groupées à gauche quand les miniatures sont masquées");
+    const noRailInfoButton = await page.locator("#viewerDetailsExpandBtn").boundingBox();
+    assert.ok(noRailInfoButton.x >= desktopNoRail.toolbar.right - noRailInfoButton.width - 2, "Informations reste à droite sans miniatures");
     assert.ok(Math.abs(desktopNoRail.controlsCenter - desktopNoRail.page.center) < 16, "le groupe de commandes suit le centre de la page");
     await page.locator("#viewerDetailsExpandBtn").click();
     await page.waitForFunction(() => !document.getElementById("viewerDocumentDetails").hidden);
     const noRailInfoOpen = await measureDesktopPlacement(page);
     assert.equal(noRailInfoOpen.toolbar.gridColumn, "1", "les commandes restent dans la colonne unique avec Informations ouvert");
     assert.ok(Math.abs(noRailInfoOpen.canvas.center - noRailInfoOpen.page.center) < 2, "page centrée dans la largeur restante du panneau");
+    const noRailInfoOpenState = await measureAll(page);
+    assert.ok(noRailInfoOpenState.viewerDetailsCollapseBtn.visible, "la commande Masquer apparaît avec le panneau ouvert");
+    assert.ok(noRailInfoOpenState.viewerDetailsCollapseBtn.x >= noRailInfoOpenState.viewerDocumentDetails.x && noRailInfoOpenState.viewerDetailsCollapseBtn.right <= noRailInfoOpenState.viewerDocumentDetails.right + 1, "Masquer reste dans l’angle droit du panneau Informations ouvert");
     await page.locator("#viewerDetailsCollapseBtn").click();
     await page.waitForFunction(() => document.getElementById("viewerDocumentDetails").hidden);
     await page.locator("#pdfThumbnailsBtn").click();
@@ -385,16 +393,20 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     const restoredRail = await measureDesktopPlacement(page);
     assert.equal(restoredRail.toolbar.gridColumn, "2", "la disposition à deux colonnes est restaurée avec les miniatures");
     assert.ok(restoredRail.rail.right <= restoredRail.page.left + 1, "le rail réapparaît à gauche de la page");
+    const restoredInfoButton = await page.locator("#viewerDetailsExpandBtn").boundingBox();
+    assert.ok(restoredInfoButton.x >= restoredRail.toolbar.right - restoredInfoButton.width - 2, "Informations reste à droite avec les miniatures rétablies");
 
     const thumbnailsBoxBefore = desktop.pdfThumbnailsBtn;
     await page.locator("#viewerDetailsExpandBtn").click();
     await page.waitForFunction(() => !document.getElementById("viewerDocumentDetails").hidden);
     const desktopExpanded = await measureAll(page);
     assert.ok(desktopExpanded.viewerDetailsCollapseBtn?.visible, "le volet ouvert expose sa commande de repli");
-    assert.deepEqual(desktopExpanded.pdfThumbnailsBtn, thumbnailsBoxBefore, "la commande miniatures ne bouge pas à l’ouverture des informations");
+    assert.ok(desktopExpanded.viewerDetailsCollapseBtn.x >= desktopExpanded.viewerDocumentDetails.x && desktopExpanded.viewerDetailsCollapseBtn.right <= desktopExpanded.viewerDocumentDetails.right + 1, "Masquer reste dans l’angle droit du panneau Informations ouvert");
+    assert.ok(Math.abs(desktopExpanded.pdfThumbnailsBtn.x - thumbnailsBoxBefore.x) < 1 && Math.abs(desktopExpanded.pdfThumbnailsBtn.y - thumbnailsBoxBefore.y) < 1, "la commande miniatures reste en place à l’ouverture des informations");
     await page.locator("#viewerDetailsCollapseBtn").click();
     await page.waitForFunction(() => document.getElementById("viewerDocumentDetails").hidden);
-    assert.deepEqual((await measureAll(page)).pdfThumbnailsBtn, thumbnailsBoxBefore, "la commande miniatures ne bouge pas au repli des informations");
+    const collapsedThumbnailButton = (await measureAll(page)).pdfThumbnailsBtn;
+    assert.ok(Math.abs(collapsedThumbnailButton.x - thumbnailsBoxBefore.x) < 1 && Math.abs(collapsedThumbnailButton.y - thumbnailsBoxBefore.y) < 1, "la commande miniatures reste en place au repli des informations");
 
     await page.locator('.pdf-thumbnail[data-pdf-page="24"]').click();
     await page.waitForFunction(() => document.getElementById("pdfPageStatus").textContent.includes("24 / 24"));
@@ -526,9 +538,10 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
       assert.equal(await page.locator('.pdf-thumbnail[data-pdf-page="24"]').getAttribute("aria-current"), "page", "dernière miniature synchronisée");
       const chevron = await page.evaluate(() => getComputedStyle(document.querySelector("#pdfThumbnailsBtn .pdf-panels-chevron")).transform);
       assert.ok(chevron.includes("matrix(-1") || chevron.includes("180deg"), "chevron retourné quand le panneau est ouvert");
-      await page.locator("#viewerDetailsBtn").click();
-      await page.waitForFunction(() => !document.getElementById("viewerDocumentDetails").hidden);
-      const bothOpen = await measureAll(page);
+       await page.locator("#viewerDetailsBtn").click();
+       await page.waitForFunction(() => !document.getElementById("viewerDocumentDetails").hidden);
+       assert.equal(await page.locator("#viewerDetailsCollapseBtn").evaluate(element => getComputedStyle(element).display), "none", "mobile : aucun second bouton Informations dans l’en-tête du panneau déplié");
+       const bothOpen = await measureAll(page);
       assert.ok(bothOpen.viewerDocumentDetails?.visible, "panneau informations ouvert");
       assert.ok(bothOpen.viewerPdfThumbnails.y < bothOpen.viewerDocumentDetails.y, "ordre vertical : miniatures puis informations");
       assert.ok(bothOpen.viewerPdfThumbnails.bottom <= bothOpen.viewerDocumentDetails.y + 1, "les deux panneaux restent séparés sans imbrication");

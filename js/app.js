@@ -5144,15 +5144,29 @@ function arrangeViewerImageChrome() {
   const fullscreenButton = $("viewerFullscreenBtn");
   const externalButton = $("viewerExternalBtn");
   const expandButton = $("viewerDetailsExpandBtn");
+  const collapseButton = $("viewerDetailsCollapseBtn");
+  const detailsToggle = $("viewerDetailsBtn");
+  const panelToggles = $("pdfPanelToggles");
+  const thumbnailsButton = $("pdfThumbnailsBtn");
+  const toolbar = $("viewerPdfToolbar");
   const panel = $("documentViewerDialog").querySelector(".document-original-panel");
   const narrow = window.matchMedia("(max-width: 760px)").matches;
   if (narrow) {
     if (fullscreenButton.parentElement !== controls) controls.insertBefore(fullscreenButton, externalButton);
-    if (expandButton.parentElement !== viewport.parentElement || expandButton.previousElementSibling !== viewport) viewport.after(expandButton);
-  } else {
-    if (fullscreenButton.parentElement !== panel) viewport.after(fullscreenButton);
     const originalHead = panel.querySelector(".document-original-head");
     if (originalHead && expandButton.parentElement !== originalHead) originalHead.append(expandButton);
+    if (thumbnailsButton.parentElement !== toolbar) toolbar.append(thumbnailsButton);
+    thumbnailsButton.hidden = true;
+    panelToggles.append(detailsToggle);
+    panelToggles.classList.add("viewer-image-panel-toggles");
+    panelToggles.hidden = false;
+    viewport.after(panelToggles);
+  } else {
+    if (thumbnailsButton.parentElement !== toolbar) toolbar.append(thumbnailsButton);
+    thumbnailsButton.hidden = false;
+    panelToggles.classList.remove("viewer-image-panel-toggles");
+    panelToggles.hidden = true;
+    controls.append(fullscreenButton, externalButton, expandButton, collapseButton);
   }
 }
 
@@ -5172,6 +5186,7 @@ function createPdfViewerElements() {
 function arrangePdfChrome() {
   const isNarrow = window.matchMedia("(max-width: 760px)").matches;
   const { toolbar, pagination, toggles } = createPdfViewerElements();
+  $("pdfThumbnailsBtn").hidden = false;
   if (isNarrow) {
     pagination.append($("pdfPreviousPageBtn"), $("pdfPageStatus"), $("pdfNextPageBtn"));
     toggles.prepend($("pdfThumbnailsBtn"));
@@ -5183,7 +5198,7 @@ function arrangePdfChrome() {
   } else {
     pagination.hidden = true;
     toggles.hidden = true;
-    for (const id of ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "viewerDetailsExpandBtn", "pdfFullscreenBtn", "viewerExternalBtn"]) toolbar.append($(id));
+    for (const id of ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn", "viewerDetailsExpandBtn"]) toolbar.append($(id));
   }
 }
 
