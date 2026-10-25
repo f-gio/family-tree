@@ -3634,7 +3634,6 @@ $("viewerEditBtn").addEventListener("click", () => {
   openUnifiedDocumentEditor(activeViewerDocumentId);
 });
 window.addEventListener("resize", () => {
-  if (window.innerWidth <= 760 && $("documentUnifiedLayout").classList.contains("is-details-collapsed")) setUnifiedDetailsCollapsed(false);
   viewerImageState?.fit();
 });
 
@@ -5046,13 +5045,17 @@ async function restoreCompleteBackup(file) {
 function renderUnifiedDocumentDetails(item) {
   const facts = [];
   if (item.type) facts.push(["Type", item.type]);
+  const fileExtension = String(item.fileName || "").match(/\.([^.\/\\]+)$/)?.[1]?.toUpperCase();
+  const mimeFormat = item.mimeType === "application/pdf" ? "PDF" : item.mimeType?.startsWith("image/") ? item.mimeType.slice(6).replace(/^x-/, "").toUpperCase() : "";
+  const fileFormat = mimeFormat || fileExtension;
+  if (fileFormat) facts.push(["Format", fileFormat]);
   if (item.date) facts.push(["Date", formatGenealogyDate(null, item.date)]);
   const place = formatCompactPlace(item.place, item.placeInfo);
   if (place) facts.push(["Lieu", place]);
   if (item.fileName) facts.push(["Fichier", item.fileName]);
   if (item.notes) facts.push(["Notes", item.notes]);
   const documentFacts = facts.length
-    ? `<div class="document-unified-facts">${facts.map(([label, value]) => `<div class="document-unified-fact"><strong>${esc(label)}</strong><span title="${esc(value)}">${esc(value)}</span></div>`).join("")}</div>`
+    ? `<div class="document-unified-facts">${facts.map(([label, value]) => `<div class="document-unified-fact${label === "Fichier" || label === "Notes" ? " document-unified-fact--wide" : ""}"><strong>${esc(label)}</strong><span title="${esc(value)}">${esc(value)}</span></div>`).join("")}</div>`
     : `<p class="document-unified-notice">Aucune métadonnée complémentaire n’est renseignée.</p>`;
   const personIds = Array.isArray(item.personIds) ? item.personIds : [];
   const relatedPeople = loadedPeople ? personIds.map(id => people.find(personItem => personItem.id === id)).filter(Boolean) : [];
@@ -5075,7 +5078,7 @@ function renderUnifiedDocumentDetails(item) {
         return `<details class="document-unified-source"><summary class="document-unified-source-head"><strong>${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</strong><span class="genealogy-status-badge">${archived ? "Archivée" : "Active"}</span></summary>${sourceDetailFactsMarkup(sourceData)}<div class="document-unified-source-actions"><button class="btn small" type="button" data-unified-source-open="${esc(source.id)}">Consulter la source</button>${isAdminUser() ? `<button class="btn small" type="button" data-unified-source-revise="${esc(source.id)}">Modifier la source</button>` : ""}</div></details>`;
       }).join("")
         : `<p class="document-unified-notice">Aucune source officielle n’est associée à cette fiche.</p>`;
-  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4>${documentFacts}<button class="btn small" type="button" data-unified-document-edit="${esc(item.id)}">Modifier les informations</button></section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}</section>`;
+  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations documentaires</h4><button class="btn small" type="button" data-unified-document-edit="${esc(item.id)}">Modifier</button></div>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}</section>`;
 }
 
 function reopenUnifiedDocumentAfter(dialogId) {
@@ -5125,11 +5128,12 @@ function setupViewerImage(item) {
 function setUnifiedDetailsCollapsed(collapsed) {
   const layout = $("documentUnifiedLayout");
   const details = $("viewerDocumentDetails");
-  if (window.innerWidth <= 760) collapsed = false;
   layout.classList.toggle("is-details-collapsed", collapsed);
   details.hidden = collapsed;
-  $("viewerDetailsCollapseBtn").hidden = collapsed || window.innerWidth <= 760;
-  $("viewerDetailsExpandBtn").hidden = !collapsed || window.innerWidth <= 760;
+  $("viewerDetailsCollapseBtn").hidden = collapsed;
+  $("viewerDetailsExpandBtn").hidden = !collapsed;
+  $("viewerDetailsCollapseBtn").setAttribute("aria-expanded", String(!collapsed));
+  $("viewerDetailsExpandBtn").setAttribute("aria-expanded", String(!collapsed));
 }
 
 async function openStoredDocument(item, returnContext = "previous") {
@@ -5138,7 +5142,7 @@ async function openStoredDocument(item, returnContext = "previous") {
   activeViewerReturnContext = returnContext;
   $("viewerEditBtn").hidden = false;
   renderUnifiedDocumentDetails(item);
-  setUnifiedDetailsCollapsed(false);
+  setUnifiedDetailsCollapsed(window.innerWidth <= 760);
   $("viewerTitle").textContent = documentDisplayLabel(item);
   const headerMetadata = [
     item.type || "",

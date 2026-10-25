@@ -377,6 +377,8 @@ test("la fiche unifiée du document réutilise le viewer et affiche métadonnée
   assert.match(unified, /documentLinkedSources\(item\.id\)/);
   assert.match(unified, /linkedSources\.map\(source/);
   assert.match(unified, /sourceDetailFactsMarkup\(sourceData\)/);
+  assert.match(unified, /\["Format", fileFormat\]/);
+  assert.match(unified, /document-unified-section-head[\s\S]*?data-unified-document-edit=/);
   assert.match(unified, /data-unified-source-open=/);
   assert.match(unified, /data-unified-source-revise=/);
   assert.doesNotMatch(unified, /JSON\.stringify/);
@@ -408,10 +410,26 @@ test("le visualiseur branche le zoom image et réserve le menu d’actions du he
   assert.match(app, /function setupViewerImage\(item\)[\s\S]*?createDocumentImageViewer\(/);
   assert.match(app, /viewerImageControls"\)\.hidden = true/);
   assert.match(app, /if \(mimeType\.startsWith\("image\/"\)\)[\s\S]*?setupViewerImage\(item\)/);
-  assert.match(app, /if \(window\.innerWidth <= 760\) collapsed = false/);
+  assert.match(app, /function setUnifiedDetailsCollapsed\(collapsed\)[\s\S]*?details\.hidden = collapsed/);
+  assert.match(app, /setUnifiedDetailsCollapsed\(window\.innerWidth <= 760\)/);
+  assert.doesNotMatch(app, /if \(window\.innerWidth <= 760\) collapsed = false/);
+  assert.match(html, /id="viewerDetailsExpandBtn" aria-controls="viewerDocumentDetails" aria-expanded="false"/);
+  assert.match(html, /id="viewerDetailsCollapseBtn" aria-controls="viewerDocumentDetails" aria-expanded="true"/);
   assert.match(imageViewer, /image\.style\.width = `\$\{fitWidth \* zoom\}px`/);
   assert.match(imageViewer, /image\.style\.height = `\$\{fitHeight \* zoom\}px`/);
   assert.match(imageViewer, /image\.style\.transform = nativeWidthScroll \? "none" : "translate\(-50%, -50%\)"/);
   assert.doesNotMatch(imageViewer, /translate\(-50%, -50%\) scale\(\$\{zoom\}\)/);
   assert.match(imageViewer, /return naturalHeight \/ naturalWidth >= 1\.5 \? "width" : "fit"/);
+});
+
+test("les informations du viewer gardent leur repli unique et une mise en page mobile verticale", () => {
+  assert.match(app, /\$\("viewerDetailsCollapseBtn"\)\.setAttribute\("aria-expanded", String\(!collapsed\)\)/);
+  assert.match(app, /\$\("viewerDetailsExpandBtn"\)\.setAttribute\("aria-expanded", String\(!collapsed\)\)/);
+  assert.match(app, /\$\("viewerDetailsExpandBtn"\)\.hidden = !collapsed/);
+  assert.match(app, /\$\("viewerDetailsCollapseBtn"\)\.hidden = collapsed/);
+  assert.match(css, /\.document-unified-layout \{ display: grid; grid-template-columns: minmax\(0, 1\.2fr\) minmax\(19rem, \.8fr\)/);
+  assert.match(css, /\.viewer-dialog \.document-unified-layout \{ grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(css, /\.document-unified-layout\.is-details-collapsed \.document-original-panel \.viewer-body \{ height: min\(68dvh, calc\(100dvh - 13rem\)\)/);
+  assert.match(css, /\.document-unified-fact--wide \{ grid-column: 1 \/ -1; \}/);
+  assert.match(css, /\.viewer-dialog \.document-unified-source-actions \.btn \{ width: 100%; \}/);
 });

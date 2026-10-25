@@ -81,14 +81,17 @@ async function createViewerPage(browser, server, width, height) {
   return { context, page };
 }
 
-async function openViewer(page, { title, fileName, kind = "image", src = portraitSvg }) {
-  await page.evaluate(({ title, fileName, kind, src }) => {
+async function openViewer(page, { title, fileName, kind = "image", src = portraitSvg, detailsCollapsed = false }) {
+  await page.evaluate(async ({ title, fileName, kind, src, detailsCollapsed }) => {
     const dialog = document.getElementById("documentViewerDialog");
     if (dialog.open) dialog.close();
+    window.__viewerImageController?.destroy();
+    window.__viewerImageController = null;
     document.getElementById("viewerTitle").textContent = title;
     document.getElementById("viewerSubtitle").textContent = fileName;
     const img = document.getElementById("viewerImage");
     const frame = document.getElementById("viewerFrame");
+    document.getElementById("viewerImageViewport").removeAttribute("data-viewer-fit-mode");
     img.hidden = true;
     frame.hidden = true;
     frame.removeAttribute("src");
@@ -99,7 +102,29 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     document.getElementById("viewerExternalBtn").hidden = false;
     document.getElementById("viewerExternalBtn").href = src;
     document.getElementById("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4><div class="document-unified-facts">${Array.from({ length: 4 }, (_, index) => `<div class="document-unified-fact"><strong>Métadonnée ${index + 1}</strong><span>Valeur de démonstration ${index + 1}</span></div>`).join("")}</div></section><section class="document-unified-section"><h4>Personnes concernées</h4><p>Marie Rossi et Jean Rossi</p></section><section class="document-unified-section"><h4>Sources et provenance</h4>${Array.from({ length: 2 }, (_, index) => `<details class="document-unified-source" open><summary>Source liée ${index + 1}</summary><p>Cote archivistique de démonstration</p></details>`).join("")}</section>`;
-    document.getElementById("viewerDetailsCollapseBtn").hidden = innerWidth <= 760;
+    const layout = document.getElementById("documentUnifiedLayout");
+    const details = document.getElementById("viewerDocumentDetails");
+    const collapseButton = document.getElementById("viewerDetailsCollapseBtn");
+    const expandButton = document.getElementById("viewerDetailsExpandBtn");
+    layout.classList.toggle("is-details-collapsed", detailsCollapsed);
+    details.hidden = detailsCollapsed;
+    collapseButton.hidden = detailsCollapsed;
+    expandButton.hidden = !detailsCollapsed;
+    collapseButton.setAttribute("aria-expanded", String(!detailsCollapsed));
+    expandButton.setAttribute("aria-expanded", String(!detailsCollapsed));
+    if (!expandButton.dataset.testBound) {
+      const setCollapsed = collapsed => {
+        layout.classList.toggle("is-details-collapsed", collapsed);
+        details.hidden = collapsed;
+        collapseButton.hidden = collapsed;
+        expandButton.hidden = !collapsed;
+        collapseButton.setAttribute("aria-expanded", String(!collapsed));
+        expandButton.setAttribute("aria-expanded", String(!collapsed));
+      };
+      expandButton.addEventListener("click", () => setCollapsed(false));
+      collapseButton.addEventListener("click", () => setCollapsed(true));
+      expandButton.dataset.testBound = "true";
+    }
     if (kind === "image") {
       img.src = src;
       img.hidden = false;
@@ -110,7 +135,20 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     }
     dialog.showModal();
     dialog.getAnimations({ subtree: true }).forEach(a => a.finish());
-  }, { title, fileName, kind, src });
+    if (kind === "image") {
+      await img.decode();
+      const { createDocumentImageViewer, selectInitialDocumentImageMode } = await import("./js/document-image-viewer.js");
+      window.__viewerImageController = createDocumentImageViewer({
+        viewport: document.getElementById("viewerImageViewport"),
+        image: img,
+        controls: document.getElementById("viewerImageControls"),
+        zoomLabel: document.getElementById("viewerImageZoomLevel"),
+        modeButton: document.getElementById("viewerImageModeBtn"),
+        initialMode: selectInitialDocumentImageMode({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight })
+      });
+      document.querySelectorAll("#viewerImageControls .viewer-image-only").forEach(control => { control.hidden = false; });
+    }
+  }, { title, fileName, kind, src, detailsCollapsed });
   await page.waitForTimeout(80);
 }
 
@@ -177,6 +215,10 @@ async function measureViewer(page) {
       detailsCollapseHidden: document.getElementById("viewerDetailsCollapseBtn").hidden,
       detailsExpandHidden: document.getElementById("viewerDetailsExpandBtn").hidden,
       detailsOverflowY: getComputedStyle(detailsPanel).overflowY,
+      viewerFitMode: viewer.dataset.viewerFitMode || "",
+      detailsHidden: detailsPanel.hidden,
+      detailsExpandAria: document.getElementById("viewerDetailsExpandBtn").getAttribute("aria-expanded"),
+      detailsCollapseAria: document.getElementById("viewerDetailsCollapseBtn").getAttribute("aria-expanded"),
       sourceSections: detailsPanel.querySelectorAll(".document-unified-source").length,
       detailSectionCount: detailsPanel.querySelectorAll(".document-unified-section").length,
       viewer: box(viewer),
@@ -185,6 +227,13 @@ async function measureViewer(page) {
        bodyScroll: { sh: body.scrollHeight, ch: body.clientHeight, sw: body.scrollWidth, cw: body.clientWidth, overflowY: getComputedStyle(body).overflowY },
       img: box(img),
       imgFit: img.hidden ? null : getComputedStyle(img).objectFit,
+      imageCurrentSrc: img.currentSrc,
+      imageNaturalSize: [img.naturalWidth, img.naturalHeight],
+      imageCssSize: [getComputedStyle(img).width, getComputedStyle(img).height],
+      imageRendering: getComputedStyle(img).imageRendering,
+      imageTransform: getComputedStyle(img).transform,
+      devicePixelRatio,
+      externalHref: external.href,
       frame: box(frame),
       viewport: { w: innerWidth, h: innerHeight },
       docOverflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth
@@ -233,19 +282,24 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 if (width <= 760) {
                   assert.ok(m.originalPanel.y < m.detailsPanel.y, `${width}px : original avant les informations sur mobile`);
                   assert.equal(m.detailsOverflowY, "visible", `${width}px : défilement vertical unique de la fiche`);
-                  assert.equal(m.detailsCollapseHidden, true, `${width}px : aucun bouton de panneau desktop sur mobile`);
+                  assert.equal(m.detailsCollapseHidden, false, `${width}px : Masquer les informations est disponible quand elles sont ouvertes`);
+                  assert.equal(m.detailsExpandHidden, true, `${width}px : la commande d’ouverture est masquée lorsque les informations sont visibles`);
                 } else {
                   assert.ok(m.originalPanel.x < m.detailsPanel.x, `${width}px : original à gauche des informations`);
                   assert.ok(m.originalPanel.right <= m.detailsPanel.x + 1, `${width}px : panneaux desktop non chevauchés`);
                   assert.equal(m.detailsOverflowY, "auto", `${width}px : panneau d’informations défilant indépendamment`);
                 }
-                assert.equal(m.viewerOverflowY, width <= 760 ? "hidden" : "auto", `${key} : original contenu dans son panneau mobile`);
+                assert.equal(m.viewerOverflowY, width <= 760 ? (m.viewerFitMode === "width" ? "auto" : "hidden") : "auto", `${key} : défilement adapté au mode d’ajustement`);
                 assert.equal(m.docOverflowX, 0, `${key} : aucun overflow horizontal`);
                 assert.ok(m.closeBtn && m.closeBtn.w >= 43.5 && m.closeBtn.h >= 43.5, `${key} : fermeture ≥44px`);
                 assert.equal(m.backButtonCount, 0, `${key} : bouton Retour supprimé`);
                 assert.ok(m.closeBtn && m.actionsBtn, `${key} : fermeture X et menu d’actions accessibles`);
                 if (width <= 760) assert.ok(m.actionsBtn.h >= 43.5, `${key} : menu tactile`);
                 assert.ok(m.externalBtn && await page.locator("#viewerExternalBtn").getAttribute("href") === await page.locator("#viewerImage").getAttribute("src"), `${key} : nouvel onglet pointe sur la source exacte de l’image`);
+                assert.equal(m.imageCurrentSrc, m.externalHref, `${key} : source affichée et source du nouvel onglet identiques`);
+                assert.ok(m.imageNaturalSize[0] > 0 && m.imageNaturalSize[1] > 0, `${key} : dimensions intrinsèques mesurées`);
+                assert.equal(m.imageRendering, "auto", `${key} : aucun filtre de netteté artificiel`);
+                assert.doesNotMatch(m.imageTransform, /scale\(/, `${key} : aucune mise à l’échelle par transform`);
                 assert.equal(await page.locator("#viewerActionsMenu").isVisible(), true, `${key} : menu d’actions ouvrable`);
                 assert.equal(await page.locator('#viewerActionsMenu [role="menuitem"]').count(), 1, `${key} : Modifier seule reste dans le menu`);
                 assert.ok(m.externalBtn, `${key} : Nouvel onglet est accessible dans la barre du lecteur`);
@@ -268,6 +322,7 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 }
               }
               t.diagnostic(`${engineName} ${width}×${height}: header short=${headers.short.head.h} medium=${headers.medium.head.h} long=${headers.long.head.h} ; doc long=${headers.long.viewer.h} ; dialog=${headers.long.dialog.h}`);
+              t.diagnostic(`${engineName} ${width}×${height}: source identique=${headers.short.imageCurrentSrc === headers.short.externalHref} ; natural=${headers.short.imageNaturalSize.join("×")} ; CSS=${headers.short.imageCssSize.join("×")} ; DPR=${headers.short.devicePixelRatio} ; rendering=${headers.short.imageRendering} ; transform=${headers.short.imageTransform}`);
               /* la zone document reste majoritaire même avec un titre long */
                 assert.ok(headers.long.viewer.h >= height * 0.38, `original suffisamment grand avant les informations documentaires (${headers.long.viewer.h} / ${height})`);
 
@@ -545,6 +600,65 @@ test("La fermeture X du viewer conserve la vue Documents sous-jacente", async t 
       assert.equal(await page.locator("#documentViewerDialog").evaluate(dialog => dialog.open), false);
       assert.equal(await page.locator("#documentsView").evaluate(view => view.hidden), false, "la bibliothèque reste la vue sous-jacente");
       assert.equal(await page.locator("#genealogyView").evaluate(view => view.hidden), true, "la fermeture ne redirige pas vers Archives");
+    } finally { await context.close(); }
+  } finally { await browser.close(); await server.close(); }
+});
+
+test("Mobile : les informations se replient sous le lecteur sans recharger l’image", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    const { context, page } = await createViewerPage(browser, server, 390, 844);
+    try {
+      await openViewer(page, { title: "Registre consulté", fileName: "registre-long-nom-1891.jpg", src: portraitSvg, detailsCollapsed: true });
+      const img = page.locator("#viewerImage");
+      const originalSrc = await img.evaluate(image => image.currentSrc);
+      const initial = await page.evaluate(() => ({
+        detailsHidden: document.getElementById("viewerDocumentDetails").hidden,
+        expandHidden: document.getElementById("viewerDetailsExpandBtn").hidden,
+        expanded: document.getElementById("viewerDetailsExpandBtn").getAttribute("aria-expanded"),
+        controlsVisible: !document.getElementById("viewerImageControls").hidden,
+        mode: document.getElementById("viewerImageViewport").dataset.viewerFitMode,
+        readerHeight: document.getElementById("viewerImageViewport").getBoundingClientRect().height,
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth
+      }));
+      assert.equal(initial.detailsHidden, true, "les informations sont repliées à l’ouverture mobile");
+      assert.equal(initial.expandHidden, false, "la commande Afficher les informations est visible");
+      assert.equal(initial.expanded, "false", "aria-expanded reflète le repli");
+      assert.equal(initial.controlsVisible, true, "la barre d’outils du lecteur est présente");
+      assert.equal(initial.mode, "width", "un document portrait très vertical démarre en lecture à la largeur");
+      assert.ok(initial.readerHeight > 42 * 844 / 100, "le lecteur replié utilise davantage de hauteur mobile");
+      assert.equal(initial.scrollWidth, initial.clientWidth, "aucun débordement horizontal");
+      const reader = page.locator("#viewerImageViewport");
+      await reader.evaluate(viewport => { viewport.scrollTop = 80; });
+      const scrollBefore = await reader.evaluate(viewport => viewport.scrollTop);
+
+      await page.locator("#viewerDetailsExpandBtn").click();
+      assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true);
+      assert.equal(await page.locator("#viewerDetailsCollapseBtn").getAttribute("aria-expanded"), "true");
+      assert.equal(await page.locator("#viewerDocumentDetailsContent .document-unified-section").count(), 3);
+      await page.locator("#viewerDetailsCollapseBtn").click();
+      assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true);
+      assert.equal(await page.locator("#viewerDetailsExpandBtn").getAttribute("aria-expanded"), "false");
+      assert.equal(await reader.evaluate(viewport => viewport.scrollTop), scrollBefore, "la position de lecture reste conservée");
+      await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
+      const zoomBefore = await page.evaluate(() => window.__viewerImageController.getState().zoom);
+      await page.locator("#viewerDetailsExpandBtn").click();
+      await page.locator("#viewerDetailsCollapseBtn").click();
+      assert.equal(await img.evaluate(image => image.currentSrc), originalSrc, "la source ne change pas pendant le repli/déploiement");
+      assert.deepEqual(await img.evaluate(image => [image.naturalWidth, image.naturalHeight]), [200, 800], "l’image originale reste chargée");
+      assert.equal(await page.evaluate(() => window.__viewerImageController.getState().zoom), zoomBefore, "le zoom est conservé");
+      assert.equal(await page.locator("#viewerFrame").isHidden(), true, "le comportement image ne bascule pas vers le panneau PDF");
+
+      await openViewer(page, { title: "Registre PDF", fileName: "registre-1891.pdf", kind: "pdf", detailsCollapsed: true });
+      assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "le PDF bénéficie aussi du repli initial mobile");
+      assert.equal(await page.locator("#viewerImage").isHidden(), true, "un PDF ne passe pas par le rendu image");
+      const pdfFrame = await page.locator("#viewerFrame").boundingBox();
+      assert.ok(pdfFrame && pdfFrame.width > 100 && pdfFrame.height > 100, "le lecteur PDF reste visible dans la zone prioritaire");
+      assert.equal(await page.locator("#viewerExternalBtn").isVisible(), true, "l’ouverture externe du PDF reste disponible");
     } finally { await context.close(); }
   } finally { await browser.close(); await server.close(); }
 });
