@@ -27,13 +27,14 @@ export async function createDocumentPdfViewer({
   fullscreenRoot,
   zoomIndicator,
   nativeFallbackMessage,
+  bindingRoot,
   maxZoom = 6
 } = {}) {
   if (!source || !viewer || !pageViewport || !pageCanvas) throw new TypeError("Les éléments du lecteur PDF sont requis");
 
   const doc = viewer.ownerDocument;
   const win = doc.defaultView || globalThis;
-  const toolbar = previousButton?.closest("#viewerPdfControls");
+  const delegatedRoot = bindingRoot || previousButton?.closest("#documentViewerDialog") || doc;
   const fullscreenElement = fullscreenRoot || fullscreenHost || viewer;
   const fullscreenDocument = fullscreenHost?.ownerDocument || doc;
   let pdfDocument = null;
@@ -320,7 +321,6 @@ export async function createDocumentPdfViewer({
     thumbnailsButton.setAttribute("aria-expanded", String(expanded));
     thumbnailsButton.setAttribute("aria-label", expanded ? "Masquer les miniatures" : "Afficher les miniatures");
     thumbnailsButton.title = expanded ? "Masquer les miniatures" : "Afficher les miniatures";
-    thumbnailsButton.querySelector("use")?.setAttribute("href", expanded ? "#icon-panel-collapse" : "#icon-panel-expand");
   }
 
   async function selectPage(pageNumber) {
@@ -342,7 +342,20 @@ export async function createDocumentPdfViewer({
     await renderPage({ preservePoint: focalPoint });
   }
 
-  function onToolbarClick(event) {
+  function toggleThumbnails() {
+    thumbnailRail.hidden = !thumbnailRail.hidden;
+    updateThumbnailToggle();
+    if (!thumbnailRail.hidden) {
+      for (const button of thumbnailList.querySelectorAll("[data-pdf-page]")) {
+        const rect = button.getBoundingClientRect();
+        const railRect = thumbnailRail.getBoundingClientRect();
+        if (rect.bottom >= railRect.top && rect.top <= railRect.bottom && rect.right >= railRect.left && rect.left <= railRect.right) updateThumbnailVisibility(button, true);
+      }
+    }
+    requestAnimationFrame(() => startRender());
+  }
+
+  function onDelegatedClick(event) {
     if (event.target.closest("#pdfPreviousPageBtn")) void selectPage(currentPage - 1);
     else if (event.target.closest("#pdfNextPageBtn")) void selectPage(currentPage + 1);
     else if (event.target.closest("#pdfZoomInBtn")) void updateZoom(zoom * 1.25);
@@ -353,21 +366,14 @@ export async function createDocumentPdfViewer({
       displayZoom();
       setFitModeButton();
       startRender();
-    } else if (event.target.closest("#pdfThumbnailsBtn")) {
-      thumbnailRail.hidden = !thumbnailRail.hidden;
-      updateThumbnailToggle();
-      if (!thumbnailRail.hidden) {
-        for (const button of thumbnailList.querySelectorAll("[data-pdf-page]")) {
-          const rect = button.getBoundingClientRect();
-          const railRect = thumbnailRail.getBoundingClientRect();
-          if (rect.bottom >= railRect.top && rect.top <= railRect.bottom && rect.right >= railRect.left && rect.left <= railRect.right) updateThumbnailVisibility(button, true);
-        }
-      }
-      requestAnimationFrame(() => startRender());
     } else if (event.target.closest("#pdfFullscreenBtn")) void toggleFullscreen();
   }
 
-  function onToolbarKeydown(event) {
+  function onDelegatedKeydown(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    const inZone = target?.closest("#viewerPdfToolbar,#pdfPageNav,#viewerPdfPageViewport");
+    const isEngineButton = target?.closest("#pdfPreviousPageBtn,#pdfNextPageBtn,#pdfZoomInBtn,#pdfZoomOutBtn,#pdfFitModeBtn,#pdfThumbnailsBtn,#pdfFullscreenBtn");
+    if (!inZone && !isEngineButton) return;
     if (event.key === "ArrowLeft") void selectPage(currentPage - 1);
     else if (event.key === "ArrowRight") void selectPage(currentPage + 1);
     else if (["+", "=", "-", "0"].includes(event.key)) {
@@ -420,8 +426,9 @@ export async function createDocumentPdfViewer({
   function onResize() { startRender(); }
 
   function bindEvents() {
-    toolbar?.addEventListener("click", onToolbarClick);
-    toolbar?.addEventListener("keydown", onToolbarKeydown);
+    delegatedRoot.addEventListener("click", onDelegatedClick);
+    delegatedRoot.addEventListener("keydown", onDelegatedKeydown);
+    thumbnailsButton?.addEventListener("click", toggleThumbnails);
     fullscreenElement?.addEventListener("keydown", onKeydown);
     fullscreenDocument.addEventListener("fullscreenchange", onFullscreenChange);
     fullscreenDocument.addEventListener("webkitfullscreenchange", onFullscreenChange);
@@ -450,8 +457,9 @@ export async function createDocumentPdfViewer({
     if (thumbnailTimer !== null) win.cancelAnimationFrame(thumbnailTimer);
     if (zoomIndicatorTimer !== null) win.clearTimeout(zoomIndicatorTimer);
     zoomIndicator?.classList.remove("is-visible");
-    toolbar?.removeEventListener("click", onToolbarClick);
-    toolbar?.removeEventListener("keydown", onToolbarKeydown);
+    delegatedRoot.removeEventListener("click", onDelegatedClick);
+    delegatedRoot.removeEventListener("keydown", onDelegatedKeydown);
+    thumbnailsButton?.removeEventListener("click", toggleThumbnails);
     fullscreenElement?.removeEventListener("keydown", onKeydown);
     fullscreenDocument.removeEventListener("fullscreenchange", onFullscreenChange);
     fullscreenDocument.removeEventListener("webkitfullscreenchange", onFullscreenChange);
