@@ -3258,6 +3258,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .viewer-dialog .document-original-panel:has(.viewer-body.viewer-pdf-active) { display: flex; flex-direction: column; gap: var(--space-2); }
   .viewer-dialog .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar { grid-row: auto; flex-wrap: nowrap; }
   .viewer-dialog .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #pdfFitModeBtn { margin-left: 0; }
+  .viewer-dialog .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #pdfFullscreenBtn { margin-left: auto; }
   .viewer-dialog .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-thumbnail-rail { grid-row: auto; flex: 0 0 auto; padding: var(--space-1) 0; border-inline: 0; border-block: var(--border-default); border-radius: 0; overflow-x: auto; overflow-y: hidden; min-height: 6.25rem; }
   .viewer-dialog .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-panel-toggles { display: grid; }
   .viewer-dialog .document-original-panel .viewer-body.viewer-pdf-active { flex: 0 0 auto; height: min(58dvh, calc(100dvh - 15rem)); min-height: 12rem; overflow: hidden; }
@@ -3328,10 +3329,12 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 }
 
 @media (max-width: 560px) {
-  .viewer-dialog .modal-head { flex-wrap: wrap; gap: var(--space-1); padding: var(--space-2) var(--space-3); }
-  .viewer-dialog .modal-head > div:first-child { flex: 1 1 100%; }
+  .viewer-dialog:has(.viewer-body.viewer-pdf-active) .modal-head { flex-wrap: nowrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+  .viewer-dialog:has(.viewer-body.viewer-pdf-active) .modal-head > div:first-child { flex: 1 1 auto; min-width: 0; }
+  .viewer-dialog:has(.viewer-body.viewer-pdf-active) .modal-head h3 { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .viewer-dialog .modal-head p { display: none; }
-  .viewer-dialog .viewer-head-actions { width: 100%; flex-wrap: nowrap; justify-content: flex-end; gap: var(--space-1); }
+  .viewer-dialog:has(.viewer-body.viewer-pdf-active) .viewer-head-actions { flex: 0 0 auto; width: auto; flex-wrap: nowrap; justify-content: flex-end; gap: var(--space-1); }
+  .viewer-dialog:has(.viewer-body.viewer-pdf-active) .viewer-head-actions .icon-btn { flex: 0 0 var(--control-touch); width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); padding: 0; }
   .viewer-dialog #viewerBackBtn, .viewer-dialog #viewerEditBtn { flex: 0 0 auto; padding-inline: var(--space-2); white-space: nowrap; }
 }
 

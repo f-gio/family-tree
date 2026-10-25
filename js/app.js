@@ -5153,36 +5153,18 @@ function createPdfViewerElements() {
 function arrangePdfChrome() {
   const isNarrow = window.matchMedia("(max-width: 760px)").matches;
   const { toolbar, pagination, toggles } = createPdfViewerElements();
-  const moveTo = (id, container) => {
-    const element = $(id);
-    if (element && container && element.parentElement !== container) container.append(element);
-  };
   if (isNarrow) {
-    moveTo("pdfPreviousPageBtn", pagination);
-    moveTo("pdfPageStatus", pagination);
-    moveTo("pdfNextPageBtn", pagination);
-    const thumbnailsButton = $("pdfThumbnailsBtn");
-    if (thumbnailsButton && thumbnailsButton.parentElement !== toggles) toggles.prepend(thumbnailsButton);
-    for (const id of ["pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn"]) {
-      const element = $(id);
-      if (element && element.parentElement !== toolbar) toolbar.append(element);
-    }
-    const external = $("viewerExternalBtn");
-    if (external && !$("viewerPdfToolbar").contains(external)) toolbar.append(external);
+    pagination.append($("pdfPreviousPageBtn"), $("pdfPageStatus"), $("pdfNextPageBtn"));
+    toggles.prepend($("pdfThumbnailsBtn"));
+    const originalHead = document.querySelector("#documentViewerDialog .document-original-head");
+    if (originalHead && $("viewerDetailsExpandBtn").parentElement !== originalHead) originalHead.append($("viewerDetailsExpandBtn"));
+    for (const id of ["pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn"]) toolbar.append($(id));
     pagination.hidden = false;
     toggles.hidden = false;
   } else {
     pagination.hidden = true;
     toggles.hidden = true;
-    for (const id of ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn"]) {
-      const element = $(id);
-      if (element && element.parentElement !== toolbar) toolbar.append(element);
-    }
-    const fullscreenButton = $("pdfFullscreenBtn");
-    const expandButton = $("viewerDetailsExpandBtn");
-    if (fullscreenButton && expandButton && expandButton.nextElementSibling !== fullscreenButton) toolbar.insertBefore(expandButton, fullscreenButton);
-    const external = $("viewerExternalBtn");
-    if (external && (!$("viewerPdfToolbar").contains(external) || external.previousElementSibling !== fullscreenButton)) toolbar.append(external);
+    for (const id of ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "viewerDetailsExpandBtn", "pdfFullscreenBtn", "viewerExternalBtn"]) toolbar.append($(id));
   }
 }
 
