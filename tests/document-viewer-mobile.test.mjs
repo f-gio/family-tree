@@ -5,9 +5,10 @@ import { chromium, webkit } from "playwright";
 import { blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 import { selectInitialDocumentImageMode } from "../js/document-image-viewer.js";
 
-const [html, css] = await Promise.all([
+const [html, css, app] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
-  readFile(new URL("../css/design-system.css", import.meta.url), "utf8")
+  readFile(new URL("../css/design-system.css", import.meta.url), "utf8"),
+  readFile(new URL("../js/app.js", import.meta.url), "utf8")
 ]);
 
 const portraitSvg = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="800"><rect width="200" height="800" fill="#c4b5a0"/></svg>');
@@ -855,6 +856,93 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
         assert.equal(await page.locator("#viewerImage").evaluate(image => image.currentSrc), source, "la sortie ne recharge pas l’image");
         assert.equal(await page.evaluate(() => window.__viewerImageController.getState().zoom), zoom, "le niveau de zoom reste identique après la sortie");
         assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), !detailsExpandedBefore, "l’état choisi pour Informations est restauré après le plein écran");
+      } finally { await context.close(); }
+    }
+  } finally { await browser.close(); await server.close(); }
+});
+
+test("Visionneuse d’images mobile : header compact et cinq commandes sur une ligne", async t => {
+  assert.match(app, /function arrangeViewerImageChrome\(\)/, "positionnement dédié de la visionneuse image présent");
+  assert.match(app, /controls\.insertBefore\(fullscreenButton, externalButton\)/, "Plein écran est déplacé dans la barre d’outils image");
+  assert.match(app, /viewport\.after\(expandButton\)/, "Informations apparaît sous le document image");
+  assert.match(app, /imageViewerMedia\.addEventListener\("change", onImageViewerMediaChange\)/, "le repositionnement suit l’orientation responsive");
+  const browser = await chromium.launch({ headless: true });
+  const server = await startStaticServer(ROOT);
+  try {
+    for (const width of [320, 390]) {
+      const { context, page } = await createViewerPage(browser, server, width, 844);
+      try {
+        const title = width === 320
+          ? "Dossier Militaire Giovannoni — Archive historique complète"
+          : "Dossier Militaire";
+        await openViewer(page, { title, fileName: "dossier-militaire.svg", src: portraitSvg, detailsCollapsed: true });
+        await page.evaluate(() => {
+          const controls = document.getElementById("viewerImageControls");
+          const fullscreen = document.getElementById("viewerFullscreenBtn");
+          const external = document.getElementById("viewerExternalBtn");
+          const viewport = document.getElementById("viewerImageViewport");
+          const expand = document.getElementById("viewerDetailsExpandBtn");
+          controls.insertBefore(fullscreen, external);
+          viewport.after(expand);
+        });
+
+        const state = await page.evaluate(() => {
+          const rect = element => {
+            const box = element.getBoundingClientRect();
+            return { x: box.x, right: box.right, y: box.y, bottom: box.bottom, width: box.width, height: box.height };
+          };
+          const dialog = document.getElementById("documentViewerDialog");
+          const title = document.getElementById("viewerTitle");
+          const controls = document.getElementById("viewerImageControls");
+          const reader = document.getElementById("viewerImageViewport");
+          return {
+            header: rect(dialog.querySelector(":scope > .modal-head")),
+            title: rect(title), titleStyle: { whiteSpace: getComputedStyle(title).whiteSpace, textOverflow: getComputedStyle(title).textOverflow },
+            actions: rect(dialog.querySelector(".viewer-head-actions")),
+            menu: rect(document.getElementById("viewerActionsBtn")),
+            close: rect(dialog.querySelector('[data-close="documentViewerDialog"]')),
+            controls: rect(controls), reader: rect(reader), image: rect(document.getElementById("viewerImage")),
+            fullscreen: rect(document.getElementById("viewerFullscreenBtn")),
+            expand: rect(document.getElementById("viewerDetailsExpandBtn")),
+            controlOrder: [...controls.children].filter(element => !element.hidden).map(element => element.id || element.className),
+            visibleFullscreenCount: [...dialog.querySelectorAll("#viewerFullscreenBtn")].filter(element => !element.hidden).length,
+            documentWidth: document.documentElement.scrollWidth, viewportWidth: innerWidth
+          };
+        });
+        assert.ok(state.header.height <= 70, `${width}px : header compact (${state.header.height}px)`);
+        assert.equal(state.titleStyle.whiteSpace, "nowrap");
+        assert.equal(state.titleStyle.textOverflow, "ellipsis");
+        assert.ok(state.title.right <= state.actions.x + 1, "le titre ne chevauche pas les actions");
+        assert.ok(Math.abs(state.menu.y - state.close.y) <= 1, "menu et fermeture alignés");
+        for (const action of [state.menu, state.close]) assert.ok(action.width >= 43.5 && action.height >= 43.5, "actions d’en-tête de 44 × 44 px");
+        if (width === 320) {
+          const titleOverflow = await page.locator("#viewerTitle").evaluate(element => element.scrollWidth > element.clientWidth);
+          assert.equal(titleOverflow, true, "le titre long est tronqué plutôt que de faire descendre les actions");
+        }
+        const visibleToolbarButtons = await page.locator("#viewerImageControls .btn:visible").all();
+        assert.equal(visibleToolbarButtons.length, 5, "deux commandes zoom, ajustement, plein écran et nouvel onglet, sans doublon");
+        assert.deepEqual(state.controlOrder, ["viewer-image-zoom-group viewer-image-only", "viewerImageModeBtn", "viewerFullscreenBtn", "viewerExternalBtn"]);
+        assert.equal(state.visibleFullscreenCount, 1);
+        for (const button of visibleToolbarButtons) {
+          const box = await button.boundingBox();
+          assert.ok(box.width >= 43.5 && box.height >= 43.5, "commande d’image avec une cible de 44 × 44 px");
+        }
+        assert.ok(state.controls.height <= 48, `${width}px : barre d’outils d’une ligne (${state.controls.height}px)`);
+        assert.ok(state.fullscreen.y >= state.controls.y - 1 && state.fullscreen.bottom <= state.controls.bottom + 1, "Plein écran est dans la barre, non superposé à l’image");
+        assert.ok(state.expand.y >= state.reader.bottom - 1, "Informations est placée sous l’image");
+        assert.ok(state.image.x >= state.reader.x - 1 && state.image.right <= state.reader.right + 1, "l’image conserve son cadrage dans son viewport");
+        assert.equal(state.documentWidth, width, "aucun débordement horizontal global");
+
+        const originalSource = await page.locator("#viewerImage").evaluate(image => image.currentSrc);
+        await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
+        assert.equal(await page.evaluate(() => window.__viewerImageController.getState().zoom), 1.25, "zoom avant conservé");
+        assert.equal(await page.locator("#viewerImage").evaluate(image => image.currentSrc), originalSource, "le zoom ne recharge pas l’image");
+        await page.locator("#viewerImageModeBtn").click();
+        assert.equal(await page.evaluate(() => window.__viewerImageController.getState().mode), "fit", "mode d’ajustement conservé");
+        await page.locator("#viewerDetailsExpandBtn").click();
+        assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), false, "Informations s’ouvre sous l’image");
+        await page.locator("#viewerDetailsCollapseBtn").click();
+        assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "Informations se referme normalement");
       } finally { await context.close(); }
     }
   } finally { await browser.close(); await server.close(); }

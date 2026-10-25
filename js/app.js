@@ -5135,6 +5135,25 @@ function setupViewerImage(item) {
   });
   document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = false; });
   $("viewerImageControls").hidden = false;
+  arrangeViewerImageChrome();
+}
+
+function arrangeViewerImageChrome() {
+  const viewport = $("viewerImageViewport");
+  const controls = $("viewerImageControls");
+  const fullscreenButton = $("viewerFullscreenBtn");
+  const externalButton = $("viewerExternalBtn");
+  const expandButton = $("viewerDetailsExpandBtn");
+  const panel = $("documentViewerDialog").querySelector(".document-original-panel");
+  const narrow = window.matchMedia("(max-width: 760px)").matches;
+  if (narrow) {
+    if (fullscreenButton.parentElement !== controls) controls.insertBefore(fullscreenButton, externalButton);
+    if (expandButton.parentElement !== viewport.parentElement || expandButton.previousElementSibling !== viewport) viewport.after(expandButton);
+  } else {
+    if (fullscreenButton.parentElement !== panel) viewport.after(fullscreenButton);
+    const originalHead = panel.querySelector(".document-original-head");
+    if (originalHead && expandButton.parentElement !== originalHead) originalHead.append(expandButton);
+  }
 }
 
 function createPdfViewerElements() {
@@ -5295,6 +5314,7 @@ async function openStoredDocument(item, returnContext = "previous") {
   $("viewerImage").removeAttribute("style");
   viewerImageState?.destroy();
   viewerImageState = null;
+  arrangeViewerImageChrome();
   viewerPdfState?.destroy();
   viewerPdfState = null;
   $("viewerImageViewport").classList.remove("viewer-pdf-active");
@@ -7158,6 +7178,7 @@ $("documentViewerDialog").addEventListener("close", () => {
   activeViewerDocumentId = "";
   viewerImageState?.destroy();
   viewerImageState = null;
+  arrangeViewerImageChrome();
   viewerPdfState?.destroy();
   viewerPdfState = null;
   $("viewerImageViewport").classList.remove("viewer-pdf-active");
@@ -7177,6 +7198,10 @@ const pdfPanelsMedia = window.matchMedia("(max-width: 760px)");
 const onPdfPanelsMediaChange = () => { if (viewerPdfState) arrangePdfChrome(); };
 if (typeof pdfPanelsMedia.addEventListener === "function") pdfPanelsMedia.addEventListener("change", onPdfPanelsMediaChange);
 else if (typeof pdfPanelsMedia.addListener === "function") pdfPanelsMedia.addListener(onPdfPanelsMediaChange);
+const imageViewerMedia = window.matchMedia("(max-width: 760px)");
+const onImageViewerMediaChange = () => { if (viewerImageState && !$("viewerImage").hidden) arrangeViewerImageChrome(); };
+if (typeof imageViewerMedia.addEventListener === "function") imageViewerMedia.addEventListener("change", onImageViewerMediaChange);
+else if (typeof imageViewerMedia.addListener === "function") imageViewerMedia.addListener(onImageViewerMediaChange);
 $("addTaskBtn").onclick = () => openTask();
 $("taskForm").addEventListener("submit", saveTask);
 $("deleteTaskBtn").onclick = () => runSafely(removeTask, "Suppression de l’action impossible");

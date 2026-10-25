@@ -231,7 +231,33 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     const hidden = element.hidden || (element.closest("[hidden]") !== null);
     const rect = element.getBoundingClientRect();
     return [id, { x: rect.x, right: rect.right, y: rect.y, bottom: rect.bottom, width: rect.width, height: rect.height, visible: !hidden && rect.width > 0 && rect.height > 0 }];
-  })), ["viewerPdfToolbar", "pdfPageNav", "pdfPanelToggles", "viewerPdfThumbnails", "viewerPdfSurface", "viewerPdfPageViewport", "viewerPdfPageCanvas", "pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "viewerDetailsExpandBtn", "pdfFullscreenBtn", "viewerExternalBtn", "viewerDetailsBtn", "viewerDetailsCollapseBtn", "viewerImageViewport", "viewerDocumentDetails"]);
+  })), ["viewerPdfToolbar", "pdfPageNav", "pdfPanelToggles", "viewerPdfThumbnails", "viewerPdfSurface", "viewerPdfPageViewport", "viewerPdfPageCanvas", "pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "viewerDetailsExpandBtn", "pdfFullscreenBtn", "viewerExternalBtn", "viewerDetailsBtn", "viewerDetailsCollapseBtn", "viewerImageViewport", "viewerDocumentDetails", "documentUnifiedLayout"]);
+  const measureDesktopPlacement = page => page.evaluate(() => {
+    const panel = document.querySelector(".document-original-panel");
+    const toolbar = document.getElementById("viewerPdfToolbar");
+    const pageViewport = document.getElementById("viewerPdfPageViewport");
+    const canvas = document.getElementById("viewerPdfPageCanvas");
+    const panelRect = panel.getBoundingClientRect();
+    const toolbarRect = toolbar.getBoundingClientRect();
+    const pageRect = pageViewport.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const activeToolbarItems = [...toolbar.children].filter(element => !element.hidden && element.getBoundingClientRect().width > 0);
+    const itemsRect = activeToolbarItems.reduce((result, element) => {
+      const rect = element.getBoundingClientRect();
+      result.left = Math.min(result.left, rect.left);
+      result.right = Math.max(result.right, rect.right);
+      return result;
+    }, { left: Infinity, right: -Infinity });
+    return {
+      panel: { left: panelRect.left, right: panelRect.right, width: panelRect.width },
+      toolbar: { left: toolbarRect.left, right: toolbarRect.right, width: toolbarRect.width, gridColumn: getComputedStyle(toolbar).gridColumnStart, justify: getComputedStyle(toolbar).justifyContent },
+      rail: { hidden: document.getElementById("viewerPdfThumbnails").hidden, left: document.getElementById("viewerPdfThumbnails").getBoundingClientRect().left, right: document.getElementById("viewerPdfThumbnails").getBoundingClientRect().right },
+      page: { left: pageRect.left, right: pageRect.right, width: pageRect.width, center: (pageRect.left + pageRect.right) / 2 },
+      canvas: { left: canvasRect.left, right: canvasRect.right, center: (canvasRect.left + canvasRect.right) / 2, width: canvasRect.width },
+      controlsCenter: (itemsRect.left + itemsRect.right) / 2,
+      itemsWidth: itemsRect.right - itemsRect.left
+    };
+  });
 
   const openViewer = async page => page.evaluate(async url => {
     const { createDocumentPdfViewer } = await import(`${url}/js/document-pdf-viewer.js`);
@@ -339,6 +365,27 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     assert.match(await page.locator("#pdfPageStatus").getAttribute("aria-label"), /Page 1 sur 24/);
     assert.equal(await page.locator('.pdf-thumbnail[data-pdf-page="1"]').getAttribute("aria-current"), "page");
 
+    await page.locator("#pdfThumbnailsBtn").click();
+    await page.waitForFunction(() => document.getElementById("viewerPdfThumbnails").hidden);
+    const desktopNoRail = await measureDesktopPlacement(page);
+    assert.equal(desktopNoRail.toolbar.gridColumn, "1", "toolbar déplacée dans l'unique colonne quand le rail est masqué");
+    assert.ok(desktopNoRail.page.width > desktop.viewerPdfPageViewport.width + 150, "le lecteur récupère la largeur du rail masqué");
+    assert.ok(Math.abs(desktopNoRail.canvas.center - desktopNoRail.page.center) < 2, "la page reste centrée dans l'espace élargi");
+    assert.equal(desktopNoRail.toolbar.justify, "center", "les commandes restent alignées au-dessus du lecteur élargi");
+    assert.ok(Math.abs(desktopNoRail.controlsCenter - desktopNoRail.page.center) < 16, "le groupe de commandes suit le centre de la page");
+    await page.locator("#viewerDetailsExpandBtn").click();
+    await page.waitForFunction(() => !document.getElementById("viewerDocumentDetails").hidden);
+    const noRailInfoOpen = await measureDesktopPlacement(page);
+    assert.equal(noRailInfoOpen.toolbar.gridColumn, "1", "les commandes restent dans la colonne unique avec Informations ouvert");
+    assert.ok(Math.abs(noRailInfoOpen.canvas.center - noRailInfoOpen.page.center) < 2, "page centrée dans la largeur restante du panneau");
+    await page.locator("#viewerDetailsCollapseBtn").click();
+    await page.waitForFunction(() => document.getElementById("viewerDocumentDetails").hidden);
+    await page.locator("#pdfThumbnailsBtn").click();
+    await page.waitForFunction(() => !document.getElementById("viewerPdfThumbnails").hidden);
+    const restoredRail = await measureDesktopPlacement(page);
+    assert.equal(restoredRail.toolbar.gridColumn, "2", "la disposition à deux colonnes est restaurée avec les miniatures");
+    assert.ok(restoredRail.rail.right <= restoredRail.page.left + 1, "le rail réapparaît à gauche de la page");
+
     const thumbnailsBoxBefore = desktop.pdfThumbnailsBtn;
     await page.locator("#viewerDetailsExpandBtn").click();
     await page.waitForFunction(() => !document.getElementById("viewerDocumentDetails").hidden);
@@ -441,7 +488,7 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
       assert.ok(mobile.viewerPdfToolbar.height <= 60, `barre d’outils sur une seule ligne (${mobile.viewerPdfToolbar.height}px)`);
       const toolOrder = ["pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn"].map(id => mobile[id].x);
       assert.deepEqual(toolOrder, [...toolOrder].sort((a, b) => a - b), "outils drills : zoom, ajustement, plein écran, nouvel onglet");
-      assert.ok(mobile.pdfFullscreenBtn.x - mobile.pdfFitModeBtn.right >= 12, "actions plein écran/nouvel onglet regroupées à droite");
+      assert.ok(mobile.pdfFullscreenBtn.x >= mobile.pdfFitModeBtn.right - 1 && mobile.pdfFullscreenBtn.x - mobile.pdfFitModeBtn.right <= 4, `Plein écran reste groupé près d’Ajuster (${mobile.pdfFitModeBtn.right} → ${mobile.pdfFullscreenBtn.x})`);
       assert.ok(Math.abs(mobile.viewerExternalBtn.right - mobile.viewerPdfToolbar.right) <= 2, "nouvel onglet aligné sur le bord droit de la barre");
       assert.ok(mobile.pdfThumbnailsBtn.width + mobile.viewerDetailsBtn.width > 200, "les bascules occupent la largeur de la rangée");
       assert.ok(mobile.pdfPageNav.y >= mobile.viewerPdfSurface.bottom - 1, "pagination sous le document");
