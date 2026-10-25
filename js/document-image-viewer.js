@@ -37,10 +37,14 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     image.style.height = `${fitHeight}px`;
     image.style.maxWidth = "none";
     image.style.maxHeight = "none";
+    if (!nativeWidthScroll) {
+      image.style.width = `${fitWidth * zoom}px`;
+      image.style.height = `${fitHeight * zoom}px`;
+    }
     image.style.left = nativeWidthScroll ? "auto" : `calc(50% + ${offsetX}px)`;
     image.style.top = nativeWidthScroll ? "auto" : `calc(50% + ${offsetY}px)`;
     image.style.margin = nativeWidthScroll ? "0 auto" : "0";
-    image.style.transform = nativeWidthScroll ? "none" : `translate(-50%, -50%) scale(${zoom})`;
+    image.style.transform = nativeWidthScroll ? "none" : "translate(-50%, -50%)";
     if (zoomLabel) zoomLabel.textContent = zoom <= minZoom ? (mode === "width" ? "Largeur" : "Ajusté") : `${Math.round(zoom * 100)} %`;
   }
 
@@ -56,6 +60,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
 
   function setZoom(nextZoom, focal = null) {
     const next = Math.max(minZoom, Math.min(maxZoom, nextZoom));
+    if (mode === "width" && zoom === minZoom && next > minZoom) viewport.scrollTop = 0;
     if (focal && next !== zoom) {
       const viewportRect = viewport.getBoundingClientRect();
       const imageRect = image.getBoundingClientRect();

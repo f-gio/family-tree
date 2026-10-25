@@ -51,6 +51,8 @@ test("Viewer : règles statiques mobile (clamp, icône, safe-area, flex, pas de 
   assert.match(css, /\.viewer-dialog #viewerExternalBtn \.viewer-external-label \{ display: none; \}/);
   /* Accessible name conservé */
   assert.match(html, /id="viewerExternalBtn"[^>]*aria-label="Ouvrir l’original dans un nouvel onglet"[^>]*title="Ouvrir dans un nouvel onglet"/);
+  assert.match(html, /class="viewer-image-controls"[\s\S]*?id="viewerImageModeBtn"[\s\S]*?id="viewerExternalBtn"/);
+  assert.doesNotMatch(html.match(/id="viewerActionsMenu"[\s\S]*?<\/div>/)?.[0] || "", /viewerExternalBtn/);
   assert.match(html, /id="viewerExternalBtn"[^>]*><svg class="ui-icon"[^>]*><use href="#icon-link"><\/use><\/svg><span class="viewer-external-label">Nouvel onglet<\/span><\/a>/);
 });
 
@@ -92,7 +94,10 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     frame.removeAttribute("src");
     img.removeAttribute("src");
     document.getElementById("viewerMessage").hidden = true;
+    document.getElementById("viewerImageControls").hidden = false;
+    document.querySelectorAll("#viewerImageControls .viewer-image-only").forEach(control => { control.hidden = kind !== "image"; });
     document.getElementById("viewerExternalBtn").hidden = false;
+    document.getElementById("viewerExternalBtn").href = src;
     document.getElementById("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4><div class="document-unified-facts">${Array.from({ length: 4 }, (_, index) => `<div class="document-unified-fact"><strong>Métadonnée ${index + 1}</strong><span>Valeur de démonstration ${index + 1}</span></div>`).join("")}</div></section><section class="document-unified-section"><h4>Personnes concernées</h4><p>Marie Rossi et Jean Rossi</p></section><section class="document-unified-section"><h4>Sources et provenance</h4>${Array.from({ length: 2 }, (_, index) => `<details class="document-unified-source" open><summary>Source liée ${index + 1}</summary><p>Cote archivistique de démonstration</p></details>`).join("")}</section>`;
     document.getElementById("viewerDetailsCollapseBtn").hidden = innerWidth <= 760;
     if (kind === "image") {
@@ -124,7 +129,6 @@ async function measureViewer(page) {
     const actionsButton = document.getElementById("viewerActionsBtn");
     const label = external.querySelector(".viewer-external-label");
     const closeBtn = head.querySelector("[data-close]");
-    const backBtn = document.getElementById("viewerBackBtn");
     const editBtn = document.getElementById("viewerEditBtn");
     const img = document.getElementById("viewerImage");
     const frame = document.getElementById("viewerFrame");
@@ -159,8 +163,7 @@ async function measureViewer(page) {
       actionsBtn: box(actionsButton),
       externalMinH: getComputedStyle(external).minHeight,
       closeBtn: box(closeBtn),
-      backBtn: box(backBtn),
-      backLabel: backBtn.textContent.trim(),
+      backButtonCount: dialog.querySelectorAll("#viewerBackBtn").length,
       editMinHeight: getComputedStyle(editBtn).minHeight,
       body: box(body),
       bodyDisplay: getComputedStyle(body).display,
@@ -239,10 +242,13 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 assert.equal(m.viewerOverflowY, width <= 760 ? "hidden" : "auto", `${key} : original contenu dans son panneau mobile`);
                 assert.equal(m.docOverflowX, 0, `${key} : aucun overflow horizontal`);
                 assert.ok(m.closeBtn && m.closeBtn.w >= 43.5 && m.closeBtn.h >= 43.5, `${key} : fermeture ≥44px`);
-                assert.ok(m.backBtn && m.actionsBtn, `${key} : retour et menu d’actions accessibles dans la fiche`);
-                if (width <= 760) assert.ok(m.backBtn.h >= 43.5 && m.actionsBtn.h >= 43.5, `${key} : cibles Retour/Menu tactiles`);
+                assert.equal(m.backButtonCount, 0, `${key} : bouton Retour supprimé`);
+                assert.ok(m.closeBtn && m.actionsBtn, `${key} : fermeture X et menu d’actions accessibles`);
+                if (width <= 760) assert.ok(m.actionsBtn.h >= 43.5, `${key} : menu tactile`);
+                assert.ok(m.externalBtn && await page.locator("#viewerExternalBtn").getAttribute("href") === await page.locator("#viewerImage").getAttribute("src"), `${key} : nouvel onglet pointe sur la source exacte de l’image`);
                 assert.equal(await page.locator("#viewerActionsMenu").isVisible(), true, `${key} : menu d’actions ouvrable`);
-                assert.equal(await page.locator('#viewerActionsMenu [role="menuitem"]').count(), 2, `${key} : Modifier et Nouvel onglet accessibles dans le menu`);
+                assert.equal(await page.locator('#viewerActionsMenu [role="menuitem"]').count(), 1, `${key} : Modifier seule reste dans le menu`);
+                assert.ok(m.externalBtn, `${key} : Nouvel onglet est accessible dans la barre du lecteur`);
                 await page.keyboard.press("Escape");
                 assert.ok(m.externalAriaLabel === "Ouvrir l’original dans un nouvel onglet", `${key} : aria-label conservé`);
                 assert.ok(m.externalTitle === "Ouvrir dans un nouvel onglet", `${key} : title conservé`);
@@ -364,7 +370,7 @@ test("Zoom tactile image : affichage ajusté, pincement, déplacement, reset et 
     try {
       const result = await page.evaluate(async () => {
         document.body.insertAdjacentHTML("beforeend", `<div id="gestureViewport" style="position:relative;width:360px;height:280px;overflow:hidden;touch-action:pan-y"><img id="gestureImage" alt="Registre de test"></div><div id="gestureControls"><button type="button" data-viewer-image-zoom="out">−</button><span id="gestureZoomLabel"></span><button type="button" data-viewer-image-zoom="reset">Ajuster</button><button type="button" data-viewer-image-zoom="in">+</button></div>`);
-        const { createDocumentImageViewer } = await import("./js/document-image-viewer.js");
+        const { createDocumentImageViewer, selectInitialDocumentImageMode } = await import("./js/document-image-viewer.js");
         const image = document.getElementById("gestureImage");
         image.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#b8c9be"/></svg>');
         await image.decode();
@@ -424,14 +430,17 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
     try {
       const states = await page.evaluate(async () => {
         document.body.insertAdjacentHTML("beforeend", `<div id="gestureViewport" style="position:fixed;left:10px;top:10px;width:360px;height:280px;overflow:auto;touch-action:pan-y"><img id="gestureImage" alt="Photographie de registre"></div><div id="gestureControls"><button type="button" data-viewer-image-zoom="out">−</button><span id="gestureZoomLabel"></span><button type="button" data-viewer-image-mode-toggle>Ajuster à la largeur</button><button type="button" data-viewer-image-zoom="reset">Réinitialiser le zoom</button><button type="button" data-viewer-image-zoom="in">+</button></div>`);
-        const { createDocumentImageViewer } = await import("./js/document-image-viewer.js");
+        const { createDocumentImageViewer, selectInitialDocumentImageMode } = await import("./js/document-image-viewer.js");
         const image = document.getElementById("gestureImage");
         image.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="800"><rect width="200" height="800" fill="#b8c9be"/></svg>');
         await image.decode();
         const viewport = document.getElementById("gestureViewport");
         const modeButton = document.querySelector("#gestureControls [data-viewer-image-mode-toggle]");
-        const controller = createDocumentImageViewer({ viewport, image, controls: document.getElementById("gestureControls"), zoomLabel: document.getElementById("gestureZoomLabel"), modeButton });
+        const initialMode = selectInitialDocumentImageMode({ naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight });
+        const controller = createDocumentImageViewer({ viewport, image, controls: document.getElementById("gestureControls"), zoomLabel: document.getElementById("gestureZoomLabel"), modeButton, initialMode });
         const initial = controller.getState();
+        modeButton.click();
+        const windowFit = controller.getState();
         modeButton.click();
         const widthMode = controller.getState();
         const widthScrollRange = viewport.scrollHeight - viewport.clientHeight;
@@ -443,7 +452,9 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
         viewport.dispatchEvent(pinchStart);
         const pinchMove = new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [touch(1, 40, 120), touch(2, 280, 120)] });
         viewport.dispatchEvent(pinchMove);
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const zoomed = controller.getState();
+        const zoomRender = { layoutWidth: Number.parseFloat(image.style.width), layoutHeight: Number.parseFloat(image.style.height), cssWidth: image.style.width, cssHeight: image.style.height, cssTransform: image.style.transform };
         viewport.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [] }));
         viewport.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch(3, 150, 120)] }));
         viewport.dispatchEvent(new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [touch(3, 185, 140)] }));
@@ -457,17 +468,25 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
         modeButton.click();
         const windowMode = controller.getState();
         controller.destroy();
-        return { natural: [image.naturalWidth, image.naturalHeight], initial, widthMode, widthModeLabel: modeButton.textContent, widthScrollRange, widthScrollPosition, zoomed, panned, reset, resized, windowMode, pinchPrevented: pinchMove.defaultPrevented };
+        return { natural: [image.naturalWidth, image.naturalHeight], initial, initialMode, windowFit, widthMode, widthModeLabel: modeButton.textContent, widthScrollRange, widthScrollPosition, zoomed, zoomRender, panned, reset, resized, windowMode, pinchPrevented: pinchMove.defaultPrevented };
       });
       assert.deepEqual(states.natural, [200, 800]);
+      assert.equal(states.initialMode, "width", "le portrait long démarre en mode largeur");
       assert.equal(states.initial.zoom, 1);
-      assert.ok(states.initial.fitWidth <= 360 && states.initial.fitHeight <= 280, "image entière adaptée au départ");
-      assert.equal(states.initial.mode, "fit");
+      assert.equal(states.initial.fitWidth, 360);
+      assert.equal(states.initial.fitHeight, 1440);
+      assert.equal(states.initial.mode, "width");
+      assert.equal(states.windowFit.mode, "fit");
+      assert.equal(states.windowFit.fitWidth, 70, "ajuster à la fenêtre montre l'image entière sans la recadrer");
+      assert.equal(states.windowFit.fitHeight, 280);
       assert.equal(states.widthMode.mode, "width", `mode actif après toggle (${states.widthMode.mode}; label=${states.widthModeLabel})`);
       assert.equal(states.widthMode.fitWidth, 360, "mode largeur utilise toute la largeur disponible");
       assert.ok(states.widthMode.fitHeight > 280, "document vertical défile sans recadrage en mode largeur");
       assert.ok(states.widthScrollRange > 0 && states.widthScrollPosition > 0, "le mode largeur permet le défilement vertical natif du document long");
       assert.ok(states.zoomed.zoom >= 1.9 && states.pinchPrevented, "pincement à deux doigts intercepté et zoom appliqué");
+      assert.ok(states.zoomRender.layoutWidth >= states.widthMode.fitWidth * states.zoomed.zoom - 1, `la boîte de layout est rasterisée à sa dimension zoomée à partir de l’image source (${JSON.stringify(states.zoomRender)}; zoom=${states.zoomed.zoom}; fit=${states.widthMode.fitWidth})`);
+      assert.ok(states.zoomRender.layoutHeight >= states.widthMode.fitHeight * states.zoomed.zoom - 1, "la hauteur de layout suit aussi la résolution d’affichage zoomée");
+      assert.doesNotMatch(states.zoomRender.cssTransform, /scale\(/, "aucun agrandissement de texture CSS par scale() au zoom");
       assert.ok(Math.abs(states.panned.offsetX) > 0, "panoramique actif après agrandissement");
       assert.equal(states.reset.zoom, 1);
       assert.equal(states.reset.offsetX, 0);
@@ -475,7 +494,8 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
       assert.equal(states.resized.fitWidth, 280, "ResizeObserver recalcule l’échelle du mode largeur");
       assert.equal(states.windowMode.mode, "fit");
       assert.ok(states.windowMode.fitWidth <= 280 && states.windowMode.fitHeight <= 280, "mode fenêtre restaure l’image entière dans son ratio naturel");
-      t.diagnostic(`Portrait source 200×800, viewport 360×280 : fenêtre=${states.initial.fitWidth.toFixed(0)}×${states.initial.fitHeight.toFixed(0)} ; largeur=${states.widthMode.fitWidth.toFixed(0)}×${states.widthMode.fitHeight.toFixed(0)} ; viewport redimensionné=${states.resized.fitWidth.toFixed(0)}×${states.resized.fitHeight.toFixed(0)}`);
+      t.diagnostic(`Zoom 2× : boîte CSS explicitement portée à ${states.zoomRender.cssWidth} × ${states.zoomRender.cssHeight}, transform=${states.zoomRender.cssTransform}; natural=${states.natural.join("×")}`);
+      t.diagnostic(`Portrait source 200×800, viewport 360×280 : largeur initiale=${states.initial.fitWidth.toFixed(0)}×${states.initial.fitHeight.toFixed(0)} ; fenêtre=${states.windowFit.fitWidth.toFixed(0)}×${states.windowFit.fitHeight.toFixed(0)} ; largeur=${states.widthMode.fitWidth.toFixed(0)}×${states.widthMode.fitHeight.toFixed(0)} ; viewport redimensionné=${states.resized.fitWidth.toFixed(0)}×${states.resized.fitHeight.toFixed(0)}`);
     } finally { await context.close(); }
   } finally { await browser.close(); await server.close(); }
 });
@@ -504,6 +524,27 @@ test("Desktop : panneau d'informations repliable sans recharger ni réinitialise
       assert.ok(Math.abs(restored.width - initial.width) < 2, "la disposition initiale à deux panneaux est restaurée");
       assert.equal(await page.locator("#viewerImage").getAttribute("src"), src, "le document reste chargé après réouverture");
       t.diagnostic(`Desktop 1280×900 : panneau original initial=${initial.width.toFixed(0)}px ; replié=${collapsed.width.toFixed(0)}px ; restauré=${restored.width.toFixed(0)}px; URL d’image inchangée`);
+    } finally { await context.close(); }
+  } finally { await browser.close(); await server.close(); }
+});
+
+test("La fermeture X du viewer conserve la vue Documents sous-jacente", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    const { context, page } = await createViewerPage(browser, server, 1024, 768);
+    try {
+      await page.evaluate(() => {
+        document.getElementById("documentsView").hidden = false;
+        document.getElementById("genealogyView").hidden = true;
+      });
+      await openViewer(page, { title: "Acte consulté", fileName: "acte.jpg", src: landscapeSvg });
+      await page.locator('#documentViewerDialog [data-close="documentViewerDialog"]').click();
+      assert.equal(await page.locator("#documentViewerDialog").evaluate(dialog => dialog.open), false);
+      assert.equal(await page.locator("#documentsView").evaluate(view => view.hidden), false, "la bibliothèque reste la vue sous-jacente");
+      assert.equal(await page.locator("#genealogyView").evaluate(view => view.hidden), true, "la fermeture ne redirige pas vers Archives");
     } finally { await context.close(); }
   } finally { await browser.close(); await server.close(); }
 });

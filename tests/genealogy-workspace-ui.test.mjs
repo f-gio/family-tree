@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [html, app, css] = await Promise.all([
+const [html, app, css, imageViewer] = await Promise.all([
   readFile(new URL("../index.html", import.meta.url), "utf8"),
   readFile(new URL("../js/app.js", import.meta.url), "utf8"),
-  readFile(new URL("../css/design-system.css", import.meta.url), "utf8")
+  readFile(new URL("../css/design-system.css", import.meta.url), "utf8"),
+  readFile(new URL("../js/document-image-viewer.js", import.meta.url), "utf8")
 ]);
 
 test("la navigation Archives conserve les identifiants internes et les vues privées", () => {
@@ -350,6 +351,9 @@ test("la consultation depuis Documents compose une fiche unifiée sans remplacer
   assert.match(details, /Aucune source officielle n’est associée à cette fiche/);
   assert.match(app, /async function openStoredDocument\(item, returnContext = "previous"\)/);
   assert.match(app, /if \(item\.chunkCount && item\.chunkVersion\)[\s\S]*?readChunkedFile\(item\)/);
+  assert.match(app, /\$\("viewerExternalBtn"\)\.href = source/);
+  assert.match(app, /\$\("viewerImage"\)\.src = source/);
+  assert.match(app, /if \(mimeType\.startsWith\("image\/"\)\)/);
   assert.match(app, /data-unified-source-open=/);
   assert.match(app, /data-unified-source-revise=/);
   assert.match(app, /data-unified-person=/);
@@ -405,4 +409,9 @@ test("le visualiseur branche le zoom image et réserve le menu d’actions du he
   assert.match(app, /viewerImageControls"\)\.hidden = true/);
   assert.match(app, /if \(mimeType\.startsWith\("image\/"\)\)[\s\S]*?setupViewerImage\(item\)/);
   assert.match(app, /if \(window\.innerWidth <= 760\) collapsed = false/);
+  assert.match(imageViewer, /image\.style\.width = `\$\{fitWidth \* zoom\}px`/);
+  assert.match(imageViewer, /image\.style\.height = `\$\{fitHeight \* zoom\}px`/);
+  assert.match(imageViewer, /image\.style\.transform = nativeWidthScroll \? "none" : "translate\(-50%, -50%\)"/);
+  assert.doesNotMatch(imageViewer, /translate\(-50%, -50%\) scale\(\$\{zoom\}\)/);
+  assert.match(imageViewer, /return naturalHeight \/ naturalWidth >= 1\.5 \? "width" : "fit"/);
 });

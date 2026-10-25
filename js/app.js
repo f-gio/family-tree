@@ -154,6 +154,7 @@ let activeViewerUrl = "";
 let activeViewerDocumentId = "";
 let unifiedViewerReturnDocumentId = "";
 let unifiedViewerReturnOnDialogClose = "";
+let unifiedViewerReopenContext = "documents";
 let activeViewerReturnContext = "previous";
 let viewerImageState = null;
 let viewerImageHandlersBound = false;
@@ -3628,7 +3629,6 @@ const procedureActionMenu = bindModalActionMenu("procedureActionDialog", "proced
 const viewerActionMenu = bindModalActionMenu("documentViewerDialog", "viewerActionsBtn", "viewerActionsMenu");
 $("viewerDetailsCollapseBtn").addEventListener("click", () => setUnifiedDetailsCollapsed(true));
 $("viewerDetailsExpandBtn").addEventListener("click", () => setUnifiedDetailsCollapsed(false));
-$("viewerBackBtn").addEventListener("click", () => close("documentViewerDialog"));
 $("viewerEditBtn").addEventListener("click", () => {
   viewerActionMenu.close();
   openUnifiedDocumentEditor(activeViewerDocumentId);
@@ -5081,11 +5081,13 @@ function renderUnifiedDocumentDetails(item) {
 function reopenUnifiedDocumentAfter(dialogId) {
   if (unifiedViewerReturnOnDialogClose !== dialogId || !unifiedViewerReturnDocumentId) return false;
   const documentId = unifiedViewerReturnDocumentId;
+  const returnContext = unifiedViewerReopenContext;
   unifiedViewerReturnOnDialogClose = "";
   unifiedViewerReturnDocumentId = "";
+  unifiedViewerReopenContext = "documents";
   setTimeout(() => {
     const item = documents.find(documentItem => documentItem.id === documentId);
-    if (item) openStoredDocument(item, "documents");
+    if (item) openStoredDocument(item, returnContext);
   }, 0);
   return true;
 }
@@ -5094,6 +5096,7 @@ function openUnifiedSource(documentId, sourceId, revise = false) {
   const source = genealogyRecords.sourceDocuments.find(item => item.id === sourceId);
   if (!source) return toast("Cette source n’est plus disponible.", "error");
   unifiedViewerReturnDocumentId = documentId;
+  unifiedViewerReopenContext = activeViewerReturnContext;
   unifiedViewerReturnOnDialogClose = revise ? "genealogyContributionDialog" : "genealogyItemDialog";
   close("documentViewerDialog");
   if (revise) openGenealogyContribution({ official: true, reviseItem: { kind: "source", record: source, data: genealogyRecordData(source) } });
@@ -5104,6 +5107,7 @@ function openUnifiedDocumentEditor(documentId) {
   const item = documents.find(documentItem => documentItem.id === documentId);
   if (!item) return toast("Ce document n’est plus disponible.", "error");
   unifiedViewerReturnDocumentId = documentId;
+  unifiedViewerReopenContext = activeViewerReturnContext;
   unifiedViewerReturnOnDialogClose = "documentDialog";
   close("documentViewerDialog");
   openDocument(item);
@@ -5114,6 +5118,7 @@ function setupViewerImage(item) {
   const image = $("viewerImage");
   if (!image.naturalWidth || !image.naturalHeight) return;
   viewerImageState = createDocumentImageViewer({ viewport: $("viewerImageViewport"), image, controls: $("viewerImageControls"), zoomLabel: $("viewerImageZoomLevel"), modeButton: $("viewerImageModeBtn"), initialMode: selectInitialDocumentImageMode({ naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight }) });
+  document.querySelectorAll("#viewerImageControls .viewer-image-only").forEach(control => { control.hidden = false; });
   $("viewerImageControls").hidden = false;
 }
 
@@ -5131,7 +5136,6 @@ async function openStoredDocument(item, returnContext = "previous") {
   if (!item) return;
   activeViewerDocumentId = item.id;
   activeViewerReturnContext = returnContext;
-  $("viewerBackBtn").textContent = returnContext === "documents" ? "Retour aux Documents" : "Retour";
   $("viewerEditBtn").hidden = false;
   renderUnifiedDocumentDetails(item);
   setUnifiedDetailsCollapsed(false);
@@ -5145,6 +5149,7 @@ async function openStoredDocument(item, returnContext = "previous") {
   $("viewerSubtitle").textContent = headerMetadata.join(" · ") || "Aperçu dans Family Tree";
   $("viewerImage").hidden = true;
   $("viewerImageControls").hidden = true;
+  document.querySelectorAll("#viewerImageControls .viewer-image-only").forEach(control => { control.hidden = true; });
   $("viewerImage").onload = null;
   $("viewerImage").removeAttribute("style");
   viewerImageState?.destroy();
@@ -5172,6 +5177,7 @@ async function openStoredDocument(item, returnContext = "previous") {
     if (!source) throw new Error("Aucun fichier n’est associé");
     $("viewerExternalBtn").href = source;
     $("viewerExternalBtn").hidden = false;
+    $("viewerImageControls").hidden = false;
     $("viewerMessage").hidden = true;
     if (mimeType.startsWith("image/")) {
       $("viewerImage").onload = () => setupViewerImage(item);
@@ -5179,6 +5185,7 @@ async function openStoredDocument(item, returnContext = "previous") {
       $("viewerImage").hidden = false;
       if ($("viewerImage").complete) setupViewerImage(item);
     } else {
+      $("viewerImageControls").hidden = false;
       $("viewerFrame").src = source;
       $("viewerFrame").hidden = false;
     }
