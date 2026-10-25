@@ -2025,6 +2025,7 @@ label .field { margin-top: var(--space-2); }
 .viewer-image-zoom-group .btn + .btn { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .viewer-image-zoom-group .ui-icon { width: 1.125rem; height: 1.125rem; }
 .viewer-image-controls [data-viewer-image-mode-toggle] { min-width: 0; }
+.viewer-image-controls .viewer-image-mode { flex: 0 0 var(--control-touch); width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); padding: 0; }
 .viewer-open-original { display: inline-grid; place-items: center; width: var(--control-touch); min-width: var(--control-touch); padding: 0; }
 .viewer-open-original .ui-icon { width: 1.25rem; height: 1.25rem; }
 .viewer-body { position: relative; touch-action: pan-y; }
@@ -2055,6 +2056,7 @@ html.viewer-fullscreen-active body { overflow: hidden !important; }
 .document-unified-details { display: grid; align-content: start; gap: var(--space-4); min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-right: var(--space-1); }
 .document-unified-details[hidden] { display: none; }
 .document-unified-details-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.document-unified-details-content { display: grid; align-content: start; gap: var(--space-4); min-width: 0; }
 .document-unified-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
 .document-unified-layout.is-details-collapsed .document-original-panel { grid-column: 1; }
 .document-unified-section { display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-4); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface-muted); }
@@ -3197,7 +3199,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .viewer-dialog .document-unified-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
   .viewer-dialog .viewer-image-controls { width: 100%; gap: var(--space-1); }
   .viewer-dialog .viewer-image-zoom-group .btn { width: var(--control-touch); min-width: var(--control-touch); }
-  .viewer-dialog .viewer-image-controls [data-viewer-image-mode-toggle] { flex: 1 1 8rem; min-width: 8rem; padding-inline: var(--space-2); white-space: normal; line-height: 1.15; }
+  .viewer-dialog .viewer-image-controls .viewer-image-mode { flex: 0 0 var(--control-touch); width: var(--control-touch); min-width: var(--control-touch); padding: 0; }
   .viewer-dialog .viewer-open-original { flex: 0 0 var(--control-touch); }
   .viewer-dialog .viewer-image-controls .btn { min-height: var(--control-touch); }
   .viewer-dialog .document-unified-details { gap: var(--space-4); }

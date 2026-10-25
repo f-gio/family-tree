@@ -414,7 +414,7 @@ test("le visualiseur branche le zoom image et réserve le menu d’actions du he
   assert.match(app, /viewerImageControls"\)\.hidden = true/);
   assert.match(app, /if \(mimeType\.startsWith\("image\/"\)\)[\s\S]*?setupViewerImage\(item\)/);
   assert.match(app, /function setUnifiedDetailsCollapsed\(collapsed\)[\s\S]*?details\.hidden = collapsed/);
-  assert.match(app, /setUnifiedDetailsCollapsed\(window\.innerWidth <= 760\)/);
+  assert.match(app, /setUnifiedDetailsCollapsed\(true\)/);
   assert.doesNotMatch(app, /if \(window\.innerWidth <= 760\) collapsed = false/);
   assert.match(html, /id="viewerDetailsExpandBtn" aria-controls="viewerDocumentDetails" aria-expanded="false"/);
   assert.match(html, /id="viewerDetailsCollapseBtn" aria-controls="viewerDocumentDetails" aria-expanded="true"/);
@@ -433,6 +433,7 @@ test("les informations du viewer gardent leur repli unique et une mise en page m
   assert.match(css, /\.document-unified-layout \{ display: grid; grid-template-columns: minmax\(0, 1\.2fr\) minmax\(19rem, \.8fr\)/);
   assert.match(css, /\.viewer-dialog \.document-unified-layout \{ grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(css, /\.document-unified-layout\.is-details-collapsed \.document-original-panel \.viewer-body \{ height: min\(68dvh, calc\(100dvh - 13rem\)\)/);
+  assert.match(css, /\.document-unified-details-content \{ display: grid; align-content: start; gap: var\(--space-4\);/);
   assert.match(css, /\.document-unified-fact--wide \{ grid-column: 1 \/ -1; \}/);
   assert.match(css, /\.viewer-dialog \.document-unified-source-actions \.btn \{ width: 100%; \}/);
   assert.match(html, /class="btn icon-btn viewer-details-toggle"[^>]*id="viewerDetailsCollapseBtn"/);

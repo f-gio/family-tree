@@ -5158,7 +5158,7 @@ async function openStoredDocument(item, returnContext = "previous") {
   activeViewerReturnContext = returnContext;
   $("viewerEditBtn").hidden = false;
   renderUnifiedDocumentDetails(item);
-  setUnifiedDetailsCollapsed(window.innerWidth <= 760);
+  setUnifiedDetailsCollapsed(true);
   $("viewerTitle").textContent = documentDisplayLabel(item);
   const headerMetadata = [
     item.type || "",

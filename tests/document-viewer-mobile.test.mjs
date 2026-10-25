@@ -52,6 +52,7 @@ test("Viewer : règles statiques mobile, commandes compactes, plein écran et sa
   assert.doesNotMatch(html, /viewer-external-label/);
   assert.doesNotMatch(html.match(/id="viewerActionsMenu"[\s\S]*?<\/div>/)?.[0] || "", /viewerExternalBtn/);
   assert.match(html, /id="viewerZoomIndicator" aria-hidden="true"/);
+  assert.match(html, /id="viewerImageModeBtn"[^>]*aria-label="Ajuster à la largeur"[^>]*title="Ajuster à la largeur"[^>]*><svg class="ui-icon"[^>]*><use href="#icon-fit-width"><\/use><\/svg><\/button>/);
   assert.match(html, /id="viewerFullscreenBtn"[^>]*aria-label="Afficher en plein écran"[^>]*title="Afficher en plein écran"/);
   assert.match(css, /\.viewer-fullscreen-control \{ position: absolute;/);
   assert.match(css, /\.viewer-zoom-indicator \{[\s\S]*?pointer-events: none/);
@@ -112,7 +113,7 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = kind !== "image"; });
     document.getElementById("viewerExternalBtn").hidden = false;
     document.getElementById("viewerExternalBtn").href = src;
-    document.getElementById("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4><div class="document-unified-facts">${Array.from({ length: 4 }, (_, index) => `<div class="document-unified-fact"><strong>Métadonnée ${index + 1}</strong><span>Valeur de démonstration ${index + 1}</span></div>`).join("")}</div></section><section class="document-unified-section"><h4>Personnes concernées</h4><p>Marie Rossi et Jean Rossi</p></section><section class="document-unified-section"><h4>Sources et provenance</h4>${Array.from({ length: 2 }, (_, index) => `<details class="document-unified-source" open><summary>Source liée ${index + 1}</summary><p>Cote archivistique de démonstration</p></details>`).join("")}</section>`;
+    document.getElementById("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations documentaires</h4><button class="btn small" type="button">Modifier</button></div><div class="document-unified-facts"><div class="document-unified-fact"><strong>Type</strong><span>Registre</span></div><div class="document-unified-fact"><strong>Format</strong><span>JPEG</span></div><div class="document-unified-fact document-unified-fact--wide"><strong>Fichier</strong><span title="${fileName}">${fileName}</span></div></div></section><section class="document-unified-section"><h4>Personnes concernées</h4><p>Marie Rossi et Jean Rossi</p></section><section class="document-unified-section"><h4>Sources et provenance</h4>${Array.from({ length: 2 }, (_, index) => `<details class="document-unified-source" open><summary>Source liée ${index + 1}</summary><p>Cote archivistique de démonstration</p></details>`).join("")}</section>`;
     const layout = document.getElementById("documentUnifiedLayout");
     const details = document.getElementById("viewerDocumentDetails");
     const collapseButton = document.getElementById("viewerDetailsCollapseBtn");
@@ -179,6 +180,11 @@ async function measureViewer(page) {
     const title = document.getElementById("viewerTitle");
     const subtitle = document.getElementById("viewerSubtitle");
     const external = document.getElementById("viewerExternalBtn");
+    const modeButton = document.getElementById("viewerImageModeBtn");
+    const zoomGroup = document.querySelector(".viewer-image-zoom-group");
+    const zoomOut = document.querySelector('[data-viewer-image-zoom="out"]');
+    const zoomIn = document.querySelector('[data-viewer-image-zoom="in"]');
+    const detailContent = document.getElementById("viewerDocumentDetailsContent");
     const actionsButton = document.getElementById("viewerActionsBtn");
     const externalIcon = external.querySelector("use");
     const closeBtn = head.querySelector("[data-close]");
@@ -213,6 +219,20 @@ async function measureViewer(page) {
       externalAriaLabel: external.getAttribute("aria-label"),
       externalTitle: external.getAttribute("title"),
       externalBtn: box(external),
+      modeButton: box(modeButton),
+      modeButtonText: modeButton.textContent.trim(),
+      modeButtonAriaLabel: modeButton.getAttribute("aria-label"),
+      modeButtonTitle: modeButton.title,
+      modeIconHref: modeButton.querySelector("use")?.getAttribute("href") || null,
+      zoomGroup: box(zoomGroup),
+      zoomOut: box(zoomOut),
+      zoomIn: box(zoomIn),
+      detailsCardGap: getComputedStyle(detailContent).rowGap,
+      detailsCardBoxes: [...detailContent.querySelectorAll(":scope > .document-unified-section")].map(section => {
+        const rect = section.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom };
+      }),
+      fileNameFact: box(detailContent.querySelector(".document-unified-fact--wide span")),
       actionsBtn: box(actionsButton),
       externalMinH: getComputedStyle(external).minHeight,
       closeBtn: box(closeBtn),
@@ -294,6 +314,11 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 assert.ok(m.layout && m.originalPanel && m.detailsPanel, `${key} : fiche unifiée contient original et informations`);
                 assert.equal(m.detailSectionCount, 3, `${key} : informations, personnes et sources rendues`);
                 assert.equal(m.sourceSections, 2, `${key} : plusieurs sources restent visibles séparément`);
+                assert.equal(m.detailsCardGap, "16px", `${key} : grille des trois cartes utilise un véritable espacement de 16px`);
+                assert.equal(m.detailsCardBoxes.length, 3, `${key} : trois cartes mesurables dans le volet`);
+                for (let index = 1; index < m.detailsCardBoxes.length; index++) {
+                  assert.ok(Math.abs(m.detailsCardBoxes[index].top - m.detailsCardBoxes[index - 1].bottom - 16) < 1, `${key} : espacement réel de 16px entre cartes ${index} et ${index + 1}`);
+                }
                 if (width <= 760) {
                   assert.ok(m.originalPanel.y < m.detailsPanel.y, `${width}px : original avant les informations sur mobile`);
                   assert.equal(m.detailsOverflowY, "visible", `${width}px : défilement vertical unique de la fiche`);
@@ -315,6 +340,10 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 assert.ok(m.imageNaturalSize[0] > 0 && m.imageNaturalSize[1] > 0, `${key} : dimensions intrinsèques mesurées`);
                 assert.equal(m.imageRendering, "auto", `${key} : aucun filtre de netteté artificiel`);
                 assert.doesNotMatch(m.imageTransform, /scale\(/, `${key} : aucune mise à l’échelle par transform`);
+                assert.equal(m.modeButtonText, "", `${key} : l’ajustement est une icône seule`);
+                assert.equal(m.modeButtonTitle, m.modeButtonAriaLabel, `${key} : action de mode dans l’info-bulle et le nom accessible`);
+                assert.equal(m.modeIconHref, "#icon-fit", `${key} : icône fenêtre quand l’action permet l’ajustement fenêtre`);
+                assert.ok(m.zoomGroup && Math.abs(m.zoomIn.x - m.zoomOut.right) <= 1, `${key} : zoom − et + côte à côte`);
                 assert.equal(await page.locator("#viewerActionsMenu").isVisible(), true, `${key} : menu d’actions ouvrable`);
                 assert.equal(await page.locator('#viewerActionsMenu [role="menuitem"]').count(), 1, `${key} : Modifier seule reste dans le menu`);
                 assert.equal(m.externalText, "", `${key} : l’action externe est représentée par l’icône seule`);
@@ -339,6 +368,7 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 }
               }
               t.diagnostic(`${engineName} ${width}×${height}: header short=${headers.short.head.h} medium=${headers.medium.head.h} long=${headers.long.head.h} ; doc long=${headers.long.viewer.h} ; dialog=${headers.long.dialog.h}`);
+              t.diagnostic(`${engineName} ${width}×${height}: gap cartes=${headers.short.detailsCardGap} ; mode=${headers.short.modeButtonAriaLabel}`);
               t.diagnostic(`${engineName} ${width}×${height}: source identique=${headers.short.imageCurrentSrc === headers.short.externalHref} ; natural=${headers.short.imageNaturalSize.join("×")} ; CSS=${headers.short.imageCssSize.join("×")} ; DPR=${headers.short.devicePixelRatio} ; rendering=${headers.short.imageRendering} ; transform=${headers.short.imageTransform}`);
               /* la zone document reste majoritaire même avec un titre long */
                 assert.ok(headers.long.viewer.h >= height * 0.38, `original suffisamment grand avant les informations documentaires (${headers.long.viewer.h} / ${height})`);
@@ -497,7 +527,7 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
     const { context, page } = await createViewerPage(browser, server, 390, 844);
     try {
       const states = await page.evaluate(async () => {
-        document.body.insertAdjacentHTML("beforeend", `<div id="gestureViewport" style="position:fixed;left:10px;top:10px;width:360px;height:280px;overflow:auto;touch-action:pan-y"><img id="gestureImage" alt="Photographie de registre"><span id="gestureIndicator" class="viewer-zoom-indicator" aria-hidden="true"></span></div><div id="gestureControls"><button type="button" data-viewer-image-zoom="out">−</button><button type="button" data-viewer-image-mode-toggle>Ajuster à la largeur</button><button type="button" data-viewer-image-zoom="reset">Réinitialiser le zoom</button><button type="button" data-viewer-image-zoom="in">+</button></div>`);
+        document.body.insertAdjacentHTML("beforeend", `<div id="gestureViewport" style="position:fixed;left:10px;top:10px;width:360px;height:280px;overflow:auto;touch-action:pan-y"><img id="gestureImage" alt="Photographie de registre"><span id="gestureIndicator" class="viewer-zoom-indicator" aria-hidden="true"></span></div><div id="gestureControls"><button type="button" data-viewer-image-zoom="out">−</button><button type="button" data-viewer-image-mode-toggle aria-label="Ajuster à la largeur" title="Ajuster à la largeur"><svg><use href="#icon-fit-width"></use></svg></button><button type="button" data-viewer-image-zoom="reset">Réinitialiser le zoom</button><button type="button" data-viewer-image-zoom="in">+</button></div>`);
         const { createDocumentImageViewer, selectInitialDocumentImageMode } = await import("./js/document-image-viewer.js");
         const image = document.getElementById("gestureImage");
         image.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="800"><rect width="200" height="800" fill="#b8c9be"/></svg>');
@@ -512,6 +542,8 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
         const windowFit = controller.getState();
         modeButton.click();
         const widthMode = controller.getState();
+        const widthModeActionLabel = modeButton.getAttribute("aria-label");
+        const widthModeIcon = modeButton.querySelector("use").getAttribute("href");
         const widthScrollRange = viewport.scrollHeight - viewport.clientHeight;
         viewport.scrollTop = 80;
         const widthScrollPosition = viewport.scrollTop;
@@ -539,8 +571,10 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
         modeButton.click();
         const windowMode = controller.getState();
         const modeIndicator = indicator.textContent;
+        const windowModeActionLabel = modeButton.getAttribute("aria-label");
+        const windowModeIcon = modeButton.querySelector("use").getAttribute("href");
         controller.destroy();
-        return { natural: [image.naturalWidth, image.naturalHeight], initial, initialMode, windowFit, widthMode, widthModeLabel: modeButton.textContent, widthScrollRange, widthScrollPosition, zoomed, zoomRender, pinchIndicator, panned, reset, resetIndicator, resized, windowMode, modeIndicator, indicatorHiddenAfterDestroy: !indicator.classList.contains("is-visible"), pinchPrevented: pinchMove.defaultPrevented };
+        return { natural: [image.naturalWidth, image.naturalHeight], initial, initialMode, windowFit, widthMode, widthModeActionLabel, widthModeIcon, widthScrollRange, widthScrollPosition, zoomed, zoomRender, pinchIndicator, panned, reset, resetIndicator, resized, windowMode, modeIndicator, windowModeActionLabel, windowModeIcon, indicatorHiddenAfterDestroy: !indicator.classList.contains("is-visible"), pinchPrevented: pinchMove.defaultPrevented };
       });
       assert.deepEqual(states.natural, [200, 800]);
       assert.equal(states.initialMode, "width", "le portrait long démarre en mode largeur");
@@ -551,7 +585,8 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
       assert.equal(states.windowFit.mode, "fit");
       assert.equal(states.windowFit.fitWidth, 70, "ajuster à la fenêtre montre l'image entière sans la recadrer");
       assert.equal(states.windowFit.fitHeight, 280);
-      assert.equal(states.widthMode.mode, "width", `mode actif après toggle (${states.widthMode.mode}; label=${states.widthModeLabel})`);
+      assert.equal(states.widthMode.mode, "width", `mode actif après toggle (${states.widthMode.mode}; action=${states.widthModeActionLabel})`);
+      assert.equal(states.widthModeIcon, "#icon-fit", "le mode largeur propose l’icône fenêtre pour revenir au mode entier");
       assert.equal(states.widthMode.fitWidth, 360, "mode largeur utilise toute la largeur disponible");
       assert.ok(states.widthMode.fitHeight > 280, "document vertical défile sans recadrage en mode largeur");
       assert.ok(states.widthScrollRange > 0 && states.widthScrollPosition > 0, "le mode largeur permet le défilement vertical natif du document long");
@@ -567,6 +602,8 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
       assert.equal(states.reset.offsetY, 0);
       assert.equal(states.resized.fitWidth, 280, "ResizeObserver recalcule l’échelle du mode largeur");
       assert.equal(states.windowMode.mode, "fit");
+      assert.equal(states.windowModeActionLabel, "Ajuster à la largeur");
+      assert.equal(states.windowModeIcon, "#icon-fit-width");
       assert.equal(states.modeIndicator, "100 %", "le changement d’ajustement remet l’indicateur au niveau de base");
       assert.equal(states.indicatorHiddenAfterDestroy, true, "la destruction retire l’indicateur et sa temporisation");
       assert.ok(states.windowMode.fitWidth <= 280 && states.windowMode.fitHeight <= 280, "mode fenêtre restaure l’image entière dans son ratio naturel");
@@ -601,6 +638,55 @@ test("Desktop : panneau d'informations repliable sans recharger ni réinitialise
       assert.equal(await page.locator("#viewerImage").getAttribute("src"), src, "le document reste chargé après réouverture");
       t.diagnostic(`Desktop 1280×900 : panneau original initial=${initial.width.toFixed(0)}px ; replié=${collapsed.width.toFixed(0)}px ; restauré=${restored.width.toFixed(0)}px; URL d’image inchangée`);
     } finally { await context.close(); }
+  } finally { await browser.close(); await server.close(); }
+});
+
+test("Informations repliées par défaut sur desktop, tablette et mobile; disposition réversible", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    for (const [width, height] of [[1280, 900], [760, 900], [390, 844]]) {
+      const { context, page } = await createViewerPage(browser, server, width, height);
+      try {
+        const longName = "registre-immobilier-acte-notarial-annotations-marginales-1891-original.jpg";
+        await openViewer(page, { title: "Registre immobilier", fileName: longName, src: portraitSvg, detailsCollapsed: true });
+        const source = await page.locator("#viewerImage").evaluate(image => image.currentSrc);
+        const collapsed = await measureViewer(page);
+        assert.equal(collapsed.detailsHidden, true, `${width}px : informations repliées à l’ouverture`);
+        assert.equal(collapsed.detailsExpandHidden, false, `${width}px : commande d’ouverture visible`);
+        assert.equal(collapsed.detailsExpandAria, "false", `${width}px : aria-expanded reflète le repli`);
+        assert.equal(collapsed.layoutColumns.split(" ").length, 1, `${width}px : aucune colonne vide quand le panneau est replié`);
+        assert.ok(Math.abs(collapsed.originalPanel.w - collapsed.layout.w) < 2, `${width}px : le lecteur occupe toute la grille repliée`);
+
+        for (let iteration = 0; iteration < 2; iteration++) {
+          await page.locator("#viewerDetailsExpandBtn").click();
+          const expanded = await measureViewer(page);
+          assert.equal(expanded.detailsHidden, false, `${width}px : volet déployé (${iteration + 1})`);
+          assert.equal(expanded.detailsCollapseAria, "true", `${width}px : état accessible déployé`);
+          assert.equal(expanded.detailSectionCount, 3, `${width}px : les trois cartes restent présentes`);
+          assert.equal(expanded.detailsCardGap, "16px", `${width}px : espacement de grille entre cartes`);
+          for (let index = 1; index < expanded.detailsCardBoxes.length; index++) {
+            assert.ok(Math.abs(expanded.detailsCardBoxes[index].top - expanded.detailsCardBoxes[index - 1].bottom - 16) < 1, `${width}px : cartes ${index} et ${index + 1} séparées de 16px`);
+          }
+          assert.ok(expanded.fileNameFact && expanded.fileNameFact.w > 0, `${width}px : le nom long occupe la carte documentaire`);
+          assert.equal(expanded.docOverflowX, 0, `${width}px : le nom long ne déborde pas horizontalement`);
+          if (width > 760) assert.ok(expanded.originalPanel.x < expanded.detailsPanel.x, `${width}px : Original à gauche et Informations à droite`);
+          await page.locator("#viewerDetailsCollapseBtn").click();
+          assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, `${width}px : volet replié à nouveau (${iteration + 1})`);
+          assert.equal(await page.locator("#viewerImage").evaluate(image => image.currentSrc), source, `${width}px : la source est conservée après le repli`);
+        }
+
+        await page.locator("#viewerImageModeBtn").click();
+        assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, `${width}px : le changement de mode ne déploie pas Informations`);
+        const modeButton = await measureViewer(page);
+        assert.equal(modeButton.modeButtonText, "", `${width}px : Ajustement reste une icône seule`);
+        assert.equal(modeButton.modeButtonAriaLabel, "Ajuster à la largeur", `${width}px : le libellé accessible décrit l’action disponible`);
+        assert.equal(modeButton.modeIconHref, "#icon-fit-width", `${width}px : icône dynamique du mode disponible`);
+        t.diagnostic(`${width}×${height} : lecteur replié=${collapsed.originalPanel.w}px ; espacement cartes=${collapsed.detailsCardGap}`);
+      } finally { await context.close(); }
+    }
   } finally { await browser.close(); await server.close(); }
 });
 
@@ -732,6 +818,8 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
       try {
         await openViewer(page, { title: "Registre plein écran", fileName: "registre.svg", src: landscapeSvg, detailsCollapsed: true, forceFullscreenFallback });
         const source = await page.locator("#viewerImage").evaluate(image => image.currentSrc);
+        if (forceFullscreenFallback) await page.locator("#viewerDetailsExpandBtn").click();
+        const detailsExpandedBefore = forceFullscreenFallback;
         await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
         const zoom = await page.evaluate(() => window.__viewerImageController.getState().zoom);
         await page.locator("#viewerFullscreenBtn").click();
@@ -766,6 +854,7 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
         assert.equal(await page.locator("#documentViewerDialog").evaluate(dialog => dialog.open), true, "Échap quitte seulement le plein écran");
         assert.equal(await page.locator("#viewerImage").evaluate(image => image.currentSrc), source, "la sortie ne recharge pas l’image");
         assert.equal(await page.evaluate(() => window.__viewerImageController.getState().zoom), zoom, "le niveau de zoom reste identique après la sortie");
+        assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), !detailsExpandedBefore, "l’état choisi pour Informations est restauré après le plein écran");
       } finally { await context.close(); }
     }
   } finally { await browser.close(); await server.close(); }
