@@ -653,13 +653,14 @@ test("Desktop : panneau d'informations repliable sans recharger ni réinitialise
         };
         return {
           controls: rect("#viewerImageControls"), reader: rect("#viewerImageViewport"),
-          zoom: rect(".viewer-image-zoom-group"), fit: rect("#viewerImageModeBtn"),
+          zoom: rect(".viewer-image-zoom-group"), zoomOut: rect('[data-viewer-image-zoom="out"]'), zoomIn: rect('[data-viewer-image-zoom="in"]'), fit: rect("#viewerImageModeBtn"),
           fullscreen: rect("#viewerFullscreenBtn"), external: rect("#viewerExternalBtn"),
           info: rect("#viewerDetailsExpandBtn"), originalHeadDisplay: getComputedStyle(document.querySelector(".document-original-head")).display,
           documentWidth: document.documentElement.scrollWidth, viewportWidth: innerWidth
         };
       });
       assert.equal(imageToolbar.originalHeadDisplay, "none", "l’en-tête Original ne crée pas une seconde ligne de commandes sur desktop");
+      assert.ok(Math.abs(imageToolbar.zoomIn.x - imageToolbar.zoomOut.right + 1) <= 1, "le groupe Zoom JPEG/PNG reste accolé sur desktop");
       assert.ok(imageToolbar.zoom.x < imageToolbar.fit.x && imageToolbar.fit.right < imageToolbar.fullscreen.x && imageToolbar.fullscreen.right < imageToolbar.external.x, "zoom, ajustement, plein écran et nouvel onglet sont groupés à gauche");
       assert.ok(imageToolbar.external.right < imageToolbar.info.x, "Informations est séparé des commandes de lecture");
       assert.ok(imageToolbar.info.right >= imageToolbar.controls.right - 2, "Informations est aligné tout à droite de la barre");
@@ -956,6 +957,7 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
             close: rect(dialog.querySelector('[data-close="documentViewerDialog"]')),
             controls: rect(controls), reader: rect(reader), image: rect(document.getElementById("viewerImage")),
             fullscreen: rect(document.getElementById("viewerFullscreenBtn")), infoToggle: rect(detailsToggle), details: rect(details),
+            zoomOut: rect(document.querySelector('[data-viewer-image-zoom="out"]')), zoomIn: rect(document.querySelector('[data-viewer-image-zoom="in"]')),
             toggleText: detailsToggle.textContent.trim(), toggleExpanded: detailsToggle.getAttribute("aria-expanded"),
             toggleChevron: getComputedStyle(detailsToggle.querySelector(".pdf-panels-chevron")).transform,
             smallTogglesVisible: ["viewerDetailsExpandBtn", "viewerDetailsCollapseBtn"].filter(id => getComputedStyle(document.getElementById(id)).display !== "none").length,
@@ -983,6 +985,7 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
           assert.ok(box.width >= 43.5 && box.height >= 43.5, "commande d’image avec une cible de 44 × 44 px");
         }
         assert.ok(state.controls.height <= 48, `${width}px : barre d’outils d’une ligne (${state.controls.height}px)`);
+        assert.ok(Math.abs(state.zoomIn.x - state.zoomOut.right + 1) <= 1, `${width}px : le groupe Zoom JPEG/PNG reste accolé`);
         assert.ok(state.fullscreen.y >= state.controls.y - 1 && state.fullscreen.bottom <= state.controls.bottom + 1, "Plein écran est dans la barre, non superposé à l’image");
         assert.ok(state.infoToggle.width >= state.controls.width - 2 && state.infoToggle.height >= 44, "le bouton dépliant Informations occupe une ligne tactile pleine largeur");
         assert.match(state.toggleText, /Informations/);

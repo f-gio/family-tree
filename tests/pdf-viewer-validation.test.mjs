@@ -82,21 +82,21 @@ const baseUrl = `http://127.0.0.1:${server.address().port}`;
 const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
 :root{--control-touch:44px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--radius-sm:4px;--color-surface:#fff;--color-text:#222;--color-brand:#285a43;--color-surface-muted:#ddd;--border-default:1px solid #aaa;--shadow-low:0 1px 3px #777}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}body{font:14px sans-serif}.document-original-panel{height:100%;min-width:0;min-height:0}[hidden]{display:none!important}
-.document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar{grid-column:2;grid-row:1;display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:center}
+.document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar{grid-column:2;grid-row:1;display:flex;flex-wrap:wrap;gap:var(--pdf-toolbar-gap,8px);align-items:center;justify-content:center}
 .document-original-panel:has(.viewer-body.viewer-pdf-active) .viewer-body{grid-column:2;grid-row:2;display:flex;min-height:0;min-width:0}
 .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-thumbnail-rail{grid-column:1;grid-row:1/span 3;min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden}
 .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-pagination{grid-column:2;grid-row:3;display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:4px}
 @media (max-width:760px){.document-original-panel:has(.viewer-body.viewer-pdf-active){display:flex;flex-direction:column;gap:8px}.document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-thumbnail-rail{flex:0 0 auto;height:7rem}}
 .pdf-page-region{position:relative;display:grid;min-width:0;min-height:0}
-</style><section class="document-original-panel"><div id="viewerPdfToolbar" class="pdf-viewer-toolbar" role="group"><button id="pdfThumbnailsBtn" type="button" aria-expanded="true" aria-controls="viewerPdfThumbnails">Miniatures</button><button id="pdfPreviousPageBtn" type="button">Précédente</button><output id="pdfPageStatus"></output><button id="pdfNextPageBtn" type="button">Suivante</button><button id="pdfZoomOutBtn" type="button">−</button><button id="pdfZoomInBtn" type="button">+</button><button id="pdfFitModeBtn" type="button">Adapter</button><button id="pdfFullscreenBtn" type="button" aria-label="Afficher en plein écran">Plein écran</button></div><div id="viewerImageViewport" class="viewer-body"><p id="viewerMessage" hidden></p><div id="viewerPdfSurface" class="pdf-page-region" hidden><div id="viewerPdfPageViewport" class="pdf-page-viewport" tabindex="0"><canvas id="viewerPdfPageCanvas" class="pdf-page-canvas"></canvas></div><span id="pdfZoomIndicator" class="pdf-zoom-indicator"></span></div></div><div id="pdfPageNav" class="pdf-pagination" role="group" hidden></div><div id="pdfPanelToggles" hidden><button id="viewerDetailsBtn" type="button" aria-expanded="false" aria-controls="viewerDocumentDetails">Informations</button></div><aside id="viewerPdfThumbnails" class="pdf-thumbnail-rail" hidden><div id="viewerPdfThumbnailList"></div></aside></section>`;
+</style><section class="document-original-panel"><div id="viewerPdfToolbar" class="pdf-viewer-toolbar" role="group"><button id="pdfThumbnailsBtn" type="button" aria-expanded="true" aria-controls="viewerPdfThumbnails">Miniatures</button><button id="pdfPreviousPageBtn" type="button">Précédente</button><output id="pdfPageStatus"></output><button id="pdfNextPageBtn" type="button">Suivante</button><button class="btn" id="pdfZoomOutBtn" type="button">−</button><button class="btn" id="pdfZoomInBtn" type="button">+</button><button id="pdfFitModeBtn" type="button">Adapter</button><button id="pdfFullscreenBtn" type="button" aria-label="Afficher en plein écran">Plein écran</button></div><div id="viewerImageViewport" class="viewer-body"><p id="viewerMessage" hidden></p><div id="viewerPdfSurface" class="pdf-page-region" hidden><div id="viewerPdfPageViewport" class="pdf-page-viewport" tabindex="0"><canvas id="viewerPdfPageCanvas" class="pdf-page-canvas"></canvas></div><span id="pdfZoomIndicator" class="pdf-zoom-indicator"></span></div></div><div id="pdfPageNav" class="pdf-pagination" role="group" hidden></div><div id="pdfPanelToggles" hidden><button id="viewerDetailsBtn" type="button" aria-expanded="false" aria-controls="viewerDocumentDetails">Informations</button></div><aside id="viewerPdfThumbnails" class="pdf-thumbnail-rail" hidden><div id="viewerPdfThumbnailList"></div></aside></section>`;
 
-async function makeViewer(browserType, viewportSize) {
+async function makeViewer(browserType, viewportSize, maxZoom = 6) {
   const browser = await browserType.launch({ headless: true });
   const page = await browser.newPage({ viewport: viewportSize });
   await page.goto(`${baseUrl}/`);
   await page.setContent(html);
   await page.addStyleTag({ url: `${baseUrl}/css/design-system.css` });
-  const result = await page.evaluate(async ({ url, wide }) => {
+  const result = await page.evaluate(async ({ url, wide, maxZoom }) => {
     const { createDocumentPdfViewer } = await import(`${url}/js/document-pdf-viewer.js`);
     const get = id => document.getElementById(id);
     if (wide) {
@@ -120,18 +120,18 @@ async function makeViewer(browserType, viewportSize) {
       pageViewport: get("viewerPdfPageViewport"), pageCanvas: get("viewerPdfPageCanvas"), pageStatus: get("pdfPageStatus"),
       previousButton: get("pdfPreviousPageBtn"), nextButton: get("pdfNextPageBtn"), zoomOutButton: get("pdfZoomOutBtn"), zoomInButton: get("pdfZoomInBtn"),
       fitModeButton: get("pdfFitModeBtn"), thumbnailsButton: get("pdfThumbnailsBtn"), fullscreenButton: get("pdfFullscreenBtn"),
-      fullscreenHost: get("viewerPdfSurface"), fullscreenRoot: document.documentElement, zoomIndicator: get("pdfZoomIndicator")
+      fullscreenHost: get("viewerPdfSurface"), fullscreenRoot: document.documentElement, zoomIndicator: get("pdfZoomIndicator"), maxZoom
     });
     window.pdfViewerTestState = state;
     return state.getState();
-  }, { url: baseUrl, wide: viewportSize.width > 760 });
+  }, { url: baseUrl, wide: viewportSize.width > 760, maxZoom });
   return { browser, page, result };
 }
 
 test("PDF.js : rendu multipage, commandes, responsive, erreurs et nettoyage Chromium/WebKit", async () => {
   try {
-    for (const [engine, viewport] of [[chromium, { width: 1280, height: 900 }], [webkit, { width: 1280, height: 900 }], [chromium, { width: 390, height: 844 }], [webkit, { width: 390, height: 844 }]]) {
-      const { browser, page, result } = await makeViewer(engine, viewport);
+    for (const [engine, viewport, maxZoom] of [[chromium, { width: 1280, height: 900 }, 6], [webkit, { width: 1280, height: 900 }, 6], [chromium, { width: 375, height: 812 }, 1.25], [webkit, { width: 390, height: 844 }, 6]]) {
+      const { browser, page, result } = await makeViewer(engine, viewport, maxZoom);
       try {
         assert.equal(result.numPages, 24, "PDF volumineux de test chargé");
         assert.ok(requestedPaths.includes("/vendor/pdfjs/pdf.worker.mjs"), "worker PDF.js chargé depuis l’artefact local");
@@ -139,8 +139,14 @@ test("PDF.js : rendu multipage, commandes, responsive, erreurs et nettoyage Chro
         await page.waitForFunction(() => document.querySelector("#viewerPdfPageCanvas").width > 0);
         assert.equal(await page.locator(".pdf-thumbnail").count(), 24);
         assert.match(await page.locator("#pdfPageStatus").textContent(), /1 \/ 24/);
-        const bounds = await page.evaluate(() => ({ canvas: document.querySelector("#viewerPdfPageCanvas").getBoundingClientRect().toJSON(), viewport: document.querySelector("#viewerPdfPageViewport").getBoundingClientRect().toJSON(), railRect: document.querySelector("#viewerPdfThumbnails").getBoundingClientRect().toJSON(), railHidden: document.querySelector("#viewerPdfThumbnails").hidden, scrollWidth: document.documentElement.scrollWidth, innerWidth: innerWidth }));
+        const bounds = await page.evaluate(() => ({ canvas: document.querySelector("#viewerPdfPageCanvas").getBoundingClientRect().toJSON(), viewport: document.querySelector("#viewerPdfPageViewport").getBoundingClientRect().toJSON(), railRect: document.querySelector("#viewerPdfThumbnails").getBoundingClientRect().toJSON(), railHidden: document.querySelector("#viewerPdfThumbnails").hidden, zoomOut: document.querySelector("#pdfZoomOutBtn").getBoundingClientRect().toJSON(), zoomIn: document.querySelector("#pdfZoomInBtn").getBoundingClientRect().toJSON(), zoomCorners: ["#pdfZoomOutBtn", "#pdfZoomInBtn"].map(selector => { const style = getComputedStyle(document.querySelector(selector)); return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius]; }), zoomBorders: [getComputedStyle(document.querySelector("#pdfZoomOutBtn")).borderRightWidth, getComputedStyle(document.querySelector("#pdfZoomInBtn")).borderLeftWidth], scrollWidth: document.documentElement.scrollWidth, innerWidth: innerWidth }));
         assert.ok(bounds.canvas.width > 0 && bounds.canvas.height > 0);
+        const zoomJoin = bounds.zoomIn.x - bounds.zoomOut.right;
+        assert.ok(Math.abs(zoomJoin) <= 0.1, `Zoom −/+ accolés sans écart ni chevauchement desktop/mobile (${viewport.width}px, écart ${zoomJoin}px)`);
+        assert.ok(bounds.zoomOut.width >= 43.5 && bounds.zoomIn.width >= 43.5 && Math.abs(bounds.zoomOut.y - bounds.zoomIn.y) < 1, `deux commandes de zoom distinctes, alignées et tactiles (${JSON.stringify({ zoomOut: bounds.zoomOut, zoomIn: bounds.zoomIn })})`);
+        assert.equal(bounds.zoomCorners[0][1], "0px", "coin intérieur droit de Zoom − carré");
+        assert.equal(bounds.zoomCorners[1][0], "0px", "coin intérieur gauche de Zoom + carré");
+        assert.deepEqual(bounds.zoomBorders, ["0px", "1px"], "bordure extérieure continue et séparation centrale unique");
         assert.ok(bounds.canvas.left >= bounds.viewport.left - 1 && bounds.canvas.right <= bounds.viewport.right + 1, "page entière initialement visible");
         if (viewport.width > 760) assert.ok(bounds.railRect.left < bounds.viewport.left, "miniatures verticales à gauche sur desktop");
         else assert.ok(bounds.railHidden, "miniatures fermées par défaut sur mobile");
@@ -160,9 +166,20 @@ test("PDF.js : rendu multipage, commandes, responsive, erreurs et nettoyage Chro
         }
         await page.locator("#pdfPreviousPageBtn").click();
         await page.waitForFunction(() => document.querySelector("#pdfPageStatus").textContent.includes("23 / 24"));
+        const zoomMinimum = await page.evaluate(() => window.pdfViewerTestState.getState().zoom);
+        await page.locator("#pdfZoomOutBtn").click();
+        assert.equal(await page.evaluate(() => window.pdfViewerTestState.getState().zoom), zoomMinimum, "Zoom − indépendant et borné à la limite minimale");
         const beforeZoom = await page.evaluate(() => window.pdfViewerTestState.getState().zoom);
         await page.locator("#pdfZoomInBtn").click();
         await page.waitForFunction(value => window.pdfViewerTestState.getState().zoom > value, beforeZoom);
+        if (maxZoom === 1.25) {
+          assert.equal(await page.evaluate(() => window.pdfViewerTestState.getState().zoom), 1.25, "Zoom + atteint la limite supérieure configurée");
+          await page.locator("#pdfZoomInBtn").click();
+          assert.equal(await page.evaluate(() => window.pdfViewerTestState.getState().zoom), 1.25, "Zoom + respecte la limite supérieure");
+          await page.locator("#pdfZoomOutBtn").click();
+          await page.waitForFunction(() => window.pdfViewerTestState.getState().zoom === 1);
+          assert.equal(await page.evaluate(() => window.pdfViewerTestState.getState().zoom), 1, "Zoom − reste indépendant à la limite haute");
+        }
         await page.locator("#pdfFitModeBtn").click();
         await page.waitForFunction(() => window.pdfViewerTestState.getState().fitMode === "width");
         await page.locator("#pdfFitModeBtn").click();

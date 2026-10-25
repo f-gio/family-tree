@@ -2059,9 +2059,11 @@ label .field { margin-top: var(--space-2); }
 .viewer-fullscreen-control[hidden] { display: none; }
 .viewer-details-toggle { flex: 0 0 auto; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); padding: 0; }
 .viewer-details-toggle .ui-icon { width: 1.25rem; height: 1.25rem; }
-.pdf-viewer-toolbar { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: var(--control-touch); }
+.pdf-viewer-toolbar { --pdf-toolbar-gap: var(--space-2); display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: var(--pdf-toolbar-gap); min-height: var(--control-touch); }
 .pdf-viewer-toolbar .btn { display: inline-grid; place-items: center; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); padding: 0; }
 .pdf-viewer-toolbar .ui-icon { width: 1.25rem; height: 1.25rem; }
+.pdf-viewer-toolbar #pdfZoomOutBtn { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0; }
+.pdf-viewer-toolbar #pdfZoomInBtn { margin-left: calc(0px - var(--pdf-toolbar-gap)); border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .pdf-viewer-toolbar #viewerDetailsExpandBtn { position: relative; margin-left: auto; }
 .pdf-viewer-toolbar #viewerDetailsExpandBtn::before { content: ""; position: absolute; left: calc(-1 * var(--space-2)); top: 25%; bottom: 25%; border-left: var(--border-default); pointer-events: none; }
 .pdf-pagination { display: grid; grid-template-columns: var(--control-touch) minmax(0, 1fr) var(--control-touch); align-items: center; gap: var(--space-2); flex: 0 0 auto; min-height: var(--control-touch); }
@@ -3297,7 +3299,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .pdf-thumbnail canvas { max-height: 4.75rem; }
   .pdf-pagination { gap: var(--space-1); }
   .pdf-page-status { min-width: 3rem; }
-  .pdf-viewer-toolbar { gap: 2px; }
+  .pdf-viewer-toolbar { --pdf-toolbar-gap: 2px; }
   .viewer-dialog .document-unified-details { overflow: visible; padding-right: 0; }
   .viewer-dialog .document-unified-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
   .viewer-dialog .viewer-image-controls { width: 100%; gap: var(--space-1); }
