@@ -285,7 +285,7 @@ test("la fiche détaillée évite le JSON et les photographies trompeuses pour l
   assert.match(app, /kind !== "source" && JSON\.stringify\(data\) !== "\{\}" \? `<pre>/);
   assert.match(app, /Aucune transcription n’est rattachée à cette source\./);
   assert.match(app, /Aucune preuve n’est rattachée à cet élément\./);
-  assert.match(app, /: kind === "source" \? "" : `<section><div class="genealogy-photo-panel"><p>Aucune photographie n’est associée à cette page\.<\/p><\/div><\/section>`/);
+  assert.match(app, /: kind === "source" \|\| kind === "proof" \? "" : `<section><div class="genealogy-photo-panel"><p>Aucune photographie n’est associée à cette page\.<\/p><\/div><\/section>`/);
   assert.match(app, /\? `\$\{sourceFactsBlock\}\$\{linkedDocumentsBlock\}<div class="genealogy-detail-grid">/);
 });
 
@@ -401,6 +401,21 @@ test("la fiche document unifiée raccorde l'ajout et la gestion de Source offici
   assert.match(app, /closest\("\[data-manage-sources-from-document\]"\);[\r\n\s]*if \(manageSources\) return renderDocumentSourceManager\(manageSources\.dataset\.manageSourcesFromDocument\)/);
   assert.match(app, /function openOfficialSourceFromDocument\(documentId\)/);
   assert.match(app, /function renderDocumentSourceManager\(documentId\)/);
+});
+
+test("la fiche de consultation d'une preuve affiche des informations métier sans JSON brut", () => {
+  const proofPanel = app.match(/function proofDetailsMarkup[\s\S]{0,6000}?\n\}/)?.[0] || "";
+  assert.ok(proofPanel.length > 500, "panneau de consultation présent");
+  assert.doesNotMatch(proofPanel, /JSON\.stringify/, "aucun JSON brut dans la vue principale");
+  assert.match(proofPanel, /PROOF_FACT_KIND_LABELS\[data\.factType\]/, "titre traduit");
+  assert.match(proofPanel, /PROOF_RELATION_LABELS\[data\.relation\]/, "relation traduite");
+  assert.match(proofPanel, /data-genealogy-person=/, "personnes consultables");
+  assert.match(proofPanel, /data-source-document-open=/, "document consultable");
+  assert.match(proofPanel, /Statut et détails techniques/, "panneau technique replié");
+  assert.match(app, /kind === "proof" \? proofDetailsMarkup\(data, record\)/, "branche de consultation dédiée");
+  assert.match(app, /const photo = kind === "proof" \? "" : pages\.length/, "aucune zone photo vide pour une preuve");
+  assert.match(app, /if \(kind === "proof" && proof\.id === record\.id\) return false;/, "preuve courante exclue des preuves liées");
+  assert.match(app, /dataset\.genealogyPassagePropose \?\? passageProofButton\.dataset\.genealogyPassage/, "index du passage lu sur le bon attribut");
 });
 
 test("le formulaire guidé de preuve remplace le JSON pour les créations officielles", () => {

@@ -2509,6 +2509,9 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .genealogy-entry-status-actions .tile-context-actions { position: static; }
 .genealogy-entry .tile-context-menu { min-width: 14rem; }
 .genealogy-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); }
+.genealogy-detail-grid-single { grid-template-columns: minmax(0, 1fr); }
+.genealogy-proof-technical { margin-top: var(--space-3); }
+.genealogy-proof-technical > summary { min-height: var(--control-touch); display: flex; align-items: center; cursor: pointer; color: var(--color-text-muted); }
 .genealogy-photo-panel { min-width: 0; min-height: 180px; display: grid; place-items: center; overflow: auto; border-radius: var(--radius-md); background: var(--color-surface-muted); }
 .genealogy-photo-panel img { display: block; max-width: 100%; max-height: 65dvh; object-fit: contain; transform-origin: center; transition: transform 120ms ease; }
 .genealogy-transcript-panel { min-width: 0; }
