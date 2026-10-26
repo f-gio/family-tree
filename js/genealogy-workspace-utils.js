@@ -24,6 +24,14 @@ export function configureGenealogyContributionDialog(elements, { official = fals
         targetHelp: "Référence existante de la donnée révisée ; elle ne peut pas être remplacée.",
         targetReadOnly: true
       }
+    : officialMode && type === "proof"
+      ? {
+          title: "Créer une preuve",
+          subtitle: "La preuve sera enregistrée officiellement avec son événement d’historique.",
+          actionLabel: "Créer la preuve",
+          targetHelp: "Un identifiant est généré automatiquement si ce champ reste vide.",
+          targetReadOnly: false
+        }
     : officialMode
       ? {
           title: "Créer une donnée officielle",

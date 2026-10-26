@@ -403,6 +403,27 @@ test("la fiche document unifiée raccorde l'ajout et la gestion de Source offici
   assert.match(app, /function renderDocumentSourceManager\(documentId\)/);
 });
 
+test("le formulaire guidé de preuve remplace le JSON pour les créations officielles", () => {
+  assert.match(app, /from "\.\/genealogy-proof-form\.js"/);
+  assert.match(html, /\.\/js\/genealogy-proof-form\.js\?v=4g-preproduction-1/);
+  assert.match(app, /genealogyProofGuidedGrid\.id = "genealogyOfficialProofFields"/);
+  assert.match(app, /Fait à documenter[\s\S]{0,6000}?Provenance[\s\S]{0,6000}?Citation[\s\S]{0,6000}?Interprétation/);
+  assert.match(app, /const guidedProof = officialMode && contributionType === "proof"/);
+  assert.match(app, /official && type === "proof" && !revise \? proofGuidedPayload\(\)/);
+  const guidedPayload = app.match(/function proofGuidedPayload\(\) \{[\s\S]{0,700}?\n\}/)?.[0] || "";
+  assert.ok(guidedPayload.includes("validateProofGuidedFields"), "validation du modèle avant écriture");
+  assert.doesNotMatch(guidedPayload, /JSON\.stringify/, "aucun JSON exposé au flux guidé");
+  assert.match(app, /proofContext: \{ personIds: \[personId\] \}/, "entrée fiche personne");
+  assert.match(app, /data-create-proof-from-document=/, "entrée fiche document");
+  assert.match(app, /passageDocumentId/, "entrée passage de transcription");
+  assert.match(app, /isAdminUser\(\) \? "Ajouter une preuve" : "Proposer une preuve"/, "libellé dynamique fiche personne");
+  assert.match(app, /isAdminUser\(\) \? "Créer une preuve sur ce passage" : "Proposer une preuve sur ce passage"/, "libellé dynamique passage");
+  assert.match(app, /if \(isAdminUser\(\)\) \{\s+return openGenealogyContribution\(\{\s+official: true,\s+proofContext: \{ personIds: \[personId\] \}/, "admin → guidé, contributeur → proposition");
+  assert.match(app, /la transcription d’origine n’est jamais modifiée/, "citation figée sans altération de la transcription");
+  assert.match(app, /submitButton\.disabled = true;[\s\S]{0,15000}?submitButton\.disabled = false;/, "protection double soumission");
+  assert.match(app, /buildProofGuidedInput\(fields\)/, "composition via le module pur");
+});
+
 test("la fiche unifiée permet de modifier document, source et naviguer vers les personnes", () => {
   assert.match(app, /data-unified-document-edit=/);
   assert.match(app, /data-unified-person=/);
