@@ -33,6 +33,7 @@ import { createGenealogyProof, transitionProofStatus, validateGenealogyProof } f
 import { createConclusionRevision, createConclusionHead } from "./fact-conclusions.js";
 import { createSourceDocument, mergeSourceDocumentGuidedData, resolveSourceDocumentLinks, searchLinkedDocuments, SOURCE_DOCUMENT_PICKER_PAGE_SIZE } from "./source-document-model.js";
 import { createPageTextRevision } from "./document-transcription.js";
+import { PROOF_FACT_KINDS, PROOF_FACT_KIND_LABELS, showProofFamilyRelation, validateProofGuidedFields, buildProofGuidedInput } from "./genealogy-proof-form.js";
 import { BACKUP_ARCHIVE_VERSION, createBackupArchiveManifest, compareBackupCaptureMarkers, generateBackupZip, readBackupZip, prepareBackupRestorePlan } from "./backup-archive.js";
 
 const firebaseEnvironment = resolveFirebaseEnvironment(window.location);
@@ -121,6 +122,10 @@ let genealogySourcePersonPagesShown = 1;
 let genealogySourcePersonLastQuery = null;
 let genealogySourceDocumentPagesShown = 1;
 let genealogySourceDocumentLastQuery = null;
+let genealogyProofGuidedGrid = null;
+let genealogyProofPersonPickerParent = null;
+let genealogyProofPersonPickerNextSibling = null;
+let genealogyProofContext = {};
 let treeMetadata = [];
 let activeTreeId = MAIN_TREE_ID;
 let treeCatalogState = "idle";
@@ -2055,6 +2060,7 @@ function updatePersonMenuActions(item) {
 
 function openPerson(item = null, source = "tree") {
   personDialogSource = source;
+  syncProofEntryPoints();
   if (item) {
     pendingPersonCreateId = "";
   } else {
@@ -4118,7 +4124,7 @@ function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null) 
     : `<p>${photoRecords.length ? "Les photos sont référencées, mais leur stockage durable n’est pas disponible dans cette application." : "Aucune photographie n’est associée à cette page."}</p>`}</div>${photoSelectors}${zoomTools}</section>`
     : kind === "source" ? "" : `<section><div class="genealogy-photo-panel"><p>Aucune photographie n’est associée à cette page.</p></div></section>`;
   const passageNavigation = passages.length > 1 ? `<nav class="genealogy-inline-actions" aria-label="Navigation entre les passages">${passages.map((passage, index) => `<button class="btn small" type="button" data-genealogy-passage="passage-${index}">Passage ${index + 1}</button>`).join("")}</nav>` : "";
-  const transcript = passages.length ? `<section class="genealogy-transcript-panel"><h4>Transcription italienne et traduction française</h4>${passageNavigation}${passages.map((passage, index) => `<article id="passage-${index}" class="genealogy-passage" data-review="${passage.unreadable || (passage.hypotheses || []).length ? "true" : "false"}"><strong>Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</strong><p>${esc(passage.textIt || "Lecture indéchiffrable")}</p>${passage.translationFr ? `<p>${esc(passage.translationFr)}</p>` : `<p class="card-meta">Traduction non disponible</p>`}${(passage.hypotheses || []).map(hypothesis => `<p class="card-meta">Hypothèse (${esc(hypothesis.confidence || "unknown")}): ${esc(hypothesis.text || "")}${hypothesis.note ? ` · ${esc(hypothesis.note)}` : ""}</p>`).join("")}<button class="btn small" type="button" data-genealogy-passage-propose="${index}">Proposer une preuve sur ce passage</button></article>`).join("")}</section>` : `<section class="genealogy-transcript-panel"><h4>Transcription italienne et traduction française</h4><p>${kind === "source" ? "Aucune transcription n’est rattachée à cette source." : "Pas de transcription disponible pour cette version."}</p>${kind !== "source" && JSON.stringify(data) !== "{}" ? `<pre>${esc(JSON.stringify(data, null, 2))}</pre>` : ""}</section>`;
+  const transcript = passages.length ? `<section class="genealogy-transcript-panel"><h4>Transcription italienne et traduction française</h4>${passageNavigation}${passages.map((passage, index) => `<article id="passage-${index}" class="genealogy-passage" data-review="${passage.unreadable || (passage.hypotheses || []).length ? "true" : "false"}"><strong>Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</strong><p>${esc(passage.textIt || "Lecture indéchiffrable")}</p>${passage.translationFr ? `<p>${esc(passage.translationFr)}</p>` : `<p class="card-meta">Traduction non disponible</p>`}${(passage.hypotheses || []).map(hypothesis => `<p class="card-meta">Hypothèse (${esc(hypothesis.confidence || "unknown")}): ${esc(hypothesis.text || "")}${hypothesis.note ? ` · ${esc(hypothesis.note)}` : ""}</p>`).join("")}<button class="btn small" type="button" data-genealogy-passage-propose="${index}">${isAdminUser() ? "Créer une preuve sur ce passage" : "Proposer une preuve sur ce passage"}</button></article>`).join("")}</section>` : `<section class="genealogy-transcript-panel"><h4>Transcription italienne et traduction française</h4><p>${kind === "source" ? "Aucune transcription n’est rattachée à cette source." : "Pas de transcription disponible pour cette version."}</p>${kind !== "source" && JSON.stringify(data) !== "{}" ? `<pre>${esc(JSON.stringify(data, null, 2))}</pre>` : ""}</section>`;
   const linkedProofs = genealogyRecords.genealogyProofs.filter(proof => {
     const proofData = genealogyRecordData(proof);
     return proofData.documentId === id || proofData.documentId === source?.id || proofData.documentId === relatedDocumentId || proofData.transcriptionRevisionId === record.id || proofData.transcriptionRevisionId === transcriptionRevision?.id;
@@ -4161,8 +4167,9 @@ function renderGenealogySourceDocumentSelection() {
 function renderGenealogySourceDocumentPicker() {
   const picker = $("genealogySourceDocumentPicker");
   if (!picker) return;
+  const contributionType = $("genealogyContributionType").value;
   const active = $("genealogyContributionDialog").dataset.official === "true"
-    && $("genealogyContributionType").value === "source";
+    && (contributionType === "source" || contributionType === "proof");
   picker.hidden = !active;
   if (!active) return;
 
@@ -4403,30 +4410,285 @@ function fillOfficialSourceGuidedFields(data = {}, documentItem = null) {
   renderGenealogySourcePersonOptions();
 }
 
+function ensureOfficialProofGuidedFields() {
+  const grid = $("genealogyContributionPayload")?.closest(".grid");
+  if (!grid) return null;
+  if (genealogyProofGuidedGrid) return genealogyProofGuidedGrid;
+  ensureOfficialSourceGuidedFields();
+  genealogyProofGuidedGrid = document.createElement("section");
+  genealogyProofGuidedGrid.id = "genealogyOfficialProofFields";
+  genealogyProofGuidedGrid.className = "wide genealogy-proof-guided-fields";
+  genealogyProofGuidedGrid.innerHTML = `<section><h4>Fait à documenter</h4><div class="source-guided-grid"><label>Fait déjà documenté<select class="field" id="proofExistingFact"><option value="">Nouveau fait à documenter</option></select></label><label>Type du fait<select class="field" id="proofFactKind"><option value="">Choisir un type de fait</option><option value="birth">Naissance</option><option value="marriage">Mariage</option><option value="death">Décès</option><option value="burial">Sépulture</option><option value="residence">Résidence</option><option value="other">Autre</option></select></label><label id="proofFactOtherLabelZone" hidden>Intitulé du fait<input class="field" id="proofFactOtherLabel" maxlength="120" placeholder="Ex. : Naturalisation"></label><label id="proofRelationshipZone" hidden>Relation familiale<select class="field" id="proofRelationship"><option value="">Aucune relation particulière</option></select></label></div><p class="hint" id="proofFactHint"></p><span class="field-error" id="proofError-factKind" hidden></span><span class="field-error" id="proofError-factOtherLabel" hidden></span><div class="source-associated-subsection" id="proofPersonZone"><h5>Personnes concernées</h5><div id="proofPersonSuggestions" hidden></div><p class="hint" id="proofError-personIds" hidden></p></div></section><section><h4>Provenance</h4><div id="proofDocumentZone"></div><span class="field-error" id="proofError-documentId" hidden></span><label>Page<select class="field" id="proofPage"><option value="">Aucune page sélectionnée</option></select></label><label>Passage<select class="field" id="proofPassage"><option value="">Aucun passage cité</option></select></label><p class="hint">Si un passage est cité, sa révision de transcription est enregistrée automatiquement avec la preuve.</p><span class="field-error" id="proofError-passage" hidden></span></section><section><h4>Citation</h4><div class="source-guided-grid"><label>Texte italien<textarea class="field" id="proofCitationIt" rows="3" placeholder="Citation figée lors de la création"></textarea></label><label>Traduction française<textarea class="field" id="proofCitationFr" rows="3" placeholder="Facultative"></textarea></label></div><p class="hint">Une citation modifiée ici reste propre à cette preuve : la transcription d’origine n’est jamais modifiée.</p></section><section><h4>Interprétation</h4><fieldset class="wide proof-relation-fieldset"><legend>Relation à la conclusion</legend><div class="proof-relation-options"><label><input type="radio" name="proofRelation" value="supports" checked><span>Confirme</span></label><label><input type="radio" name="proofRelation" value="contradicts"><span>Contredit</span></label><label><input type="radio" name="proofRelation" value="mentions"><span>Mentionne</span></label><label><input type="radio" name="proofRelation" value="ambiguous"><span>Ambiguë</span></label></div></fieldset><span class="field-error" id="proofError-relation" hidden></span><div class="source-guided-grid"><div class="wide"><label for="proofSourceValue">Valeur relevée dans le document</label><input class="field" id="proofSourceValue" maxlength="400" aria-describedby="proofError-sourceValue"><label class="proof-source-unknown"><input type="checkbox" id="proofSourceUnknown"> Non relevée (valeur inconnue)</label><span class="field-error" id="proofError-sourceValue" hidden></span></div></div><label class="wide">Interprétation<textarea class="field" id="proofInterpretation" rows="3" maxlength="2000" placeholder="Lecture et portée de cette preuve pour le fait documenté"></textarea></label></section>`;
+  grid.append(genealogyProofGuidedGrid);
+  const personSub = [...genealogySourceGuidedGrid.querySelectorAll(".source-associated-subsection")][0];
+  if (personSub && !genealogyProofPersonPickerParent) {
+    genealogyProofPersonPickerParent = personSub.parentElement;
+    genealogyProofPersonPickerNextSibling = personSub.nextSibling;
+  }
+  $("proofFactKind").addEventListener("change", updateProofFactUI);
+  $("proofExistingFact").addEventListener("change", updateProofFactUI);
+  $("proofPage").addEventListener("change", () => { refreshProofPassageOptions(); });
+  $("proofSourceUnknown").addEventListener("change", event => {
+    $("proofSourceValue").disabled = event.target.checked;
+    if (event.target.checked) $("proofSourceValue").value = "";
+    if (event.target.checked) renderProofFieldErrors({});
+  });
+  $("proofPersonSuggestions").addEventListener("change", event => {
+    const checkbox = event.target.closest("[data-proof-suggested-person]");
+    if (!checkbox) return;
+    if (checkbox.checked) selectedGenealogySourcePersonIds.add(checkbox.dataset.proofSuggestedPerson);
+    else selectedGenealogySourcePersonIds.delete(checkbox.dataset.proofSuggestedPerson);
+    renderGenealogySourcePersonSelection();
+    renderProofFieldErrors({});
+  });
+  return genealogyProofGuidedGrid;
+}
+
+function proofDocumentPages(docId) {
+  const documentItem = documents.find(item => item.id === docId);
+  return Array.isArray(documentItem?.pages) ? documentItem.pages : [];
+}
+
+function proofPassagesForPage(docId, pageId) {
+  if (!docId || !pageId) return [];
+  for (const head of genealogyRecords.transcriptionHeads) {
+    const data = genealogyRecordData(head);
+    if (data.documentId === docId && data.pageId === pageId) return Array.isArray(data.passages) ? data.passages : [];
+  }
+  return [];
+}
+
+let genealogyProofRevisionId = "";
+
+function refreshProofPageOptions(selectedPageId = "") {
+  const select = $("proofPage");
+  if (!select) return;
+  const docId = [...selectedGenealogySourceDocumentIds][0] || "";
+  const pages = proofDocumentPages(docId);
+  select.innerHTML = `<option value="">${pages.length ? "Aucune page sélectionnée" : "Aucune page n’est encore disponible pour ce document."}</option>`
+    + pages.map((page, index) => `<option value="${esc(page.id)}">Page ${index + 1}${page.label ? ` · ${esc(page.label)}` : ""}</option>`).join("");
+  select.value = selectedPageId && pages.some(page => page.id === selectedPageId) ? selectedPageId : "";
+  refreshProofPassageOptions();
+}
+
+function refreshProofPassageOptions(selectedPassageId = "") {
+  const select = $("proofPassage");
+  if (!select) return;
+  const docId = [...selectedGenealogySourceDocumentIds][0] || "";
+  const pageId = $("proofPage")?.value || "";
+  const passages = proofPassagesForPage(docId, pageId);
+  select.innerHTML = `<option value="">${passages.length ? "Aucun passage cité" : "Aucun passage n’est disponible pour cette page."}</option>`
+    + passages.map((passage, index) => `<option value="${esc(passage.id)}">Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</option>`).join("");
+  select.value = selectedPassageId && passages.some(passage => passage.id === selectedPassageId) ? selectedPassageId : "";
+  genealogyProofRevisionId = "";
+  if (select.value) {
+    const head = genealogyRecords.transcriptionHeads.find(item => {
+      const data = genealogyRecordData(item);
+      return data.documentId === docId && data.pageId === pageId && (data.passages || []).some(passage => passage.id === select.value);
+    });
+    if (head) genealogyProofRevisionId = head.revisionId || head.data?.revisionId || "";
+    const passage = passages.find(item => item.id === select.value);
+    if (passage && genealogyProofContext.citationFromPassage !== false) {
+      $("proofCitationIt").value = passage.textIt || "";
+      $("proofCitationFr").value = passage.translationFr || "";
+    }
+  }
+  renderProofFieldErrors({});
+}
+
+function refreshProofExistingFactOptions(selectedFactId = "") {
+  const select = $("proofExistingFact");
+  if (!select) return;
+  const seen = new Map();
+  for (const record of genealogyRecords.genealogyProofs) {
+    const data = genealogyRecordData(record);
+    if (!data.factId || seen.has(data.factId)) continue;
+    seen.set(data.factId, data);
+  }
+  const options = [`<option value="">Nouveau fait à documenter</option>`];
+  for (const [factId, data] of seen) {
+    const labels = (data.personIds || []).map(id => {
+      const person = people.find(item => item.id === id);
+      return person ? directoryPersonName(person) : null;
+    }).filter(Boolean);
+    const label = `${proofFactTypeLabelFromFact(data.factType)}${labels.length ? ` — ${labels.join(", ")}` : ""}`;
+    options.push(`<option value="${esc(factId)}" data-fact-type="${esc(data.factType)}">${esc(label)}</option>`);
+  }
+  select.innerHTML = options.join("");
+  select.value = selectedFactId && seen.has(selectedFactId) ? selectedFactId : "";
+}
+
+function proofFactTypeLabelFromFact(factType) {
+  return PROOF_FACT_KIND_LABELS[factType] || factType;
+}
+
+function updateProofFactUI() {
+  const existingSelect = $("proofExistingFact");
+  const kindZone = $("proofFactKind")?.closest("label");
+  const otherZone = $("proofFactOtherLabelZone");
+  const relationZone = $("proofRelationshipZone");
+  const hint = $("proofFactHint");
+  if (!existingSelect || !kindZone) return;
+  const existing = existingSelect.selectedOptions[0];
+  const existingFact = existing?.value ? { factType: existing.dataset.factType } : null;
+  kindZone.hidden = Boolean(existingFact);
+  if (existingFact) {
+    if (otherZone) otherZone.hidden = true;
+    if (hint) hint.textContent = `Fait existant : ${proofFactTypeLabelFromFact(existingFact.factType)} — la preuve viendra confirmer, contredire ou mentionner ce fait.`;
+  } else if (hint) hint.textContent = "";
+  const factKind = existingFact && PROOF_FACT_KINDS.includes(existingFact.factType) ? existingFact.factType : $("proofFactKind").value;
+  if (otherZone && !existingFact) otherZone.hidden = $("proofFactKind").value !== "other";
+  const showRelation = showProofFamilyRelation({ factKind, existingFact });
+  if (relationZone && relationZone.hidden === showRelation) {
+    relationZone.hidden = !showRelation;
+    if (showRelation) refreshProofRelationshipOptions();
+  }
+  renderProofFieldErrors({});
+}
+
+function refreshProofRelationshipOptions() {
+  const select = $("proofRelationship");
+  if (!select) return;
+  const personId = [...selectedGenealogySourcePersonIds][0] || "";
+  const options = [`<option value="">Aucune relation particulière</option>`];
+  for (const family of families) {
+    const partners = family.partners || [];
+    const children = family.children || [];
+    if (personId && partners.includes(personId)) {
+      const otherId = partners.find(id => id !== personId);
+      const other = otherId ? people.find(item => item.id === otherId) : null;
+      options.push(`<option value="${esc(family.id)}" data-relation="union">Union${other ? ` avec ${esc(directoryPersonName(other))}` : ""}</option>`);
+    }
+    if (personId && children.includes(personId)) {
+      options.push(`<option value="${esc(family.id)}" data-relation="filiation">Filiation (fratrie de cette famille)</option>`);
+    }
+  }
+  const current = select.value;
+  select.innerHTML = options.join("");
+  if ([...select.options].some(option => option.value === current)) select.value = current;
+}
+
+function fillOfficialProofGuidedFields(context = {}) {
+  ensureOfficialProofGuidedFields();
+  genealogyProofContext = { ...context };
+  refreshProofExistingFactOptions(context.existingFactId || "");
+  const kindSelect = $("proofFactKind");
+  if (kindSelect) kindSelect.value = "";
+  if ($("proofFactOtherLabel")) $("proofFactOtherLabel").value = "";
+  selectedGenealogySourcePersonIds = new Set((context.personIds || []).filter(Boolean));
+  selectedGenealogySourceDocumentIds = new Set(context.documentId ? [context.documentId] : []);
+  const suggestions = $("proofPersonSuggestions");
+  if (suggestions) {
+    const suggested = (context.suggestPersonIds || []).filter(Boolean);
+    suggestions.hidden = !suggested.length;
+    suggestions.innerHTML = suggested.length
+      ? `<p class="hint">Personnes liées au document — cochez celles réellement concernées par la preuve :</p>` + suggested.map(id => {
+        const person = people.find(item => item.id === id);
+        if (!person) return "";
+        return `<label class="source-person-option"><input type="checkbox" data-proof-suggested-person="${esc(id)}" ${selectedGenealogySourcePersonIds.has(id) ? "checked" : ""}><span><strong>${esc(directoryPersonName(person))}</strong></span></label>`;
+      }).join("")
+      : "";
+  }
+  if (context.citationIt != null || context.citationFr != null) {
+    genealogyProofContext.citationFromPassage = false;
+  }
+  renderGenealogySourceDocumentSelection();
+  renderGenealogySourcePersonSelection();
+  renderGenealogySourcePersonOptions();
+  refreshProofPageOptions(context.pageId || "");
+  if (context.passageId) refreshProofPassageOptions(context.passageId);
+  if ($("proofCitationIt") && context.citationIt != null && !$("proofPassage").value) $("proofCitationIt").value = context.citationIt;
+  if ($("proofCitationFr") && context.citationFr != null && !$("proofPassage").value) $("proofCitationFr").value = context.citationFr;
+  if ($("proofSourceValue")) { $("proofSourceValue").value = ""; $("proofSourceValue").disabled = false; }
+  if ($("proofSourceUnknown")) $("proofSourceUnknown").checked = false;
+  if ($("proofInterpretation")) $("proofInterpretation").value = "";
+  const supportsRadio = document.querySelector('#genealogyOfficialProofFields input[name="proofRelation"][value="supports"]');
+  if (supportsRadio) supportsRadio.checked = true;
+  if ($("proofError-factKind")) $("proofError-factKind").hidden = true;
+  updateProofFactUI();
+}
+
+function readProofGuidedFields() {
+  const existingSelect = $("proofExistingFact");
+  const existingOption = existingSelect?.selectedOptions[0];
+  const relation = document.querySelector('#genealogyOfficialProofFields input[name="proofRelation"]:checked')?.value || "";
+  const relationSelect = $("proofRelationship");
+  const familyOption = relationSelect?.selectedOptions[0];
+  return {
+    factKind: $("proofFactKind")?.value || "",
+    factOtherLabel: $("proofFactOtherLabel")?.value || "",
+    existingFactId: existingSelect?.value || "",
+    existingFactType: existingOption?.value ? existingOption.dataset.factType || "" : "",
+    personIds: [...selectedGenealogySourcePersonIds],
+    relationshipId: "",
+    familyId: familyOption?.value || "",
+    documentId: [...selectedGenealogySourceDocumentIds][0] || "",
+    pageId: $("proofPage")?.value || "",
+    passageId: $("proofPassage")?.value || "",
+    transcriptionRevisionId: genealogyProofRevisionId,
+    citationIt: $("proofCitationIt")?.value ?? null,
+    citationFr: $("proofCitationFr")?.value ?? null,
+    relation,
+    sourceValue: $("proofSourceValue")?.value ?? "",
+    sourceUnknown: Boolean($("proofSourceUnknown")?.checked),
+    interpretation: $("proofInterpretation")?.value || ""
+  };
+}
+
+function renderProofFieldErrors(errors) {
+  const map = {
+    factKind: ["proofError-factKind", "proofFactKind"],
+    factOtherLabel: ["proofError-factOtherLabel", "proofFactOtherLabel"],
+    personIds: ["proofError-personIds", "proofPersonZone"],
+    documentId: ["proofError-documentId", "proofDocumentZone"],
+    passage: ["proofError-passage", "proofPassage"],
+    relation: ["proofError-relation", null],
+    sourceValue: ["proofError-sourceValue", "proofSourceValue"]
+  };
+  for (const [key, [errorId, controlId]] of Object.entries(map)) {
+    const error = $(errorId);
+    if (!error) continue;
+    const message = errors[key] || "";
+    error.textContent = message;
+    error.hidden = !message;
+    const control = controlId ? $(controlId) : null;
+    if (control) {
+      if (message) control.setAttribute("aria-invalid", "true");
+      else control.removeAttribute("aria-invalid");
+    }
+  }
+}
+
+function proofGuidedPayload() {
+  const fields = readProofGuidedFields();
+  const { valid, errors } = validateProofGuidedFields(fields);
+  renderProofFieldErrors(errors);
+  if (!valid) throw new Error("Le formulaire de preuve comporte des erreurs à corriger.");
+  return buildProofGuidedInput(fields);
+}
+
 function updateGenealogyContributionPresentation() {
   const dialog = $("genealogyContributionDialog");
-  const guidedSource = dialog.dataset.official === "true" && $("genealogyContributionType").value === "source";
+  const officialMode = dialog.dataset.official === "true";
+  const contributionType = $("genealogyContributionType").value;
+  const guidedSource = officialMode && contributionType === "source";
+  const guidedProof = officialMode && contributionType === "proof";
+  const guidedAny = guidedSource || guidedProof;
   const guidedFields = ensureOfficialSourceGuidedFields();
   if (guidedFields) guidedFields.hidden = !guidedSource;
+  const proofFields = ensureOfficialProofGuidedFields();
+  if (proofFields) proofFields.hidden = !guidedProof;
   const genericTypeLabel = $("genealogyContributionType").closest("label");
   const genericTargetLabel = $("genealogyContributionTarget").closest("label");
   const genericTitleLabel = $("genealogyContributionTitleField").closest("label");
   const genericPayloadLabel = $("genealogyContributionPayload").closest("label");
-  if (genericTypeLabel) genericTypeLabel.hidden = guidedSource;
-  if (genericTargetLabel) genericTargetLabel.hidden = guidedSource;
-  if (genericTitleLabel) genericTitleLabel.hidden = guidedSource;
-  if (genericPayloadLabel) genericPayloadLabel.hidden = guidedSource;
-  $("genealogyContributionPayload").required = !guidedSource;
-  $("genealogyContributionTitleField").required = !guidedSource;
-  const picker = $("genealogySourceDocumentPicker");
-  if (picker && genealogySourcePickerParent) {
-    if (guidedSource) {
-      const associatedSection = [...guidedFields.querySelectorAll("section")].find(section => section.querySelector("h4")?.textContent === "Éléments associés");
-      if (associatedSection) associatedSection.append(picker);
-    } else {
-      genealogySourcePickerParent.insertBefore(picker, genealogySourcePickerNextSibling && genealogySourcePickerNextSibling.parentNode === genealogySourcePickerParent ? genealogySourcePickerNextSibling : null);
-    }
-  }
+  if (genericTypeLabel) genericTypeLabel.hidden = guidedAny;
+  if (genericTargetLabel) genericTargetLabel.hidden = guidedAny;
+  if (genericTitleLabel) genericTitleLabel.hidden = guidedAny;
+  if (genericPayloadLabel) genericPayloadLabel.hidden = guidedAny;
+  $("genealogyContributionPayload").required = !guidedAny;
+  $("genealogyContributionTitleField").required = !guidedAny;
+  placeContributionPickers({ guidedSource, guidedProof });
   configureGenealogyContributionDialog({
     title: $("genealogyContributionTitle"),
     subtitle: $("genealogyContributionSubtitle"),
@@ -4440,9 +4702,42 @@ function updateGenealogyContributionPresentation() {
     type: $("genealogyContributionType").value
   });
   renderGenealogySourceDocumentPicker();
+  if (guidedProof) {
+    renderGenealogySourcePersonOptions();
+    updateProofFactUI();
+  }
 }
 
-function openGenealogyContribution({ official = false, reviseItem = null, sourceDocument = null } = {}) {
+function placeContributionPickers({ guidedSource = false, guidedProof = false } = {}) {
+  const picker = $("genealogySourceDocumentPicker");
+  const pickerHeaderNote = picker?.querySelector("header p");
+  const guidedFields = genealogySourceGuidedGrid;
+  const personSub = guidedFields ? [...guidedFields.querySelectorAll(".source-associated-subsection")][0] : null;
+  if (picker && genealogySourcePickerParent) {
+    if (guidedSource) {
+      const associatedSection = [...guidedFields.querySelectorAll("section")].find(section => section.querySelector("h4")?.textContent === "Éléments associés");
+      if (associatedSection) associatedSection.append(picker);
+      if (pickerHeaderNote) pickerHeaderNote.textContent = "Sélectionnez les fiches existantes utilisées par cette source. Les fichiers ne sont pas copiés.";
+    } else if (guidedProof) {
+      const proofDocumentZone = $("proofDocumentZone");
+      if (proofDocumentZone) proofDocumentZone.append(picker);
+      if (pickerHeaderNote) pickerHeaderNote.textContent = "Document d’origine de la preuve. Les fichiers ne sont pas copiés.";
+    } else {
+      picker.parentElement && genealogySourcePickerParent.insertBefore(picker, genealogySourcePickerNextSibling && genealogySourcePickerNextSibling.parentNode === genealogySourcePickerParent ? genealogySourcePickerNextSibling : null);
+      if (pickerHeaderNote) pickerHeaderNote.textContent = "Sélectionnez les fiches existantes utilisées par cette source. Les fichiers ne sont pas copiés.";
+    }
+  }
+  if (personSub && genealogyProofPersonPickerParent) {
+    if (guidedProof) {
+      const personZone = $("proofPersonZone");
+      if (personZone) personZone.append(personSub);
+    } else {
+      genealogyProofPersonPickerParent.insertBefore(personSub, genealogyProofPersonPickerNextSibling && genealogyProofPersonPickerNextSibling.parentNode === genealogyProofPersonPickerParent ? genealogyProofPersonPickerNextSibling : null);
+    }
+  }
+}
+
+function openGenealogyContribution({ official = false, reviseItem = null, sourceDocument = null, proofContext = null } = {}) {
   const officialMode = Boolean(official || reviseItem);
   if (officialMode && !isAdminUser()) return toast("La création des données officielles est réservée aux administrateurs.", "error");
   $("genealogyContributionForm").reset();
@@ -4454,7 +4749,7 @@ function openGenealogyContribution({ official = false, reviseItem = null, source
   if (correctionOption) correctionOption.hidden = officialMode;
   if (conclusionOption) conclusionOption.hidden = !officialMode;
   const kindMap = { source: "source", transcription: "transcription", proof: "proof", conclusion: "conclusion" };
-  $("genealogyContributionType").value = reviseItem ? (kindMap[reviseItem.kind] || "source") : "source";
+  $("genealogyContributionType").value = proofContext ? "proof" : reviseItem ? (kindMap[reviseItem.kind] || "source") : "source";
   $("genealogyContributionTarget").value = reviseItem?.record.id || "";
   genealogySourceOriginalData = reviseItem?.kind === "source" ? structuredClone(reviseItem.data || {}) : {};
   selectedGenealogySourceDocumentIds = new Set(Array.isArray(reviseItem?.data?.documentIds)
@@ -4478,6 +4773,10 @@ function openGenealogyContribution({ official = false, reviseItem = null, source
   if (officialMode && $("genealogyContributionType").value === "source") {
     fillOfficialSourceGuidedFields(genealogySourceOriginalData, sourceDocument);
     $("genealogyContributionTitleField").value = $("genealogySourceTitle").value;
+    $("genealogyContributionPayload").value = "";
+  }
+  if (officialMode && $("genealogyContributionType").value === "proof" && proofContext && !reviseItem) {
+    fillOfficialProofGuidedFields(proofContext);
     $("genealogyContributionPayload").value = "";
   }
   $("genealogyContributionDialog").showModal();
@@ -4504,8 +4803,12 @@ async function saveGenealogyContribution(event) {
   const targetId = $("genealogyContributionTarget").value.trim() || createGenealogyId(refs.documents);
   const actorUid = auth.currentUser?.uid;
   if (!actorUid) return toast("Votre session a expiré.", "error");
+  const submitButton = $("genealogyContributionSubmitBtn");
+  submitButton.disabled = true;
   try {
-     const payload = official && type === "source" ? sourceGuidedPayload($("genealogySourceTitle").value.trim()) : parseGenealogyPayload(text, title, type);
+     const payload = official && type === "source" ? sourceGuidedPayload($("genealogySourceTitle").value.trim())
+      : official && type === "proof" && !revise ? proofGuidedPayload()
+      : parseGenealogyPayload(text, title, type);
     const eventId = createGenealogyId(refs.genealogyEvents);
     if (official) {
       const revisionCollection = ({ source: "sourceRevisions", transcription: "transcriptionRevisions", proof: "genealogyProofRevisions", conclusion: "conclusionRevisions" })[type];
@@ -4566,6 +4869,8 @@ async function saveGenealogyContribution(event) {
     $("genealogyContributionDialog").close();
   } catch (error) {
     toast(error.message || "Enregistrement impossible.", "error");
+  } finally {
+    submitButton.disabled = false;
   }
 }
 
@@ -5084,7 +5389,7 @@ function renderUnifiedDocumentDetails(item) {
       ? `<div class="document-unified-source-actions"><button class="btn small" type="button" data-manage-sources-from-document="${esc(item.id)}">Gérer les associations</button></div>`
       : `<div class="document-unified-source-actions"><button class="btn small" type="button" data-create-source-from-document="${esc(item.id)}">Ajouter une source officielle</button></div>`
     : "";
-  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations documentaires</h4><button class="btn small" type="button" data-unified-document-edit="${esc(item.id)}">Modifier</button></div>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}${sourceActions}</section>`;
+  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations documentaires</h4>${isAdminUser() ? `<button class="btn small" type="button" data-create-proof-from-document="${esc(item.id)}">Créer une preuve</button>` : ""}<button class="btn small" type="button" data-unified-document-edit="${esc(item.id)}">Modifier</button></div>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}${sourceActions}</section>`;
 }
 
 function refreshUnifiedDetailsIfOpen() {
@@ -6039,6 +6344,7 @@ function updateAccountUI(profile = {}, user = auth.currentUser) {
   $("accountSummaryName").textContent = displayName;
   $("accountSummaryEmail").textContent = user?.email || "";
   $("adminBtn").hidden = !(user?.uid === primaryAdminUid || profile.role === "admin");
+  syncProofEntryPoints();
 }
 
 function showAuthPanel(panel) {
@@ -7095,6 +7401,15 @@ $("viewerDocumentDetails").addEventListener("click", event => {
   if (createSource) return openOfficialSourceFromDocument(createSource.dataset.createSourceFromDocument);
   const manageSources = event.target.closest("[data-manage-sources-from-document]");
   if (manageSources) return renderDocumentSourceManager(manageSources.dataset.manageSourcesFromDocument);
+  const createProof = event.target.closest("[data-create-proof-from-document]");
+  if (createProof) {
+    const documentItem = documents.find(value => value.id === createProof.dataset.createProofFromDocument);
+    if (!documentItem) return toast("Ce document n’est plus disponible.", "error");
+    return openGenealogyContribution({
+      official: true,
+      proofContext: { documentId: documentItem.id, personIds: [], suggestPersonIds: documentItem.personIds || [] }
+    });
+  }
 });
 $("genealogyItemDialog").addEventListener("close", () => {
   if (reopenUnifiedDocumentAfter("genealogyItemDialog")) return;
@@ -7135,6 +7450,22 @@ $("genealogyItemContent").addEventListener("click", event => {
     const transcriptionData = revision ? genealogyRecordData(revision).data || genealogyRecordData(revision) : sourceData.revision || sourceData;
     const passage = transcriptionData.passages?.[Number(passageProofButton.dataset.genealogyPassage)];
     if (!passage) return toast("Ce passage n’est plus disponible.", "error");
+    if (isAdminUser()) {
+      const passageDocumentId = transcriptionData.documentId || sourceData.documentId || "";
+      const passageDocument = documents.find(item => item.id === passageDocumentId);
+      return openGenealogyContribution({
+        official: true,
+        proofContext: {
+          documentId: passageDocumentId,
+          pageId: activeGenealogyPageId || transcriptionData.pageId || "",
+          passageId: passage.id,
+          transcriptionRevisionId: revision?.id || sourceData.revisionId || "",
+          citationIt: passage.textIt || "",
+          citationFr: passage.translationFr || "",
+          suggestPersonIds: passageDocument?.personIds || []
+        }
+      });
+    }
     openGenealogyContribution();
     $("genealogyContributionType").value = "proof";
     updateGenealogyContributionPresentation();
@@ -7179,6 +7510,9 @@ $("genealogyOfficialBtn").onclick = () => openGenealogyContribution({ official: 
 $("genealogyProposeProofForPersonBtn").onclick = () => {
   const personId = $("personId").value;
   if (!personId) return;
+  if (isAdminUser()) {
+    return openGenealogyContribution({ official: true, proofContext: { personIds: [personId] } });
+  }
   openGenealogyContribution();
   $("genealogyContributionType").value = "proof";
   updateGenealogyContributionPresentation();
@@ -7188,6 +7522,11 @@ $("genealogyProposeProofForPersonBtn").onclick = () => {
     transcriptionRevisionId: null, sourceValue: null, relation: "supports", citationIt: null, citationFr: null
   }, null, 2);
 };
+
+function syncProofEntryPoints() {
+  const button = $("genealogyProposeProofForPersonBtn");
+  if (button) button.textContent = isAdminUser() ? "Ajouter une preuve" : "Proposer une preuve";
+}
 syncSearchClearBtn("genealogySearch", "clearGenealogySearchBtn");
 $("clearGenealogySearchBtn").onclick = () => {
   $("genealogySearch").value = "";

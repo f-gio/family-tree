@@ -93,14 +93,23 @@ Décision de travail consignée :
 | Lot | Périmètre | Dépendances | Critères de validation | Statut |
 |---:|---|---|---|---|
 | 0 — Fondations des identifiants | Identifiants stables de faits et fondation pure des relations/invalidation. Fichiers : `js/genealogy-identities.js`, `tests/genealogy-identities.test.mjs`. Aucun stockage relationnel Firestore intégré. | Aucun lot antérieur. | Tests du module et non-régression locale : 45 réussis, 0 échec selon le rapport de validation. | **Terminé** — commit local `65ee5d2` (`65ee5d2ce53559eb8d8fa4545189ebc3194bfbc8`). Aucun déploiement. |
-| 1 — Modèle des sources et documents | Documents, pages, photographies, métadonnées archivistiques, SHA-256, compatibilité avec l'existant. | Lot 0 (identifiants de faits). | À confirmer. | À confirmer. |
-| 2 — Conservation des fichiers | Originaux immuables, aperçus séparés, stockage, consultation multipage, intégrité. | Lot 1 (modèle documentaire). | À confirmer. | À confirmer. |
-| 3 — Transcriptions et traductions | Italien, français, versions, passages permanents, incertitudes. | Lot 1 (pages et passages). | À confirmer. | À confirmer. |
-| 4 — Preuves généalogiques | Liens plusieurs-à-plusieurs entre sources et faits, citations, contradictions, faits vides et relations historiques. | Lots 0, 1 et 3. | À confirmer. | À confirmer. |
-| 5 — Conclusions et contradictions | Confrontation des affirmations, conclusion globale manuelle, accès administrateur. | Lot 4 (preuves). | À confirmer. | À confirmer. |
-| 6 — Collaboration et sécurité | Auteurs, propositions, notifications, historique, permissions et transactions. | Lots 1 à 5. | À confirmer. | À confirmer. |
-| 7 — Sauvegarde et restauration | Sauvegarde autonome, fichiers originaux, compatibilité v4, intégrité et restauration vérifiée. | Lots 1 à 6. | À confirmer. | À confirmer. |
-| 8 — Intégration finale et recherche | Fiches personnes/familles/documents, navigation, recherche, responsive et tests de bout en bout. | Lots 1 à 7. | À confirmer. | À confirmer. |
+| 1 — Modèle des sources et documents | Documents, pages, photographies, métadonnées archivistiques, SHA-256 (digests), compatibilité avec l'existant (`js/source-document-model.js`, `js/photograph-storage.js`, `js/photograph-preview.js`). | Lot 0. | Tests du modèle vert. | **Implémenté en phase 1** (avec le lot 6). |
+| 2 — Conservation des fichiers | Originaux immuables, aperçus séparés, stockage, consultation multipage, intégrité. | Lot 1. | — | **Partiel** — chunks Firestore et aperçus en mémoire ; le stockage durable (Cloud Storage / T-01) reste **suspendu à l'activation Blaze**. |
+| 3 — Transcriptions et traductions | Italien, français, versions, passages permanents, incertitudes (`js/document-transcription.js`). | Lot 1. | Tests du module vert. | **Implémenté en phase 1** ; éditeur guidé de passages = **lot 2B**. |
+| 4 — Preuves généalogiques | Liens plusieurs-à-plusieurs entre sources et faits, citations, contradictions, faits vides et relations historiques (`js/genealogy-proofs.js`). | Lots 0, 1 et 3. | Tests du module vert. | **Implémenté en phase 1** ; création officielle guidée sans JSON = **lot 2A**. |
+| 5 — Conclusions et contradictions | Confrontation des affirmations, conclusion globale manuelle, accès administrateur (`js/fact-conclusions.js`). | Lot 4. | Tests du module vert. | **Implémenté en phase 1**. |
+| 6 — Collaboration et sécurité | Auteurs, propositions, notifications, historique, permissions et transactions (`js/genealogy-collaboration*.js`). | Lots 1 à 5. | Tests vert + émulateur (73/73). | **Terminé et publié en production** (2026-10-26). |
+| 7 — Sauvegarde et restauration | Sauvegarde autonome, fichiers originaux, compatibilité v4, intégrité et restauration vérifiée (`js/backup-archive.js`). | Lots 1 à 6. | Tests vert (backup-archive + backup-restore). | **Terminé et publié** ; restauration sélective = amélioration ultérieure. |
+| 8 — Intégration finale et recherche | Fiches personnes/familles/documents, navigation, recherche, responsive et tests de bout en bout. | Lots 1 à 7. | Campagne vert. | **Terminé et publié en production** (2026-10-26). |
+| **2A — Formulaire guidé de Preuve** | Dialogue officiel en 4 sections (fait, provenance, citation, interprétation), deux points d'entrée (fiche personne, document/transcription), rattachement à un fait existant ou nouveau, sans JSON. Modules : `js/genealogy-proof-form.js` + extension de `genealogyContributionDialog`. | Lot 4 publié. | Tests : `genealogy-proof-form` (7) + `genealogy-workspace-ui` (36) + visionneuse (20) vert. | **En cours** — implémenté sur `recette`, en attente de validation manuelle puis publication. |
+| 2B — Éditeur de transcription guidé | Passages (textIt, translationFr, hypothèses, ancrage photographique — repris du lot 2A reporté). | Lots 2A et 3. | À définir. | **À venir**. |
+
+### Dépendances avec les futurs chantiers
+- **Frise chronologique** : les preuves ne portent pas encore de date de fait (`factType` sans `factDateInfo`) — une extension additive sera à trancher lors de la conception de la frise.
+- **Carte géographique** : aucun champ lieu dans les preuves (extension additive similaire).
+- **Lot 2B** : l'ancrage photographique des preuves y est reporté (valeurs `null` aujourd'hui, acceptées par le modèle).
+- **Atelier IA** : citations pré-remplies (lot 2A) et hypothèses paléographiques (lot 2B) constituent la surface d'intégration.
+- **Blaze/Cloud Storage (T-01)** : conditionne le lot 2 — aucune activation sans décision explicite.
 
 ### Règles transversales aux lots
 

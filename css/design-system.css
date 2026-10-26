@@ -2545,6 +2545,10 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .source-person-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-1); max-height: 12rem; overflow: auto; }
 .source-person-option { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-touch); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
 .source-person-option:hover { background: var(--color-brand-soft); }
+.proof-relation-fieldset { margin: 0; padding: var(--space-3); border: var(--border-default); border-radius: var(--radius-md); }
+.proof-relation-options { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.proof-relation-options label { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-touch); }
+.proof-source-unknown { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-touch); margin-top: var(--space-1); }
 @media (max-width: 760px) {
   .source-guided-grid { grid-template-columns: minmax(0, 1fr); }
   .source-guided-grid label:has(textarea) { grid-column: auto; }
