@@ -267,7 +267,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const openTitle = (await page.locator("#genealogyItemTitle").textContent()).trim();
       // informations métier (les libellés sont stylisés en capitales par le design system)
       assert.ok(["Décès", "Naissance", "Mariage"].includes(openTitle), "titre de fait traduit en entête : " + openTitle);
-      assert.ok(bodyLower.includes(openTitle.toLowerCase()), "titre du fait dans le panneau");
+      assert.equal(await content.locator(".document-unified-section h4").count(), 0, "titre de fait non répété dans le corps");
       assert.ok(bodyLower.includes("confirme"), "relation traduite");
       assert.ok(bodyLower.includes("valeur relevée dans le document"), "valeur relevée affichée");
       assert.ok(bodyLower.includes("personnes concernées"), "personnes affichées");
@@ -276,6 +276,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       // aucun JSON brut
       assert.equal(await content.locator("pre").count(), 0, "aucun bloc pre/JSON visible");
       assert.ok(!(await content.innerText()).includes("{ \"factId"), "aucune donnée technique brute");
+      assert.ok(!/\b(birth|death|marriage|burial|supports|contradicts|mentions)\b/.test(bodyLower), "aucune clé technique brute visible");
       // preuves liées : exactement les deux autres preuves de l'émulateur, sans répétition de la courante
       const linkedButtons = content.locator('section [data-open-genealogy="proof"]');
       assert.equal(await linkedButtons.count(), 2, "seules les autres preuves sont listées dans « Preuves liées »");
@@ -290,6 +291,97 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       });
       assert.ok(box.sw <= box.cw + 2, "aucun débordement horizontal du dialogue");
       assert.equal(box.cols, 1, "panneau pleine largeur sans photographie");
+      await page.keyboard.press("Escape");
+    });
+
+    await t.test("6. navigation Preuve → Preuve/Personne/Document avec retour explicite", async () => {
+      await closeResidualDialogs();
+      await page.waitForTimeout(300);
+      await page.click('.nav-btn[data-view="genealogy"]');
+      await page.waitForTimeout(600);
+      const proofEntries = page.locator(".genealogy-entry").filter({ has: page.locator('span.genealogy-entry-kind:text-is("Preuve")') });
+      await proofEntries.first().locator("[data-tile-menu-toggle]").click();
+      await proofEntries.first().locator('[data-tile-menu-action="open"]').click();
+      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
+      assert.ok(await page.locator("#genealogyItemBackBtn").isHidden(), "aucun retour sans fiche précédente");
+      const firstTitle = (await page.locator("#genealogyItemTitle").textContent()).trim();
+      // Preuve → Preuve liée (même surface) : le retour doit restaurer la fiche précédente
+      const linkedProof = page.locator('#genealogyItemContent [data-open-genealogy="proof"]').first();
+      assert.ok(await linkedProof.count(), "preuve liée disponible");
+      await linkedProof.click();
+      await page.waitForTimeout(400);
+      const secondTitle = (await page.locator("#genealogyItemTitle").textContent()).trim();
+      assert.notEqual(secondTitle, firstTitle, "deuxième preuve ouverte");
+      assert.ok(await page.locator("#genealogyItemBackBtn").isVisible(), "bouton retour affiché");
+      await page.click("#genealogyItemBackBtn");
+      await page.waitForTimeout(600);
+      const afterBack = await page.evaluate(() => ({
+        hidden: document.getElementById("genealogyItemBackBtn").hidden,
+        title: (document.getElementById("genealogyItemTitle").textContent || "").trim(),
+        toast: document.querySelector("[role=status].toast, .toast")?.textContent?.slice(0, 80) || ""
+      }));
+      assert.equal(afterBack.title, firstTitle, "retour sur la fiche précédente — état: " + JSON.stringify(afterBack));
+      assert.ok(await page.locator("#genealogyItemBackBtn").isHidden(), "retour consommé");
+      // Preuve → Personne : fermeture de la fiche personne = retour naturel
+      const chip = page.locator("#genealogyItemContent [data-genealogy-person]").first();
+      assert.ok(await chip.count(), "personne consultable depuis la preuve");
+      await chip.click();
+      await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      assert.ok(await page.locator("#genealogyItemDialog[open]").count(), "fiche preuve conservée après la visite personne");
+      // Preuve → Document : la visionneuse s'ouvre par-dessus, sa fermeture conserve la preuve
+      const docLink = page.locator("#genealogyItemContent [data-source-document-open]").first();
+      await docLink.click();
+      await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(400);
+      assert.ok(await page.locator("#genealogyItemDialog[open]").count(), "fiche preuve conservée après la visite document");
+      await page.keyboard.press("Escape");
+    });
+
+    await t.test("7. mobile 375/320 : une colonne, aucun débordement, retrait d'une personne", async () => {
+      for (const width of [375, 320]) {
+        await closeResidualDialogs();
+        await page.setViewportSize({ width, height: 844 });
+        await page.waitForTimeout(300);
+        // Ouverture de la preuve depuis la fiche personne (parcours mobile naturel, sans menu tile)
+        await page.click('.nav-btn[data-view="directory"]');
+        await page.waitForTimeout(400);
+        await page.locator("#directoryList").getByText("Probe", { exact: false }).first().click();
+        await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
+        await page.click('[data-person-section="documents"]');
+        const consult = page.locator('#personGenealogyEvidenceList [data-open-genealogy="proof"]').first();
+        assert.ok(await consult.count(), `${width}px : preuve consultable depuis la fiche personne`);
+        await consult.click();
+        await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
+        const box = await page.evaluate(() => {
+          const dialog = document.getElementById("genealogyItemDialog");
+          const facts = document.querySelector("#genealogyItemContent .document-unified-facts");
+          return {
+            sw: dialog.scrollWidth, cw: dialog.clientWidth,
+            docSw: document.documentElement.scrollWidth,
+            cols: facts ? getComputedStyle(facts).gridTemplateColumns.split(" ").length : -1
+          };
+        });
+        assert.ok(box.sw <= box.cw + 2, `${width}px : dialogue sans débordement horizontal`);
+        assert.ok(box.docSw <= width + 1, `${width}px : page sans débordement`);
+        assert.equal(box.cols, 1, `${width}px : faits empilés en une colonne`);
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+      }
+      // Formulaire en mobile : pastille et retrait (375)
+      const label = await openProofDialogFromPerson();
+      assert.equal(label, "Ajouter une preuve", "libellé administrateur en mobile");
+      assert.ok(await page.locator("#genealogySourcePersonSelection .person-chip").count() >= 1, "pastille commune en sélection");
+      const formBox = await page.evaluate(() => {
+        const dialog = document.getElementById("genealogyContributionDialog");
+        return { sw: dialog.scrollWidth, cw: dialog.clientWidth };
+      });
+      assert.ok(formBox.sw <= formBox.cw + 2, "formulaire sans débordement à 375px");
+      await page.locator('#genealogySourcePersonSelection [data-remove-genealogy-source-person]').first().click();
+      await page.waitForTimeout(200);
+      assert.equal(await page.locator("#genealogySourcePersonSelection .source-person-selection-item").count(), 0, "personne retirée de la sélection");
       await page.keyboard.press("Escape");
     });
 

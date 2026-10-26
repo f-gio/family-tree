@@ -2599,6 +2599,10 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .source-person-selection-item span { overflow-wrap: anywhere; }
 .source-person-selection-item button { flex: 0 0 auto; min-width: var(--control-touch); min-height: var(--control-touch); border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
 .source-person-selection-item.is-missing { background: var(--color-danger-soft); color: var(--color-danger); }
+.person-chip { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; padding: 3px 6px 3px 10px; border-radius: 999px; background: var(--color-brand-soft); color: var(--color-brand); font-size: var(--text-xs); border: 0; }
+.person-chip span { overflow-wrap: anywhere; min-width: 0; }
+.person-chip-consult { cursor: pointer; min-height: var(--control-touch); font: inherit; text-align: left; }
+.person-chip-consult:hover { background: var(--color-brand); color: var(--color-surface); }
 .genealogy-source-facts h4 { margin: 0; }
 .source-detail-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--space-2) var(--space-4); }
 .source-detail-fact { display: grid; gap: 2px; min-width: 0; align-content: start; }
@@ -2659,6 +2663,8 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .genealogy-toolbar { grid-template-columns: minmax(0, 1fr); }
   .genealogy-detail-grid { grid-template-columns: minmax(0, 1fr); }
   .genealogy-photo-panel { min-height: 140px; }
+  .document-unified-facts { grid-template-columns: minmax(0, 1fr); }
+  .person-chip { max-width: 100%; }
 }
 
 /* Les labels de toolbar contiennent directement leurs champs : ils doivent
