@@ -7596,7 +7596,7 @@ $("permanentDeleteConfirmBtn").onclick = async () => {
   try {
     await genealogyStore.deleteOfficial({ type: kind, id: targetId, actorUid: auth.currentUser.uid });
     $("permanentDeleteDialog").close();
-    if ($("genealogyItemDialog").open && activeGenealogyItem && activeGenealogyItem.id === targetId) close("genealogyItemDialog");
+    if ($("genealogyItemDialog").open && activeGenealogyItem?.record?.id === targetId) close("genealogyItemDialog");
     toast(`« ${title} » supprimé définitivement.`);
   } catch (error) {
     $("permanentDeleteDialog").close();
