@@ -99,7 +99,7 @@ const refs = {
   genealogyEvents: collection(db, "genealogyEvents"),
   genealogyNotifications: collection(db, "genealogyNotifications")
 };
-const genealogyStore = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp });
+const genealogyStore = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
 
 let people = [], families = [], documents = [], tasks = [];
 let procedures = [];
@@ -128,6 +128,7 @@ let genealogyProofPersonPickerNextSibling = null;
 let genealogyProofContext = {};
 let genealogyItemReturn = null;
 let genealogyItemReturning = false;
+let pendingOfficialDelete = null;
 let treeMetadata = [];
 let activeTreeId = MAIN_TREE_ID;
 let treeCatalogState = "idle";
@@ -4096,6 +4097,12 @@ function renderGenealogyWorkspace() {
   $("genealogyOfficialBtn").hidden = !isAdminUser();
 }
 
+function officialDeleteActionsMarkup(kind, id) {
+  if (!isAdminUser()) return "";
+  const label = kind === "proof" ? "preuve" : "source officielle";
+  return `<section class="document-unified-section document-unified-actions"><p class="card-meta">Suppression définitive : la fiche, ses révisions et son historique seront supprimés. Cette action est irréversible.</p><button class="btn danger" type="button" data-delete-official-kind="${esc(kind)}" data-delete-official-id="${esc(id)}" aria-label="Supprimer définitivement cette ${label}">Supprimer définitivement</button></section>`;
+}
+
 function proofDetailsMarkup(data, record) {
   const relationLabel = PROOF_RELATION_LABELS[data.relation] || data.relation || "";
   const personNames = (data.personIds || []).map(personId => {
@@ -4132,7 +4139,8 @@ function proofDetailsMarkup(data, record) {
     + `<div class="document-unified-fact"><strong>Identifiant du fait</strong><span>${esc(String(data.factId || "—"))}</span></div>`
     + `<div class="document-unified-fact"><strong>Preuve</strong><span>${esc(record.id)}</span></div>`
     + (record.authorUid ? `<div class="document-unified-fact"><strong>Auteur historique</strong><span>${esc(record.authorUid)}</span></div>` : "")
-    + `</div></details>`;
+    + `</div></details>`
+    + officialDeleteActionsMarkup("proof", record.id);
 }
 
 function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null) {
@@ -4204,7 +4212,7 @@ function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null) 
     return;
   }
   $("genealogyItemContent").innerHTML = kind === "source"
-    ? `${sourceFactsBlock}${linkedDocumentsBlock}<div class="genealogy-detail-grid">${photo}${transcript}</div><p class="card-meta">État technique : ${esc(data.technicalStatus || data.status || "non précisé")} · Les conclusions n'altèrent pas les faits de l'arbre.</p>${historyBlock}${proofList}`
+    ? `${sourceFactsBlock}${linkedDocumentsBlock}${officialDeleteActionsMarkup("source", id)}<div class="genealogy-detail-grid">${photo}${transcript}</div><p class="card-meta">État technique : ${esc(data.technicalStatus || data.status || "non précisé")} · Les conclusions n'altèrent pas les faits de l'arbre.</p>${historyBlock}${proofList}`
     : `<div class="genealogy-detail-grid">${photo}${transcript}</div>${linkedDocumentsBlock}<p class="card-meta">État technique : ${esc(data.technicalStatus || data.status || "non précisé")} · Les conclusions n'altèrent pas les faits de l'arbre.</p>${historyBlock}${proofList}`;
   $("genealogyItemDialog").showModal();
 }
@@ -4430,13 +4438,15 @@ function ensureOfficialSourceGuidedFields() {
   genealogySourcePickerNextSibling = picker?.nextSibling || null;
   const associatedSection = [...genealogySourceGuidedGrid.querySelectorAll("section")].find(section => section.querySelector("h4")?.textContent === "Éléments associés");
   if (picker && associatedSection) associatedSection.append(picker);
-  genealogySourceGuidedGrid.addEventListener("change", event => {
+  // Liaison directe sur le conteneur : les options suivent la personne lors du
+  // basculement entre la grille Source et la grille Preuve (DOM déplacé).
+  $("genealogySourcePersonOptions").addEventListener("change", event => {
     const checkbox = event.target.closest("[data-genealogy-source-person]");
-    if (checkbox) {
-      if (checkbox.checked) selectedGenealogySourcePersonIds.add(checkbox.dataset.genealogySourcePerson);
-      else selectedGenealogySourcePersonIds.delete(checkbox.dataset.genealogySourcePerson);
-      renderGenealogySourcePersonSelection();
-    }
+    if (!checkbox) return;
+    if (checkbox.checked) selectedGenealogySourcePersonIds.add(checkbox.dataset.genealogySourcePerson);
+    else selectedGenealogySourcePersonIds.delete(checkbox.dataset.genealogySourcePerson);
+    renderGenealogySourcePersonSelection();
+    renderProofFieldErrors({});
   });
   $("genealogySourcePersonSearch").addEventListener("input", renderGenealogySourcePersonOptions);
   $("genealogySourcePersonMore").addEventListener("click", () => {
@@ -4483,7 +4493,7 @@ function ensureOfficialProofGuidedFields() {
   genealogyProofGuidedGrid = document.createElement("section");
   genealogyProofGuidedGrid.id = "genealogyOfficialProofFields";
   genealogyProofGuidedGrid.className = "wide genealogy-proof-guided-fields";
-  genealogyProofGuidedGrid.innerHTML = `<section><h4>Fait à documenter</h4><div class="source-guided-grid"><label>Fait déjà documenté<select class="field" id="proofExistingFact"><option value="">Nouveau fait à documenter</option></select></label><label>Type du fait<select class="field" id="proofFactKind"><option value="">Choisir un type de fait</option><option value="birth">Naissance</option><option value="marriage">Mariage</option><option value="death">Décès</option><option value="burial">Sépulture</option><option value="residence">Résidence</option><option value="other">Autre</option></select></label><label id="proofFactOtherLabelZone" hidden>Intitulé du fait<input class="field" id="proofFactOtherLabel" maxlength="120" placeholder="Ex. : Naturalisation"></label><label id="proofRelationshipZone" hidden>Relation familiale<select class="field" id="proofRelationship"><option value="">Aucune relation particulière</option></select></label></div><p class="hint" id="proofFactHint"></p><span class="field-error" id="proofError-factKind" hidden></span><span class="field-error" id="proofError-factOtherLabel" hidden></span><div class="source-associated-subsection" id="proofPersonZone"><div id="proofPersonSuggestions" hidden></div><p class="hint" id="proofError-personIds" hidden></p></div></section><section><h4>Provenance</h4><div id="proofDocumentZone"></div><span class="field-error" id="proofError-documentId" hidden></span><div id="proofPageFields"><label>Page<select class="field" id="proofPage"><option value="">Aucune page sélectionnée</option></select></label><label>Passage<select class="field" id="proofPassage"><option value="">Aucun passage cité</option></select></label><p class="hint">Si un passage est cité, sa révision de transcription est enregistrée automatiquement avec la preuve.</p></div><p class="hint" id="proofNoTranscription" hidden>Ce document n’a pas encore de page de transcription. Vous pouvez saisir une citation manuelle dans la section suivante.</p><span class="field-error" id="proofError-passage" hidden></span></section><section><h4>Citation</h4><div class="source-guided-grid"><label>Texte italien<textarea class="field" id="proofCitationIt" rows="3" placeholder="Citation du document, figée lors de la création"></textarea></label><label>Traduction française<textarea class="field" id="proofCitationFr" rows="3" placeholder="Facultative"></textarea></label></div><p class="hint">Une citation modifiée ici reste propre à cette preuve : la transcription d’origine n’est jamais modifiée.</p></section><section><h4>Interprétation</h4><fieldset class="wide proof-relation-fieldset"><legend>Relation à la conclusion</legend><div class="proof-relation-options"><label><input type="radio" name="proofRelation" value="supports" checked><span>Confirme</span></label><label><input type="radio" name="proofRelation" value="contradicts"><span>Contredit</span></label><label><input type="radio" name="proofRelation" value="mentions"><span>Mentionne</span></label><label><input type="radio" name="proofRelation" value="ambiguous"><span>Ambiguë</span></label></div></fieldset><span class="field-error" id="proofError-relation" hidden></span><div class="source-guided-grid"><div class="wide proof-source-value-field"><label for="proofSourceValue">Valeur relevée dans le document</label><input class="field" id="proofSourceValue" maxlength="400" placeholder="Ex. : Paulo, figliu di Giovanni" aria-describedby="proofError-sourceValue"><label class="proof-source-unknown"><input type="checkbox" id="proofSourceUnknown"> Non relevée (valeur inconnue)</label><span class="field-error" id="proofError-sourceValue" hidden></span></div></div><label class="wide">Interprétation<textarea class="field" id="proofInterpretation" rows="3" maxlength="2000" placeholder="Lecture et portée de cette preuve pour le fait documenté"></textarea></label></section>`;
+  genealogyProofGuidedGrid.innerHTML = `<section><h4>Fait à documenter</h4><div class="source-guided-grid"><label>Fait déjà documenté<select class="field" id="proofExistingFact"><option value="">Nouveau fait à documenter</option></select></label><label>Type du fait<select class="field" id="proofFactKind"><option value="">Choisir un type de fait</option><option value="birth">Naissance</option><option value="marriage">Mariage</option><option value="death">Décès</option><option value="burial">Sépulture</option><option value="residence">Résidence</option><option value="other">Autre</option></select></label><label id="proofFactOtherLabelZone" hidden>Intitulé du fait<input class="field" id="proofFactOtherLabel" maxlength="120" placeholder="Ex. : Naturalisation"></label><label id="proofRelationshipZone" hidden>Relation familiale<select class="field" id="proofRelationship"><option value="">Aucune relation particulière</option></select></label></div><p class="hint" id="proofFactHint"></p><span class="field-error" role="alert" id="proofError-factKind" hidden></span><span class="field-error" role="alert" id="proofError-factOtherLabel" hidden></span><div class="source-associated-subsection" id="proofPersonZone"><div id="proofPersonSuggestions" hidden></div><p class="hint" id="proofError-personIds" hidden></p></div></section><section><h4>Provenance</h4><div id="proofDocumentZone"></div><span class="field-error" role="alert" id="proofError-documentId" hidden></span><div id="proofPageFields"><label>Page<select class="field" id="proofPage"><option value="">Aucune page sélectionnée</option></select></label><label>Passage<select class="field" id="proofPassage"><option value="">Aucun passage cité</option></select></label><p class="hint">Si un passage est cité, sa révision de transcription est enregistrée automatiquement avec la preuve.</p></div><p class="hint" id="proofNoTranscription" hidden>Ce document n’a pas encore de page de transcription. Vous pouvez saisir une citation manuelle dans la section suivante.</p><span class="field-error" role="alert" id="proofError-passage" hidden></span></section><section><h4>Citation</h4><div class="source-guided-grid"><label>Texte italien<textarea class="field" id="proofCitationIt" rows="3" placeholder="Citation du document, figée lors de la création"></textarea></label><label>Traduction française<textarea class="field" id="proofCitationFr" rows="3" placeholder="Facultative"></textarea></label></div><p class="hint">Une citation modifiée ici reste propre à cette preuve : la transcription d’origine n’est jamais modifiée.</p></section><section><h4>Interprétation</h4><fieldset class="wide proof-relation-fieldset"><legend>Relation à la conclusion</legend><div class="proof-relation-options"><label><input type="radio" name="proofRelation" value="supports" checked><span>Confirme</span></label><label><input type="radio" name="proofRelation" value="contradicts"><span>Contredit</span></label><label><input type="radio" name="proofRelation" value="mentions"><span>Mentionne</span></label><label><input type="radio" name="proofRelation" value="ambiguous"><span>Ambiguë</span></label></div></fieldset><span class="field-error" role="alert" id="proofError-relation" hidden></span><div class="source-guided-grid"><div class="wide proof-source-value-field"><label for="proofSourceValue">Valeur relevée dans le document</label><input class="field" id="proofSourceValue" maxlength="400" placeholder="Ex. : Paulo, figliu di Giovanni" aria-describedby="proofError-sourceValue"><label class="proof-source-unknown"><input type="checkbox" id="proofSourceUnknown"> Non relevée (valeur inconnue)</label><span class="field-error" role="alert" id="proofError-sourceValue" hidden></span></div></div><label class="wide">Interprétation<textarea class="field" id="proofInterpretation" rows="3" maxlength="2000" placeholder="Lecture et portée de cette preuve pour le fait documenté"></textarea></label></section>`;
   grid.append(genealogyProofGuidedGrid);
   const personSub = [...genealogySourceGuidedGrid.querySelectorAll(".source-associated-subsection")][0];
   if (personSub && !genealogyProofPersonPickerParent) {
@@ -4756,8 +4766,8 @@ function renderProofFieldErrors(errors) {
   }
 }
 
-function proofGuidedPayload() {
-  const fields = readProofGuidedFields();
+function proofGuidedPayload(fallbackFactId = "") {
+  const fields = { ...readProofGuidedFields(), fallbackFactId };
   const { valid, errors } = validateProofGuidedFields(fields);
   renderProofFieldErrors(errors);
   if (!valid) throw new Error("Le formulaire de preuve comporte des erreurs à corriger.");
@@ -4926,7 +4936,7 @@ async function saveGenealogyContribution(event) {
   submitButton.disabled = true;
   try {
      const payload = official && type === "source" ? sourceGuidedPayload($("genealogySourceTitle").value.trim())
-      : official && type === "proof" ? proofGuidedPayload()
+      : official && type === "proof" ? proofGuidedPayload(targetId)
       : parseGenealogyPayload(text, title, type);
     const eventId = createGenealogyId(refs.genealogyEvents);
     if (official) {
@@ -4946,6 +4956,7 @@ async function saveGenealogyContribution(event) {
         officialData = createPageTextRevision({ ...payload, id: revisionId, previousRevisionId: revise ? currentHead.revisionId : null, authorUid: actorUid, changedAt: new Date().toISOString(), justification: payload.justification || title });
       } else if (type === "proof") {
         const proofInput = { ...(payload.data || payload) };
+        if (!proofInput.factId) proofInput.factId = officialId;
         if (proofInput.citation) {
           proofInput.citationIt ??= proofInput.citation.textIt ?? null;
           proofInput.citationFr ??= proofInput.citation.translationFr ?? null;
@@ -7573,6 +7584,28 @@ $("genealogyItemBackBtn").onclick = () => {
   genealogyItemReturning = true;
   openGenealogyItem(target.kind, target.id, target.pageId, target.photoId);
 };
+$("permanentDeleteConfirmBtn").onclick = async () => {
+  if (!pendingOfficialDelete) return;
+  if (!isAdminUser() || !auth.currentUser) {
+    $("permanentDeleteDialog").close();
+    return toast("La suppression définitive est réservée aux administrateurs.", "error");
+  }
+  const { kind, id: targetId, title } = pendingOfficialDelete;
+  const button = $("permanentDeleteConfirmBtn");
+  button.disabled = true;
+  try {
+    await genealogyStore.deleteOfficial({ type: kind, id: targetId, actorUid: auth.currentUser.uid });
+    $("permanentDeleteDialog").close();
+    if ($("genealogyItemDialog").open && activeGenealogyItem && activeGenealogyItem.id === targetId) close("genealogyItemDialog");
+    toast(`« ${title} » supprimé définitivement.`);
+  } catch (error) {
+    $("permanentDeleteDialog").close();
+    toast(error.message || "Suppression impossible.", "error");
+  } finally {
+    button.disabled = false;
+    pendingOfficialDelete = null;
+  }
+};
 $("genealogyContributionDialog").addEventListener("close", () => {
   if (reopenUnifiedDocumentAfter("genealogyContributionDialog")) return;
   refreshUnifiedDetailsIfOpen();
@@ -7603,6 +7636,27 @@ $("genealogyItemContent").addEventListener("click", event => {
     const personItem = person(proofPerson.dataset.genealogyPerson);
     if (!personItem) return toast("Cette personne n’est plus disponible.", "error");
     if (!$("personDialog").open) openPerson(personItem, "directory");
+    return;
+  }
+  const deleteOfficialButton = event.target.closest("[data-delete-official-kind]");
+  if (deleteOfficialButton) {
+    if (!isAdminUser()) return toast("La suppression définitive est réservée aux administrateurs.", "error");
+    const kind = deleteOfficialButton.dataset.deleteOfficialKind;
+    const targetId = deleteOfficialButton.dataset.deleteOfficialId;
+    const current = activeGenealogyItem && activeGenealogyItem.id === targetId ? activeGenealogyItem : null;
+    const title = kind === "proof"
+      ? (current && (PROOF_FACT_KIND_LABELS[current.data.factType] || current.data.factType) || "Preuve")
+      : (current && (current.data.title || "Source") || "Source officielle");
+    pendingOfficialDelete = { kind, id: targetId, title };
+    $("permanentDeleteTitle").textContent = kind === "proof" ? "Supprimer définitivement cette preuve" : "Supprimer définitivement cette source";
+    $("permanentDeleteSubtitle").textContent = title;
+    $("permanentDeleteMessage").textContent = `Vous êtes sur le point de supprimer définitivement ${kind === "proof" ? "cette preuve" : "cette source"} et l’ensemble de ses révisions et événements d’historique. Cette opération est IRRÉVERSIBLE.`;
+    $("permanentDeleteDetails").innerHTML = [
+      "Les personnes, documents et autres fiches ne sont pas supprimés.",
+      "Les associations de cette fiche dans les fiches conservées disparaîtront.",
+      "Une sauvegarde antérieure pourrait réintroduire cette fiche lors d’une restauration."
+    ].map(line => `<li>${esc(line)}</li>`).join("");
+    if (!$("permanentDeleteDialog").open) $("permanentDeleteDialog").showModal();
     return;
   }
   const zoomButton = event.target.closest("[data-genealogy-zoom]");
@@ -7660,12 +7714,14 @@ $("genealogySourceDocumentOptions").addEventListener("change", event => {
   if (checkbox.checked) selectedGenealogySourceDocumentIds.add(checkbox.dataset.genealogySourceDocument);
   else selectedGenealogySourceDocumentIds.delete(checkbox.dataset.genealogySourceDocument);
   renderGenealogySourceDocumentSelection();
+  if ($("genealogyOfficialProofFields") && !$("genealogyOfficialProofFields").hidden) refreshProofPageOptions($("proofPage")?.value || "");
 });
 $("genealogySourceDocumentSelection").addEventListener("click", event => {
   const removeButton = event.target.closest("[data-remove-genealogy-source-document]");
   if (!removeButton) return;
   selectedGenealogySourceDocumentIds.delete(removeButton.dataset.removeGenealogySourceDocument);
   renderGenealogySourceDocumentPicker();
+  if ($("genealogyOfficialProofFields") && !$("genealogyOfficialProofFields").hidden) refreshProofPageOptions($("proofPage")?.value || "");
 });
 $("genealogySourceDocumentMore").addEventListener("click", () => {
   genealogySourceDocumentPagesShown += 1;

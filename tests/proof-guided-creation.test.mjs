@@ -25,6 +25,7 @@ function injectProbe(page) {
       const run = new Function("return (async () => {" + bootstrapCode +
         "await fsModule.setDoc(fsModule.doc(db, 'people/person-probe'), { firstName: 'Ada', middleName: '', lastName: 'Probe', birthDate: '', deathDate: '', place: '', partnerIds: [], childIds: [], treeId: null });" +
         "await fsModule.setDoc(fsModule.doc(db, 'people/person-probe2'), { firstName: 'Grace', middleName: '', lastName: 'Probe', birthDate: '', deathDate: '', place: '', partnerIds: [], childIds: [], treeId: null });" +
+        "await fsModule.setDoc(fsModule.doc(db, 'documents/doc-probe2'), { title: 'Cadastre probe', type: 'Cadastre', date: '1888-06-01', place: '', personIds: ['person-probe2'], notes: '', fileName: 'cadastre.html', mimeType: 'text/html', externalUrl: 'https://example.invalid/cadastre', chunkCount: 0 });" +
         "await fsModule.setDoc(fsModule.doc(db, 'documents/doc-probe'), { title: 'Registre probe', type: 'Registre', date: '1901-04-12', place: '', personIds: ['person-probe', 'person-probe2'], notes: '', fileName: 'registre.html', mimeType: 'text/html', externalUrl: 'https://example.invalid/registre', chunkCount: 0, pages: [{ id: 'page-1', label: 'Folio 1' }] });" +
         "})()");
       await run();
@@ -70,6 +71,20 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
     const probe = injectProbe(page);
     await probe.setup();
     await page.waitForTimeout(1200);
+
+    const proofSubmitState = async () => {
+      await page.click("#genealogyContributionSubmitBtn");
+      await page.waitForTimeout(700);
+      return page.evaluate(() => {
+        const invalid = document.querySelector("#genealogyContributionForm :invalid");
+        return {
+          open: document.getElementById("genealogyContributionDialog").open,
+          invalid: invalid ? { id: invalid.id || invalid.tagName, required: invalid.required, hidden: !!invalid.closest("[hidden]") } : null,
+          errors: [...document.querySelectorAll("#genealogyOfficialProofFields .field-error")].filter(el => !el.hidden).map(el => el.textContent).slice(0, 3),
+          submitBusy: document.getElementById("genealogyContributionSubmitBtn").disabled
+        };
+      });
+    };
 
     const closeResidualDialogs = () => page.evaluate(() => {
       for (const id of ["genealogyContributionDialog", "personDialog", "documentViewerDialog", "genealogyItemDialog"]) {
@@ -387,7 +402,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.keyboard.press("Escape");
     });
 
-    await t.test("8. révision d'une preuve : retrait de personne persisté, retrait total refusé", async () => {
+    await t.test("8. révision d'une preuve : retrait de personne persisté, retrait total accepté", async () => {
       const openPersonSection = async () => {
         await closeResidualDialogs();
         await page.waitForTimeout(300);
@@ -427,7 +442,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       assert.equal(marriage.sourceValue, "Mariage en 1899", "la valeur relevée est conservée");
       assert.equal(marriage.factType, "marriage", "le fait est conservé");
       assert.equal(proofs.find(data => data.factType === "death").personIds.length, 1, "les autres preuves ne sont pas altérées");
-      // d) retrait total : erreur explicite, aucune écriture
+      // d) retrait total : accepté et persisté (associations facultatives)
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
       await openPersonSection();
@@ -438,12 +453,15 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.waitForTimeout(200);
       const revisionsBeforeTotal = await probe.count("genealogyProofRevisions");
       await page.click("#genealogyContributionSubmitBtn");
+      await page.waitForFunction(() => !document.getElementById("genealogyContributionDialog").open, { timeout: 15000 });
       await page.waitForTimeout(900);
-      assert.ok(await page.locator("#genealogyContributionDialog[open]").count(), "dialogue conservé après l'erreur");
-      assert.ok(await page.locator("#proofError-personIds").isVisible(), "erreur explicite : au moins une personne doit rester associée");
-      assert.equal(await probe.count("genealogyProofRevisions"), revisionsBeforeTotal, "aucune révision créée lors de l'erreur");
-      await page.keyboard.press("Escape");
+      assert.equal(await probe.count("genealogyProofRevisions"), revisionsBeforeTotal + 1, "retrait total : une révision immuable ajoutée");
+      const deathProof = JSON.parse(await probe.list("genealogyProofs")).map(entry => entry.data.data || entry.data).find(data => data.factType === "death");
+      assert.ok(deathProof, "la preuve de décès existe toujours après le retrait total");
+      assert.deepEqual(deathProof.personIds, [], "retrait total persisté : aucune personne associée");
+      assert.equal(deathProof.documentId, "doc-probe", "le document d'origine est conservé");
       // e) fiches personnes après rechargement
+      await page.keyboard.press("Escape");
       await closeResidualDialogs();
       await page.waitForTimeout(300);
       await page.click('.nav-btn[data-view="directory"]');
@@ -462,8 +480,166 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
       await page.click('[data-person-section="documents"]');
       await page.waitForTimeout(300);
-      assert.equal(await page.locator("#personGenealogyEvidenceList article.person-doc-card").count(), 3, "les preuves de la personne conservée sont intactes");
+      assert.equal(await page.locator("#personGenealogyEvidenceList article.person-doc-card").count(), 2, "les deux preuves encore associées à la personne sont intactes (décès détaché)");
       await page.keyboard.press("Escape");
+    });
+
+    await t.test("9. révision : retraits personne/document sans blocage (6 scénarios)", async () => {
+      const openMarriageRevision = async (personName = "Probe") => {
+        await closeResidualDialogs();
+        await page.waitForTimeout(300);
+        await page.click('.nav-btn[data-view="directory"]');
+        await page.waitForTimeout(400);
+        await page.locator("#directoryList").getByText(personName, { exact: false }).first().click();
+        await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
+        await page.click('[data-person-section="documents"]');
+        await page.waitForTimeout(250);
+        const marriageCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "Mariage" });
+        await marriageCard.locator("[data-edit-genealogy-proof]").click();
+        await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
+      };
+      const openBirthRevision = async () => {
+        await closeResidualDialogs();
+        await page.waitForTimeout(300);
+        await page.click('.nav-btn[data-view="directory"]');
+        await page.waitForTimeout(400);
+        await page.locator("#directoryList").getByText("Ada", { exact: false }).first().click();
+        await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
+        await page.click('[data-person-section="documents"]');
+        await page.waitForTimeout(250);
+        const birthCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "Naissance" });
+        await birthCard.locator("[data-edit-genealogy-proof]").click();
+        await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
+      };
+      const selectPerson = async name => {
+        await page.fill("#genealogySourcePersonSearch", name);
+        await page.waitForTimeout(350);
+        const box = page.locator("#genealogySourcePersonOptions input[type=checkbox]").first();
+        if (await box.count() && !(await box.isChecked())) await box.check();
+      };
+      const removePerson = personId => page.locator(`#genealogySourcePersonSelection [data-remove-genealogy-source-person="${personId}"]`).click();
+      const removeDocument = docId => page.locator(`#genealogySourceDocumentSelection [data-remove-genealogy-source-document="${docId}"]`).click();
+      const chipCount = () => page.locator("#genealogySourcePersonSelection .person-chip").count();
+      const proofData = async factType => {
+        const proofs = JSON.parse(await probe.list("genealogyProofs")).map(entry => entry.data.data || entry.data);
+        return proofs.find(data => data.factType === factType);
+      };
+      const proofRevisions = async headId => JSON.parse(await probe.list("genealogyProofRevisions"))
+        .map(entry => ({ id: entry.id, objectId: entry.data.objectId, previousRevisionId: entry.data.previousRevisionId, proof: entry.data.data }))
+        .filter(rev => rev.objectId === headId);
+
+      // --- Scénario 5 : retirer puis re-sélectionner une personne ---
+      await openMarriageRevision();
+      await removePerson("person-probe");
+      assert.equal(await chipCount(), 0, "S5 : personne retirée");
+      await selectPerson("Grace");
+      assert.equal(await chipCount(), 1, "S5 : personne re-sélectionnée");
+      let state = await proofSubmitState();
+      assert.ok(!state.open, "S5 : enregistrement accepté — état: " + JSON.stringify(state));
+      let marriage = await proofData("marriage");
+      assert.deepEqual([...marriage.personIds].sort(), ["person-probe2"], "S5 : la sélection enregistrée remplace l'ancienne liste");
+
+      // --- Scénario 1 : deux personnes, retrait d'une seule ---
+      // La preuve est désormais portée par Grace : ouverture depuis sa fiche.
+      await openMarriageRevision("Grace");
+      await selectPerson("Ada");
+      assert.equal(await chipCount(), 2, "S1 : deux personnes");
+      await removePerson("person-probe2");
+      assert.equal(await chipCount(), 1, "S1 : une personne retirée");
+      state = await proofSubmitState();
+      assert.ok(!state.open, "S1 : enregistrement accepté — état: " + JSON.stringify(state));
+      marriage = await proofData("marriage");
+      assert.deepEqual([...marriage.personIds].sort(), ["person-probe"], "S1 : retrait persisté, autres associations conservées");
+
+      // --- Scénario 3 : document retiré sans remplacement → accepté ---
+      await openMarriageRevision();
+      await removeDocument("doc-probe");
+      state = await proofSubmitState();
+      assert.ok(!state.open, "S3 : retrait du document accepté — état: " + JSON.stringify(state));
+      marriage = await proofData("marriage");
+      assert.equal(marriage.documentId, null, "S3 : documentId neutralisé");
+      assert.deepEqual([...marriage.personIds].sort(), ["person-probe"], "S3 : les personnes sont conservées");
+
+      // --- Scénario 4 : sélection d'un document de remplacement ---
+      await openMarriageRevision();
+      await page.fill("#genealogySourceDocumentSearch", "Cadastre");
+      await page.waitForTimeout(350);
+      await page.locator('[data-genealogy-source-document="doc-probe2"]').check();
+      state = await proofSubmitState();
+      assert.ok(!state.open, "S4 : remplacement accepté — état: " + JSON.stringify(state));
+      marriage = await proofData("marriage");
+      assert.equal(marriage.documentId, "doc-probe2", "S4 : le document de remplacement est persisté");
+      assert.deepEqual([...marriage.personIds].sort(), ["person-probe"], "S4 : les personnes sont conservées");
+
+      // --- Scénario 2 : dernière personne retirée → accepté (associations facultatives) ---
+      await openMarriageRevision();
+      await removePerson("person-probe");
+      const revisionsBefore = await probe.count("genealogyProofRevisions");
+      state = await proofSubmitState();
+      assert.ok(!state.open, "S2 : retrait total des personnes accepté — état: " + JSON.stringify(state));
+      assert.equal(await probe.count("genealogyProofRevisions"), revisionsBefore + 1, "S2 : une révision immuable ajoutée");
+      marriage = await proofData("marriage");
+      assert.deepEqual(marriage.personIds, [], "S2 : aucune personne associée après retrait total");
+      assert.equal(marriage.documentId, "doc-probe2", "S2 : le document de remplacement est conservé");
+
+      // --- Scénario 6 : retrait du document d'une preuve citant un passage →
+      //     références dépendantes neutralisées dans la nouvelle révision, révision d'origine intacte ---
+      const birthHeadId = JSON.parse(await probe.list("genealogyProofs")).find(entry => (entry.data.data || entry.data).factType === "birth")?.id;
+      assert.ok(birthHeadId, "S6 : preuve de naissance présente");
+      const birthRevisionsBefore = await proofRevisions(birthHeadId);
+      const oldBirthRevision = birthRevisionsBefore.find(rev => rev.previousRevisionId === null);
+      assert.ok(oldBirthRevision?.proof?.pageId === "page-1" && oldBirthRevision?.proof?.passageId === "passage-1",
+        "S6 : la révision d'origine cite page et passage — état: " + JSON.stringify(oldBirthRevision?.proof));
+      await openBirthRevision();
+      await removeDocument("doc-probe");
+      state = await proofSubmitState();
+      assert.ok(!state.open, "S6 : retrait du document accepté malgré la citation — état: " + JSON.stringify(state));
+      const birthRevisions = await proofRevisions(birthHeadId);
+      assert.equal(birthRevisions.length, birthRevisionsBefore.length + 1, "S6 : une nouvelle révision s'ajoute à la révision d'origine");
+      const newBirthRevision = birthRevisions.find(rev => rev.previousRevisionId === oldBirthRevision.id);
+      assert.ok(newBirthRevision, "S6 : chaîne de révisions cohérente");
+      assert.equal(newBirthRevision.proof.documentId, null, "S6 : document neutralisé dans la nouvelle révision");
+      assert.equal(newBirthRevision.proof.pageId, null, "S6 : page neutralisée dans la nouvelle révision");
+      assert.equal(newBirthRevision.proof.passageId, null, "S6 : passage neutralisé dans la nouvelle révision");
+      assert.equal(newBirthRevision.proof.transcriptionRevisionId, null, "S6 : révision de transcription neutralisée");
+      assert.equal(oldBirthRevision.proof.pageId, "page-1", "S6 : la révision d'origine reste intacte (page)");
+      assert.equal(oldBirthRevision.proof.passageId, "passage-1", "S6 : la révision d'origine reste intacte (passage)");
+      assert.equal(oldBirthRevision.proof.transcriptionRevisionId, birthRevisionsBefore[0]?.proof?.transcriptionRevisionId, "S6 : la révision d'origine reste intacte (révision de transcription)");
+    });
+
+    await t.test("10. création sans personne ni document (associations facultatives)", async () => {
+      await closeResidualDialogs();
+      await page.waitForTimeout(300);
+      await page.click('.nav-btn[data-view="genealogy"]');
+      await page.waitForTimeout(600);
+      await page.click("#genealogyOfficialBtn");
+      await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
+      // Le type par défaut est « source » : le test bascule en preuve guidée
+      await page.evaluate(() => {
+        const typeSelect = document.getElementById("genealogyContributionType");
+        const label = typeSelect?.closest("label");
+        if (label) label.hidden = false;
+      });
+      await page.selectOption("#genealogyContributionType", "proof");
+      await page.waitForTimeout(200);
+      assert.ok(await page.locator("#genealogyOfficialProofFields").isVisible(), "formulaire guidé de preuve visible");
+      // Aucune personne, aucun document : fait « Autre » sans rattachement
+      await page.selectOption("#proofFactKind", "other");
+      await page.fill("#proofFactOtherLabel", "Naturalisation");
+      await page.fill("#proofSourceValue", "Naturalisation sans rattachement");
+      const proofsBefore = await probe.count("genealogyProofs");
+      await page.click("#genealogyContributionSubmitBtn");
+      await page.waitForFunction(() => !document.getElementById("genealogyContributionDialog").open, { timeout: 15000 });
+      await page.waitForTimeout(900);
+      assert.equal(await probe.count("genealogyProofs"), proofsBefore + 1, "preuve créée sans personne ni document");
+      const proofs = JSON.parse(await probe.list("genealogyProofs")).map(entry => entry.data.data || entry.data);
+      const orphan = proofs.find(data => data.factType === "Naturalisation");
+      assert.ok(orphan, "la preuve sans association existe");
+      assert.deepEqual(orphan.personIds, [], "aucune personne associée à la création");
+      assert.equal(orphan.documentId, null, "aucun document d'origine à la création");
+      assert.ok(orphan.factId, "factId de repli dérivé de l'identifiant officiel");
+      assert.equal(orphan.relation, "supports", "relation par défaut conservée");
+      await closeResidualDialogs();
     });
 
     assert.deepEqual(pageErrors, [], "aucune erreur JavaScript pendant les parcours");

@@ -17,7 +17,7 @@ const REVISION_EVENT_TYPES = Object.freeze({
 });
 
 function requireSdk(sdk) {
-  for (const name of ["doc", "runTransaction", "serverTimestamp"]) {
+  for (const name of ["doc", "runTransaction", "serverTimestamp", "collection", "query", "where", "getDocs"]) {
     if (typeof sdk?.[name] !== "function") throw new TypeError(`SDK Firestore incomplet : ${name}`);
   }
 }
@@ -123,6 +123,47 @@ export function createGenealogyCollaborationStore(db, sdk) {
         });
         const { id: ignoredId, ...notificationData } = notification;
         transaction.set(refs.notification(notificationId), { ...notificationData, createdAt: stamp() });
+      });
+    },
+
+    async deleteOfficial({ type, id, actorUid }) {
+      const spec = OFFICIAL[type];
+      if (!spec || (type !== "proof" && type !== "source")) {
+        throw new TypeError("La suppression définitive est réservée aux preuves et aux sources officielles");
+      }
+      if (!actorUid) throw new TypeError("Un utilisateur authentifié est requis");
+      // Les requêtes par champ sont exclues de runTransaction côté SDK client
+      // (Transaction.get n'accepte qu'une DocumentReference) : la collecte des
+      // documents liés se fait donc avant la transaction, puis la transaction
+      // relit la fiche et supprime l'ensemble d'un bloc atomique.
+      if (type === "source") {
+        const proofsSnapshot = await sdk.getDocs(sdk.query(sdk.collection(db, "genealogyProofs"), sdk.where("data.documentId", "==", id)));
+        if (!proofsSnapshot.empty) {
+          throw new Error(`Suppression impossible : ${proofsSnapshot.size} preuve(s) référencent cette source. Détachez d’abord ou modifiez ces preuves avant de supprimer la source.`);
+        }
+      }
+      const [revisionsSnapshot, eventsSnapshot, notificationsSnapshot] = await Promise.all([
+        sdk.getDocs(sdk.query(sdk.collection(db, spec.revisions), sdk.where("objectId", "==", id))),
+        sdk.getDocs(sdk.query(sdk.collection(db, "genealogyEvents"), sdk.where("objectId", "==", id))),
+        // Les notifications sont privées : chaque destinataire ne voit que les siennes,
+        // aussi le nettoyage couvre-t-il les notifications adressées à l'acteur.
+        sdk.getDocs(sdk.query(sdk.collection(db, "genealogyNotifications"),
+          sdk.where("objectId", "==", id), sdk.where("recipientUid", "==", actorUid)))
+      ]);
+      return sdk.runTransaction(db, async transaction => {
+        const headRef = sdk.doc(db, spec.heads, id);
+        const headSnapshot = await transaction.get(headRef);
+        if (!headSnapshot.exists()) throw new Error("Cette fiche n'existe plus.");
+        transaction.delete(headRef);
+        revisionsSnapshot.docs.forEach(documentSnapshot => transaction.delete(documentSnapshot.ref));
+        eventsSnapshot.docs.forEach(documentSnapshot => transaction.delete(documentSnapshot.ref));
+        notificationsSnapshot.docs.forEach(documentSnapshot => transaction.delete(documentSnapshot.ref));
+        return {
+          deleted: true,
+          revisions: revisionsSnapshot.size,
+          events: eventsSnapshot.size,
+          notifications: notificationsSnapshot.size
+        };
       });
     },
 

@@ -597,7 +597,12 @@ service cloud.firestore {
       allow create: if isAdmin() && validGenealogyEvent(request.resource.data)
         && request.resource.data.objectType in ['source', 'transcription', 'proof', 'conclusion']
         && hasOfficialEvent(eventId, request.resource.data.objectType, request.resource.data.objectId, request.resource.data.newVersionId, request.resource.data.previousVersionId);
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isAdmin() && resource.data.objectType in ['proof', 'source']
+        && ((resource.data.objectType == 'proof'
+          && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(resource.data.objectId)))
+          || (resource.data.objectType == 'source'
+            && !existsAfter(/databases/$(database)/documents/sourceDocuments/$(resource.data.objectId))));
     }
 
     match /genealogyNotifications/{notificationId} {
@@ -609,7 +614,11 @@ service cloud.firestore {
       allow update: if isApproved() && resource.data.recipientUid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt'])
         && request.resource.data.read == true && request.resource.data.readAt == request.time;
-      allow delete: if false;
+      allow delete: if isAdmin() && resource.data.objectType in ['proof', 'source']
+        && ((resource.data.objectType == 'proof'
+          && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(resource.data.objectId)))
+          || (resource.data.objectType == 'source'
+            && !existsAfter(/databases/$(database)/documents/sourceDocuments/$(resource.data.objectId))));
     }
 
     match /sourceDocuments/{sourceId} {
@@ -627,7 +636,7 @@ service cloud.firestore {
         && request.resource.data.updatedBy == request.auth.uid
         && hasOfficialEvent(request.resource.data.eventId, 'source', sourceId, request.resource.data.revisionId, resource.data.revisionId)
         && hasOfficialRevision('sourceRevisions', request.resource.data.revisionId, sourceId, request.resource.data.eventId, request.resource.data.data, resource.data.revisionId);
-      allow delete: if false;
+      allow delete: if isAdmin() && !existsAfter(/databases/$(database)/documents/sourceDocuments/$(sourceId));
     }
 
     match /sourceRevisions/{revisionId} {
@@ -639,7 +648,9 @@ service cloud.firestore {
         && (request.resource.data.previousRevisionId == null || request.resource.data.previousRevisionId is string)
         && request.resource.data.data is map
         && hasOfficialEvent(request.resource.data.eventId, 'source', request.resource.data.objectId, revisionId, request.resource.data.previousRevisionId);
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isAdmin() && resource.data.objectId is string
+        && !existsAfter(/databases/$(database)/documents/sourceDocuments/$(resource.data.objectId));
     }
 
     match /transcriptionHeads/{transcriptionId} {
@@ -684,7 +695,7 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time
         && hasOfficialEvent(request.resource.data.eventId, 'proof', proofId, request.resource.data.revisionId, resource.data.revisionId)
         && hasOfficialRevision('genealogyProofRevisions', request.resource.data.revisionId, proofId, request.resource.data.eventId, request.resource.data.data, resource.data.revisionId);
-      allow delete: if false;
+      allow delete: if isAdmin() && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(proofId));
     }
 
     match /genealogyProofRevisions/{revisionId} {
@@ -696,7 +707,9 @@ service cloud.firestore {
         && (request.resource.data.previousRevisionId == null || request.resource.data.previousRevisionId is string)
         && request.resource.data.data is map
         && hasOfficialEvent(request.resource.data.eventId, 'proof', request.resource.data.objectId, revisionId, request.resource.data.previousRevisionId);
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isAdmin() && resource.data.objectId is string
+        && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(resource.data.objectId));
     }
 
     match /factConclusions/{conclusionId} {
