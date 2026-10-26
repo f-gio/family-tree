@@ -430,7 +430,9 @@ test("le formulaire guidé de preuve remplace le JSON pour les créations offici
   assert.match(app, /genealogyProofGuidedGrid\.id = "genealogyOfficialProofFields"/);
   assert.match(app, /Fait à documenter[\s\S]{0,6000}?Provenance[\s\S]{0,6000}?Citation[\s\S]{0,6000}?Interprétation/);
   assert.match(app, /const guidedProof = officialMode && contributionType === "proof"/);
-  assert.match(app, /official && type === "proof" && !revise \? proofGuidedPayload\(\)/);
+  assert.match(app, /official && type === "proof" \? proofGuidedPayload\(\)/, "payload guidé aussi en création et en révision");
+  assert.match(app, /reviseItem\?\.kind === "proof"[\s\S]{0,400}?fillOfficialProofGuidedFields\(\{/, "révision préremplie dans le formulaire guidé");
+  assert.match(app, /La révision guidée conserve les champs non exposés/, "champs hérités conservés à la révision");
   const guidedPayload = app.match(/function proofGuidedPayload\(\) \{[\s\S]{0,700}?\n\}/)?.[0] || "";
   assert.ok(guidedPayload.includes("validateProofGuidedFields"), "validation du modèle avant écriture");
   assert.doesNotMatch(guidedPayload, /JSON\.stringify/, "aucun JSON exposé au flux guidé");

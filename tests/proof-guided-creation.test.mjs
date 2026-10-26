@@ -24,7 +24,8 @@ function injectProbe(page) {
     setup: () => page.evaluate(async bootstrapCode => {
       const run = new Function("return (async () => {" + bootstrapCode +
         "await fsModule.setDoc(fsModule.doc(db, 'people/person-probe'), { firstName: 'Ada', middleName: '', lastName: 'Probe', birthDate: '', deathDate: '', place: '', partnerIds: [], childIds: [], treeId: null });" +
-        "await fsModule.setDoc(fsModule.doc(db, 'documents/doc-probe'), { title: 'Registre probe', type: 'Registre', date: '1901-04-12', place: '', personIds: ['person-probe'], notes: '', fileName: 'registre.html', mimeType: 'text/html', externalUrl: 'https://example.invalid/registre', chunkCount: 0, pages: [{ id: 'page-1', label: 'Folio 1' }] });" +
+        "await fsModule.setDoc(fsModule.doc(db, 'people/person-probe2'), { firstName: 'Grace', middleName: '', lastName: 'Probe', birthDate: '', deathDate: '', place: '', partnerIds: [], childIds: [], treeId: null });" +
+        "await fsModule.setDoc(fsModule.doc(db, 'documents/doc-probe'), { title: 'Registre probe', type: 'Registre', date: '1901-04-12', place: '', personIds: ['person-probe', 'person-probe2'], notes: '', fileName: 'registre.html', mimeType: 'text/html', externalUrl: 'https://example.invalid/registre', chunkCount: 0, pages: [{ id: 'page-1', label: 'Folio 1' }] });" +
         "})()");
       await run();
     }, bootstrap),
@@ -147,15 +148,16 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const checkedDoc = await page.locator('[data-genealogy-source-document="doc-probe"]').isChecked();
       assert.ok(checkedDoc, "document pré-sélectionné");
       const suggestions = page.locator("[data-proof-suggested-person]");
-      assert.equal(await suggestions.count(), 1, "personne du document proposée");
+      assert.equal(await suggestions.count(), 2, "les deux personnes du document sont proposées");
       assert.ok(!(await suggestions.first().isChecked()), "aucune présélection automatique");
+      await suggestions.nth(0).check();
+      await suggestions.nth(1).check();
       // pages du document présentes mais aucune transcription : passage indisponible
       assert.ok(await page.locator("#proofPageFields").isVisible(), "sélecteurs de page visibles (pages du document)");
       assert.ok(!(await page.locator("#proofNoTranscription").isVisible()), "état « aucune page » non déclenché puisque le document a des pages");
       assert.match(await page.locator("#proofPassage").textContent(), /Aucun passage disponible/, "sans transcription : passage indisponible");
       // création
       await page.selectOption("#proofFactKind", "marriage");
-      await page.locator("[data-proof-suggested-person]").check();
       await page.fill("#proofSourceValue", "Mariage en 1899");
       await page.click("#genealogyContributionSubmitBtn");
       await page.waitForFunction(() => !document.getElementById("genealogyContributionDialog").open, { timeout: 15000 });
@@ -351,7 +353,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
         await page.locator("#directoryList").getByText("Probe", { exact: false }).first().click();
         await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
         await page.click('[data-person-section="documents"]');
-        const consult = page.locator('#personGenealogyEvidenceList [data-open-genealogy="proof"]').first();
+        const consult = page.locator('#personGenealogyEvidenceList [data-view-proof]').first();
         assert.ok(await consult.count(), `${width}px : preuve consultable depuis la fiche personne`);
         await consult.click();
         await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
@@ -382,6 +384,85 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.locator('#genealogySourcePersonSelection [data-remove-genealogy-source-person]').first().click();
       await page.waitForTimeout(200);
       assert.equal(await page.locator("#genealogySourcePersonSelection .source-person-selection-item").count(), 0, "personne retirée de la sélection");
+      await page.keyboard.press("Escape");
+    });
+
+    await t.test("8. révision d'une preuve : retrait de personne persisté, retrait total refusé", async () => {
+      const openPersonSection = async () => {
+        await closeResidualDialogs();
+        await page.waitForTimeout(300);
+        await page.click('.nav-btn[data-view="directory"]');
+        await page.waitForTimeout(400);
+        await page.locator("#directoryList").getByText("Probe", { exact: false }).first().click();
+        await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
+        await page.click('[data-person-section="documents"]');
+        await page.waitForTimeout(250);
+      };
+      await openPersonSection();
+      // a) le crayon ouvre la révision guidée (sans JSON)
+      assert.equal(await page.locator("#personGenealogyEvidenceList article.person-doc-card").count(), 3, "trois cartes preuve cliquables pour la personne");
+      const marriageCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "Mariage" });
+      await marriageCard.locator("[data-edit-genealogy-proof]").click();
+      await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
+      assert.ok(await page.locator("#genealogyOfficialProofFields").isVisible(), "formulaire guidé en révision");
+      assert.ok(!(await page.locator("#genealogyContributionPayload").isVisible()), "aucun champ JSON en révision");
+      assert.ok(await page.locator("#genealogyContributionTarget").evaluate(el => el.readOnly), "cible en lecture seule");
+      assert.equal(await page.locator("#genealogySourcePersonSelection .person-chip").count(), 2, "les deux personnes pré-remplies");
+      // b) retrait d'une personne parmi plusieurs (la dernière de la liste)
+      await page.locator('#genealogySourcePersonSelection [data-remove-genealogy-source-person]').last().click();
+      await page.waitForTimeout(200);
+      assert.equal(await page.locator("#genealogySourcePersonSelection .person-chip").count(), 1, "une personne retirée de la sélection");
+      const revisionsBefore = await probe.count("genealogyProofRevisions");
+      await page.click("#genealogyContributionSubmitBtn");
+      await page.waitForFunction(() => !document.getElementById("genealogyContributionDialog").open, { timeout: 15000 });
+      await page.waitForTimeout(900);
+      // c) persistance : la nouvelle liste remplace réellement l'ancienne
+      assert.equal(await probe.count("genealogyProofs"), 3, "toujours trois preuves (révision, pas de création)");
+      assert.equal(await probe.count("genealogyProofRevisions"), revisionsBefore + 1, "une révision immuable ajoutée");
+      const proofs = JSON.parse(await probe.list("genealogyProofs")).map(entry => entry.data.data || entry.data);
+      const marriage = proofs.find(data => data.factType === "marriage");
+      assert.ok(marriage, "la preuve de mariage existe toujours — factTypes: " + proofs.map(data => data.factType).join(" , ") + " | factIds: " + proofs.map(data => data.factId).join(" , "));
+      assert.equal(marriage.personIds.length, 1, "la personne retirée n'est plus associée");
+      assert.ok(marriage.personIds.includes("person-probe"), "l'autre personne est conservée");
+      assert.equal(marriage.sourceValue, "Mariage en 1899", "la valeur relevée est conservée");
+      assert.equal(marriage.factType, "marriage", "le fait est conservé");
+      assert.equal(proofs.find(data => data.factType === "death").personIds.length, 1, "les autres preuves ne sont pas altérées");
+      // d) retrait total : erreur explicite, aucune écriture
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      await openPersonSection();
+      const deathCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "Décès" });
+      await deathCard.locator("[data-edit-genealogy-proof]").click();
+      await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
+      await page.locator('#genealogySourcePersonSelection [data-remove-genealogy-source-person]').first().click();
+      await page.waitForTimeout(200);
+      const revisionsBeforeTotal = await probe.count("genealogyProofRevisions");
+      await page.click("#genealogyContributionSubmitBtn");
+      await page.waitForTimeout(900);
+      assert.ok(await page.locator("#genealogyContributionDialog[open]").count(), "dialogue conservé après l'erreur");
+      assert.ok(await page.locator("#proofError-personIds").isVisible(), "erreur explicite : au moins une personne doit rester associée");
+      assert.equal(await probe.count("genealogyProofRevisions"), revisionsBeforeTotal, "aucune révision créée lors de l'erreur");
+      await page.keyboard.press("Escape");
+      // e) fiches personnes après rechargement
+      await closeResidualDialogs();
+      await page.waitForTimeout(300);
+      await page.click('.nav-btn[data-view="directory"]');
+      await page.waitForTimeout(400);
+      await page.locator("#directoryList").getByText("Grace", { exact: false }).first().click();
+      await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
+      await page.click('[data-person-section="documents"]');
+      await page.waitForTimeout(300);
+      assert.equal(await page.locator("#personGenealogyEvidenceList article.person-doc-card").count(), 0, "la personne retirée n'a plus aucune preuve associée");
+      assert.ok((await page.locator("#personGenealogyEvidenceList").innerText()).includes("Aucune preuve associée"), "état vide affiché");
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(300);
+      await page.click('.nav-btn[data-view="directory"]');
+      await page.waitForTimeout(400);
+      await page.locator("#directoryList").getByText("Ada", { exact: false }).first().click();
+      await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
+      await page.click('[data-person-section="documents"]');
+      await page.waitForTimeout(300);
+      assert.equal(await page.locator("#personGenealogyEvidenceList article.person-doc-card").count(), 3, "les preuves de la personne conservée sont intactes");
       await page.keyboard.press("Escape");
     });
 
