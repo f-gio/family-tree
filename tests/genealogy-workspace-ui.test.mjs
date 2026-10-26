@@ -393,7 +393,7 @@ test("la fiche document unifiée raccorde l'ajout et la gestion de Source offici
   assert.match(unified, /isAdminUser\(\)\s+\?\s+linkedSources\.length/);
   assert.match(unified, /linkedSources\.length\s+\?\s*`<div class="document-unified-source-actions"><button[^`]*data-manage-sources-from-document[^`]*<\/button><\/div>`\s*:\s*`<div class="document-unified-source-actions"><button[^`]*data-create-source-from-document[^`]*<\/button><\/div>`/);
   assert.match(app, /function refreshUnifiedDetailsIfOpen\(\) \{[\r\n\s]*if \(!\$\("documentViewerDialog"\)\.open/);
-  assert.match(app, /\$\("genealogyItemDialog"\)\.addEventListener\("close", \(\) => \{[\r\n\s]*if \(reopenUnifiedDocumentAfter\("genealogyItemDialog"\)\) return;[\r\n\s]*refreshUnifiedDetailsIfOpen\(\);/);
+  assert.match(app, /\$\("genealogyItemDialog"\)\.addEventListener\("close", \(\) => \{[\r\n\s]*genealogyItemReturn = null;[\s\S]{0,160}?if \(reopenUnifiedDocumentAfter\("genealogyItemDialog"\)\) return;/);
   assert.match(unified, /data-create-source-from-document="\$\{esc\(item\.id\)\}"/);
   assert.match(unified, /data-manage-sources-from-document="\$\{esc\(item\.id\)\}"/);
   assert.match(app, /\$\("viewerDocumentDetails"\)\.addEventListener\("click"/);
@@ -407,11 +407,17 @@ test("la fiche de consultation d'une preuve affiche des informations métier san
   const proofPanel = app.match(/function proofDetailsMarkup[\s\S]{0,6000}?\n\}/)?.[0] || "";
   assert.ok(proofPanel.length > 500, "panneau de consultation présent");
   assert.doesNotMatch(proofPanel, /JSON\.stringify/, "aucun JSON brut dans la vue principale");
-  assert.match(proofPanel, /PROOF_FACT_KIND_LABELS\[data\.factType\]/, "titre traduit");
+  assert.match(app, /if \(data\.factType\) return proofFactLabel\(data\.factType\)/, "titre traduit");
   assert.match(proofPanel, /PROOF_RELATION_LABELS\[data\.relation\]/, "relation traduite");
   assert.match(proofPanel, /data-genealogy-person=/, "personnes consultables");
   assert.match(proofPanel, /data-source-document-open=/, "document consultable");
   assert.match(proofPanel, /Statut et détails techniques/, "panneau technique replié");
+  assert.match(proofPanel, /person-chip person-chip-consult/, "pastille commune personne en consultation");
+  assert.match(html, /id="genealogyItemBackBtn"[^>]*aria-label="Revenir à la fiche précédente"/, "bouton de retour entre fiches");
+  assert.match(app, /genealogyItemReturn = \{ kind: activeGenealogyItem\.kind/, "pile de retour mémorisée");
+  assert.match(app, /proofFactLabel\(proofData\.factType\)[\s\S]{0,160}PROOF_RELATION_LABELS\[proofData\.relation\]/, "preuves liées traduites");
+  assert.match(app, /const GENEALOGY_RELATION_LABELS = PROOF_RELATION_LABELS/, "relations centralisées");
+  assert.match(app, /source-person-selection-item person-chip/, "pastille commune en sélection");
   assert.match(app, /kind === "proof" \? proofDetailsMarkup\(data, record\)/, "branche de consultation dédiée");
   assert.match(app, /const photo = kind === "proof" \? "" : pages\.length/, "aucune zone photo vide pour une preuve");
   assert.match(app, /if \(kind === "proof" && proof\.id === record\.id\) return false;/, "preuve courante exclue des preuves liées");
