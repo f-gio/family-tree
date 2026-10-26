@@ -1861,7 +1861,11 @@ function renderPersonDocuments(personId) {
     ...linkedConclusions.map(item => ({ kind: "conclusion", record: item, data: genealogyRecordData(item) }))
   ];
   $("personGenealogyEvidenceList").innerHTML = evidence.length
-    ? evidence.map(item => `<article class="person-doc-card"><div class="person-doc-meta"><strong class="person-doc-title">${esc(proofFactLabel(item.data.factType) || item.data.factId || item.kind)}</strong><span class="person-doc-subrow">${esc(genealogyKindLabels[item.kind])} · ${esc(GENEALOGY_DATA_STATUS_LABELS[item.data.technicalStatus] || GENEALOGY_DATA_STATUS_LABELS[item.data.status] || item.data.status || "à examiner")}</span><button class="btn small" type="button" data-open-genealogy="${esc(item.kind)}" data-genealogy-id="${esc(item.record.id)}">Consulter</button></div></article>`).join("")
+    ? evidence.map(item => {
+      const title = proofFactLabel(item.data.factType) || item.data.factId || item.kind;
+      const status = GENEALOGY_DATA_STATUS_LABELS[item.data.technicalStatus] || GENEALOGY_DATA_STATUS_LABELS[item.data.status] || item.data.status || "à examiner";
+      return `<article class="person-doc-card" tabindex="0" aria-label="Consulter ${esc(title)}" data-view-proof="${esc(item.record.id)}"><div class="person-doc-meta"><strong class="person-doc-title">${esc(title)}</strong><span class="person-doc-subrow">${esc(genealogyKindLabels[item.kind])} · ${esc(status)}<button class="btn small person-doc-edit" type="button" data-edit-genealogy-proof="${esc(item.record.id)}">${icon("edit")}<span class="sr-only">Réviser</span></button></span></article>`;
+    }).join("")
     : emptyState({ iconName: "document", title: "Aucune preuve associée", description: "Les preuves concernant cette personne apparaîtront ici après leur enregistrement." });
 }
 
@@ -4657,12 +4661,14 @@ function refreshProofRelationshipOptions() {
   if ([...select.options].some(option => option.value === current)) select.value = current;
 }
 
-function fillOfficialProofGuidedFields(context = {}) {
+function fillOfficialProofGuidedFields(context = {}, options = {}) {
   ensureOfficialProofGuidedFields();
   genealogyProofContext = { ...context };
+  const revisionMode = Boolean(options.revision);
   refreshProofExistingFactOptions(context.existingFactId || "");
   const kindSelect = $("proofFactKind");
-  if (kindSelect) kindSelect.value = "";
+  const knownKind = context.existingFactType && PROOF_FACT_KINDS.includes(context.existingFactType) ? context.existingFactType : "";
+  if (kindSelect) kindSelect.value = revisionMode && knownKind ? knownKind : "";
   if ($("proofFactOtherLabel")) $("proofFactOtherLabel").value = "";
   selectedGenealogySourcePersonIds = new Set((context.personIds || []).filter(Boolean));
   selectedGenealogySourceDocumentIds = new Set(context.documentId ? [context.documentId] : []);
@@ -4685,11 +4691,16 @@ function fillOfficialProofGuidedFields(context = {}) {
   if (context.passageId) refreshProofPassageOptions(context.passageId);
   if ($("proofCitationIt") && context.citationIt != null) $("proofCitationIt").value = context.citationIt;
   if ($("proofCitationFr") && context.citationFr != null) $("proofCitationFr").value = context.citationFr;
-  if ($("proofSourceValue")) { $("proofSourceValue").value = ""; $("proofSourceValue").disabled = false; }
-  if ($("proofSourceUnknown")) $("proofSourceUnknown").checked = false;
-  if ($("proofInterpretation")) $("proofInterpretation").value = "";
-  const supportsRadio = document.querySelector('#genealogyOfficialProofFields input[name="proofRelation"][value="supports"]');
-  if (supportsRadio) supportsRadio.checked = true;
+  const unknownValue = revisionMode && context.sourceValue === null;
+  if ($("proofSourceValue")) {
+    $("proofSourceValue").value = typeof context.sourceValue === "string" ? context.sourceValue : "";
+    $("proofSourceValue").disabled = unknownValue;
+  }
+  if ($("proofSourceUnknown")) $("proofSourceUnknown").checked = unknownValue;
+  if ($("proofInterpretation")) $("proofInterpretation").value = context.interpretation || "";
+  const relationValue = options.relation || context.relation || "supports";
+  const relationRadio = document.querySelector(`#genealogyOfficialProofFields input[name="proofRelation"][value="${relationValue}"]`);
+  if (relationRadio) relationRadio.checked = true;
   if ($("proofError-factKind")) $("proofError-factKind").hidden = true;
   updateProofFactUI();
 }
@@ -4869,6 +4880,24 @@ function openGenealogyContribution({ official = false, reviseItem = null, source
     fillOfficialProofGuidedFields(proofContext);
     $("genealogyContributionPayload").value = "";
   }
+  if (officialMode && $("genealogyContributionType").value === "proof" && reviseItem?.kind === "proof") {
+    const existing = reviseItem.data.revision || reviseItem.data;
+    fillOfficialProofGuidedFields({
+      personIds: existing.personIds || [],
+      documentId: existing.documentId || "",
+      pageId: existing.pageId || "",
+      passageId: existing.passageId || "",
+      citationIt: existing.citationIt ?? null,
+      citationFr: existing.citationFr ?? null,
+      existingFactId: existing.factId || "",
+      existingFactType: existing.factType || "",
+      sourceValue: existing.sourceValue ?? null,
+      interpretation: existing.interpretation || "",
+      relation: existing.relation
+    }, { revision: true, relation: existing.relation });
+    $("genealogyContributionPayload").value = "";
+    $("genealogyContributionTitleField").value = proofFactLabel(existing.factType) || "Révision de preuve";
+  }
   $("genealogyContributionDialog").showModal();
 }
 
@@ -4897,7 +4926,7 @@ async function saveGenealogyContribution(event) {
   submitButton.disabled = true;
   try {
      const payload = official && type === "source" ? sourceGuidedPayload($("genealogySourceTitle").value.trim())
-      : official && type === "proof" && !revise ? proofGuidedPayload()
+      : official && type === "proof" ? proofGuidedPayload()
       : parseGenealogyPayload(text, title, type);
     const eventId = createGenealogyId(refs.genealogyEvents);
     if (official) {
@@ -4920,6 +4949,15 @@ async function saveGenealogyContribution(event) {
         if (proofInput.citation) {
           proofInput.citationIt ??= proofInput.citation.textIt ?? null;
           proofInput.citationFr ??= proofInput.citation.translationFr ?? null;
+        }
+        if (revise && currentHead) {
+          // La révision guidée conserve les champs non exposés par le formulaire.
+          const currentData = genealogyRecordData(currentHead);
+          proofInput.familyId = currentData.familyId ?? null;
+          proofInput.relationshipId = currentData.relationshipId ?? null;
+          proofInput.technicalStatus = currentData.technicalStatus ?? "active";
+          if (Array.isArray(currentData.statusHistory)) proofInput.statusHistory = currentData.statusHistory;
+          if (currentData.suspension) proofInput.suspension = currentData.suspension;
         }
         const proof = { ...createGenealogyProof({ ...proofInput, id: officialId, authorUid: actorUid, createdAt: new Date().toISOString() }), ...proofInput, id: officialId, authorUid: actorUid, createdAt: new Date().toISOString() };
         const validation = validateGenealogyProof(proof);
@@ -7061,6 +7099,17 @@ document.addEventListener("click", event => {
   if (event.target.closest("[data-empty-add-person]")) openPerson(null, "directory");
   if (event.target.closest("[data-empty-add-document]")) openDocument();
   if (event.target.closest("[data-empty-add-task]")) openTask();
+  const editProofCard = event.target.closest("[data-edit-genealogy-proof]");
+  if (editProofCard) {
+    const proofItem = genealogyWorkspaceItems().find(value => value.kind === "proof" && value.record.id === editProofCard.dataset.editGenealogyProof);
+    if (proofItem) openGenealogyContribution({ official: true, reviseItem: proofItem });
+    return;
+  }
+  const viewProofCard = event.target.closest("[data-view-proof]");
+  if (viewProofCard) {
+    openGenealogyItem("proof", viewProofCard.dataset.viewProof);
+    return;
+  }
   const miniDocument = event.target.closest("[data-view-document]");
   const editPersonDocument = event.target.closest("[data-edit-person-document]");
   if (editPersonDocument) {
@@ -7144,6 +7193,15 @@ $("personDocumentsList").addEventListener("keydown", event => {
   event.preventDefault();
   const item = documents.find(value => value.id === card.dataset.viewDocument);
   openStoredDocument(item, "person");
+});
+
+$("personGenealogyEvidenceList").addEventListener("keydown", event => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  if (event.target.closest("button")) return;
+  const card = event.target.closest("[data-view-proof]");
+  if (!card) return;
+  event.preventDefault();
+  openGenealogyItem("proof", card.dataset.viewProof);
 });
 
 $("directoryDocumentsList").addEventListener("click", event => {
