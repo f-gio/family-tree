@@ -4418,7 +4418,7 @@ function ensureOfficialProofGuidedFields() {
   genealogyProofGuidedGrid = document.createElement("section");
   genealogyProofGuidedGrid.id = "genealogyOfficialProofFields";
   genealogyProofGuidedGrid.className = "wide genealogy-proof-guided-fields";
-  genealogyProofGuidedGrid.innerHTML = `<section><h4>Fait à documenter</h4><div class="source-guided-grid"><label>Fait déjà documenté<select class="field" id="proofExistingFact"><option value="">Nouveau fait à documenter</option></select></label><label>Type du fait<select class="field" id="proofFactKind"><option value="">Choisir un type de fait</option><option value="birth">Naissance</option><option value="marriage">Mariage</option><option value="death">Décès</option><option value="burial">Sépulture</option><option value="residence">Résidence</option><option value="other">Autre</option></select></label><label id="proofFactOtherLabelZone" hidden>Intitulé du fait<input class="field" id="proofFactOtherLabel" maxlength="120" placeholder="Ex. : Naturalisation"></label><label id="proofRelationshipZone" hidden>Relation familiale<select class="field" id="proofRelationship"><option value="">Aucune relation particulière</option></select></label></div><p class="hint" id="proofFactHint"></p><span class="field-error" id="proofError-factKind" hidden></span><span class="field-error" id="proofError-factOtherLabel" hidden></span><div class="source-associated-subsection" id="proofPersonZone"><h5>Personnes concernées</h5><div id="proofPersonSuggestions" hidden></div><p class="hint" id="proofError-personIds" hidden></p></div></section><section><h4>Provenance</h4><div id="proofDocumentZone"></div><span class="field-error" id="proofError-documentId" hidden></span><label>Page<select class="field" id="proofPage"><option value="">Aucune page sélectionnée</option></select></label><label>Passage<select class="field" id="proofPassage"><option value="">Aucun passage cité</option></select></label><p class="hint">Si un passage est cité, sa révision de transcription est enregistrée automatiquement avec la preuve.</p><span class="field-error" id="proofError-passage" hidden></span></section><section><h4>Citation</h4><div class="source-guided-grid"><label>Texte italien<textarea class="field" id="proofCitationIt" rows="3" placeholder="Citation figée lors de la création"></textarea></label><label>Traduction française<textarea class="field" id="proofCitationFr" rows="3" placeholder="Facultative"></textarea></label></div><p class="hint">Une citation modifiée ici reste propre à cette preuve : la transcription d’origine n’est jamais modifiée.</p></section><section><h4>Interprétation</h4><fieldset class="wide proof-relation-fieldset"><legend>Relation à la conclusion</legend><div class="proof-relation-options"><label><input type="radio" name="proofRelation" value="supports" checked><span>Confirme</span></label><label><input type="radio" name="proofRelation" value="contradicts"><span>Contredit</span></label><label><input type="radio" name="proofRelation" value="mentions"><span>Mentionne</span></label><label><input type="radio" name="proofRelation" value="ambiguous"><span>Ambiguë</span></label></div></fieldset><span class="field-error" id="proofError-relation" hidden></span><div class="source-guided-grid"><div class="wide"><label for="proofSourceValue">Valeur relevée dans le document</label><input class="field" id="proofSourceValue" maxlength="400" aria-describedby="proofError-sourceValue"><label class="proof-source-unknown"><input type="checkbox" id="proofSourceUnknown"> Non relevée (valeur inconnue)</label><span class="field-error" id="proofError-sourceValue" hidden></span></div></div><label class="wide">Interprétation<textarea class="field" id="proofInterpretation" rows="3" maxlength="2000" placeholder="Lecture et portée de cette preuve pour le fait documenté"></textarea></label></section>`;
+  genealogyProofGuidedGrid.innerHTML = `<section><h4>Fait à documenter</h4><div class="source-guided-grid"><label>Fait déjà documenté<select class="field" id="proofExistingFact"><option value="">Nouveau fait à documenter</option></select></label><label>Type du fait<select class="field" id="proofFactKind"><option value="">Choisir un type de fait</option><option value="birth">Naissance</option><option value="marriage">Mariage</option><option value="death">Décès</option><option value="burial">Sépulture</option><option value="residence">Résidence</option><option value="other">Autre</option></select></label><label id="proofFactOtherLabelZone" hidden>Intitulé du fait<input class="field" id="proofFactOtherLabel" maxlength="120" placeholder="Ex. : Naturalisation"></label><label id="proofRelationshipZone" hidden>Relation familiale<select class="field" id="proofRelationship"><option value="">Aucune relation particulière</option></select></label></div><p class="hint" id="proofFactHint"></p><span class="field-error" id="proofError-factKind" hidden></span><span class="field-error" id="proofError-factOtherLabel" hidden></span><div class="source-associated-subsection" id="proofPersonZone"><div id="proofPersonSuggestions" hidden></div><p class="hint" id="proofError-personIds" hidden></p></div></section><section><h4>Provenance</h4><div id="proofDocumentZone"></div><span class="field-error" id="proofError-documentId" hidden></span><div id="proofPageFields"><label>Page<select class="field" id="proofPage"><option value="">Aucune page sélectionnée</option></select></label><label>Passage<select class="field" id="proofPassage"><option value="">Aucun passage cité</option></select></label><p class="hint">Si un passage est cité, sa révision de transcription est enregistrée automatiquement avec la preuve.</p></div><p class="hint" id="proofNoTranscription" hidden>Ce document n’a pas encore de page de transcription. Vous pouvez saisir une citation manuelle dans la section suivante.</p><span class="field-error" id="proofError-passage" hidden></span></section><section><h4>Citation</h4><div class="source-guided-grid"><label>Texte italien<textarea class="field" id="proofCitationIt" rows="3" placeholder="Citation du document, figée lors de la création"></textarea></label><label>Traduction française<textarea class="field" id="proofCitationFr" rows="3" placeholder="Facultative"></textarea></label></div><p class="hint">Une citation modifiée ici reste propre à cette preuve : la transcription d’origine n’est jamais modifiée.</p></section><section><h4>Interprétation</h4><fieldset class="wide proof-relation-fieldset"><legend>Relation à la conclusion</legend><div class="proof-relation-options"><label><input type="radio" name="proofRelation" value="supports" checked><span>Confirme</span></label><label><input type="radio" name="proofRelation" value="contradicts"><span>Contredit</span></label><label><input type="radio" name="proofRelation" value="mentions"><span>Mentionne</span></label><label><input type="radio" name="proofRelation" value="ambiguous"><span>Ambiguë</span></label></div></fieldset><span class="field-error" id="proofError-relation" hidden></span><div class="source-guided-grid"><div class="wide proof-source-value-field"><label for="proofSourceValue">Valeur relevée dans le document</label><input class="field" id="proofSourceValue" maxlength="400" placeholder="Ex. : Paulo, figliu di Giovanni" aria-describedby="proofError-sourceValue"><label class="proof-source-unknown"><input type="checkbox" id="proofSourceUnknown"> Non relevée (valeur inconnue)</label><span class="field-error" id="proofError-sourceValue" hidden></span></div></div><label class="wide">Interprétation<textarea class="field" id="proofInterpretation" rows="3" maxlength="2000" placeholder="Lecture et portée de cette preuve pour le fait documenté"></textarea></label></section>`;
   grid.append(genealogyProofGuidedGrid);
   const personSub = [...genealogySourceGuidedGrid.querySelectorAll(".source-associated-subsection")][0];
   if (personSub && !genealogyProofPersonPickerParent) {
@@ -4445,17 +4445,38 @@ function ensureOfficialProofGuidedFields() {
 }
 
 function proofDocumentPages(docId) {
+  if (!docId) return [];
   const documentItem = documents.find(item => item.id === docId);
-  return Array.isArray(documentItem?.pages) ? documentItem.pages : [];
+  if (Array.isArray(documentItem?.pages) && documentItem.pages.length) return documentItem.pages;
+  for (const head of genealogyRecords.transcriptionHeads) {
+    const data = genealogyRecordData(head);
+    if (data.documentId === docId && Array.isArray(data.pages) && data.pages.length) return data.pages;
+  }
+  const linkedSource = genealogyRecords.sourceDocuments.map(genealogyRecordData)
+    .find(item => (item.documentIds || []).includes(docId) && Array.isArray(item.pages) && item.pages.length);
+  if (linkedSource) return linkedSource.pages;
+  return [];
 }
 
 function proofPassagesForPage(docId, pageId) {
-  if (!docId || !pageId) return [];
+  if (!docId || !pageId) return { passages: [], revisionId: "" };
   for (const head of genealogyRecords.transcriptionHeads) {
     const data = genealogyRecordData(head);
-    if (data.documentId === docId && data.pageId === pageId) return Array.isArray(data.passages) ? data.passages : [];
+    if (data.documentId === docId && data.pageId === pageId) {
+      return { passages: Array.isArray(data.passages) ? data.passages : [], revisionId: head.revisionId || data.revisionId || "" };
+    }
   }
-  return [];
+  for (const record of genealogyRecords.sourceDocuments) {
+    const data = genealogyRecordData(record);
+    const revision = data.revision && typeof data.revision === "object" ? data.revision : null;
+    if ((data.documentIds || []).includes(docId) && revision?.pageId === pageId && Array.isArray(revision.passages)) {
+      return { passages: revision.passages, revisionId: data.revisionId || data.currentRevisionId || "" };
+    }
+  }
+  const documentItem = documents.find(item => item.id === docId);
+  const page = (Array.isArray(documentItem?.pages) ? documentItem.pages : []).find(item => item.id === pageId);
+  if (page && Array.isArray(page.passages)) return { passages: page.passages, revisionId: "" };
+  return { passages: [], revisionId: "" };
 }
 
 let genealogyProofRevisionId = "";
@@ -4465,7 +4486,11 @@ function refreshProofPageOptions(selectedPageId = "") {
   if (!select) return;
   const docId = [...selectedGenealogySourceDocumentIds][0] || "";
   const pages = proofDocumentPages(docId);
-  select.innerHTML = `<option value="">${pages.length ? "Aucune page sélectionnée" : "Aucune page n’est encore disponible pour ce document."}</option>`
+  const pageFields = $("proofPageFields");
+  const noTranscription = $("proofNoTranscription");
+  if (pageFields) pageFields.hidden = !pages.length;
+  if (noTranscription) noTranscription.hidden = Boolean(pages.length);
+  select.innerHTML = `<option value="">${pages.length ? "Aucune page sélectionnée" : "Aucune page disponible"}</option>`
     + pages.map((page, index) => `<option value="${esc(page.id)}">Page ${index + 1}${page.label ? ` · ${esc(page.label)}` : ""}</option>`).join("");
   select.value = selectedPageId && pages.some(page => page.id === selectedPageId) ? selectedPageId : "";
   refreshProofPassageOptions();
@@ -4476,21 +4501,24 @@ function refreshProofPassageOptions(selectedPassageId = "") {
   if (!select) return;
   const docId = [...selectedGenealogySourceDocumentIds][0] || "";
   const pageId = $("proofPage")?.value || "";
-  const passages = proofPassagesForPage(docId, pageId);
-  select.innerHTML = `<option value="">${passages.length ? "Aucun passage cité" : "Aucun passage n’est disponible pour cette page."}</option>`
+  const { passages, revisionId } = proofPassagesForPage(docId, pageId);
+  select.innerHTML = `<option value="">${passages.length ? "Aucun passage cité" : "Aucun passage disponible pour cette page."}</option>`
     + passages.map((passage, index) => `<option value="${esc(passage.id)}">Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</option>`).join("");
   select.value = selectedPassageId && passages.some(passage => passage.id === selectedPassageId) ? selectedPassageId : "";
-  genealogyProofRevisionId = "";
-  if (select.value) {
-    const head = genealogyRecords.transcriptionHeads.find(item => {
-      const data = genealogyRecordData(item);
-      return data.documentId === docId && data.pageId === pageId && (data.passages || []).some(passage => passage.id === select.value);
-    });
-    if (head) genealogyProofRevisionId = head.revisionId || head.data?.revisionId || "";
+  genealogyProofRevisionId = select.value ? revisionId : "";
+  if (select.value && genealogyProofContext.citationFromPassage !== false) {
     const passage = passages.find(item => item.id === select.value);
-    if (passage && genealogyProofContext.citationFromPassage !== false) {
+    if (passage) {
       $("proofCitationIt").value = passage.textIt || "";
       $("proofCitationFr").value = passage.translationFr || "";
+    }
+  }
+  if (!select.value) {
+    genealogyProofRevisionId = "";
+    if (genealogyProofContext.citationFromPassage === false) return;
+    if (pageId && genealogyProofContext.citationIt != null && genealogyProofContext.pageId === pageId) {
+      $("proofCitationIt").value = genealogyProofContext.citationIt || "";
+      $("proofCitationFr").value = genealogyProofContext.citationFr || "";
     }
   }
   renderProofFieldErrors({});
@@ -4688,6 +4716,10 @@ function updateGenealogyContributionPresentation() {
   if (genericPayloadLabel) genericPayloadLabel.hidden = guidedAny;
   $("genealogyContributionPayload").required = !guidedAny;
   $("genealogyContributionTitleField").required = !guidedAny;
+  // Un champ obligatoire masqué bloquerait la validation native du formulaire :
+  // le titre guidé n'est exigé que lorsque la section Source guidée est active.
+  const guidedSourceTitle = $("genealogySourceTitle");
+  if (guidedSourceTitle) guidedSourceTitle.required = guidedSource;
   placeContributionPickers({ guidedSource, guidedProof });
   configureGenealogyContributionDialog({
     title: $("genealogyContributionTitle"),
@@ -7524,8 +7556,8 @@ $("genealogyProposeProofForPersonBtn").onclick = () => {
 };
 
 function syncProofEntryPoints() {
-  const button = $("genealogyProposeProofForPersonBtn");
-  if (button) button.textContent = isAdminUser() ? "Ajouter une preuve" : "Proposer une preuve";
+  const label = $("proofEntryPointLabel");
+  if (label) label.textContent = isAdminUser() ? "Ajouter une preuve" : "Proposer une preuve";
 }
 syncSearchClearBtn("genealogySearch", "clearGenealogySearchBtn");
 $("clearGenealogySearchBtn").onclick = () => {
