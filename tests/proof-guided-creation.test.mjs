@@ -30,6 +30,13 @@ function injectProbe(page) {
         "})()");
       await run();
     }, bootstrap),
+    createOfficial: payload => page.evaluate(async ({ bootstrapCode, officialPayload }) => {
+      const run = new Function("officialPayload", "return (async () => {" + bootstrapCode +
+        "const storeModule = await import(new URL('./js/genealogy-collaboration-firestore.js', location.href));" +
+        "const store = storeModule.createGenealogyCollaborationStore(db, { doc: fsModule.doc, runTransaction: fsModule.runTransaction, serverTimestamp: fsModule.serverTimestamp, collection: fsModule.collection, query: fsModule.query, where: fsModule.where, getDocs: fsModule.getDocs });" +
+        "return store.createOfficial({ ...officialPayload, actorUid: auth.currentUser.uid });})()");
+      return run(officialPayload);
+    }, { bootstrapCode: bootstrap, officialPayload: payload }),
     count: collectionName => page.evaluate(async ({ bootstrapCode, collectionPath }) => {
       const run = new Function("return (async () => {" + bootstrapCode +
         "const snap = await fsModule.getDocs(fsModule.collection(db, " + JSON.stringify(collectionPath) + ")); return snap.size;})()");
@@ -640,6 +647,72 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       assert.ok(orphan.factId, "factId de repli dérivé de l'identifiant officiel");
       assert.equal(orphan.relation, "supports", "relation par défaut conservée");
       await closeResidualDialogs();
+    });
+
+    await t.test("11. suppression officielle par l'interface : Preuve et Source", async () => {
+      const proofId = "ui-delete-proof-lock";
+      await probe.createOfficial({
+        type: "proof", id: proofId, revisionId: "ui-delete-proof-lock-r1", eventId: "ui-delete-proof-lock-e1",
+        data: {
+          id: proofId, factId: "fact-ui-delete-proof-lock", factType: "ui-delete-proof-lock-fact", personIds: ["person-probe"], documentId: null,
+          pageId: null, passageId: null, transcriptionRevisionId: null, photographId: null, zone: null,
+          citation: { textIt: null, translationFr: null }, sourceValue: null, relation: "supports",
+          interpretation: "", technicalStatus: "active"
+        }, reason: "Fixture interface émulateur"
+      });
+      await page.click('.nav-btn[data-view="directory"]');
+      await page.waitForTimeout(400);
+      await page.locator("#directoryList").getByText("Ada", { exact: false }).first().click();
+      await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
+      await page.click('[data-person-section="documents"]');
+      const proofCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "ui-delete-proof-lock-fact" });
+      await proofCard.click();
+      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
+      await page.locator('#genealogyItemContent [data-delete-official-kind="proof"]').click();
+      await page.waitForSelector("#permanentDeleteDialog[open]", { timeout: 10000 });
+      await page.click("#permanentDeleteConfirmBtn");
+      await page.waitForFunction(() => !document.getElementById("permanentDeleteDialog").open, { timeout: 15000 });
+      await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open, { timeout: 15000 });
+      await page.waitForTimeout(500);
+      const proofRemaining = JSON.parse(await probe.list("genealogyProofs")).some(item => item.id === proofId);
+      const proofRevisionRemaining = JSON.parse(await probe.list("genealogyProofRevisions")).some(item => item.data.objectId === proofId);
+      const proofToast = await page.locator("#toast").innerText().catch(() => "");
+      assert.equal(proofRemaining, false, `la suppression UI de Preuve doit aboutir ; retour UI : ${proofToast}`);
+      assert.equal(proofRevisionRemaining, false, "la révision de la Preuve est supprimée");
+      assert.match(proofToast, /supprimé définitivement/, "le succès de suppression de Preuve est annoncé");
+
+      await closeResidualDialogs();
+      const sourceId = "ui-delete-source-lock";
+      await probe.createOfficial({
+        type: "source", id: sourceId, revisionId: "ui-delete-source-lock-r1", eventId: "ui-delete-source-lock-e1",
+        data: { id: sourceId, title: "Source officielle test verrou", documentIds: [], personIds: [], status: "active" },
+        reason: "Fixture interface émulateur"
+      });
+      await page.click('.nav-btn[data-view="genealogy"]');
+      await page.waitForTimeout(400);
+      await page.selectOption("#genealogyKindFilter", "sources");
+      await page.waitForTimeout(500);
+      const sourceEntry = page.locator(".genealogy-entry").filter({ hasText: "Source officielle test verrou" });
+      await sourceEntry.locator("[data-tile-menu-toggle]").click();
+      await sourceEntry.locator('[data-tile-menu-action="open"]').click();
+      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
+      await page.locator('#genealogyItemContent [data-delete-official-kind="source"]').click();
+      await page.waitForSelector("#permanentDeleteDialog[open]", { timeout: 10000 });
+      await page.click("#permanentDeleteConfirmBtn");
+      await page.waitForFunction(() => !document.getElementById("permanentDeleteDialog").open, { timeout: 15000 });
+      await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open, { timeout: 15000 });
+      await page.waitForTimeout(500);
+      const sourceRemaining = JSON.parse(await probe.list("sourceDocuments")).some(item => item.id === sourceId);
+      const sourceRevisionRemaining = JSON.parse(await probe.list("sourceRevisions")).some(item => item.data.objectId === sourceId);
+      const sourceToast = await page.locator("#toast").innerText().catch(() => "");
+      assert.equal(sourceRemaining, false, `la suppression UI de Source doit aboutir ; retour UI : ${sourceToast}`);
+      assert.equal(sourceRevisionRemaining, false, "la révision de la Source est supprimée");
+      assert.match(sourceToast, /supprimé définitivement/, "le succès de suppression de Source est annoncé");
+      await closeResidualDialogs();
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() => document.getElementById("appMain") && !document.getElementById("appMain").hidden, { timeout: 20000 });
+      assert.ok(!JSON.parse(await probe.list("genealogyProofs")).some(item => item.id === proofId), "Preuve toujours absente après rechargement");
+      assert.ok(!JSON.parse(await probe.list("sourceDocuments")).some(item => item.id === sourceId), "Source toujours absente après rechargement");
     });
 
     assert.deepEqual(pageErrors, [], "aucune erreur JavaScript pendant les parcours");
