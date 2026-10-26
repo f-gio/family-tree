@@ -227,7 +227,7 @@ test("le sélecteur de documents est paginé, masqué sans recherche et conserve
 });
 
 test("les cartes Sources & preuves présentent un résumé humain sans JSON brut", () => {
-  const workspace = app.match(/function renderGenealogyWorkspace\(\) \{[\s\S]*?\n\}\n/)?.[0] || "";
+  const workspace = app.match(/function renderGenealogyWorkspace\(\) \{[\s\S]*?\r?\n\}\r?\n/)?.[0] || "";
   assert.ok(workspace.length > 500, "le rendu du dossier est présent");
   assert.doesNotMatch(workspace, /JSON\.stringify/);
   assert.doesNotMatch(app, /genealogy-entry-content/);
@@ -441,8 +441,8 @@ test("le visualiseur branche le zoom image et réserve le menu d’actions du he
 test("les informations du viewer gardent leur repli unique et une mise en page mobile verticale", () => {
   assert.match(app, /\$\("viewerDetailsCollapseBtn"\)\.setAttribute\("aria-expanded", String\(!collapsed\)\)/);
   assert.match(app, /\$\("viewerDetailsExpandBtn"\)\.setAttribute\("aria-expanded", String\(!collapsed\)\)/);
-  assert.match(app, /\$\("viewerDetailsExpandBtn"\)\.hidden = !collapsed/);
-  assert.match(app, /\$\("viewerDetailsCollapseBtn"\)\.hidden = collapsed/);
+  assert.match(app, /layout\.classList\.toggle\("is-details-collapsed", collapsed\)/);
+  assert.match(app, /details\.hidden = collapsed/);
   assert.match(css, /\.document-unified-layout \{ display: grid; grid-template-columns: minmax\(0, 1\.2fr\) minmax\(19rem, \.8fr\)/);
   assert.match(css, /\.viewer-dialog \.document-unified-layout \{ grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(css, /\.document-unified-layout\.is-details-collapsed \.document-original-panel \.viewer-body \{ height: min\(68dvh, calc\(100dvh - 13rem\)\)/);
