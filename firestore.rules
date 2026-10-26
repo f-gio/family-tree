@@ -451,6 +451,31 @@ service cloud.firestore {
         && validCollaborationId(data.eventId) && validCollaborationId(data.revisionId);
     }
 
+    function officialDeletionLockPath(objectType, objectId) {
+      return /databases/$(database)/documents/officialDeletionLocks/$(objectType)/objects/$(objectId);
+    }
+
+    function officialDeletionLockOwned(objectType, objectId) {
+      let lockPath = officialDeletionLockPath(objectType, objectId);
+      return exists(lockPath)
+        && get(lockPath).data.objectType == objectType
+        && get(lockPath).data.objectId == objectId
+        && get(lockPath).data.actorUid == request.auth.uid;
+    }
+
+    function officialObjectNotDeleting(objectType, objectId) {
+      return !(objectType in ['proof', 'source'])
+        || !exists(officialDeletionLockPath(objectType, objectId));
+    }
+
+    function proofSourceNotDeleting(data) {
+      return !('documentId' in data)
+        || data.documentId == null
+        || !(data.documentId is string)
+        || data.documentId.size() == 0
+        || !exists(officialDeletionLockPath('source', data.documentId));
+    }
+
     function hasOfficialEvent(eventId, objectType, objectId, versionId, previousVersionId) {
       let eventPath = /databases/$(database)/documents/genealogyEvents/$(eventId);
       return existsAfter(eventPath)
@@ -596,9 +621,11 @@ service cloud.firestore {
       allow create: if isAdmin() && validProposalDecisionEvent();
       allow create: if isAdmin() && validGenealogyEvent(request.resource.data)
         && request.resource.data.objectType in ['source', 'transcription', 'proof', 'conclusion']
+        && officialObjectNotDeleting(request.resource.data.objectType, request.resource.data.objectId)
         && hasOfficialEvent(eventId, request.resource.data.objectType, request.resource.data.objectId, request.resource.data.newVersionId, request.resource.data.previousVersionId);
       allow update: if false;
       allow delete: if isAdmin() && resource.data.objectType in ['proof', 'source']
+        && officialDeletionLockOwned(resource.data.objectType, resource.data.objectId)
         && ((resource.data.objectType == 'proof'
           && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(resource.data.objectId)))
           || (resource.data.objectType == 'source'
@@ -608,6 +635,7 @@ service cloud.firestore {
     match /genealogyNotifications/{notificationId} {
       allow read: if isApproved() && (resource == null || resource.data.recipientUid == request.auth.uid);
       allow create: if isAdmin() && validNotification(request.resource.data)
+        && officialObjectNotDeleting(request.resource.data.objectType, request.resource.data.objectId)
         && ((request.resource.data.type in ['proposal-accepted', 'proposal-rejected'] && notificationMatchesProposal())
           || notificationMatchesPendingProposal()
           || notificationMatchesReexamination());
@@ -615,6 +643,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt'])
         && request.resource.data.read == true && request.resource.data.readAt == request.time;
       allow delete: if isAdmin() && resource.data.objectType in ['proof', 'source']
+        && officialDeletionLockOwned(resource.data.objectType, resource.data.objectId)
         && ((resource.data.objectType == 'proof'
           && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(resource.data.objectId)))
           || (resource.data.objectType == 'source'
@@ -624,11 +653,13 @@ service cloud.firestore {
     match /sourceDocuments/{sourceId} {
       allow read: if isApproved();
       allow create: if isAdmin() && validOfficialRecord(request.resource.data)
+        && !exists(officialDeletionLockPath('source', sourceId))
         && request.resource.data.version == 1 && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time
         && hasOfficialEvent(request.resource.data.eventId, 'source', sourceId, request.resource.data.revisionId, null)
         && hasOfficialRevision('sourceRevisions', request.resource.data.revisionId, sourceId, request.resource.data.eventId, request.resource.data.data, null);
       allow update: if isAdmin() && validOfficialRecord(request.resource.data)
+        && !exists(officialDeletionLockPath('source', sourceId))
         && request.resource.data.version == resource.data.version + 1
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.createdBy == resource.data.createdBy
@@ -636,13 +667,15 @@ service cloud.firestore {
         && request.resource.data.updatedBy == request.auth.uid
         && hasOfficialEvent(request.resource.data.eventId, 'source', sourceId, request.resource.data.revisionId, resource.data.revisionId)
         && hasOfficialRevision('sourceRevisions', request.resource.data.revisionId, sourceId, request.resource.data.eventId, request.resource.data.data, resource.data.revisionId);
-      allow delete: if isAdmin() && !existsAfter(/databases/$(database)/documents/sourceDocuments/$(sourceId));
+      allow delete: if isAdmin() && officialDeletionLockOwned('source', sourceId)
+        && !existsAfter(/databases/$(database)/documents/sourceDocuments/$(sourceId));
     }
 
     match /sourceRevisions/{revisionId} {
       allow read: if isApproved();
       allow create: if isAdmin() && request.resource.data.keys().hasAll(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
         && request.resource.data.keys().hasOnly(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && !exists(officialDeletionLockPath('source', request.resource.data.objectId))
         && request.resource.data.objectId is string && request.resource.data.authorUid == request.auth.uid
         && request.resource.data.createdAt == request.time
         && (request.resource.data.previousRevisionId == null || request.resource.data.previousRevisionId is string)
@@ -650,6 +683,7 @@ service cloud.firestore {
         && hasOfficialEvent(request.resource.data.eventId, 'source', request.resource.data.objectId, revisionId, request.resource.data.previousRevisionId);
       allow update: if false;
       allow delete: if isAdmin() && resource.data.objectId is string
+        && officialDeletionLockOwned('source', resource.data.objectId)
         && !existsAfter(/databases/$(database)/documents/sourceDocuments/$(resource.data.objectId));
     }
 
@@ -684,24 +718,31 @@ service cloud.firestore {
     match /genealogyProofs/{proofId} {
       allow read: if isApproved();
       allow create: if isAdmin() && validOfficialRecord(request.resource.data)
+        && !exists(officialDeletionLockPath('proof', proofId))
+        && proofSourceNotDeleting(request.resource.data.data)
         && request.resource.data.version == 1 && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time
         && hasOfficialEvent(request.resource.data.eventId, 'proof', proofId, request.resource.data.revisionId, null)
         && hasOfficialRevision('genealogyProofRevisions', request.resource.data.revisionId, proofId, request.resource.data.eventId, request.resource.data.data, null);
       allow update: if isAdmin() && validOfficialRecord(request.resource.data)
+        && !exists(officialDeletionLockPath('proof', proofId))
+        && proofSourceNotDeleting(request.resource.data.data)
         && request.resource.data.version == resource.data.version + 1
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.updatedAt == request.time
         && hasOfficialEvent(request.resource.data.eventId, 'proof', proofId, request.resource.data.revisionId, resource.data.revisionId)
         && hasOfficialRevision('genealogyProofRevisions', request.resource.data.revisionId, proofId, request.resource.data.eventId, request.resource.data.data, resource.data.revisionId);
-      allow delete: if isAdmin() && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(proofId));
+      allow delete: if isAdmin() && officialDeletionLockOwned('proof', proofId)
+        && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(proofId));
     }
 
     match /genealogyProofRevisions/{revisionId} {
       allow read: if isApproved();
       allow create: if isAdmin() && request.resource.data.keys().hasAll(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
         && request.resource.data.keys().hasOnly(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && !exists(officialDeletionLockPath('proof', request.resource.data.objectId))
+        && proofSourceNotDeleting(request.resource.data.data)
         && request.resource.data.objectId is string && request.resource.data.authorUid == request.auth.uid
         && request.resource.data.createdAt == request.time
         && (request.resource.data.previousRevisionId == null || request.resource.data.previousRevisionId is string)
@@ -709,7 +750,40 @@ service cloud.firestore {
         && hasOfficialEvent(request.resource.data.eventId, 'proof', request.resource.data.objectId, revisionId, request.resource.data.previousRevisionId);
       allow update: if false;
       allow delete: if isAdmin() && resource.data.objectId is string
+        && officialDeletionLockOwned('proof', resource.data.objectId)
         && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(resource.data.objectId));
+    }
+
+    // Verrou bref de suppression : les Rules le consultent pour refuser les
+    // révisions, événements et associations qui arriveraient après la collecte.
+    match /officialDeletionLocks/{objectType}/objects/{objectId} {
+      allow get: if isAdmin();
+      allow list: if false;
+      allow create: if isAdmin() && objectType in ['proof', 'source']
+        && request.resource.data.keys().hasAll(['objectType', 'objectId', 'actorUid', 'token', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['objectType', 'objectId', 'actorUid', 'token', 'createdAt'])
+        && request.resource.data.objectType == objectType
+        && request.resource.data.objectId == objectId
+        && validCollaborationId(objectId)
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.token is string && request.resource.data.token.size() > 0
+        && request.resource.data.createdAt == request.time
+        && ((objectType == 'proof' && exists(/databases/$(database)/documents/genealogyProofs/$(objectId)))
+          || (objectType == 'source' && exists(/databases/$(database)/documents/sourceDocuments/$(objectId))));
+      // Un nouvel appel admin peut reprendre/rotater un verrou laissé par une
+      // interruption précédente ; les transactions en cours vérifient le token.
+      allow update: if isAdmin()
+        && resource.data.objectType == objectType && resource.data.objectId == objectId
+        && request.resource.data.keys().hasAll(['objectType', 'objectId', 'actorUid', 'token', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['objectType', 'objectId', 'actorUid', 'token', 'createdAt'])
+        && request.resource.data.objectType == objectType
+        && request.resource.data.objectId == objectId
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.token is string && request.resource.data.token.size() > 0
+        && request.resource.data.createdAt == request.time;
+      allow delete: if isAdmin() && resource.data.objectType == objectType
+        && resource.data.objectId == objectId && resource.data.actorUid == request.auth.uid
+        && resource.data.token is string;
     }
 
     match /factConclusions/{conclusionId} {

@@ -30,6 +30,10 @@ function refsFor(db, sdk) {
   };
 }
 
+function officialDeletionLockRef(db, sdk, type, id) {
+  return sdk.doc(db, "officialDeletionLocks", type, "objects", id);
+}
+
 function eventData(sdk, values) {
   const { id, ...event } = createGenealogyEvent(values);
   return { ...event, createdAt: sdk.serverTimestamp() };
@@ -132,39 +136,83 @@ export function createGenealogyCollaborationStore(db, sdk) {
         throw new TypeError("La suppression définitive est réservée aux preuves et aux sources officielles");
       }
       if (!actorUid) throw new TypeError("Un utilisateur authentifié est requis");
-      // Les requêtes par champ sont exclues de runTransaction côté SDK client
-      // (Transaction.get n'accepte qu'une DocumentReference) : la collecte des
-      // documents liés se fait donc avant la transaction, puis la transaction
-      // relit la fiche et supprime l'ensemble d'un bloc atomique.
-      if (type === "source") {
-        const proofsSnapshot = await sdk.getDocs(sdk.query(sdk.collection(db, "genealogyProofs"), sdk.where("data.documentId", "==", id)));
-        if (!proofsSnapshot.empty) {
-          throw new Error(`Suppression impossible : ${proofsSnapshot.size} preuve(s) référencent cette source. Détachez d’abord ou modifiez ces preuves avant de supprimer la source.`);
-        }
-      }
-      const [revisionsSnapshot, eventsSnapshot, notificationsSnapshot] = await Promise.all([
-        sdk.getDocs(sdk.query(sdk.collection(db, spec.revisions), sdk.where("objectId", "==", id))),
-        sdk.getDocs(sdk.query(sdk.collection(db, "genealogyEvents"), sdk.where("objectId", "==", id))),
-        // Les notifications sont privées : chaque destinataire ne voit que les siennes,
-        // aussi le nettoyage couvre-t-il les notifications adressées à l'acteur.
-        sdk.getDocs(sdk.query(sdk.collection(db, "genealogyNotifications"),
-          sdk.where("objectId", "==", id), sdk.where("recipientUid", "==", actorUid)))
-      ]);
-      return sdk.runTransaction(db, async transaction => {
-        const headRef = sdk.doc(db, spec.heads, id);
-        const headSnapshot = await transaction.get(headRef);
-        if (!headSnapshot.exists()) throw new Error("Cette fiche n'existe plus.");
-        transaction.delete(headRef);
-        revisionsSnapshot.docs.forEach(documentSnapshot => transaction.delete(documentSnapshot.ref));
-        eventsSnapshot.docs.forEach(documentSnapshot => transaction.delete(documentSnapshot.ref));
-        notificationsSnapshot.docs.forEach(documentSnapshot => transaction.delete(documentSnapshot.ref));
-        return {
-          deleted: true,
-          revisions: revisionsSnapshot.size,
-          events: eventsSnapshot.size,
-          notifications: notificationsSnapshot.size
-        };
+      const headRef = sdk.doc(db, spec.heads, id);
+      const lockRef = officialDeletionLockRef(db, sdk, type, id);
+      const lockToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const lockData = { objectType: type, objectId: id, actorUid, token: lockToken };
+      let lockMayExist = true;
+
+      const releaseLock = () => sdk.runTransaction(db, async transaction => {
+        const lockSnapshot = await transaction.get(lockRef);
+        if (!lockSnapshot.exists() || lockSnapshot.data().token !== lockToken) return false;
+        transaction.delete(lockRef);
+        return true;
       });
+
+      try {
+        // Le verrou est commis avant toute query. Les Rules bloquent ensuite les
+        // révisions, événements et nouvelles références vers la fiche verrouillée.
+        await sdk.runTransaction(db, async transaction => {
+          const headSnapshot = await transaction.get(headRef);
+          if (!headSnapshot.exists()) throw new Error("Cette fiche n'existe plus.");
+          const lockSnapshot = await transaction.get(lockRef);
+          if (lockSnapshot.exists()) transaction.update(lockRef, { ...lockData, createdAt: stamp() });
+          else transaction.set(lockRef, { ...lockData, createdAt: stamp() });
+        });
+
+        if (type === "source") {
+          const proofsSnapshot = await sdk.getDocs(sdk.query(
+            sdk.collection(db, "genealogyProofs"), sdk.where("data.documentId", "==", id)
+          ));
+          if (!proofsSnapshot.empty) {
+            await releaseLock();
+            lockMayExist = false;
+            throw new Error(`Suppression impossible : ${proofsSnapshot.size} preuve(s) référencent cette source. Détachez d’abord ou modifiez ces preuves avant de supprimer la source.`);
+          }
+        }
+
+        const [revisionsSnapshot, eventsSnapshot, notificationsSnapshot] = await Promise.all([
+          sdk.getDocs(sdk.query(sdk.collection(db, spec.revisions), sdk.where("objectId", "==", id))),
+          sdk.getDocs(sdk.query(sdk.collection(db, "genealogyEvents"), sdk.where("objectId", "==", id))),
+          // Les notifications sont privées : chaque destinataire ne voit que les siennes.
+          sdk.getDocs(sdk.query(sdk.collection(db, "genealogyNotifications"),
+            sdk.where("objectId", "==", id), sdk.where("recipientUid", "==", actorUid)))
+        ]);
+        const result = await sdk.runTransaction(db, async transaction => {
+          const headSnapshot = await transaction.get(headRef);
+          const lockSnapshot = await transaction.get(lockRef);
+          if (!headSnapshot.exists()) throw new Error("Cette fiche n'existe plus.");
+          if (!lockSnapshot.exists() || lockSnapshot.data().token !== lockToken) {
+            throw new Error("Le verrou de suppression a changé ; aucune donnée n'a été supprimée.");
+          }
+          const revisionIds = new Set(revisionsSnapshot.docs.map(documentSnapshot => documentSnapshot.id));
+          if (!revisionIds.has(headSnapshot.data().revisionId)) {
+            throw new Error("La révision officielle a changé pendant la suppression ; recommencez l'opération.");
+          }
+          transaction.delete(headRef);
+          revisionsSnapshot.docs.forEach(documentSnapshot => transaction.delete(documentSnapshot.ref));
+          eventsSnapshot.docs.forEach(documentSnapshot => transaction.delete(documentSnapshot.ref));
+          notificationsSnapshot.docs.forEach(documentSnapshot => transaction.delete(documentSnapshot.ref));
+          transaction.delete(lockRef);
+          return {
+            deleted: true,
+            revisions: revisionsSnapshot.size,
+            events: eventsSnapshot.size,
+            notifications: notificationsSnapshot.size
+          };
+        });
+        lockMayExist = false;
+        return result;
+      } catch (error) {
+        if (lockMayExist) {
+          try {
+            await releaseLock();
+          } catch (releaseError) {
+            throw new Error(`Suppression non confirmée : ${error.message} Le verrou temporaire n'a pas pu être libéré (${releaseError.message}).`);
+          }
+        }
+        throw error;
+      }
     },
 
     async markNotificationRead({ notificationId, actorUid }) {
