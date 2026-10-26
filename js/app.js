@@ -3821,7 +3821,7 @@ function setUnifiedDetailsCollapsed(collapsed) {
   const actionLabel = collapsed ? "Afficher les informations" : "Masquer les informations";
   $("viewerDetailsExpandBtn").setAttribute("aria-label", actionLabel);
   $("viewerDetailsExpandBtn").title = actionLabel;
-  $("viewerDetailsExpandBtn").querySelector("use")?.setAttribute("href", collapsed ? "#icon-info" : "#icon-panel-collapse");
+  $("viewerDetailsExpandBtn").querySelector("use")?.setAttribute("href", collapsed ? "#icon-panel-expand" : "#icon-panel-collapse");
   const detailsToggle = $("viewerDetailsBtn");
   detailsToggle.setAttribute("aria-expanded", expanded);
   detailsToggle.setAttribute("aria-label", actionLabel);

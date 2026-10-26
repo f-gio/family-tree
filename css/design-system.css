@@ -2027,6 +2027,11 @@ label .field { margin-top: var(--space-2); }
 .viewer-image-controls .viewer-fullscreen-control { position: static; inset: auto; z-index: auto; flex: 0 0 auto; width: auto; min-width: var(--control-touch); padding-inline: var(--space-2); }
 .viewer-image-controls #viewerDetailsExpandBtn, .pdf-viewer-toolbar #viewerDetailsExpandBtn { position: relative; margin-left: auto; }
 .viewer-image-controls #viewerDetailsExpandBtn::before, .pdf-viewer-toolbar #viewerDetailsExpandBtn::before { content: ""; position: absolute; left: calc(-1 * var(--space-2)); top: 25%; bottom: 25%; border-left: var(--border-default); pointer-events: none; }
+.viewer-image-controls .viewer-open-original { margin-left: 0; }
+.viewer-open-original { display: inline-grid; place-items: center; width: var(--control-touch); min-width: var(--control-touch); padding: 0; }
+.viewer-open-original .ui-icon { width: 1.25rem; height: 1.25rem; }
+.viewer-details-toggle { flex: 0 0 auto; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); padding: 0; }
+.viewer-details-toggle .ui-icon { width: 1.25rem; height: 1.25rem; }
 .viewer-body { position: relative; display: flex; align-items: center; justify-content: center; flex: 1 1 auto; width: 100%; min-width: 0; min-height: 16rem; height: auto; overflow: hidden; touch-action: pan-y; border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface-muted); }
 .viewer-body[data-viewer-fit-mode="width"] { display: block; overflow: auto; overscroll-behavior: contain; }
 .viewer-body img { position: absolute; left: 50%; top: 50%; max-width: none; max-height: none; user-select: none; -webkit-user-drag: none; touch-action: pan-y; will-change: transform; }
@@ -2053,8 +2058,7 @@ label .field { margin-top: var(--space-2); }
 .pdf-viewer-toolbar #pdfThumbnailsBtn,
 .pdf-viewer-toolbar #viewerExternalBtn { display: inline-grid; place-items: center; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); padding: 0; }
 .pdf-viewer-toolbar #pdfThumbnailsBtn { font-size: 0; }
-.pdf-viewer-toolbar #pdfThumbnailsBtn > span,
-.pdf-viewer-toolbar #viewerExternalBtn .viewer-external-label { display: none; }
+.pdf-viewer-toolbar #pdfThumbnailsBtn > span { display: none; }
 .pdf-viewer-toolbar #pdfZoomOutBtn { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0; }
 .pdf-viewer-toolbar #pdfZoomInBtn { margin-left: calc(0px - var(--pdf-toolbar-gap)); border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .pdf-viewer-toolbar #pdfFitModeBtn { margin-left: var(--space-3); }
@@ -2090,7 +2094,6 @@ label .field { margin-top: var(--space-2); }
 .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #pdfThumbnailsBtn { display: inline-grid; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); padding: 0; font-size: 0; }
 .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #pdfThumbnailsBtn > span { display: none; }
 .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #viewerExternalBtn { display: inline-grid; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); padding: 0; }
-.document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #viewerExternalBtn .viewer-external-label { display: none; }
 .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #pdfFitModeBtn { margin-left: var(--space-1); }
 .document-original-panel:has(.viewer-body.viewer-pdf-active):has(> .pdf-thumbnail-rail[hidden]) { grid-template-columns: minmax(0, 1fr); }
 .document-original-panel:has(.viewer-body.viewer-pdf-active):has(> .pdf-thumbnail-rail[hidden]) .pdf-viewer-toolbar,
@@ -3167,7 +3170,6 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
     min-height: var(--control-touch);
     padding: 0;
   }
-  .viewer-dialog #viewerExternalBtn .viewer-external-label { display: none; }
   .viewer-dialog #viewerExternalBtn .ui-icon { width: 1.25rem; height: 1.25rem; }
 }
 

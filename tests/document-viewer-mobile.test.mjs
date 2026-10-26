@@ -41,10 +41,19 @@ test("Viewer : règles statiques mobile (clamp, icône, safe-area, flex, pas de 
   assert.match(css, /\.viewer-dialog \.modal-body \{\s*\n\s*padding-bottom: max\(12px, env\(safe-area-inset-bottom\)\);\s*\n\s*\}/);
   /* Icône Nouvel onglet ≤480 */
   assert.match(css, /@media \(max-width: 480px\) \{\s*\n\s*\.viewer-dialog #viewerExternalBtn \{/);
-  assert.match(css, /\.viewer-dialog #viewerExternalBtn \.viewer-external-label \{ display: none; \}/);
+  /* Nouvel onglet : icône seule (alignement recette), libellé legacy supprimé */
+  assert.match(css, /\.viewer-open-original \{ display: inline-grid; place-items: center; width: var\(--control-touch\); min-width: var\(--control-touch\); padding: 0; \}/);
+  assert.match(css, /\.viewer-open-original \.ui-icon \{ width: 1\.25rem; height: 1\.25rem; \}/);
+  assert.doesNotMatch(css, /viewer-external-label/);
   /* Accessible name conservé */
   assert.match(html, /id="viewerExternalBtn"[^>]*aria-label="Ouvrir dans un nouvel onglet"[^>]*title="Ouvrir dans un nouvel onglet"/);
-  assert.match(html, /id="viewerExternalBtn"[^>]*><svg class="ui-icon"[^>]*><use href="#icon-link"><\/use><\/svg><span class="viewer-external-label">Nouvel onglet<\/span><\/a>/);
+  assert.match(html, /id="viewerExternalBtn"[^>]*><svg class="ui-icon"[^>]*><use href="#icon-external-link"><\/use><\/svg><\/a>/);
+  assert.doesNotMatch(html, /viewer-external-label/);
+  /* Informations : icône panneau recette, bouton dans la barre image après Plein écran */
+  assert.match(html, /id="viewerDetailsExpandBtn"[^>]*><svg class="ui-icon"[^>]*><use href="#icon-panel-expand"><\/use>/);
+  assert.match(html, /<symbol id="icon-external-link"/);
+  assert.match(html, /id="viewerFullscreenBtn"[\s\S]{0,400}?id="viewerExternalBtn"/);
+  assert.doesNotMatch(html, /<div class="viewer-head-actions"><a /);
 });
 
 async function createViewerPage(browser, server, width, height) {
@@ -196,7 +205,7 @@ async function measureViewer(page) {
     const title = document.getElementById("viewerTitle");
     const subtitle = document.getElementById("viewerSubtitle");
     const external = document.getElementById("viewerExternalBtn");
-    const label = external.querySelector(".viewer-external-label");
+    const externalIcon = external.querySelector("use");
     const closeBtn = head.querySelector("[data-close]");
     const img = document.getElementById("viewerImage");
     const frame = document.getElementById("viewerFrame");
@@ -223,8 +232,8 @@ async function measureViewer(page) {
       subtitleEllipsis: subtitleStyle.textOverflow,
       subtitleText: subtitle.textContent,
       externalHidden: external.hidden,
-      externalLabelDisplay: label ? getComputedStyle(label).display : null,
-      externalLabelText: label ? label.textContent : null,
+      externalIconHref: externalIcon ? externalIcon.getAttribute("href") : null,
+      externalText: external.textContent.trim(),
       externalAriaLabel: external.getAttribute("aria-label"),
       externalTitle: external.getAttribute("title"),
       externalBtn: box(external),
@@ -302,19 +311,15 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
               /* la zone document reste majoritaire même avec un titre long */
               assert.ok(headers.long.viewer.h >= height * 0.7, `zone doc titre long ≥70% viewport (${headers.long.viewer.h} / ${height})`);
 
-              /* --- responsive Nouvel onglet --- */
-              for (const [vw, expectIcon] of [[320, true], [390, true], [480, true], [481, false], [560, false], [760, false]]) {
+              /* --- responsive Nouvel onglet : icône seule à toutes les largeurs --- */
+              for (const vw of [320, 390, 480, 481, 560, 760]) {
                 await page.setViewportSize({ width: vw, height: 844 });
                 await openViewer(page, { title: TITLES.short, fileName: "acte.pdf", src: portraitSvg });
                 const m = await measureViewer(page);
-                if (expectIcon) {
-                  assert.equal(m.externalLabelDisplay, "none", `${vw}px : libellé masqué (icône seule)`);
-                  assert.ok(m.externalBtn && m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, `${vw}px : cible ≥44px (${JSON.stringify(m.externalBtn)})`);
-                  assert.equal(m.externalAriaLabel, "Ouvrir dans un nouvel onglet", `${vw}px : accessible name`);
-                } else {
-                  assert.notEqual(m.externalLabelDisplay, "none", `${vw}px : libellé texte visible`);
-                  assert.equal(m.externalLabelText, "Nouvel onglet", `${vw}px : libellé « Nouvel onglet »`);
-                }
+                assert.equal(m.externalText, "", `${vw}px : icône seule, sans texte visible`);
+                assert.equal(m.externalIconHref, "#icon-external-link", `${vw}px : icône externe dédiée`);
+                assert.ok(m.externalBtn && m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, `${vw}px : cible ≥44px (${JSON.stringify(m.externalBtn)})`);
+                assert.equal(m.externalAriaLabel, "Ouvrir dans un nouvel onglet", `${vw}px : nom accessible explicite`);
               }
               /* retour viewport de test pour les cas documents */
               await page.setViewportSize({ width, height });
@@ -374,8 +379,8 @@ test("Viewer desktop 1024×768 : inchangé (texte, titre, sous-titre, modale cen
       await openViewer(page, { title: TITLES.medium, fileName: "acte-1891.pdf", src: landscapeSvg });
       const m = await measureViewer(page);
       assert.ok(m.open, "viewer ouvert");
-      assert.notEqual(m.externalLabelDisplay, "none", "texte « Nouvel onglet » visible sur desktop");
-      assert.equal(m.externalLabelText, "Nouvel onglet");
+      assert.equal(m.externalText, "", "l’action externe reste une icône seule sur desktop");
+      assert.equal(m.externalIconHref, "#icon-external-link", "icône externe dédiée sur desktop");
       assert.equal(m.subtitleDisplay, "block", "sous-titre visible sur desktop");
       assert.equal(m.titleClamp, "none", "pas de clamp 2 lignes sur desktop");
       /* modale centrée et non plein écran */
@@ -384,7 +389,7 @@ test("Viewer desktop 1024×768 : inchangé (texte, titre, sous-titre, modale cen
       assert.ok(parseFloat(m.radius) > 0, `radius desktop conservé (${m.radius})`);
       assert.ok(m.imgFit === "contain", "ratio conservé desktop");
       assert.equal(m.docOverflowX, 0);
-      t.diagnostic(`desktop 1024×768: dialog=${m.dialog.w}×${m.dialog.h} y=${m.dialog.y} head=${m.head.h} external=${m.externalLabelDisplay}`);
+      t.diagnostic(`desktop 1024×768: dialog=${m.dialog.w}×${m.dialog.h} y=${m.dialog.y} head=${m.head.h} external=${m.externalIconHref}`);
     } finally { await context.close(); }
   } finally { await browser.close(); await server.close(); }
 });
