@@ -47,9 +47,10 @@ test("la validation couvre les contraintes de chaque section", () => {
   assert.equal(validateProofGuidedFields(base()).valid, true);
   assert.equal(validateProofGuidedFields({ ...base(), factKind: "unknown" }).errors.factKind !== undefined, true);
   assert.equal(validateProofGuidedFields({ ...base(), factKind: "other", factOtherLabel: "" }).errors.factOtherLabel !== undefined, true);
-  assert.equal(validateProofGuidedFields({ ...base(), personIds: [] }).errors.personIds !== undefined, true);
+  assert.equal(validateProofGuidedFields({ ...base(), personIds: [] }).errors.personIds, undefined, "aucune personne : associations facultatives");
   assert.equal(validateProofGuidedFields({ ...base(), personIds: ["p1", "p1"] }).errors.personIds !== undefined, true);
-  assert.equal(validateProofGuidedFields({ ...base(), documentId: "" }).errors.documentId !== undefined, true);
+  assert.equal(validateProofGuidedFields({ ...base(), documentId: "" }).errors.documentId, undefined, "aucun document : associations facultatives");
+  assert.equal(validateProofGuidedFields({ ...base(), documentId: "", pageId: "page1", passageId: "passage1" }).errors.passage !== undefined, true, "passage sans document refusé");
   assert.equal(validateProofGuidedFields({ ...base(), passageId: "passage1" }).errors.passage !== undefined, true);
   assert.equal(validateProofGuidedFields({ ...base(), pageId: "page1", passageId: "passage1" }).errors.passage !== undefined, true);
   assert.equal(validateProofGuidedFields({ ...base(), relation: "invented" }).errors.relation !== undefined, true);
@@ -78,6 +79,33 @@ test("passage : page et révision déduites, dépendances respectées", () => {
   assert.equal(validateGenealogyProof(proof).valid, true, validateGenealogyProof(proof).errors?.join(" ; ") || "");
   const withoutPassage = buildProofGuidedInput({ ...base(), pageId: "", passageId: "", transcriptionRevisionId: "rev1" });
   assert.equal(withoutPassage.transcriptionRevisionId, null, "la révision n'est conservée qu'avec page ou passage");
+});
+
+test("associations facultatives : neutresation des références et identifiant de repli", () => {
+  // sans personne ni document : les références dérivées sont neutralisées
+  const unattached = buildProofGuidedInput({ ...base(), personIds: [], documentId: "", pageId: "page1", passageId: "passage1", transcriptionRevisionId: "rev1", fallbackFactId: "proof-repli" });
+  assert.deepEqual(unattached.personIds, []);
+  assert.equal(unattached.documentId, null, "représentation canonique : documentId null");
+  assert.equal(unattached.pageId, null, "page neutralisée sans document");
+  assert.equal(unattached.passageId, null, "passage neutralisé sans document");
+  assert.equal(unattached.transcriptionRevisionId, null, "révision neutralisée sans document");
+  assert.equal(unattached.factId, "proof-repli", "identifiant de repli fourni par l'application");
+  const proof = createGenealogyProof({ ...unattached, id: "proof-free", authorUid: "u1", createdAt: "2026-10-26T10:00:00.000Z" });
+  assert.equal(validateGenealogyProof(proof).valid, true, validateGenealogyProof(proof).errors?.join(" ; ") || "");
+  // personnes sans document
+  const personOnly = buildProofGuidedInput({ ...base(), documentId: "" });
+  assert.equal(personOnly.documentId, null);
+  assert.deepEqual([...personOnly.personIds], ["p1"], "personnes conservées");
+  const personOnlyProof = createGenealogyProof({ ...personOnly, id: "proof-person", authorUid: "u1", createdAt: "2026-10-26T10:00:00.000Z" });
+  assert.equal(validateGenealogyProof(personOnlyProof).valid, true, validateGenealogyProof(personOnlyProof).errors?.join(" ; ") || "");
+  // document sans personne
+  const documentOnly = buildProofGuidedInput({ ...base(), personIds: [] });
+  assert.deepEqual(documentOnly.personIds, []);
+  assert.equal(documentOnly.documentId, "doc1");
+  const documentOnlyProof = createGenealogyProof({ ...documentOnly, id: "proof-doc", authorUid: "u1", createdAt: "2026-10-26T10:00:00.000Z" });
+  assert.equal(validateGenealogyProof(documentOnlyProof).valid, true, validateGenealogyProof(documentOnlyProof).errors?.join(" ; ") || "");
+  // sans aucune association : identifiant de repli obligatoire
+  assert.throws(() => buildProofGuidedInput({ ...base(), personIds: [], documentId: "" }), /factId|repli|person/i, "fallback manquant levé proprement");
 });
 
 test("fait existant réutilisé vs nouveau fait : identifiant stable du lot 0", () => {

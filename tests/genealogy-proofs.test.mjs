@@ -259,7 +259,24 @@ test("un identifiant seul ne suffit pas à affirmer une référence valide", () 
 test("validation refuse les IDs manquants, une source vide et les relations inconnues", () => {
   assert.throws(() => makeProof({ id: "", relation: "supports" }), /proof.id/);
   assert.throws(() => makeProof({ documentId: "", relation: "supports" }), /proof.documentId/);
-  assert.throws(() => makeProof({ personIds: [], relation: "supports" }), /personIds/);
   assert.throws(() => makeProof({ relation: "endorses" }), /Relation entre la source/);
   assert.throws(() => createGenealogyProof({ id: "missing-claim", factId: "f", factType: "birth.date", personIds: ["person-1"], documentId: "d", relation: "mentions" }), /sourceValue doit être fourni/);
+});
+
+test("associations facultatives : preuves sans personne et/ou sans document", () => {
+  const unattached = makeProof({ personIds: [], documentId: null, pageId: null, passageId: null, transcriptionRevisionId: null, relation: "supports" });
+  assert.deepEqual(unattached.personIds, []);
+  assert.equal(unattached.documentId, null, "représentation canonique : documentId null");
+  assert.equal(validateGenealogyProof(unattached).valid, true, validateGenealogyProof(unattached).errors?.join(" ; ") || "");
+  const personOnly = makeProof({ documentId: null, pageId: null, passageId: null, transcriptionRevisionId: null });
+  assert.equal(personOnly.documentId, null);
+  assert.ok(validateGenealogyProof(personOnly).valid, "personnes sans document : valide");
+  const documentOnly = makeProof({ personIds: [] });
+  assert.deepEqual(documentOnly.personIds, []);
+  assert.ok(validateGenealogyProof(documentOnly).valid, "document sans personnes : valide");
+  const orphanPage = { ...unattached, pageId: "page-orpheline" };
+  const orphanValidation = validateGenealogyProof(orphanPage);
+  assert.equal(orphanValidation.valid, false, "page référencée sans document refusée");
+  assert.ok(orphanValidation.errors.some(error => error.includes("exigent un document d'origine")), "erreur de cohérence explicite");
+  assert.throws(() => makeProof({ personIds: [], documentId: null, pageId: "page-1", passageId: null, transcriptionRevisionId: null }), /document d'origine/);
 });

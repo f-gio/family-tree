@@ -48,12 +48,12 @@ export function validateProofGuidedFields(fields = {}) {
   const factType = proofFactType(factKind, fields.factOtherLabel);
   if (factKind === "other" && !factType) errors.factOtherLabel = "Indiquez l'intitulé du fait (« Autre »).";
   const personIds = Array.isArray(fields.personIds) ? fields.personIds.filter(id => typeof id === "string" && id.trim()) : [];
-  if (!personIds.length) errors.personIds = "Sélectionnez au moins une personne concernée.";
-  else if (new Set(personIds).size !== personIds.length) errors.personIds = "La même personne est sélectionnée plusieurs fois.";
-  if (!fields.documentId || !String(fields.documentId).trim()) errors.documentId = "Sélectionnez le document d'origine de la preuve.";
+  if (Array.isArray(fields.personIds) && new Set(personIds).size !== personIds.length) errors.personIds = "La même personne est sélectionnée plusieurs fois.";
+  const documentId = fields.documentId ? String(fields.documentId).trim() : "";
   const pageId = fields.pageId ? String(fields.pageId).trim() : "";
   const passageId = fields.passageId ? String(fields.passageId).trim() : "";
   const transcriptionRevisionId = fields.transcriptionRevisionId ? String(fields.transcriptionRevisionId).trim() : "";
+  if (passageId && !documentId) errors.passage = "Un passage cité nécessite un document d'origine.";
   if (passageId && !pageId) errors.passage = "Un passage cité doit être rattaché à sa page.";
   if (passageId && !transcriptionRevisionId) errors.passage = "Le passage sélectionné n'est plus lié à une révision de transcription.";
   if (!PROOF_RELATIONS.includes(fields.relation)) errors.relation = "Choisissez la relation entre cette source et le fait.";
@@ -81,10 +81,15 @@ export function buildProofGuidedInput(fields = {}) {
   const factType = existingFactId && existingFactType ? existingFactType : proofFactType(fields.factKind, fields.factOtherLabel);
   if (!factType) throw new TypeError("Un type de fait est requis pour construire la preuve.");
   const stableSubject = [...personIds].sort()[0] || "";
-  const factId = existingFactId || buildFactIdentityId("person", stableSubject, factType);
-  const pageId = fields.pageId ? String(fields.pageId).trim() : null;
-  const passageId = fields.passageId ? String(fields.passageId).trim() : null;
-  const transcriptionRevisionId = fields.transcriptionRevisionId ? String(fields.transcriptionRevisionId).trim() : null;
+  const documentId = fields.documentId ? String(fields.documentId).trim() : "";
+  const factId = existingFactId
+    || (stableSubject ? buildFactIdentityId("person", stableSubject, factType) : "")
+    || (documentId ? buildFactIdentityId("document", documentId, factType) : "")
+    || String(fields.fallbackFactId || "").trim();
+  if (!factId) throw new TypeError("Un identifiant de repli est requis pour un fait sans personne ni document.");
+  const pageId = documentId && fields.pageId ? String(fields.pageId).trim() : null;
+  const passageId = documentId && fields.passageId ? String(fields.passageId).trim() : null;
+  const transcriptionRevisionId = documentId && fields.transcriptionRevisionId ? String(fields.transcriptionRevisionId).trim() : null;
   const sourceUnknown = Boolean(fields.sourceUnknown);
   return {
     factId,
@@ -92,7 +97,7 @@ export function buildProofGuidedInput(fields = {}) {
     personIds,
     relationshipId: fields.relationshipId ? String(fields.relationshipId).trim() : null,
     familyId: fields.familyId ? String(fields.familyId).trim() : null,
-    documentId: String(fields.documentId || "").trim(),
+    documentId: documentId || null,
     pageId,
     passageId,
     transcriptionRevisionId: passageId ? transcriptionRevisionId : pageId ? transcriptionRevisionId : null,

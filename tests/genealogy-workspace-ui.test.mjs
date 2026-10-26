@@ -286,7 +286,7 @@ test("la fiche détaillée évite le JSON et les photographies trompeuses pour l
   assert.match(app, /Aucune transcription n’est rattachée à cette source\./);
   assert.match(app, /Aucune preuve n’est rattachée à cet élément\./);
   assert.match(app, /: kind === "source" \|\| kind === "proof" \? "" : `<section><div class="genealogy-photo-panel"><p>Aucune photographie n’est associée à cette page\.<\/p><\/div><\/section>`/);
-  assert.match(app, /\? `\$\{sourceFactsBlock\}\$\{linkedDocumentsBlock\}<div class="genealogy-detail-grid">/);
+  assert.match(app, /\? `\$\{sourceFactsBlock\}\$\{linkedDocumentsBlock\}\$\{officialDeleteActionsMarkup\("source", id\)\}<div class="genealogy-detail-grid">/);
 });
 
 test("les documents associés d'une source sont mis en valeur avec consultation de l'original", () => {
@@ -430,10 +430,10 @@ test("le formulaire guidé de preuve remplace le JSON pour les créations offici
   assert.match(app, /genealogyProofGuidedGrid\.id = "genealogyOfficialProofFields"/);
   assert.match(app, /Fait à documenter[\s\S]{0,6000}?Provenance[\s\S]{0,6000}?Citation[\s\S]{0,6000}?Interprétation/);
   assert.match(app, /const guidedProof = officialMode && contributionType === "proof"/);
-  assert.match(app, /official && type === "proof" \? proofGuidedPayload\(\)/, "payload guidé aussi en création et en révision");
+  assert.match(app, /official && type === "proof" \? proofGuidedPayload\(targetId\)/, "payload guidé aussi en création et en révision");
   assert.match(app, /reviseItem\?\.kind === "proof"[\s\S]{0,400}?fillOfficialProofGuidedFields\(\{/, "révision préremplie dans le formulaire guidé");
   assert.match(app, /La révision guidée conserve les champs non exposés/, "champs hérités conservés à la révision");
-  const guidedPayload = app.match(/function proofGuidedPayload\(\) \{[\s\S]{0,700}?\n\}/)?.[0] || "";
+  const guidedPayload = app.match(/function proofGuidedPayload\(fallbackFactId = ""\) \{[\s\S]{0,700}?\n\}/)?.[0] || "";
   assert.ok(guidedPayload.includes("validateProofGuidedFields"), "validation du modèle avant écriture");
   assert.doesNotMatch(guidedPayload, /JSON\.stringify/, "aucun JSON exposé au flux guidé");
   assert.match(app, /proofContext: \{ personIds: \[personId\] \}/, "entrée fiche personne");

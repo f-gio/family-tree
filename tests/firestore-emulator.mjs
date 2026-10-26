@@ -345,7 +345,7 @@ test("SECURITE 8B : un contributeur garde les droits documents historiques mais 
   try {
     await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
     await setDoc(documentRef, { title: "Fixture historique de sécurité", notes: "Document témoin" });
-    const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp });
+    const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
     await store.createOfficial({
       type: "proof", id: officialProofId, revisionId: "lot8b-proof-revision", eventId: "lot8b-proof-event",
       data: { id: officialProofId, factId: "fact-fixture", factType: "birth.date", technicalStatus: "active" },
@@ -1495,7 +1495,7 @@ test("Sécurité Sources & preuves : matrice des accès sur les 11 collections",
 });
 
 test("LOT 6 : propositions, données officielles, historique immuable, notifications privées et atomicité", async () => {
-  const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp });
+  const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
   const proposalId = "lot6-proposal-member";
   const rejectedProposalId = "lot6-proposal-rejected";
   const proposalEventId = "lot6-proposal-created";
@@ -1745,4 +1745,93 @@ test("LOT 6 : propositions, données officielles, historique immuable, notificat
     type: "source", status: "draft", authorUid: auth.currentUser.uid, targetType: "source", targetId: "x", payload: {},
     createdAt: serverTimestamp(), updatedAt: serverTimestamp()
   }));
+});
+
+// ─── SUPPRESSION DÉFINITIVE DES PREUVES ET SOURCES ──────────────────────────
+test("suppression définitive : preuve isolée, révisions, événements et notifications", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
+  try {
+    const proofData = {
+      id: "supp-proof-free", factId: "fact-supp", factType: "death.date", personIds: [], documentId: null,
+      pageId: null, passageId: null, transcriptionRevisionId: null, photographId: null, zone: null,
+      citation: { textIt: null, translationFr: null }, sourceValue: null, relation: "supports",
+      interpretation: "", technicalStatus: "active"
+    };
+    await store.createOfficial({ type: "proof", id: "supp-proof-free", revisionId: "supp-rev-p1", eventId: "supp-ev-p1", data: proofData, reason: "Fixture suppression", actorUid: adminUid });
+    await store.reviseOfficial({ type: "proof", id: "supp-proof-free", revisionId: "supp-rev-p2", eventId: "supp-ev-p2", data: proofData, reason: "Deuxième révision", actorUid: adminUid });
+    await store.createReexaminationEvent({
+      type: "proof", objectId: "supp-proof-free", eventId: "supp-ev-reexam",
+      reason: "Réexamen avant suppression", administratorUids: [adminUid],
+      notificationIds: ["supp-notif-1"], actorUid: adminUid
+    });
+    const result = await store.deleteOfficial({ type: "proof", id: "supp-proof-free", actorUid: adminUid });
+    assert.ok(result.revisions >= 2, "toutes les révisions propres de la fiche sont supprimées");
+    assert.equal((await getDoc(doc(db, "genealogyProofs", "supp-proof-free"))).exists(), false, "fiche supprimée");
+    assert.equal((await getDocs(query(collection(db, "genealogyProofRevisions"), where("objectId", "==", "supp-proof-free")))).size, 0, "révisions supprimées");
+    assert.equal((await getDocs(query(collection(db, "genealogyEvents"), where("objectId", "==", "supp-proof-free")))).size, 0, "événements supprimés");
+    assert.equal((await getDocs(query(collection(db, "genealogyNotifications"), where("objectId", "==", "supp-proof-free"), where("recipientUid", "==", adminUid)))).size, 0, "notifications supprimées");
+  } finally {
+    await Promise.all([
+      deleteDoc(doc(db, "genealogyProofs", "supp-proof-free")).catch(() => {}),
+      getDocs(query(collection(db, "genealogyProofRevisions"), where("objectId", "==", "supp-proof-free"))).then(snap => Promise.all(snap.docs.map(item => deleteDoc(item.ref)))),
+      getDocs(query(collection(db, "genealogyEvents"), where("objectId", "==", "supp-proof-free"))).then(snap => Promise.all(snap.docs.map(item => deleteDoc(item.ref))))
+    ]);
+    await deleteDoc(doc(db, "genealogyNotifications", "supp-notif-1")).catch(() => {});
+    await signOutAll();
+  }
+});
+
+test("suppression définitive : permissions et dépendances", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
+  const sourceData = { id: "supp-source-b", title: "Source dépendante", documentIds: [], personIds: [], status: "active" };
+  const proofData = {
+    id: "supp-proof-linked", factId: "fact-linked", factType: "birth.date", personIds: ["person-x"], documentId: "supp-source-b",
+    pageId: null, passageId: null, transcriptionRevisionId: null, photographId: null, zone: null,
+    citation: { textIt: null, translationFr: null }, sourceValue: null, relation: "supports",
+    interpretation: "", technicalStatus: "active"
+  };
+  try {
+    await store.createOfficial({ type: "source", id: "supp-source-b", revisionId: "supp-rev-sb", eventId: "supp-ev-sb", data: sourceData, reason: "Fixture dépendance", actorUid: adminUid });
+    await store.createOfficial({ type: "proof", id: "supp-proof-linked", revisionId: "supp-rev-pl", eventId: "supp-ev-pl", data: proofData, reason: "Fixture dépendance", actorUid: adminUid });
+    // 1. suppression d'une source référencée par une preuve : refus explicite
+    await assert.rejects(
+      () => store.deleteOfficial({ type: "source", id: "supp-source-b", actorUid: adminUid }),
+      /Suppression impossible/,
+      "source référencée : refus avec indication des dépendances"
+    );
+    assert.equal((await getDoc(doc(db, "sourceDocuments", "supp-source-b"))).exists(), true, "la source est conservée après le refus");
+    assert.equal((await getDoc(doc(db, "genealogyProofs", "supp-proof-linked"))).exists(), true, "la preuve est intacte après le refus");
+    // 2. un membre ne peut pas supprimer (règles Firestore)
+    await signOutAll();
+    await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+    await expectDenied(deleteDoc(doc(db, "genealogyProofs", "supp-proof-linked")));
+    await expectDenied(deleteDoc(doc(db, "sourceDocuments", "supp-source-b")));
+    await signOutAll();
+    await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+    // 3. la suppression d'une révision seule (head encore présent) est refusée par les règles
+    await expectDenied(deleteDoc(doc(db, "genealogyProofRevisions", "supp-rev-pl")));
+    // 4. après détachement : preuve supprimée puis source supprimable
+    await store.deleteOfficial({ type: "proof", id: "supp-proof-linked", actorUid: adminUid });
+    await store.deleteOfficial({ type: "source", id: "supp-source-b", actorUid: adminUid });
+    assert.equal((await getDoc(doc(db, "sourceDocuments", "supp-source-b"))).exists(), false, "source isolée supprimée après détachement");
+  } finally {
+    await deleteDoc(doc(db, "genealogyProofs", "supp-proof-linked")).catch(() => {});
+    await deleteDoc(doc(db, "sourceDocuments", "supp-source-b")).catch(() => {});
+    await getDocs(query(collection(db, "genealogyProofRevisions"), where("objectId", "==", "supp-proof-linked"))).then(snap => Promise.all(snap.docs.map(item => deleteDoc(item.ref)))).catch(() => {});
+    await getDocs(query(collection(db, "sourceRevisions"), where("objectId", "==", "supp-source-b"))).then(snap => Promise.all(snap.docs.map(item => deleteDoc(item.ref)))).catch(() => {});
+    await getDocs(query(collection(db, "genealogyEvents"), where("objectId", "==", "supp-proof-linked"))).then(snap => Promise.all(snap.docs.map(item => deleteDoc(item.ref)))).catch(() => {});
+    await getDocs(query(collection(db, "genealogyEvents"), where("objectId", "==", "supp-source-b"))).then(snap => Promise.all(snap.docs.map(item => deleteDoc(item.ref)))).catch(() => {});
+    await signOutAll();
+  }
+});
+
+test("suppression définitive : refus sans association ni type non pris en charge", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
+  await assert.rejects(() => store.deleteOfficial({ type: "proof", id: "supp-inexistant", actorUid: adminUid }), /n'existe plus/);
+  await assert.rejects(() => store.deleteOfficial({ type: "transcription", id: "t", actorUid: adminUid }), /réservée aux preuves et aux sources/);
+  await assert.rejects(() => store.deleteOfficial({ type: "proof", id: "supp-x", actorUid: "" }), /authentifié/);
+  await signOutAll();
 });

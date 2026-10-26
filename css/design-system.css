@@ -2552,6 +2552,8 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .proof-relation-options { display: flex; flex-wrap: wrap; gap: var(--space-3); }
 .proof-relation-options label { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-touch); }
 .proof-source-unknown { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--control-touch); margin-top: var(--space-1); }
+.permanent-delete-details { display: grid; gap: var(--space-1); margin: var(--space-2) 0 0; padding-left: var(--space-4); color: var(--color-text-muted); font-size: var(--text-sm); }
+.document-unified-actions .btn.danger { justify-self: start; }
 .proof-source-value-field { display: grid; gap: var(--space-1); }
 .proof-source-value-field .field-error { margin-top: var(--space-1); }
 @media (max-width: 760px) {

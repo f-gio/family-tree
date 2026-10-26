@@ -78,7 +78,12 @@ export function createGenealogyProof({
   nonEmpty(id, "proof.id");
   nonEmpty(factId, "proof.factId");
   nonEmpty(factType, "proof.factType");
-  nonEmpty(documentId, "proof.documentId");
+  if (documentId === null) {
+    if (pageId !== null || passageId !== null || transcriptionRevisionId !== null) throw new TypeError("Une page, un passage ou une révision de transcription exige un document d'origine");
+    if (photographId !== null) throw new TypeError("Une photographie exige un document d'origine");
+  } else {
+    nonEmpty(documentId, "proof.documentId");
+  }
   if (pageId !== null) nonEmpty(pageId, "proof.pageId");
   if (passageId !== null) nonEmpty(passageId, "proof.passageId");
   if (transcriptionRevisionId !== null) nonEmpty(transcriptionRevisionId, "proof.transcriptionRevisionId");
@@ -91,8 +96,8 @@ export function createGenealogyProof({
   const zoneErrors = validateZone(zone);
   if (zoneErrors.length) throw new TypeError(zoneErrors.join("; "));
   if (zone !== null && photographId !== zone.photographId) throw new TypeError("La zone et la preuve doivent référencer la même photographie");
-  if (!Array.isArray(personIds) || !personIds.length || personIds.some(personId => typeof personId !== "string" || !personId.trim())) {
-    throw new TypeError("proof.personIds doit contenir au moins un identifiant de personne");
+  if (!Array.isArray(personIds) || personIds.some(personId => typeof personId !== "string" || !personId.trim())) {
+    throw new TypeError("proof.personIds doit être un tableau d'identifiants de personnes ; le tableau peut être vide");
   }
   if (new Set(personIds).size !== personIds.length) throw new TypeError("proof.personIds ne peut pas contenir de doublons");
   if (citationIt !== null && typeof citationIt !== "string") throw new TypeError("citationIt doit être une chaîne ou null");
@@ -134,10 +139,14 @@ export function createGenealogyProof({
 export function validateGenealogyProof(proof) {
   const errors = [];
   if (!proof || typeof proof !== "object" || Array.isArray(proof)) return { valid: false, errors: ["La preuve doit être un objet"] };
-  for (const [value, label] of [[proof.id, "id"], [proof.factId, "factId"], [proof.factType, "factType"], [proof.documentId, "documentId"]]) {
+  for (const [value, label] of [[proof.id, "id"], [proof.factId, "factId"], [proof.factType, "factType"]]) {
     if (typeof value !== "string" || !value.trim()) errors.push(`${label} doit être une chaîne non vide`);
   }
-  if (!Array.isArray(proof.personIds) || !proof.personIds.length || proof.personIds.some(id => typeof id !== "string" || !id.trim())) errors.push("personIds doit contenir au moins une personne");
+  if (proof.documentId !== null && (typeof proof.documentId !== "string" || !proof.documentId.trim())) errors.push("documentId doit être une chaîne non vide ou null");
+  if (proof.documentId == null && (proof.pageId != null || proof.passageId != null || proof.transcriptionRevisionId != null || proof.photographId != null)) {
+    errors.push("pageId, passageId, photographId et transcriptionRevisionId exigent un document d'origine");
+  }
+  if (!Array.isArray(proof.personIds) || proof.personIds.some(id => typeof id !== "string" || !id.trim())) errors.push("personIds doit être un tableau d'identifiants de personnes");
   if (Array.isArray(proof.personIds) && new Set(proof.personIds).size !== proof.personIds.length) errors.push("personIds contient des doublons");
   if (proof.pageId !== null && (typeof proof.pageId !== "string" || !proof.pageId.trim())) errors.push("pageId doit être une chaîne non vide ou null");
   if (proof.passageId != null && (typeof proof.passageId !== "string" || !proof.passageId.trim())) errors.push("passageId doit être une chaîne non vide ou null");
