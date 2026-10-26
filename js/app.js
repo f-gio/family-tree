@@ -5080,9 +5080,17 @@ function renderUnifiedDocumentDetails(item) {
       }).join("")
         : `<p class="document-unified-notice">Aucune source officielle n’est associée à cette fiche.</p>`;
   const sourceActions = isAdminUser()
-    ? `<div class="document-unified-source-actions">${linkedSources.length ? `<button class="btn small" type="button" data-manage-sources-from-document="${esc(item.id)}">Gérer les associations</button>` : ""}<button class="btn small" type="button" data-create-source-from-document="${esc(item.id)}">Ajouter une source officielle</button></div>`
+    ? linkedSources.length
+      ? `<div class="document-unified-source-actions"><button class="btn small" type="button" data-manage-sources-from-document="${esc(item.id)}">Gérer les associations</button></div>`
+      : `<div class="document-unified-source-actions"><button class="btn small" type="button" data-create-source-from-document="${esc(item.id)}">Ajouter une source officielle</button></div>`
     : "";
   $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations documentaires</h4><button class="btn small" type="button" data-unified-document-edit="${esc(item.id)}">Modifier</button></div>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}${sourceActions}</section>`;
+}
+
+function refreshUnifiedDetailsIfOpen() {
+  if (!$("documentViewerDialog").open || !activeViewerDocumentId) return;
+  const documentItem = documents.find(item => item.id === activeViewerDocumentId);
+  if (documentItem) renderUnifiedDocumentDetails(documentItem);
 }
 
 function reopenUnifiedDocumentAfter(dialogId) {
@@ -7088,8 +7096,14 @@ $("viewerDocumentDetails").addEventListener("click", event => {
   const manageSources = event.target.closest("[data-manage-sources-from-document]");
   if (manageSources) return renderDocumentSourceManager(manageSources.dataset.manageSourcesFromDocument);
 });
-$("genealogyItemDialog").addEventListener("close", () => reopenUnifiedDocumentAfter("genealogyItemDialog"));
-$("genealogyContributionDialog").addEventListener("close", () => reopenUnifiedDocumentAfter("genealogyContributionDialog"));
+$("genealogyItemDialog").addEventListener("close", () => {
+  if (reopenUnifiedDocumentAfter("genealogyItemDialog")) return;
+  refreshUnifiedDetailsIfOpen();
+});
+$("genealogyContributionDialog").addEventListener("close", () => {
+  if (reopenUnifiedDocumentAfter("genealogyContributionDialog")) return;
+  refreshUnifiedDetailsIfOpen();
+});
 $("genealogyItemContent").addEventListener("click", event => {
   const managedSourceOpen = event.target.closest("[data-managed-source-open]");
   if (managedSourceOpen) {
