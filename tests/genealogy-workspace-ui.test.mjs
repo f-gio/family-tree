@@ -390,7 +390,10 @@ test("la fiche unifiée du document réutilise le viewer et affiche métadonnée
 test("la fiche document unifiée raccorde l'ajout et la gestion de Source officielle pour les administrateurs", () => {
   const unified = app.match(/function renderUnifiedDocumentDetails\(item\)[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(unified.length > 500);
-  assert.match(unified, /isAdminUser\(\)\s+\?\s+`<div class="document-unified-source-actions">/);
+  assert.match(unified, /isAdminUser\(\)\s+\?\s+linkedSources\.length/);
+  assert.match(unified, /linkedSources\.length\s+\?\s*`<div class="document-unified-source-actions"><button[^`]*data-manage-sources-from-document[^`]*<\/button><\/div>`\s*:\s*`<div class="document-unified-source-actions"><button[^`]*data-create-source-from-document[^`]*<\/button><\/div>`/);
+  assert.match(app, /function refreshUnifiedDetailsIfOpen\(\) \{[\r\n\s]*if \(!\$\("documentViewerDialog"\)\.open/);
+  assert.match(app, /\$\("genealogyItemDialog"\)\.addEventListener\("close", \(\) => \{[\r\n\s]*if \(reopenUnifiedDocumentAfter\("genealogyItemDialog"\)\) return;[\r\n\s]*refreshUnifiedDetailsIfOpen\(\);/);
   assert.match(unified, /data-create-source-from-document="\$\{esc\(item\.id\)\}"/);
   assert.match(unified, /data-manage-sources-from-document="\$\{esc\(item\.id\)\}"/);
   assert.match(app, /\$\("viewerDocumentDetails"\)\.addEventListener\("click"/);
