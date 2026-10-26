@@ -387,6 +387,19 @@ test("la fiche unifiée du document réutilise le viewer et affiche métadonnée
   assert.match(app, /openStoredDocument\(item, "documents"\)/);
 });
 
+test("la fiche document unifiée raccorde l'ajout et la gestion de Source officielle pour les administrateurs", () => {
+  const unified = app.match(/function renderUnifiedDocumentDetails\(item\)[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(unified.length > 500);
+  assert.match(unified, /isAdminUser\(\)\s+\?\s+`<div class="document-unified-source-actions">/);
+  assert.match(unified, /data-create-source-from-document="\$\{esc\(item\.id\)\}"/);
+  assert.match(unified, /data-manage-sources-from-document="\$\{esc\(item\.id\)\}"/);
+  assert.match(app, /\$\("viewerDocumentDetails"\)\.addEventListener\("click"/);
+  assert.match(app, /closest\("\[data-create-source-from-document\]"\);[\r\n\s]*if \(createSource\) return openOfficialSourceFromDocument\(createSource\.dataset\.createSourceFromDocument\)/);
+  assert.match(app, /closest\("\[data-manage-sources-from-document\]"\);[\r\n\s]*if \(manageSources\) return renderDocumentSourceManager\(manageSources\.dataset\.manageSourcesFromDocument\)/);
+  assert.match(app, /function openOfficialSourceFromDocument\(documentId\)/);
+  assert.match(app, /function renderDocumentSourceManager\(documentId\)/);
+});
+
 test("la fiche unifiée permet de modifier document, source et naviguer vers les personnes", () => {
   assert.match(app, /data-unified-document-edit=/);
   assert.match(app, /data-unified-person=/);

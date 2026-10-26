@@ -5079,7 +5079,10 @@ function renderUnifiedDocumentDetails(item) {
         return `<details class="document-unified-source"><summary class="document-unified-source-head"><strong>${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</strong><span class="genealogy-status-badge">${archived ? "Archivée" : "Active"}</span></summary>${sourceDetailFactsMarkup(sourceData)}<div class="document-unified-source-actions"><button class="btn small" type="button" data-unified-source-open="${esc(source.id)}">Consulter la source</button>${isAdminUser() ? `<button class="btn small" type="button" data-unified-source-revise="${esc(source.id)}">Modifier la source</button>` : ""}</div></details>`;
       }).join("")
         : `<p class="document-unified-notice">Aucune source officielle n’est associée à cette fiche.</p>`;
-  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations documentaires</h4><button class="btn small" type="button" data-unified-document-edit="${esc(item.id)}">Modifier</button></div>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}</section>`;
+  const sourceActions = isAdminUser()
+    ? `<div class="document-unified-source-actions">${linkedSources.length ? `<button class="btn small" type="button" data-manage-sources-from-document="${esc(item.id)}">Gérer les associations</button>` : ""}<button class="btn small" type="button" data-create-source-from-document="${esc(item.id)}">Ajouter une source officielle</button></div>`
+    : "";
+  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations documentaires</h4><button class="btn small" type="button" data-unified-document-edit="${esc(item.id)}">Modifier</button></div>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}${sourceActions}</section>`;
 }
 
 function reopenUnifiedDocumentAfter(dialogId) {
@@ -7080,6 +7083,10 @@ $("viewerDocumentDetails").addEventListener("click", event => {
   if (openSource) return openUnifiedSource(activeViewerDocumentId, openSource.dataset.unifiedSourceOpen);
   const reviseSource = event.target.closest("[data-unified-source-revise]");
   if (reviseSource) return openUnifiedSource(activeViewerDocumentId, reviseSource.dataset.unifiedSourceRevise, true);
+  const createSource = event.target.closest("[data-create-source-from-document]");
+  if (createSource) return openOfficialSourceFromDocument(createSource.dataset.createSourceFromDocument);
+  const manageSources = event.target.closest("[data-manage-sources-from-document]");
+  if (manageSources) return renderDocumentSourceManager(manageSources.dataset.manageSourcesFromDocument);
 });
 $("genealogyItemDialog").addEventListener("close", () => reopenUnifiedDocumentAfter("genealogyItemDialog"));
 $("genealogyContributionDialog").addEventListener("close", () => reopenUnifiedDocumentAfter("genealogyContributionDialog"));
