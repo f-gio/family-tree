@@ -50,6 +50,12 @@ async function expectDenied(promise) {
   });
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+}
+
 // ─── Bootstrap émulateur ─────────────────────────────────────────────────────
 before(async () => {
   // Clé API factice et dédiée aux émulateurs : jamais une clé réelle ; l'émulateur
@@ -1834,4 +1840,178 @@ test("suppression définitive : refus sans association ni type non pris en charg
   await assert.rejects(() => store.deleteOfficial({ type: "transcription", id: "t", actorUid: adminUid }), /réservée aux preuves et aux sources/);
   await assert.rejects(() => store.deleteOfficial({ type: "proof", id: "supp-x", actorUid: "" }), /authentifié/);
   await signOutAll();
+});
+
+test("suppression définitive : une révision concurrente est refusée sous verrou", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
+  const proofId = "supp-race-proof";
+  const proofData = {
+    id: proofId, factId: "fact-race-proof", factType: "death.date", personIds: [], documentId: null,
+    pageId: null, passageId: null, transcriptionRevisionId: null, photographId: null, zone: null,
+    citation: { textIt: null, translationFr: null }, sourceValue: null, relation: "supports",
+    interpretation: "", technicalStatus: "active"
+  };
+  const collectionStarted = deferred();
+  const continueCollection = deferred();
+  const revisionRead = deferred();
+  const continueRevision = deferred();
+  let paused = false;
+  const deletionStore = createGenealogyCollaborationStore(db, {
+    doc, runTransaction, serverTimestamp, collection, query, where,
+    getDocs: async target => {
+      if (!paused) {
+        paused = true;
+        collectionStarted.resolve();
+        await continueCollection.promise;
+      }
+      return getDocs(target);
+    }
+  });
+  const pausingTransactionStore = createGenealogyCollaborationStore(db, {
+    doc, serverTimestamp, collection, query, where, getDocs,
+    runTransaction: (database, updateFunction) => runTransaction(database, transaction => updateFunction({
+      get: async reference => {
+        const snapshot = await transaction.get(reference);
+        revisionRead.resolve();
+        await continueRevision.promise;
+        return snapshot;
+      },
+      set: (...args) => transaction.set(...args),
+      update: (...args) => transaction.update(...args),
+      delete: (...args) => transaction.delete(...args)
+    }))
+  });
+  let deletion;
+  let revision;
+  try {
+    await store.createOfficial({ type: "proof", id: proofId, revisionId: "supp-race-proof-r1", eventId: "supp-race-proof-e1", data: proofData, actorUid: adminUid });
+    revision = pausingTransactionStore.reviseOfficial({
+      type: "proof", id: proofId, revisionId: "supp-race-proof-r2", eventId: "supp-race-proof-e2",
+      data: { ...proofData, interpretation: "révision concurrente" }, reason: "Test concurrence", actorUid: adminUid
+    });
+    await revisionRead.promise;
+    deletion = deletionStore.deleteOfficial({ type: "proof", id: proofId, actorUid: adminUid });
+    await collectionStarted.promise;
+    assert.equal((await getDoc(doc(db, "officialDeletionLocks", "proof", "objects", proofId))).exists(), true, "le verrou précède la collecte");
+    continueRevision.resolve();
+    await expectDenied(revision);
+    continueCollection.resolve();
+    const result = await deletion;
+    assert.equal(result.deleted, true, "la suppression verrouillée réussit après la collecte");
+    assert.equal((await getDoc(doc(db, "genealogyProofs", proofId))).exists(), false, "head supprimé");
+    assert.equal((await getDocs(query(collection(db, "genealogyProofRevisions"), where("objectId", "==", proofId)))).size, 0, "aucune révision orpheline");
+    assert.equal((await getDocs(query(collection(db, "genealogyEvents"), where("objectId", "==", proofId)))).size, 0, "aucun événement orphelin");
+    assert.equal((await getDoc(doc(db, "officialDeletionLocks", "proof", "objects", proofId))).exists(), false, "verrou retiré avec la suppression");
+  } finally {
+    continueRevision.resolve();
+    continueCollection.resolve();
+    await revision?.catch(() => {});
+    await deletion?.catch(() => {});
+    await store.deleteOfficial({ type: "proof", id: proofId, actorUid: adminUid }).catch(() => {});
+    await signOutAll();
+  }
+});
+
+test("suppression définitive : une nouvelle dépendance Source → Preuve est refusée sous verrou", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
+  const sourceId = "supp-race-source";
+  const sourceData = { id: sourceId, title: "Source verrouillée", documentIds: [], personIds: [], status: "active" };
+  const proofId = "supp-race-dependent-proof";
+  const proofData = {
+    id: proofId, factId: "fact-race-dependent", factType: "birth.date", personIds: [], documentId: sourceId,
+    pageId: null, passageId: null, transcriptionRevisionId: null, photographId: null, zone: null,
+    citation: { textIt: null, translationFr: null }, sourceValue: null, relation: "supports",
+    interpretation: "", technicalStatus: "active"
+  };
+  const dependencyQueryStarted = deferred();
+  const continueCollection = deferred();
+  const creationRead = deferred();
+  const continueCreation = deferred();
+  const deletionStore = createGenealogyCollaborationStore(db, {
+    doc, runTransaction, serverTimestamp, collection, query, where,
+    getDocs: async target => {
+      dependencyQueryStarted.resolve();
+      await continueCollection.promise;
+      return getDocs(target);
+    }
+  });
+  const pausingTransactionStore = createGenealogyCollaborationStore(db, {
+    doc, serverTimestamp, collection, query, where, getDocs,
+    runTransaction: (database, updateFunction) => runTransaction(database, transaction => updateFunction({
+      get: async reference => {
+        const snapshot = await transaction.get(reference);
+        creationRead.resolve();
+        await continueCreation.promise;
+        return snapshot;
+      },
+      set: (...args) => transaction.set(...args),
+      update: (...args) => transaction.update(...args),
+      delete: (...args) => transaction.delete(...args)
+    }))
+  });
+  let deletion;
+  let proofCreation;
+  try {
+    await store.createOfficial({ type: "source", id: sourceId, revisionId: "supp-race-source-r1", eventId: "supp-race-source-e1", data: sourceData, actorUid: adminUid });
+    proofCreation = pausingTransactionStore.createOfficial({
+      type: "proof", id: proofId, revisionId: "supp-race-dependent-r1", eventId: "supp-race-dependent-e1",
+      data: proofData, actorUid: adminUid
+    });
+    await creationRead.promise;
+    deletion = deletionStore.deleteOfficial({ type: "source", id: sourceId, actorUid: adminUid });
+    await dependencyQueryStarted.promise;
+    assert.equal((await getDoc(doc(db, "officialDeletionLocks", "source", "objects", sourceId))).exists(), true, "le verrou Source est acquis avant la recherche des dépendances");
+    continueCreation.resolve();
+    await expectDenied(proofCreation);
+    assert.equal((await getDoc(doc(db, "genealogyProofs", proofId))).exists(), false, "la tentative refusée ne crée pas de head partiel");
+    assert.equal((await getDoc(doc(db, "genealogyProofRevisions", "supp-race-dependent-r1"))).exists(), false, "la tentative refusée ne crée pas de révision orpheline");
+    assert.equal((await getDoc(doc(db, "genealogyEvents", "supp-race-dependent-e1"))).exists(), false, "la tentative refusée ne crée pas d'événement partiel");
+    continueCollection.resolve();
+    const result = await deletion;
+    assert.equal(result.deleted, true, "la source isolée est supprimée après la recherche verrouillée");
+    assert.equal((await getDoc(doc(db, "sourceDocuments", sourceId))).exists(), false, "source supprimée");
+    assert.equal((await getDocs(query(collection(db, "genealogyProofs"), where("data.documentId", "==", sourceId)))).size, 0, "aucune preuve ne référence une source absente");
+    assert.equal((await getDocs(query(collection(db, "sourceRevisions"), where("objectId", "==", sourceId)))).size, 0, "aucune révision de source orpheline");
+  } finally {
+    continueCreation.resolve();
+    continueCollection.resolve();
+    await proofCreation?.catch(() => {});
+    await deletion?.catch(() => {});
+    await store.deleteOfficial({ type: "proof", id: proofId, actorUid: adminUid }).catch(() => {});
+    await store.deleteOfficial({ type: "source", id: sourceId, actorUid: adminUid }).catch(() => {});
+    await signOutAll();
+  }
+});
+
+test("suppression définitive : une erreur de collecte ne présente pas une suppression partielle", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
+  const proofId = "supp-query-failure-proof";
+  const proofData = {
+    id: proofId, factId: "fact-query-failure", factType: "death.date", personIds: [], documentId: null,
+    pageId: null, passageId: null, transcriptionRevisionId: null, photographId: null, zone: null,
+    citation: { textIt: null, translationFr: null }, sourceValue: null, relation: "supports",
+    interpretation: "", technicalStatus: "active"
+  };
+  try {
+    await store.createOfficial({ type: "proof", id: proofId, revisionId: "supp-query-failure-r1", eventId: "supp-query-failure-e1", data: proofData, actorUid: adminUid });
+    const failingStore = createGenealogyCollaborationStore(db, {
+      doc, runTransaction, serverTimestamp, collection, query, where,
+      getDocs: async () => { throw new Error("Échec de lecture simulé"); }
+    });
+    await assert.rejects(
+      () => failingStore.deleteOfficial({ type: "proof", id: proofId, actorUid: adminUid }),
+      /Échec de lecture simulé/,
+      "l'appel ne retourne pas un succès si la collecte échoue"
+    );
+    assert.equal((await getDoc(doc(db, "genealogyProofs", proofId))).exists(), true, "le head est conservé");
+    assert.equal((await getDoc(doc(db, "genealogyProofRevisions", "supp-query-failure-r1"))).exists(), true, "la révision est conservée");
+    assert.equal((await getDoc(doc(db, "officialDeletionLocks", "proof", "objects", proofId))).exists(), false, "le verrou est libéré après l'échec");
+    assert.equal((await getDoc(doc(db, "genealogyEvents", "supp-query-failure-e1"))).exists(), true, "l'événement est conservé");
+  } finally {
+    await store.deleteOfficial({ type: "proof", id: proofId, actorUid: adminUid }).catch(() => {});
+    await signOutAll();
+  }
 });
