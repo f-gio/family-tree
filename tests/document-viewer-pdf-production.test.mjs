@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { chromium, webkit } from "playwright";
 
 const DIST = resolve("dist-production");
@@ -61,6 +61,10 @@ await new Promise((listen, reject) => {
   server.once("error", reject);
   server.listen(0, "127.0.0.1", listen);
 });
+after(() => new Promise(resolve => {
+  server.closeAllConnections?.();
+  server.close(() => resolve());
+}));
 const baseUrl = `http://127.0.0.1:${server.address().port}`;
 const builtHtml = await readFile(join(DIST, "index.html"), "utf8");
 const spriteStart = builtHtml.indexOf('<svg class="svg-sprite"');
