@@ -20,7 +20,7 @@ The Firestore database holds **real production genealogical data** (people, rela
 - `js/app.js` (~2200 lines) — entrypoint: Firebase init, auth, tree/directory/documents/tasks views, person modal, backup/restore, admin.
 - Other `js/*.js` are ES modules imported by `app.js`: `tree-layout|tree-renderer|tree-camera` (canvas tree), `family-relations`, `genealogy-date`, `directory-utils`, `document-utils`, `ui-components`, `form-ui`, `location-autocomplete`, `place-format`.
 - `firestore.rules` — copied/published via Firebase Console (Firestore → Rules), not served by the app.
-- Root `*.md` = per-feature design/QA docs (DESIGN_SYSTEM, INTERACTIONS, MODALS_FORMS, RESPONSIVE_ACCESSIBILITY, GEONAMES, `*_QA_REPORT.md`). Big features are expected to ship a report + tests; follow this pattern.
+- Root `*.md` = per-feature design/QA docs (`DESIGN_SYSTEM.md`, INTERACTIONS, MODALS_FORMS, RESPONSIVE_ACCESSIBILITY, GEONAMES, `*_QA_REPORT.md`). Big features are expected to ship a report + tests; follow this pattern. Historical session handovers live in `docs/archive/`.
 
 ## Backend constraints (Spark free tier)
 - Firestore only: **no Cloud Functions, no Firebase Storage**. Firebase JS SDK v12 comes from ES imports of `https://www.gstatic.com/firebasejs/12.2.1/...`; JSZip is dynamically imported from jsDelivr only during backup/restore.
