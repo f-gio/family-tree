@@ -70,3 +70,4 @@ node_modules/
 
 # Artefact local à liste blanche pour Firebase Hosting Recette
 /dist-recette/
+/dist-production/

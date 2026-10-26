@@ -7191,6 +7191,14 @@ $("clearTaskSearchBtn").onclick = () => {
 };
 syncSearchClearBtn("directorySearch", "clearDirectorySearchBtn");
 syncSearchClearBtn("taskSearch", "clearTaskSearchBtn");
+const viewerImageMedia = window.matchMedia("(max-width: 760px)");
+const onViewerImageMediaChange = () => { if (viewerImageState && !$("viewerImage").hidden) arrangeViewerImageChrome(); };
+if (typeof viewerImageMedia.addEventListener === "function") viewerImageMedia.addEventListener("change", onViewerImageMediaChange);
+else if (typeof viewerImageMedia.addListener === "function") viewerImageMedia.addListener(onViewerImageMediaChange);
+const viewerPdfMedia = window.matchMedia("(max-width: 760px)");
+const onViewerPdfMediaChange = () => { if (viewerPdfState) arrangePdfChrome(); };
+if (typeof viewerPdfMedia.addEventListener === "function") viewerPdfMedia.addEventListener("change", onViewerPdfMediaChange);
+else if (typeof viewerPdfMedia.addListener === "function") viewerPdfMedia.addListener(onViewerPdfMediaChange);
 $("documentViewerDialog").addEventListener("close", () => {
   activeViewerDocumentId = "";
   viewerImageState?.destroy();
@@ -7207,6 +7215,8 @@ $("documentViewerDialog").addEventListener("close", () => {
   activeViewerUrl = "";
   $("viewerFrame").removeAttribute("src");
   $("viewerImage").removeAttribute("src");
+  $("viewerImage").onload = null;
+  $("viewerImage").removeAttribute("style");
   $("viewerExternalBtn").removeAttribute("href");
   $("viewerExternalBtn").hidden = true;
 });
