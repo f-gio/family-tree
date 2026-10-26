@@ -8,15 +8,32 @@ const MAX_CANVAS_PIXELS = 20_000_000;
 const MAX_THUMBNAILS_RENDERING = 1;
 
 export async function createDocumentPdfViewer({
-  source, viewer, loadingMessage, thumbnailRail, thumbnailList, pageViewport, pageCanvas, pageStatus,
-  previousButton, nextButton, zoomOutButton, zoomInButton, fitModeButton, thumbnailsButton,
-  fullscreenButton, fullscreenHost, fullscreenRoot, zoomIndicator, bindingRoot, maxZoom = 6
+  source,
+  viewer,
+  loadingMessage,
+  thumbnailRail,
+  thumbnailList,
+  pageViewport,
+  pageCanvas,
+  pageStatus,
+  previousButton,
+  nextButton,
+  zoomOutButton,
+  zoomInButton,
+  fitModeButton,
+  thumbnailsButton,
+  fullscreenButton,
+  fullscreenHost,
+  fullscreenRoot,
+  zoomIndicator,
+  nativeFallbackMessage,
+  bindingRoot,
+  maxZoom = 6
 } = {}) {
   if (!source || !viewer || !pageViewport || !pageCanvas) throw new TypeError("Les éléments du lecteur PDF sont requis");
 
   const doc = viewer.ownerDocument;
   const win = doc.defaultView || globalThis;
-  const toolbar = previousButton?.closest("#viewerPdfControls");
   const delegatedRoot = bindingRoot || previousButton?.closest("#documentViewerDialog") || doc;
   const fullscreenElement = fullscreenRoot || fullscreenHost || viewer;
   const fullscreenDocument = fullscreenHost?.ownerDocument || doc;
@@ -31,11 +48,13 @@ export async function createDocumentPdfViewer({
   let thumbnailQueue = [];
   let thumbnailTasks = new Map();
   let activeThumbnailRenders = 0;
+  let fullscreenStyleSnapshots = null;
   let destroyed = false;
   let currentPage = 1;
   let zoom = 1;
   let fitMode = "page";
   let pdfScale = 1;
+  let mainPageProxy = null;
   let pinch = null;
   let fallbackReason = "";
 
@@ -96,11 +115,11 @@ export async function createDocumentPdfViewer({
     return true;
   }
 
+  function onFullscreenButtonClick() { void toggleFullscreen(); }
   function onFullscreenChange() {
     if (nativeFullscreenActive()) setFullscreen(true);
     else if (fullscreenElement.classList.contains("is-viewer-fullscreen") && !fullscreenElement.classList.contains("is-viewer-fullscreen-fallback")) setFullscreen(false);
   }
-
   function onKeydown(event) {
     if (event.key !== "Escape" || !fullscreenElement.classList.contains("is-viewer-fullscreen")) return;
     event.preventDefault();
@@ -133,7 +152,8 @@ export async function createDocumentPdfViewer({
     previousButton.disabled = currentPage <= 1;
     nextButton.disabled = currentPage >= pdfDocument.numPages;
     for (const button of thumbnailList.querySelectorAll("[data-pdf-page]")) {
-      if (Number(button.dataset.pdfPage) === currentPage) button.setAttribute("aria-current", "page");
+      const selected = Number(button.dataset.pdfPage) === currentPage;
+      if (selected) button.setAttribute("aria-current", "page");
       else button.removeAttribute("aria-current");
     }
     setFitModeButton();
@@ -151,6 +171,7 @@ export async function createDocumentPdfViewer({
     const ratioY = preservePoint?.ratioY ?? (previousRect.height ? (point.y + viewportRect.top - previousRect.top) / previousRect.height : 0.5);
     const page = await pdfDocument.getPage(currentPage);
     if (destroyed || generation !== renderGeneration) return;
+    mainPageProxy = page;
     const containerWidth = Math.max(1, pageViewport.clientWidth - 32);
     const containerHeight = Math.max(1, pageViewport.clientHeight - 32);
     const baseViewport = page.getViewport({ scale: 1 });
@@ -167,8 +188,9 @@ export async function createDocumentPdfViewer({
     context.setTransform(outputScale, 0, 0, outputScale, 0, 0);
     const renderTask = page.render({ canvas: pageCanvas, canvasContext: context, viewport, background: "#fff" });
     activeRenderTask = renderTask;
-    try { await renderTask.promise; }
-    catch (error) {
+    try {
+      await renderTask.promise;
+    } catch (error) {
       if (error?.name !== "RenderingCancelledException") throw error;
       return;
     } finally {
@@ -189,7 +211,9 @@ export async function createDocumentPdfViewer({
     console.error("Rendu PDF impossible", error);
   }
 
-  function startRender(options) { void renderPage(options).catch(reportRenderError); }
+  function startRender(options) {
+    void renderPage(options).catch(reportRenderError);
+  }
 
   function enqueueThumbnail(pageNumber) {
     const button = thumbnailList.querySelector(`[data-pdf-page="${pageNumber}"]`);
@@ -219,7 +243,10 @@ export async function createDocumentPdfViewer({
     try {
       await task.promise;
       if (!destroyed && (button.dataset.visible === "true" || pageNumber === currentPage)) button.dataset.rendered = "true";
-      else { canvas.width = 0; canvas.height = 0; }
+      else {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
     } catch (error) {
       if (error?.name !== "RenderingCancelledException") throw error;
     } finally {
@@ -294,7 +321,6 @@ export async function createDocumentPdfViewer({
     thumbnailsButton.setAttribute("aria-expanded", String(expanded));
     thumbnailsButton.setAttribute("aria-label", expanded ? "Masquer les miniatures" : "Afficher les miniatures");
     thumbnailsButton.title = expanded ? "Masquer les miniatures" : "Afficher les miniatures";
-    thumbnailsButton.querySelector("use")?.setAttribute("href", expanded ? "#icon-panel-collapse" : "#icon-panel-expand");
   }
 
   async function selectPage(pageNumber) {
@@ -307,7 +333,10 @@ export async function createDocumentPdfViewer({
 
   async function updateZoom(nextZoom, focalPoint = null) {
     const next = Math.max(1, Math.min(maxZoom, nextZoom));
-    if (next === zoom && zoomIndicator) { displayZoom(); return; }
+    if (next === zoom && zoomIndicator) {
+      displayZoom();
+      return;
+    }
     zoom = next;
     displayZoom();
     await renderPage({ preservePoint: focalPoint });
@@ -326,7 +355,7 @@ export async function createDocumentPdfViewer({
     requestAnimationFrame(() => startRender());
   }
 
-  function onToolbarClick(event) {
+  function onDelegatedClick(event) {
     if (event.target.closest("#pdfPreviousPageBtn")) void selectPage(currentPage - 1);
     else if (event.target.closest("#pdfNextPageBtn")) void selectPage(currentPage + 1);
     else if (event.target.closest("#pdfZoomInBtn")) void updateZoom(zoom * 1.25);
@@ -337,11 +366,14 @@ export async function createDocumentPdfViewer({
       displayZoom();
       setFitModeButton();
       startRender();
-    } else if (event.target.closest("#pdfThumbnailsBtn")) toggleThumbnails();
-    else if (event.target.closest("#pdfFullscreenBtn")) void toggleFullscreen();
+    } else if (event.target.closest("#pdfFullscreenBtn")) void toggleFullscreen();
   }
 
-  function onToolbarKeydown(event) {
+  function onDelegatedKeydown(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    const inZone = target?.closest("#viewerPdfToolbar,#pdfPageNav,#viewerPdfPageViewport");
+    const isEngineButton = target?.closest("#pdfPreviousPageBtn,#pdfNextPageBtn,#pdfZoomInBtn,#pdfZoomOutBtn,#pdfFitModeBtn,#pdfThumbnailsBtn,#pdfFullscreenBtn");
+    if (!inZone && !isEngineButton) return;
     if (event.key === "ArrowLeft") void selectPage(currentPage - 1);
     else if (event.key === "ArrowRight") void selectPage(currentPage + 1);
     else if (["+", "=", "-", "0"].includes(event.key)) {
@@ -351,7 +383,9 @@ export async function createDocumentPdfViewer({
     }
   }
 
-  function distance(touches) { return Math.hypot(touches[1].clientX - touches[0].clientX, touches[1].clientY - touches[0].clientY); }
+  function distance(touches) {
+    return Math.hypot(touches[1].clientX - touches[0].clientX, touches[1].clientY - touches[0].clientY);
+  }
 
   function onTouchStart(event) {
     if (event.touches.length !== 2) return;
@@ -378,7 +412,9 @@ export async function createDocumentPdfViewer({
     });
   }
 
-  function onTouchEnd(event) { if (event.touches.length < 2) pinch = null; }
+  function onTouchEnd(event) {
+    if (event.touches.length < 2) pinch = null;
+  }
 
   function onWheel(event) {
     if (!event.ctrlKey) return;
@@ -390,8 +426,9 @@ export async function createDocumentPdfViewer({
   function onResize() { startRender(); }
 
   function bindEvents() {
-    delegatedRoot.addEventListener("click", onToolbarClick);
-    delegatedRoot.addEventListener("keydown", onToolbarKeydown);
+    delegatedRoot.addEventListener("click", onDelegatedClick);
+    delegatedRoot.addEventListener("keydown", onDelegatedKeydown);
+    thumbnailsButton?.addEventListener("click", toggleThumbnails);
     fullscreenElement?.addEventListener("keydown", onKeydown);
     fullscreenDocument.addEventListener("fullscreenchange", onFullscreenChange);
     fullscreenDocument.addEventListener("webkitfullscreenchange", onFullscreenChange);
@@ -420,8 +457,9 @@ export async function createDocumentPdfViewer({
     if (thumbnailTimer !== null) win.cancelAnimationFrame(thumbnailTimer);
     if (zoomIndicatorTimer !== null) win.clearTimeout(zoomIndicatorTimer);
     zoomIndicator?.classList.remove("is-visible");
-    delegatedRoot.removeEventListener("click", onToolbarClick);
-    delegatedRoot.removeEventListener("keydown", onToolbarKeydown);
+    delegatedRoot.removeEventListener("click", onDelegatedClick);
+    delegatedRoot.removeEventListener("keydown", onDelegatedKeydown);
+    thumbnailsButton?.removeEventListener("click", toggleThumbnails);
     fullscreenElement?.removeEventListener("keydown", onKeydown);
     fullscreenDocument.removeEventListener("fullscreenchange", onFullscreenChange);
     fullscreenDocument.removeEventListener("webkitfullscreenchange", onFullscreenChange);
@@ -441,15 +479,6 @@ export async function createDocumentPdfViewer({
     pdfDocument = null;
   }
 
-  function destroyPdfReaderState() {
-    destroy();
-    viewer.hidden = true;
-    if (loadingMessage) {
-      loadingMessage.hidden = false;
-      loadingMessage.textContent = "Le lecteur PDF interactif n’est pas disponible pour cette ressource.";
-    }
-  }
-
   bindEvents();
   updateThumbnailToggle();
   updateFullscreenButton(false);
@@ -457,9 +486,15 @@ export async function createDocumentPdfViewer({
     const pdfjs = await import(PDFJS_MODULE_URL.href);
     pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL.href;
     loadingTask = pdfjs.getDocument({
-      url: source, cMapUrl: PDFJS_CMAPS_URL, cMapPacked: true,
-      standardFontDataUrl: PDFJS_FONTS_URL, wasmUrl: PDFJS_WASM_URL, iccUrl: PDFJS_ICC_URL,
-      isEvalSupported: false, useSystemFonts: true, canvasMaxAreaInBytes: MAX_CANVAS_PIXELS
+      url: source,
+      cMapUrl: PDFJS_CMAPS_URL,
+      cMapPacked: true,
+      standardFontDataUrl: PDFJS_FONTS_URL,
+      wasmUrl: PDFJS_WASM_URL,
+      iccUrl: PDFJS_ICC_URL,
+      isEvalSupported: false,
+      useSystemFonts: true,
+      canvasMaxAreaInBytes: MAX_CANVAS_PIXELS
     });
     pdfDocument = await loadingTask.promise;
   } catch (error) {
@@ -477,12 +512,23 @@ export async function createDocumentPdfViewer({
   pageStatus.textContent = pageStatus.value;
   buildThumbnails();
   updatePageControls();
-  if (typeof win.ResizeObserver === "function") resizeObserver?.observe(pageViewport);
+  if (typeof win.ResizeObserver === "function") {
+    resizeObserver?.observe(pageViewport);
+  }
   try { await renderPage(); }
   catch (error) {
     fallbackReason = error?.message || "Rendu PDF impossible";
     destroyPdfReaderState();
     return Object.freeze({ fallback: true, error: fallbackReason, destroy });
+  }
+
+  function destroyPdfReaderState() {
+    destroy();
+    viewer.hidden = true;
+    if (loadingMessage) {
+      loadingMessage.hidden = false;
+      loadingMessage.textContent = "Le lecteur PDF interactif n’est pas disponible pour cette ressource.";
+    }
   }
 
   return Object.freeze({

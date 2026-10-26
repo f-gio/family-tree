@@ -25,7 +25,7 @@ test("Documents : les personnes restent affichées et seules les pièces consult
   assert.match(render, /document-card-people/);
   assert.match(render, /tileContextMenuMarkup\("document", item\.id[\s\S]*?label: "Modifier"[\s\S]*?label: "Supprimer"/);
   assert.match(app, /removeDocument\(id = \$\("documentId"\)\.value\)/);
-  assert.match(app, /openStoredDocument\(item\);/);
+  assert.match(app, /openStoredDocument\(item, "documents"\)/);
 });
 
 test("Démarches : la fiche s'ouvre par activation principale, sans suppression risquée du dossier", () => {

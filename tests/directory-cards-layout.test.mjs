@@ -12,6 +12,10 @@ test("Annuaire en cartes : menu près de l’identité et documents en pied, san
   }
   const server = await startStaticServer(ROOT);
   const context = await browser.newContext({ locale: "fr-FR", viewport: { width: 390, height: 844 } });
+  await context.addInitScript(() => {
+    localStorage.setItem("familyTreeDirectoryViewDesktop", "cards");
+    localStorage.setItem("familyTreeDirectoryViewMobile", "cards");
+  });
   await context.route("**/*", async route => {
     const url = route.request().url();
     if (new URL(url).pathname.endsWith("/js/app.js")) {
@@ -22,7 +26,7 @@ test("Annuaire en cartes : menu près de l’identité et documents en pied, san
       source = source.replace(authReadyMarker, `${authReadyMarker}\n    window.__directoryCardsAuthReady = true;`);
       return route.fulfill({
         response,
-        body: `${source}\nwindow.__renderDirectoryCardsFixture = mode => { people = [{ id: "botton", firstName: "Marie-Joséphine", lastName: "Botton", photoUrl: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", birthDateInfo: { type: "between", from: 1901, to: 1902 }, deathDateInfo: { type: "unknown" } }, { id: "conti", firstName: "Robert", middleName: "Louis Albert", lastName: "Conti", birthDateInfo: { type: "exact", value: "1939-04-13" }, deathDateInfo: { type: "exact", value: "2016-02-17" } }, { id: "giovannoni", firstName: "Carlo", middleName: "Andrea Rolando", lastName: "Giovannoni", birthDateInfo: { type: "about", year: 1898 }, deathDateInfo: { type: "unknown" } }, { id: "unknown", firstName: "Ada", lastName: "Rossi", birthDateInfo: { type: "unknown" }, deathDateInfo: { type: "unknown" } }]; documents = [{ id: "d1", personIds: ["conti"] }, { id: "d2", personIds: ["giovannoni"] }, { id: "d3", personIds: ["giovannoni"] }]; viewModes.directory = mode || "cards"; renderDirectory(); };`
+        body: `${source}\nwindow.__renderDirectoryCardsFixture = mode => { people = [{ id: "botton", firstName: "Marie-Joséphine", lastName: "Botton", photoUrl: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", birthDateInfo: { type: "between", from: 1901, to: 1902 }, deathDateInfo: { type: "unknown" } }, { id: "conti", firstName: "Robert", middleName: "Louis Albert", lastName: "Conti", birthDateInfo: { type: "exact", value: "1939-04-13" }, deathDateInfo: { type: "exact", value: "2016-02-17" } }, { id: "giovannoni", firstName: "Carlo", middleName: "Andrea Rolando", lastName: "Giovannoni", birthDateInfo: { type: "about", year: 1898 }, deathDateInfo: { type: "unknown" } }, { id: "unknown", firstName: "Ada", lastName: "Rossi", birthDateInfo: { type: "unknown" }, deathDateInfo: { type: "unknown" } }]; documents = [{ id: "d1", personIds: ["conti"] }, { id: "d2", personIds: ["giovannoni"] }, { id: "d3", personIds: ["giovannoni"] }]; renderDirectory(); setContentMode("directory", mode || "cards", false); };`
       });
     }
     return url.startsWith(server.baseURL) || url.includes("gstatic.com")
@@ -45,7 +49,11 @@ test("Annuaire en cartes : menu près de l’identité et documents en pied, san
     for (const width of [320, 390, 760, 1024]) {
       await t.test(`${width} px`, async tViewport => {
         await page.setViewportSize({ width, height: width <= 390 ? 844 : width === 760 ? 900 : 768 });
-        const cards = await page.evaluate(() => [...document.querySelectorAll("#directoryList.cards-mode .directory-entry")].map(card => {
+        await page.evaluate(() => window.__renderDirectoryCardsFixture("cards"));
+        const cards = await page.evaluate(() => {
+          const entries = [...document.querySelectorAll("#directoryList.cards-mode .directory-entry")];
+          entries.forEach(card => { card.style.contentVisibility = "visible"; });
+          return entries.map(card => {
           const box = element => {
             const rect = element.getBoundingClientRect();
             return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height };
@@ -58,7 +66,6 @@ test("Annuaire en cartes : menu près de l’identité et documents en pied, san
           const dateLines = [...card.querySelectorAll(".directory-birth-date, .directory-death-date")];
           const dateDivider = card.querySelector(".directory-life-divider");
           const mainHeading = main.querySelector("h3");
-          card.style.contentVisibility = "visible";
           return {
             name: mainHeading.textContent,
             card: box(card),
@@ -82,7 +89,8 @@ test("Annuaire en cartes : menu près de l’identité et documents en pied, san
             dateDividerDisplay: getComputedStyle(dateDivider).display,
             overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
           };
-        }));
+          });
+        });
         tViewport.diagnostic(JSON.stringify(cards));
         assert.equal(cards.length, 4, "quatre fiches de démonstration sont rendues");
         for (const card of cards) {

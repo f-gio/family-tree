@@ -287,8 +287,13 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     modeButton.setAttribute("aria-pressed", String(mode === "width"));
   }
 
-  function onFullscreenButtonClick() { void toggleFullscreen(); }
-  function onFullscreenRootKeydown(event) { onFullscreenKeydown(event); }
+  function onFullscreenButtonClick() {
+    void toggleFullscreen();
+  }
+
+  function onFullscreenRootKeydown(event) {
+    onFullscreenKeydown(event);
+  }
 
   viewport.addEventListener("touchstart", onTouchStart, { passive: false });
   viewport.addEventListener("touchmove", onTouchMove, { passive: false });

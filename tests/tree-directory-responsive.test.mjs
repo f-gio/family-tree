@@ -119,15 +119,18 @@ test("les contrôles mobiles de l’Arbre reprennent la largeur et le rythme de 
           assert.ok(Math.abs(measures.tree.cta.x - measures.directory.cta.x) < 0.1, "les CTA partagent le même axe gauche");
           assert.ok(Math.abs(measures.tree.cta.width - measures.directory.cta.width) < 0.1, "le CTA Arbre a la même largeur que celui de l’Annuaire");
           assert.ok(Math.abs(measures.tree.cta.height - measures.directory.cta.height) < 0.1, "les CTA ont la même hauteur");
-          for (const element of [measures.tree.search, measures.tree.treeSelector, measures.tree.branch, measures.tree.shell]) {
+          for (const element of [measures.tree.search, measures.tree.shell]) {
             assert.ok(Math.abs(element.x - measures.directory.cta.x) < 0.1, "recherche, filtre et canvas partagent l’axe du CTA");
             assert.ok(Math.abs(element.width - measures.directory.cta.width) < 0.1, "recherche, filtre et canvas ont la largeur du contenu");
           }
+          assert.ok(Math.abs(measures.tree.treeSelector.x - measures.directory.cta.x) < 0.1, "premier sélecteur aligné au CTA");
+          assert.ok(Math.abs(measures.tree.branch.right - measures.directory.cta.right) < 0.1, "sélecteur de branche aligné au bord du contenu");
+          assert.ok(Math.abs(measures.tree.branch.x - measures.tree.treeSelector.right - 8) < 0.1, "les deux filtres occupent la grille compacte avec l’espace prévu");
           assert.ok(Math.abs(measures.directory.ctaSearchGap - 20) < 0.1, "espace CTA → recherche Annuaire : --space-5");
           assert.ok(Math.abs(measures.tree.ctaSearchGap - measures.directory.ctaSearchGap) < 0.1, "espace CTA → recherche commun");
           assert.ok(Math.abs(measures.directory.searchFilterGap - 8) < 0.1, "espace recherche → filtres Annuaire : --space-2");
           assert.ok(Math.abs(measures.tree.searchTreeGap - measures.directory.searchFilterGap) < 0.1, "espace recherche → arbre : --space-2");
-          assert.ok(Math.abs(measures.tree.treeBranchGap - measures.directory.searchFilterGap) < 0.1, "espace arbre → branche : --space-2");
+          assert.ok(Math.abs(measures.tree.branch.y - measures.tree.treeSelector.y) < 0.1, "les deux filtres compacts restent alignés sur une même rangée");
           assert.equal(measures.tree.filterGap, measures.directory.filterGap, "le rythme de grille reprend celui de l’Annuaire");
           assert.ok(Math.abs(measures.tree.branchCanvasGap - 8) < 0.1, "espace branche → canvas conservé à --space-2");
           assert.ok(measures.tree.status.y >= measures.tree.shell.bottom, "Synchronisé reste sous le canvas");

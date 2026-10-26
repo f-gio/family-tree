@@ -178,6 +178,7 @@ async function resetState(page, baseURL) {
     const search = document.getElementById("directorySearch");
     if (search) search.value = "";
     if (location.href !== baseURL) location.replace(baseURL);
+    else window.scrollTo(0, 0);
   }, baseURL);
 }
 
@@ -439,7 +440,7 @@ async function runViewport(view, page, baseURL) {
   if (!panelInViewport) reportIssue(line, "bloquant", "Panneau des contrôles arbre hors viewport", JSON.stringify(panelBox));
   const shellRect = frame.vp.rect;
   const panelInCanvas = Boolean(panelBox) && panelBox.x >= shellRect.x - 1 && panelBox.y >= shellRect.y - 1 && panelBox.right <= shellRect.right + 1 && panelBox.bottom <= shellRect.bottom + 1;
-  check(`${line} · panneau de contrôles ancré au canvas (dans .tree-shell)`, panelInCanvas);
+  check(`${line} · panneau de contrôles ancré au canvas (dans .tree-shell)`, panelInCanvas, JSON.stringify({ panelBox, shellRect }));
   const zoomInfo = await page.evaluate(() => {
     const r = id => { const b = document.getElementById(id).getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height, right: b.right, bottom: b.bottom }; };
     return { in: r("zoomInBtn"), out: r("zoomOutBtn") };
@@ -518,7 +519,7 @@ async function runViewport(view, page, baseURL) {
   });
   const menuBox = menuBoxes["treeMenu"];
   check(`${line} · menu ouvert au-dessus du bouton ⋯`, Boolean(menuBox && moreBtnBox) && menuBox.bottom <= moreBtnBox.y + 1, menuBox && moreBtnBox ? `bas du menu ${menuBox.bottom.toFixed(0)}px / haut de ⋯ ${moreBtnBox.y.toFixed(0)}px` : "boîtes indisponibles");
-  check(`${line} · menu entièrement dans le canvas`, Boolean(menuBox) && menuBox.x >= shellRect.x - 1 && menuBox.y >= shellRect.y - 1 && menuBox.right <= shellRect.right + 1 && menuBox.bottom <= shellRect.bottom + 1, menuBox ? `${menuBox.x.toFixed(0)},${menuBox.y.toFixed(0)} → ${menuBox.right.toFixed(0)},${menuBox.bottom.toFixed(0)}` : "menu absent");
+  check(`${line} · menu entièrement dans le canvas`, Boolean(menuBox) && menuBox.x >= shellRect.x - 1 && menuBox.y >= shellRect.y - 1 && menuBox.right <= shellRect.right + 1 && menuBox.bottom <= shellRect.bottom + 1, JSON.stringify({ menuBox, shellRect }));
   check(`${line} · menu entièrement dans le viewport`, Boolean(menuBox) && menuBox.x >= -1 && menuBox.y >= -1 && menuBox.right <= view.width + 1 && menuBox.bottom <= view.height + 1, menuBox ? `${menuBox.x.toFixed(0)},${menuBox.y.toFixed(0)} → ${menuBox.right.toFixed(0)},${menuBox.bottom.toFixed(0)}` : "menu absent");
   check(`${line} · menu ouvert n'intersecte pas le zoom`, !boxesOverlap(menuBox, (await page.evaluate(() => window.__treeProbe.controls()))[".zoom-control"]));
   if (mobileLayout) {

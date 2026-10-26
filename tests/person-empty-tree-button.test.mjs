@@ -5,6 +5,16 @@ import { blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./
 
 const hooks = `
 window.__btnHarness = {
+  async ready() {
+    await auth.authStateReady();
+    await new Promise(resolve => {
+      let stop = () => {};
+      let done = false;
+      const finish = () => { if (done) return; done = true; stop(); resolve(); };
+      stop = onAuthStateChanged(auth, user => { if (!user) finish(); });
+      if (done) stop();
+    });
+  },
   setData({ people: records = [], trees = [] } = {}) {
     people = records.map(item => ({ ...item }));
     families = []; documents = []; tasks = [];
@@ -91,6 +101,7 @@ async function openHarness(t, width = 1024) {
   try {
     await page.goto(server.baseURL, { waitUntil: "load" });
     await page.waitForFunction(() => typeof window.__btnHarness === "object");
+    await page.evaluate(() => window.__btnHarness.ready());
     return { page, context, browser, server };
   } catch (error) {
     await context.close(); await browser.close(); await server.close();

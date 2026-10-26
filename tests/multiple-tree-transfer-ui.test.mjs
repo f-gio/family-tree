@@ -8,6 +8,16 @@ window.__multiData = { people: new Map(), families: new Map(), trees: new Map() 
 window.__multiWrites = [];
 window.__multiMode = "success";
 window.__multiHarness = {
+  async ready() {
+    await auth.authStateReady();
+    await new Promise(resolve => {
+      let stop = () => {};
+      let done = false;
+      const finish = () => { if (done) return; done = true; stop(); resolve(); };
+      stop = onAuthStateChanged(auth, user => { if (!user) finish(); });
+      if (done) stop();
+    });
+  },
   seed({ people: persons, families: homes, trees }) {
     window.__multiData = {
       people: new Map(persons.map(item => [item.id, structuredClone(item)])),
@@ -135,6 +145,7 @@ async function openHarness(t) {
   try {
     await page.goto(server.baseURL, { waitUntil: "load" });
     await page.waitForFunction(() => typeof window.__multiHarness === "object");
+    await page.evaluate(() => window.__multiHarness.ready());
     await page.evaluate(data => window.__multiHarness.seed(data), seed);
     return { page, context, browser, server };
   } catch (error) {

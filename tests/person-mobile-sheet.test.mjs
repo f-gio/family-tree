@@ -73,9 +73,16 @@ async function measure(page) {
     const footer = form.querySelector(":scope > .person-actions");
     const panelStyle = getComputedStyle(panel);
     const button = footer.querySelector("#savePersonBtn");
+    const documentSections = ["personDocumentsSection", "personGenealogyEvidenceSection"].map(id => {
+      const section = document.getElementById(id);
+      return { id, hidden: section.hidden, ...rect(section), gap: getComputedStyle(section).rowGap };
+    });
     return {
       viewport: { width: document.documentElement.clientWidth, height: innerHeight },
       dialog: rect(dialog), header: rect(header), tabs: rect(tabs), form: rect(form), panel: rect(panel), footer: rect(footer),
+      documentSections,
+      documentPanelDisplay: getComputedStyle(document.getElementById("personDocumentsPanel")).display,
+      documentPanelGap: getComputedStyle(document.getElementById("personDocumentsPanel")).rowGap,
       maxHeight: getComputedStyle(dialog).maxHeight,
       panelScroll: { height: panel.scrollHeight, clientHeight: panel.clientHeight, top: panel.scrollTop, overflowY: panelStyle.overflowY, overflowX: panelStyle.overflowX, scrollbarWidth: panelStyle.scrollbarWidth, webkitScrollbar: getComputedStyle(panel, "::-webkit-scrollbar").display },
       footerPaddingBottom: parseFloat(getComputedStyle(footer).paddingBottom),
@@ -131,6 +138,14 @@ async function testMobileViewport(browser, server, width, height, t, mode = "edi
         assert.ok(m.footer.height >= 60, "footer avec actions présent");
         assert.ok(m.footerPaddingBottom >= 12, "safe-area bas prévue dans le footer");
         assert.equal(m.rootOverflow, 0, "aucun overflow horizontal");
+        if (key === "documents" && mode === "edit") {
+          const [documentsSection, evidenceSection] = m.documentSections;
+          assert.equal(m.documentPanelDisplay, "grid", "les sections Personne → Documents suivent une grille verticale");
+          assert.equal(m.documentPanelGap, "32px", "32px séparent Documents et Preuves et conclusions");
+          assert.equal(documentsSection.gap, "12px", "12px rythment titre, liste et action des documents");
+          assert.equal(evidenceSection.gap, "12px", "12px rythment titre, liste et action des preuves");
+          assert.ok(evidenceSection.y - documentsSection.bottom >= 31.5, "l’écart mesuré entre les deux sections atteint 32px");
+        }
       });
     }
     if (width === 390 && documentVariants) {
@@ -154,8 +169,10 @@ async function testMobileViewport(browser, server, width, height, t, mode = "edi
             assert.deepEqual(after.header, before.header, "header fixe pendant le scroll");
             assert.deepEqual(after.tabs, before.tabs, "onglets fixes pendant le scroll");
             assert.deepEqual(after.footer, before.footer, "footer fixe pendant le scroll");
+          } else if (count === 0) {
+            assert.equal(before.panelScroll.height, before.panelScroll.clientHeight, "liste vide sans défilement superflu");
           } else {
-            assert.equal(before.panelScroll.height, before.panelScroll.clientHeight, "liste courte sans défilement superflu");
+            assert.ok(before.panelScroll.overflowY === "auto", "le panneau reste scrollable quand la liste légère dépasse légèrement avec l’espacement de 32px");
           }
         });
       }

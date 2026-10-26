@@ -7,9 +7,11 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { deleteApp, initializeApp } from "firebase/app";
 import { getAuth, connectAuthEmulator, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { initializeFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, deleteField, writeBatch, runTransaction, query, where, Bytes } from "firebase/firestore";
+import { initializeFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, deleteField, writeBatch, runTransaction, query, where, Bytes, serverTimestamp } from "firebase/firestore";
 import { FILE_CHUNK_BYTES, splitBytesIntoChunks, concatByteArrays, documentChunkId, sliceIntoBatches, importedDataFields } from "../js/backup-utils.js";
 import { prepareMultipleTreeTransferPlan } from "../js/tree-model.js";
+import { createGenealogyCollaborationStore } from "../js/genealogy-collaboration-firestore.js";
+import { createGenealogyProof, transitionProofStatus } from "../js/genealogy-proofs.js";
 import { assertLocalEmulator, assertFictiveProject, EMULATOR_PROJECT_ID } from "./emulator-guard.mjs";
 
 // GARDE ANTI-PRODUCTION : échoue (rouge) si l'émulateur n'est pas démarré ou non local.
@@ -330,6 +332,49 @@ test("documents : création, lecture et suppression par un admin", async () => {
   assert.equal(snap.data().fileName, "acte.pdf");
   await deleteDoc(ref);
   assert.equal((await getDoc(ref)).exists(), false);
+});
+
+test("SECURITE 8B : un contributeur garde les droits documents historiques mais ne peut pas modifier une preuve officielle", async () => {
+  const legacyDocumentId = "lot8b-legacy-document-contributor";
+  const legacyChunkId = documentChunkId(legacyDocumentId, "legacy-v1", 0);
+  const officialProofId = "lot8b-official-proof-guard";
+  const documentRef = doc(db, "documents", legacyDocumentId);
+  const chunkRef = doc(db, "documentChunks", legacyChunkId);
+  const proofRef = doc(db, "genealogyProofs", officialProofId);
+
+  try {
+    await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await setDoc(documentRef, { title: "Fixture historique de sécurité", notes: "Document témoin" });
+    const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp });
+    await store.createOfficial({
+      type: "proof", id: officialProofId, revisionId: "lot8b-proof-revision", eventId: "lot8b-proof-event",
+      data: { id: officialProofId, factId: "fact-fixture", factType: "birth.date", technicalStatus: "active" },
+      reason: "Fixture locale de sécurité", actorUid: adminUid
+    });
+    await signOutAll();
+    await expectDenied(getDoc(documentRef));
+    const pendingEmail = "documents-pending-emulator@test-fictif.fr";
+    const pendingCredential = await createUserWithEmailAndPassword(auth, pendingEmail, "documents-pending-123");
+    await setDoc(doc(db, "users", pendingCredential.user.uid), {
+      email: pendingEmail, displayName: "Documents pending", photo: "", role: "member", status: "pending"
+    });
+    await expectDenied(getDoc(documentRef));
+    await expectDenied(setDoc(doc(db, "documents", "lot8b-pending-document"), { title: "Création pending refusée" }));
+    await expectDenied(updateDoc(documentRef, { notes: "écriture refusée" }));
+    await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+    await updateDoc(documentRef, { notes: "Modifiable par un contributeur approuvé selon la règle historique" });
+    await setDoc(chunkRef, { documentId: legacyDocumentId, version: "legacy-v1", index: 0, data: Bytes.fromUint8Array(new Uint8Array([1, 2, 3])) });
+    assert.equal((await getDoc(documentRef)).data().notes, "Modifiable par un contributeur approuvé selon la règle historique");
+    await expectDenied(updateDoc(proofRef, { data: { id: officialProofId, factId: "fact-fixture", technicalStatus: "historical" }, version: 2, revisionId: "lot8b-other-revision", updatedAt: serverTimestamp(), updatedBy: memberUid, eventId: "lot8b-other-event" }));
+    await deleteDoc(documentRef);
+    await deleteDoc(chunkRef);
+  } finally {
+    await signOutAll();
+    await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await deleteDoc(documentRef).catch(() => {});
+    await deleteDoc(chunkRef).catch(() => {});
+    await deleteDoc(proofRef).catch(() => {});
+  }
 });
 
 // ─── TÂCHES ─────────────────────────────────────────────────────────────────
@@ -1336,4 +1381,368 @@ test("trees + people : arbre et première personne peuvent être créés atomiqu
   await batch.commit();
   assert.equal((await getDoc(doc(db, "trees", TREE_ATOMIC_ID))).exists(), true);
   assert.equal((await getDoc(doc(db, "people", "tree-person-atomic"))).data().treeId, TREE_ATOMIC_ID);
+});
+
+test("lecture Sources & preuves : les requêtes sans résultat sont des snapshots réussis pour admin et membre approuvé", async () => {
+  const officialCollections = [
+    "sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions",
+    "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyEvents"
+  ];
+  const readEmptyCollections = async () => {
+    for (const name of officialCollections) {
+      const snapshot = await getDocs(query(collection(db, name), where("id", "==", "aucune-entree-fixture-emulator")));
+      assert.equal(snapshot.empty, true, `requête sans résultat sur ${name} acceptée`);
+    }
+  };
+
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await readEmptyCollections();
+  assert.ok((await getDocs(collection(db, "genealogyProposals"))).docs, "admin peut lire les propositions");
+  assert.equal((await getDocs(query(collection(db, "genealogyNotifications"), where("recipientUid", "==", adminUid)))).empty, true,
+    "admin peut recevoir un résultat vide pour sa portée de notifications");
+
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await readEmptyCollections();
+  assert.ok((await getDocs(query(collection(db, "genealogyProposals"), where("authorUid", "==", memberUid)))).docs,
+    "membre approuvé peut lire sa requête de propositions");
+  assert.equal((await getDocs(query(collection(db, "genealogyNotifications"), where("recipientUid", "==", memberUid), where("id", "==", "aucune-entree-fixture-emulator")))).empty, true,
+    "membre approuvé peut lire sa requête de notifications sans résultat");
+});
+
+test("Sécurité Sources & preuves : matrice des accès sur les 11 collections", async () => {
+  const allCollections = [
+    "sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions",
+    "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions",
+    "genealogyProposals", "genealogyEvents", "genealogyNotifications"
+  ];
+
+  // ── Visiteur non authentifié : aucune lecture, aucune écriture ──
+  await signOutAll();
+  for (const name of allCollections.filter(n => n !== "genealogyNotifications")) {
+    await expectDenied(getDocs(collection(db, name)));
+  }
+  await expectDenied(getDocs(query(collection(db, "genealogyNotifications"), where("recipientUid", "==", "anonyme"))));
+  await expectDenied(setDoc(doc(db, "genealogyProposals", "securite-anon-proposal"), {
+    type: "source", status: "draft", authorUid: "anon", targetType: "source", targetId: "x",
+    payload: {}, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
+
+  // ── Utilisateur authentifié non approuvé : aucune lecture, aucune écriture ──
+  const unapprovedEmail = "non-approuve-securite@test-fictif.fr";
+  const unapprovedCred = await createUserWithEmailAndPassword(auth, unapprovedEmail, "non-approuve-sec");
+  await setDoc(doc(db, "users", unapprovedCred.user.uid), {
+    email: unapprovedEmail, displayName: "Non Approuvé", photo: "", role: "member", status: "pending"
+  });
+  await signIn(unapprovedCred.user.uid, unapprovedEmail, "non-approuve-sec");
+  for (const name of allCollections.filter(n => n !== "genealogyNotifications")) {
+    await expectDenied(getDocs(collection(db, name)));
+  }
+  await expectDenied(getDocs(query(collection(db, "genealogyNotifications"), where("recipientUid", "==", unapprovedCred.user.uid))));
+  await expectDenied(setDoc(doc(db, "genealogyProposals", "securite-unapproved-proposal"), {
+    type: "source", status: "draft", authorUid: unapprovedCred.user.uid, targetType: "source",
+    targetId: "x", payload: {}, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
+  await signOutAll();
+
+  // ── Membre approuvé : lecture autorisée (portée restreinte), écriture officielle interdite ──
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  for (const name of allCollections.filter(n => n !== "genealogyProposals" && n !== "genealogyNotifications")) {
+    const snap = await getDocs(query(collection(db, name), where("eventId", "==", "inexistant-emulator")));
+    assert.equal(snap.empty, true, `membre : lecture vide acceptée sur ${name}`);
+  }
+  const myProposals = await getDocs(query(collection(db, "genealogyProposals"), where("authorUid", "==", memberUid)));
+  assert.ok(myProposals.docs !== undefined, "membre : lecture de ses propositions acceptée");
+
+  await expectDenied(setDoc(doc(db, "sourceDocuments", "securite-member-source"), {
+    data: { title: "Interdite" }, version: 1, revisionId: "rev-sec", createdAt: serverTimestamp(),
+    createdBy: memberUid, updatedAt: serverTimestamp(), updatedBy: memberUid, eventId: "evt-sec"
+  }));
+  await expectDenied(setDoc(doc(db, "factConclusions", "securite-member-conclusion"), {
+    data: { status: "established" }, version: 1, revisionId: "rev-sec", createdAt: serverTimestamp(),
+    createdBy: memberUid, updatedAt: serverTimestamp(), updatedBy: memberUid, eventId: "evt-sec"
+  }));
+  await expectDenied(setDoc(doc(db, "genealogyEvents", "securite-member-event"), {
+    eventType: "source.created", objectType: "source", objectId: "x", actorUid: memberUid,
+    createdAt: serverTimestamp(), previousVersionId: null, newVersionId: "r", reason: "test"
+  }));
+  await expectDenied(setDoc(doc(db, "genealogyNotifications", "securite-member-notif"), {
+    recipientUid: memberUid, type: "proposal-accepted", objectType: "proposal", objectId: "x",
+    eventId: "evt", createdAt: serverTimestamp(), read: false
+  }));
+  await signOutAll();
+
+  // ── Administrateur : lecture complète des 11 collections ──
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  for (const name of allCollections.filter(n => n !== "genealogyNotifications")) {
+    const snap = await getDocs(collection(db, name));
+    assert.ok(snap !== null, `admin : lecture acceptée sur ${name}`);
+  }
+  const adminNotifs = await getDocs(query(collection(db, "genealogyNotifications"), where("recipientUid", "==", adminUid)));
+  assert.ok(adminNotifs !== null, "admin : lecture acceptée sur genealogyNotifications");
+  await signOutAll();
+
+  // ── Accès croisé : un membre ne lit pas les propositions ni les notifications d'autrui ──
+  const otherEmail = "autre-securite-emulator@test-fictif.fr";
+  const otherCred = await createUserWithEmailAndPassword(auth, otherEmail, "autre-securite-123");
+  await setDoc(doc(db, "users", otherCred.user.uid), {
+    email: otherEmail, displayName: "Autre Membre", photo: "", role: "member", status: "pending"
+  });
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await updateDoc(doc(db, "users", otherCred.user.uid), { status: "approved" });
+  await signIn(otherCred.user.uid, otherEmail, "autre-securite-123");
+  await expectDenied(getDocs(query(collection(db, "genealogyProposals"), where("authorUid", "==", memberUid))));
+  await signOutAll();
+});
+
+test("LOT 6 : propositions, données officielles, historique immuable, notifications privées et atomicité", async () => {
+  const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp });
+  const proposalId = "lot6-proposal-member";
+  const rejectedProposalId = "lot6-proposal-rejected";
+  const proposalEventId = "lot6-proposal-created";
+  const decisionEventId = "lot6-proposal-accepted-event";
+  const notificationId = "lot6-proposal-notification";
+
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await store.createProposal({
+    proposal: { id: proposalId, type: "source", targetType: "source", targetId: "source-example", payload: { title: "Source proposée" } },
+    eventId: proposalEventId, actorUid: memberUid
+  });
+  await store.submitProposal({ proposalId, eventId: "lot6-proposal-submitted", actorUid: memberUid });
+  await store.createProposal({
+    proposal: { id: rejectedProposalId, type: "proof", targetType: "proof", targetId: "proof-rejected-example", payload: { relation: "ambiguous" } },
+    eventId: "lot6-rejected-proposal-created", actorUid: memberUid
+  });
+  await store.submitProposal({ proposalId: rejectedProposalId, eventId: "lot6-rejected-proposal-submitted", actorUid: memberUid });
+  const ownProposals = await getDocs(query(collection(db, "genealogyProposals"), where("authorUid", "==", memberUid)));
+  assert.deepEqual(new Set(ownProposals.docs.map(snapshot => snapshot.id)), new Set([proposalId, rejectedProposalId]));
+  await expectDenied(setDoc(doc(db, "sourceDocuments", "lot6-member-source"), {
+    data: { title: "Interdite" }, version: 1, revisionId: "rev", createdAt: new Date(), createdBy: memberUid,
+    updatedAt: new Date(), updatedBy: memberUid, eventId: "event"
+  }));
+  await expectDenied(store.decideProposal({
+    proposalId, decision: "accepted", reason: "Fraude", eventId: "lot6-fraud-decision", notificationId: "lot6-fraud-notification", actorUid: memberUid
+  }));
+  await expectDenied(store.createReexaminationEvent({
+    type: "proof", objectId: "proof-example", eventId: "lot6-member-review-event", reason: "Faux réexamen",
+    administratorUids: [adminUid], notificationIds: ["lot6-member-review-notification"], actorUid: memberUid
+  }));
+  await expectDenied(setDoc(doc(db, "factConclusions", "lot6-member-conclusion"), {
+    data: { status: "established" }, version: 1, revisionId: "member-conclusion-revision",
+    createdAt: serverTimestamp(), createdBy: memberUid, updatedAt: serverTimestamp(), updatedBy: memberUid,
+    eventId: "member-conclusion-event"
+  }));
+
+  await signOutAll();
+  const otherEmail = "autre-membre-emulator@test-fictif.fr";
+  const otherCredential = await createUserWithEmailAndPassword(auth, otherEmail, "autre-fictif-123");
+  const otherUid = otherCredential.user.uid;
+  await setDoc(doc(db, "users", otherUid), {
+    email: otherEmail, displayName: "Autre membre", photo: "", role: "member", status: "pending"
+  });
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await updateDoc(doc(db, "users", otherUid), { status: "approved" });
+  await signIn(otherUid, otherEmail, "autre-fictif-123");
+  await expectDenied(getDoc(doc(db, "genealogyProposals", proposalId)));
+  await expectDenied(getDocs(query(collection(db, "genealogyProposals"), where("authorUid", "==", memberUid))));
+  assert.equal((await getDocs(query(collection(db, "genealogyProposals"), where("authorUid", "==", otherUid)))).size, 0);
+  await expectDenied(updateDoc(doc(db, "genealogyProposals", proposalId), { payload: { title: "Volée" }, updatedAt: serverTimestamp() }));
+  await expectDenied(updateDoc(doc(db, "genealogyProposals", rejectedProposalId), { payload: { relation: "supports" }, updatedAt: serverTimestamp() }));
+  await signOutAll();
+
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await store.notifyAdministrators({
+    type: "proposal-submitted", objectType: "proposal", objectId: proposalId,
+    eventId: "lot6-proposal-submitted", administratorUids: [adminUid],
+    notificationIds: ["lot6-submitted-notification"]
+  });
+  assert.equal((await getDoc(doc(db, "genealogyNotifications", "lot6-submitted-notification"))).data().recipientUid, adminUid);
+  await store.decideProposal({
+    proposalId, decision: "accepted", reason: "Vérification éditoriale terminée", eventId: decisionEventId,
+    notificationId, actorUid: adminUid
+  });
+  await store.decideProposal({
+    proposalId: rejectedProposalId, decision: "rejected", reason: "Preuve source insuffisante",
+    eventId: "lot6-proposal-rejected-event", notificationId: "lot6-proposal-rejected-notification", actorUid: adminUid
+  });
+  const proposal = await getDoc(doc(db, "genealogyProposals", proposalId));
+  assert.equal(proposal.data().status, "accepted");
+  assert.equal(proposal.data().resolvedBy, adminUid);
+  assert.equal((await getDoc(doc(db, "genealogyProposals", rejectedProposalId))).data().status, "rejected");
+  await expectDenied(updateDoc(doc(db, "genealogyProposals", proposalId), {
+    status: "rejected", updatedAt: serverTimestamp(), resolvedAt: serverTimestamp(), resolvedBy: adminUid, resolutionReason: "réécriture"
+  }));
+  await expectDenied(updateDoc(doc(db, "genealogyProposals", rejectedProposalId), {
+    status: "accepted", updatedAt: serverTimestamp(), resolvedAt: serverTimestamp(), resolvedBy: adminUid, resolutionReason: "réécriture"
+  }));
+  await signOutAll();
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(updateDoc(doc(db, "genealogyProposals", proposalId), { payload: { title: "modification après acceptation" }, updatedAt: serverTimestamp() }));
+  await expectDenied(updateDoc(doc(db, "genealogyProposals", rejectedProposalId), { payload: { relation: "supports" }, updatedAt: serverTimestamp() }));
+  const notification = await getDoc(doc(db, "genealogyNotifications", notificationId));
+  assert.equal(notification.data().recipientUid, memberUid);
+  assert.equal(notification.data().read, false);
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await expectDenied(getDoc(doc(db, "genealogyNotifications", notificationId)));
+  await signOutAll();
+  await signIn(otherUid, otherEmail, "autre-fictif-123");
+  await expectDenied(getDoc(doc(db, "genealogyNotifications", notificationId)));
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  await expectDenied(deleteDoc(doc(db, "genealogyEvents", decisionEventId)));
+  await expectDenied(updateDoc(doc(db, "genealogyEvents", decisionEventId), { reason: "altération" }));
+  await expectDenied(updateDoc(doc(db, "sourceRevisions", "lot6-source-revision"), { data: { title: "altération" } }));
+
+  const linkedDocumentIds = ["lot6-link-document-a", "lot6-link-document-b"];
+  for (const [index, documentId] of linkedDocumentIds.entries()) {
+    await setDoc(doc(db, "documents", documentId), { title: `Document de bibliothèque ${index + 1}`, type: "Acte de naissance" });
+  }
+  await store.createOfficial({
+    type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision", eventId: "lot6-source-created-event",
+    data: { title: "Source officielle", schemaVersion: 1, documentIds: linkedDocumentIds, personIds: ["lot6-person-mentioned"] }, reason: "Création documentée", actorUid: adminUid
+  });
+  await store.createOfficial({
+    type: "source", id: "lot6-official-source-second", revisionId: "lot6-source-second-revision",
+    eventId: "lot6-source-second-event", data: { title: "Autre analyse du même document", schemaVersion: 1, documentIds: [linkedDocumentIds[0]] },
+    reason: "Document réutilisé sans copie", actorUid: adminUid
+  });
+  const official = await getDoc(doc(db, "sourceDocuments", "lot6-official-source"));
+  assert.equal(official.data().revisionId, "lot6-source-revision");
+  assert.deepEqual(official.data().data.documentIds, linkedDocumentIds, "une source conserve plusieurs IDs de documents existants");
+  await store.reviseOfficial({
+    type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision-2", eventId: "lot6-source-revised-event",
+    data: { title: "Source corrigée", schemaVersion: 1, documentIds: [linkedDocumentIds[1]] }, reason: "Correction de cote", actorUid: adminUid
+  });
+  assert.deepEqual((await getDoc(doc(db, "sourceRevisions", "lot6-source-revision"))).data().data.documentIds, linkedDocumentIds,
+    "la révision précédente reste immuable avec ses références originales");
+  const revision = await getDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"));
+  assert.equal(revision.data().previousRevisionId, "lot6-source-revision");
+  assert.deepEqual(revision.data().data.documentIds, [linkedDocumentIds[1]]);
+  assert.deepEqual((await getDoc(doc(db, "sourceDocuments", "lot6-official-source-second"))).data().data.documentIds, [linkedDocumentIds[0]],
+    "la suppression du lien d'une source n'altère pas l'association d'une autre source");
+  await store.reviseOfficial({
+    type: "source", id: "lot6-official-source", revisionId: "lot6-source-revision-3", eventId: "lot6-source-unlinked-event",
+    data: { title: "Source corrigée", schemaVersion: 1, documentIds: [], personIds: ["lot6-person-mentioned"], status: "archived" }, reason: "Retrait du dernier document lié et archivage", actorUid: adminUid
+  });
+  assert.deepEqual((await getDoc(doc(db, "sourceDocuments", "lot6-official-source"))).data().data.documentIds, [],
+    "le dernier lien peut être retiré sans supprimer la source");
+  assert.deepEqual((await getDoc(doc(db, "sourceDocuments", "lot6-official-source"))).data().data.personIds, ["lot6-person-mentioned"],
+    "la personne descriptive est conservée et ne bloque pas l’archivage");
+  assert.equal((await getDoc(doc(db, "sourceDocuments", "lot6-official-source"))).data().data.status, "archived");
+  assert.deepEqual((await getDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"))).data().data.documentIds, [linkedDocumentIds[1]],
+    "la révision précédente reste immuable après le retrait du dernier lien");
+  assert.equal((await getDoc(doc(db, "genealogyEvents", "lot6-source-unlinked-event"))).data().eventType, "source.revised");
+  await store.reviseOfficial({
+    type: "source", id: "lot6-official-source", revisionId: "lot6-source-restored-revision", eventId: "lot6-source-restored-event",
+    data: { title: "Source corrigée", schemaVersion: 1, documentIds: [], personIds: ["lot6-person-mentioned"], status: "active" }, reason: "Source restaurée", actorUid: adminUid
+  });
+  assert.equal((await getDoc(doc(db, "sourceDocuments", "lot6-official-source"))).data().data.status, "active");
+  assert.equal((await getDoc(doc(db, "genealogyEvents", "lot6-source-restored-event"))).data().eventType, "source.revised");
+  await signOutAll();
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(store.reviseOfficial({
+    type: "source", id: "lot6-official-source", revisionId: "lot6-source-member-archive-revision", eventId: "lot6-source-member-archive-event",
+    data: { title: "Source corrigée", schemaVersion: 1, documentIds: [], personIds: ["lot6-person-mentioned"], status: "archived" },
+    reason: "Tentative membre", actorUid: memberUid
+  }));
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  assert.deepEqual((await getDoc(doc(db, "documents", linkedDocumentIds[0]))).data(), { title: "Document de bibliothèque 1", type: "Acte de naissance" },
+    "la création et la révision des sources ne copient ni ne modifient la fiche/fichier Documents");
+  await expectDenied(updateDoc(doc(db, "sourceRevisions", "lot6-source-revision-2"), { data: { title: "effacée" } }));
+  await store.createOfficial({
+    type: "conclusion", id: "lot6-official-conclusion", revisionId: "lot6-conclusion-revision",
+    eventId: "lot6-conclusion-created-event", data: { status: "provisional", retainedValue: null },
+    reason: "Conclusion documentée", actorUid: adminUid
+  });
+  await signOutAll();
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(updateDoc(doc(db, "factConclusions", "lot6-official-conclusion"), { data: { status: "established" } }));
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+
+  await store.createReexaminationEvent({
+    type: "proof", objectId: "proof-reexamination-example", eventId: "lot6-proof-review-event",
+    reason: "Une transcription liée a changé", administratorUids: [adminUid], notificationIds: ["lot6-proof-review-notification"], actorUid: adminUid
+  });
+  const reviewEvent = await getDoc(doc(db, "genealogyEvents", "lot6-proof-review-event"));
+  assert.equal(reviewEvent.data().eventType, "proof.reexamination.required");
+  const reviewNotification = await getDoc(doc(db, "genealogyNotifications", "lot6-proof-review-notification"));
+  assert.equal(reviewNotification.data().type, "proof-reexamination");
+  assert.equal(reviewNotification.data().read, false);
+
+  await store.createOfficial({
+    type: "proof", id: "lot6-official-proof", revisionId: "lot6-proof-revision", eventId: "lot6-proof-created-event",
+    data: { technicalStatus: "active", relation: "supports" }, reason: "Création de preuve", actorUid: adminUid
+  });
+  await store.reviseOfficial({
+    type: "proof", id: "lot6-official-proof", revisionId: "lot6-proof-suspended-revision", eventId: "lot6-proof-suspended-event",
+    data: { technicalStatus: "suspended", relation: "supports" }, eventType: "proof.suspended",
+    reason: "Le passage cité est à vérifier", actorUid: adminUid
+  });
+  assert.equal((await getDoc(doc(db, "genealogyEvents", "lot6-proof-suspended-event"))).data().eventType, "proof.suspended");
+
+  const archivableProof = createGenealogyProof({
+    id: "lot6-proof-archivable", factId: "lot6-fact-archivable", factType: "birthDate", personIds: ["lot6-person-archivable"],
+    documentId: linkedDocumentIds[0], sourceValue: null, relation: "supports", authorUid: adminUid
+  });
+  await store.createOfficial({
+    type: "proof", id: "lot6-proof-archivable", revisionId: "lot6-proof-archivable-rev-1", eventId: "lot6-proof-archivable-created-event",
+    data: archivableProof, reason: "Preuve créée pour test d’archivage", actorUid: adminUid
+  });
+  await signOutAll();
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await expectDenied(store.reviseOfficial({
+    type: "proof", id: "lot6-proof-archivable", revisionId: "lot6-proof-member-rev", eventId: "lot6-proof-member-event",
+    data: { ...archivableProof, technicalStatus: "historical" }, reason: "Tentative membre", actorUid: memberUid
+  }));
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  const archiveEventId = "lot6-proof-archivable-event";
+  const archivedProof = transitionProofStatus(archivableProof, {
+    to: "historical", reason: "Preuve erronée archivée", eventId: archiveEventId, actorUid: adminUid, at: new Date().toISOString()
+  });
+  await store.reviseOfficial({
+    type: "proof", id: "lot6-proof-archivable", revisionId: "lot6-proof-archivable-rev-2", eventId: archiveEventId,
+    data: archivedProof, reason: "Preuve erronée archivée", actorUid: adminUid
+  });
+  assert.equal((await getDoc(doc(db, "genealogyProofs", "lot6-proof-archivable"))).data().data.technicalStatus, "historical");
+  assert.equal((await getDoc(doc(db, "genealogyProofRevisions", "lot6-proof-archivable-rev-1"))).data().data.technicalStatus, "active",
+    "l’ancienne révision de preuve reste immuable");
+  assert.equal((await getDoc(doc(db, "genealogyEvents", archiveEventId))).data().eventType, "proof.revised");
+
+  await signOutAll();
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await store.markNotificationRead({ notificationId, actorUid: memberUid });
+  assert.equal((await getDoc(doc(db, "genealogyNotifications", notificationId))).data().read, true);
+  await expectDenied(updateDoc(doc(db, "genealogyNotifications", notificationId), { read: false, readAt: null }));
+  await signOutAll();
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+
+  await expectDenied(setDoc(doc(db, "genealogyEvents", "lot6-falsified-event"), {
+    eventType: "source.created", objectType: "source", objectId: "fake", actorUid: memberUid,
+    createdAt: new Date(), previousVersionId: null, newVersionId: "fake-revision", reason: "faux"
+  }));
+  await expectDenied(setDoc(doc(db, "genealogyEvents", "lot6-falsified-date-event"), {
+    eventType: "source.created", objectType: "source", objectId: "fake", actorUid: adminUid,
+    createdAt: new Date(0), previousVersionId: null, newVersionId: "fake-revision", reason: "date falsifiée"
+  }));
+
+  // Une collision d'événement fait échouer la transaction entière : aucun brouillon orphelin.
+  await expectDenied(store.createProposal({
+    proposal: { id: "lot6-atomicity-proposal", type: "proof", targetType: "proof", targetId: "proof", payload: {} },
+    eventId: decisionEventId, actorUid: adminUid
+  }));
+  assert.equal((await getDoc(doc(db, "genealogyProposals", "lot6-atomicity-proposal"))).exists(), false);
+
+  await signOutAll();
+  const unapprovedEmail = "sans-validation-emulator@test-fictif.fr";
+  await createUserWithEmailAndPassword(auth, unapprovedEmail, "sans-validation-123");
+  await expectDenied(getDocs(collection(db, "sourceDocuments")));
+  await expectDenied(getDocs(collection(db, "genealogyEvents")));
+  await expectDenied(setDoc(doc(db, "genealogyProposals", "lot6-unapproved-proposal"), {
+    type: "source", status: "draft", authorUid: auth.currentUser.uid, targetType: "source", targetId: "x", payload: {},
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
 });

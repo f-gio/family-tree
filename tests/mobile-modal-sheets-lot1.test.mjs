@@ -314,6 +314,6 @@ test("Lot 1 : bottom sheets ciblés, défilement sûr mobile et desktop inchang�
 });
 
 test("Lot 1 : l’ouverture de Consulter garde le handler DocumentViewer", () => {
-  assert.match(appSource, /const button = event\.target\.closest\("\[data-view-directory-document\]"\);[\s\S]*?openStoredDocument\(documents\.find\(item => item\.id === button\.dataset\.viewDirectoryDocument\)\)/);
+  assert.match(appSource, /const button = event\.target\.closest\("\[data-view-directory-document\]"\);[\s\S]*?openStoredDocument\(documents\.find\(item => item\.id === button\.dataset\.viewDirectoryDocument\), "directory"\)/);
   assert.match(appSource, /\$\("documentViewerDialog"\)\.showModal\(\)/);
 });
