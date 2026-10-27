@@ -170,6 +170,7 @@ let viewerPdfState = null;
 let viewerImageHandlersBound = false;
 let activePersonSection = "identity";
 let activeGenealogyItem = null;
+let genealogyItemRefreshPending = false;
 let activeDocumentSourceManagerId = "";
 let genealogyZoom = 1;
 let activeGenealogyPageId = "";
@@ -3893,10 +3894,27 @@ const GENEALOGY_DATA_STATUS_LABELS = Object.freeze({
   active: "Active", archived: "Archivée", suspended: "Suspendue", historical: "Historique"
 });
 
+const GENEALOGY_STATUS_TONES = Object.freeze({
+  active: "positive",
+  established: "positive",
+  accepted: "positive",
+  suspended: "attention",
+  pending: "attention",
+  provisional: "attention",
+  disputed: "attention",
+  reexamination_required: "attention",
+  rejected: "danger"
+});
+
+function genealogyStatusTone(status) {
+  return GENEALOGY_STATUS_TONES[status] || "";
+}
+
 function genealogyStatusBadgeHtml(status) {
   const label = GENEALOGY_DATA_STATUS_LABELS[status] || status;
   if (!label) return "";
-  return `<span class="genealogy-status-badge">${esc(label)}</span>`;
+  const tone = genealogyStatusTone(status);
+  return `<span class="genealogy-status-badge${tone ? ` genealogy-status-badge--${tone}` : ""}">${esc(label)}</span>`;
 }
 
 function genealogyKindBadgeHtml(kind) {
@@ -4097,6 +4115,12 @@ function renderGenealogyWorkspace() {
       : GENEALOGY_DATA_STATUS_LABELS[data.technicalStatus] ? GENEALOGY_DATA_STATUS_LABELS[data.technicalStatus]
       : GENEALOGY_DATA_STATUS_LABELS[data.status] ? GENEALOGY_DATA_STATUS_LABELS[data.status]
       : record.status || data.technicalStatus || data.status || "";
+    const statusRaw = item.kind === "notification" ? ""
+      : item.kind === "proposal" ? record.status
+      : item.kind === "conclusion" && data.revision?.status ? data.revision.status
+      : [record.status, data.technicalStatus, data.status].find(value => value && GENEALOGY_DATA_STATUS_LABELS[value])
+        || record.status || data.technicalStatus || data.status || "";
+    const statusTone = genealogyStatusTone(statusRaw);
     const legacyMetadata = legacyDetails ? [
       legacyDetails.date,
       legacyDetails.place ? formatCompactPlace(legacyDetails.place, data.placeInfo) : "",
@@ -4130,11 +4154,11 @@ function renderGenealogyWorkspace() {
     if (item.kind === "notification" && record.read !== true) controls.push({ key: "notification-read", label: "Marquer comme lue", icon: "check" });
     if (isAdminUser() && item.kind === "proof" && data.technicalStatus !== "suspended") controls.push({ key: "review-proof", label: "Demander réexamen", icon: "search" });
     if (isAdminUser() && item.kind === "conclusion") controls.push({ key: "review-conclusion", label: "Demander réexamen", icon: "search" });
-    const review = data.technicalStatus === "suspended" || data.status === "reexamination_required" ? `<span class="genealogy-status-badge">À vérifier</span>` : "";
+    const review = data.technicalStatus === "suspended" || data.status === "reexamination_required" ? `<span class="genealogy-status-badge genealogy-status-badge--attention">À vérifier</span>` : "";
     const contradiction = item.kind === "proof" && data.factId && genealogyRecords.genealogyProofs.some(other => {
       const otherData = genealogyRecordData(other);
       return other.id !== record.id && otherData.factId === data.factId && new Set([data.relation, otherData.relation]).has("supports") && new Set([data.relation, otherData.relation]).has("contradicts");
-    }) ? `<span class="genealogy-status-badge">Contradiction à examiner</span>` : "";
+    }) ? `<span class="genealogy-status-badge genealogy-status-badge--attention">Contradiction à examiner</span>` : "";
     const legacyNotes = legacyDetails?.notes ? `<p class="card-description">${esc(legacyDetails.notes)}</p>` : "";
     const legacyPhotograph = legacyDetails?.hasPhotograph ? `<span class="genealogy-status-badge">Photographie disponible</span>` : "";
     const entryContent = legacyDetails
@@ -4146,22 +4170,24 @@ function renderGenealogyWorkspace() {
       : `<span class="genealogy-entry-kind">${esc(entryKindLabel)}</span>`;
     const menu = tileContextMenuMarkup("archive-entry", record.id, title, controls);
     const openable = item.kind !== "legacy-source";
-    return `<article class="content-card genealogy-entry${legacyDetails ? " genealogy-entry-legacy-document" : ""}"${openable ? ` data-primary-tile data-genealogy-tile-kind="${esc(item.kind)}" data-genealogy-tile-id="${esc(record.id)}" tabindex="0" role="group" aria-label="Consulter ${esc(title)}" aria-keyshortcuts="Enter Space"` : ""}><header class="genealogy-entry-heading">${kindBadge}<span class="genealogy-entry-status-actions">${status ? `<span class="genealogy-status-badge">${esc(status)}</span>` : ""}${menu}</span></header><h3 class="genealogy-entry-title" title="${esc(title)}">${esc(title)}</h3><p class="card-meta genealogy-entry-meta"${subtitle ? ` title="${esc(subtitle)}"` : ""}>${esc(subtitle || " ")}</p><div class="genealogy-entry-metadata">${review}${contradiction}${entryContent}</div></article>`;
+    return `<article class="content-card genealogy-entry${legacyDetails ? " genealogy-entry-legacy-document" : ""}"${openable ? ` data-primary-tile data-genealogy-tile-kind="${esc(item.kind)}" data-genealogy-tile-id="${esc(record.id)}" tabindex="0" role="group" aria-label="Consulter ${esc(title)}" aria-keyshortcuts="Enter Space"` : ""}><header class="genealogy-entry-heading">${kindBadge}<span class="genealogy-entry-status-actions">${status ? `<span class="genealogy-status-badge${statusTone ? ` genealogy-status-badge--${statusTone}` : ""}">${esc(status)}</span>` : ""}${menu}</span></header><h3 class="genealogy-entry-title" title="${esc(title)}">${esc(title)}</h3><p class="card-meta genealogy-entry-meta"${subtitle ? ` title="${esc(subtitle)}"` : ""}>${esc(subtitle || " ")}</p><div class="genealogy-entry-metadata">${review}${contradiction}${entryContent}</div></article>`;
   }).join("") : emptyState({ iconName: "document", title: "Aucun élément trouvé", description: "Modifiez la recherche ou le filtre sélectionné." });
   $("genealogyOfficialBtn").hidden = !isAdminUser();
 }
 
 function proofDetailsMarkup(data, record) {
   const relationLabel = PROOF_RELATION_LABELS[data.relation] || data.relation || "";
-  const personNames = (data.personIds || []).map(personId => {
+  const personEntries = (data.personIds || []).map(personId => {
     const person = people.find(item => item.id === personId);
-    return person
-      ? `<button class="person-chip person-chip-consult" type="button" data-genealogy-person="${esc(personId)}">${esc(directoryPersonName(person))}</button>`
-      : `<span class="person-chip is-missing">Personne référencée introuvable</span>`;
-  }).join(" ");
+    if (!person) return `<li><span class="person-chip is-missing">Personne référencée introuvable</span></li>`;
+    const birthYear = formatDirectoryDate(person.birthDateInfo, person.birthDate).match(/\b\d{4}\b/)?.[0] || "";
+    return `<li><button class="person-chip person-chip-consult" type="button" data-genealogy-person="${esc(personId)}">${esc(directoryPersonName(person))}</button>${birthYear ? `<span class="document-unified-person-meta">Naissance : ${esc(birthYear)}</span>` : ""}</li>`;
+  }).join("");
+  const personsSection = `<section class="document-unified-section"><h4>Personnes concernées</h4>${personEntries
+    ? `<ul class="document-unified-people">${personEntries}</ul>`
+    : `<p class="document-unified-notice">Aucune personne n’est associée à cette preuve.</p>`}</section>`;
   const documentItem = documents.find(item => item.id === data.documentId);
   const facts = [
-    ["Personnes concernées", personNames || "—"],
     ["Relation à la conclusion", relationLabel ? esc(relationLabel) : "—"],
     ["Valeur relevée dans le document", data.sourceValue === null || data.sourceValue === undefined ? "Non relevée (valeur inconnue)" : esc(String(data.sourceValue))],
     ["Document d'origine", documentItem
@@ -4190,7 +4216,8 @@ function proofDetailsMarkup(data, record) {
     ? `<section class="document-unified-section"><h4>Citation et interprétation</h4><div class="document-unified-facts">${commentary.join("")}</div></section>`
     : "";
   const statusLabel = GENEALOGY_DATA_STATUS_LABELS[data.technicalStatus] || data.technicalStatus || "Non précisée";
-  return `<section class="document-unified-section"><div class="document-unified-facts">${factMarkup}</div></section>`
+  return personsSection
+    + `<section class="document-unified-section"><div class="document-unified-facts">${factMarkup}</div></section>`
     + commentarySection
     + `<details class="genealogy-proof-technical"><summary>Statut et détails techniques</summary><div class="document-unified-facts">`
     + `<div class="document-unified-fact"><strong>Statut</strong><span>${esc(statusLabel)}</span></div>`
@@ -4304,6 +4331,22 @@ function openGenealogyPage(pageId) {
   if (!activeGenealogyItem) return;
   const { kind, record } = activeGenealogyItem;
   openGenealogyItem(kind, record.id, pageId, null);
+}
+
+function refreshOpenGenealogyItem() {
+  if (!$("genealogyItemDialog").open || !activeGenealogyItem) return;
+  const { kind, record } = activeGenealogyItem;
+  const stillAvailable = genealogyWorkspaceItems().some(value => value.kind === kind && value.record.id === record.id);
+  if (!stillAvailable) return;
+  const content = $("genealogyItemContent");
+  const scrollTop = content?.scrollTop || 0;
+  const openDetails = content ? [...content.querySelectorAll("details")].map(detailsItem => detailsItem.open) : [];
+  openGenealogyItem(kind, record.id, activeGenealogyPageId, activeGenealogyPhotoId);
+  if (!content) return;
+  if (scrollTop) content.scrollTop = scrollTop;
+  [...content.querySelectorAll("details")].forEach((detailsItem, index) => {
+    if (openDetails[index]) detailsItem.open = true;
+  });
 }
 
 function createGenealogyId(collectionRef) {
@@ -4467,6 +4510,25 @@ function sourceGuidedPayload(title) {
   return payload;
 }
 
+function hideGenealogySourcePersonOptions() {
+  const container = $("genealogySourcePersonOptions");
+  if (container) container.innerHTML = "";
+  const searchInput = $("genealogySourcePersonSearch");
+  if (searchInput) searchInput.setAttribute("aria-expanded", "false");
+}
+
+function toggleGenealogySourcePerson(personId) {
+  if (!personId) return;
+  if (selectedGenealogySourcePersonIds.has(personId)) selectedGenealogySourcePersonIds.delete(personId);
+  else selectedGenealogySourcePersonIds.add(personId);
+  renderGenealogySourcePersonOptions();
+  renderGenealogySourcePersonSelection();
+  const suggestionBox = $("proofPersonSuggestions")?.querySelector(`[data-proof-suggested-person="${CSS.escape(personId)}"]`);
+  if (suggestionBox) suggestionBox.checked = selectedGenealogySourcePersonIds.has(personId);
+  renderProofFieldErrors({});
+  $("genealogySourcePersonSearch")?.focus();
+}
+
 function renderGenealogySourcePersonOptions() {
   const container = $("genealogySourcePersonOptions");
   if (!container) return;
@@ -4487,8 +4549,11 @@ function renderGenealogySourcePersonOptions() {
   const shown = 10 * genealogySourcePersonPagesShown;
   container.innerHTML = matches.slice(0, shown).map(item => {
     const distinction = [formatDirectoryDate(item.birthDateInfo, item.birthDate) !== "—" ? `Naissance : ${formatDirectoryDate(item.birthDateInfo, item.birthDate)}` : "", item.birthPlace || item.place || ""].filter(Boolean).join(" · ");
-    return `<label class="source-person-option"><input type="checkbox" data-genealogy-source-person="${esc(item.id)}"${selectedGenealogySourcePersonIds.has(item.id) ? " checked" : ""}><span><strong>${esc(directoryPersonName(item))}</strong>${distinction ? `<small>${esc(distinction)}</small>` : ""}</span></label>`;
+    const selected = selectedGenealogySourcePersonIds.has(item.id);
+    return `<button type="button" class="source-person-option source-person-option--result" role="option" aria-selected="${selected}" data-genealogy-source-person="${esc(item.id)}"><span><strong>${esc(directoryPersonName(item))}</strong>${distinction ? `<small>${esc(distinction)}</small>` : ""}</span>${selected ? `<span class="source-person-option-check" aria-hidden="true">✓</span>` : ""}</button>`;
   }).join("");
+  const searchInput = $("genealogySourcePersonSearch");
+  if (searchInput) searchInput.setAttribute("aria-expanded", String(container.childElementCount > 0));
   const more = $("genealogySourcePersonMore");
   if (more) more.hidden = !(rawQuery && matches.length > shown);
   renderGenealogySourcePersonSelection();
@@ -4513,7 +4578,7 @@ function ensureOfficialSourceGuidedFields() {
   genealogySourceGuidedGrid = document.createElement("section");
   genealogySourceGuidedGrid.id = "genealogyOfficialSourceFields";
   genealogySourceGuidedGrid.className = "wide genealogy-source-guided-fields";
-  genealogySourceGuidedGrid.innerHTML = `<section><h4>Identification</h4><div class="source-guided-grid"><label>Titre de la source<input class="field" id="genealogySourceTitle" maxlength="180" required></label><label>Catégorie ou type<input class="field" id="genealogySourceCategory" maxlength="160"></label><label>Type de date<select class="field" id="genealogySourceDateType"><option value="exact">Date exacte</option><option value="year">Année</option><option value="about">Date approximative</option><option value="between">Période</option><option value="unknown">Date inconnue</option></select></label><label>Date ou valeur<input class="field" id="genealogySourceDate" placeholder="AAAA-MM-JJ ou AAAA"></label><label>Date de début<input class="field" id="genealogySourceDateFrom" placeholder="AAAA-MM-JJ"></label><label>Date de fin<input class="field" id="genealogySourceDateTo" placeholder="AAAA-MM-JJ"></label><label>Lieu ou territoire<input class="field" id="genealogySourcePlace" maxlength="180"></label></div></section><section><h4>Provenance archivistique</h4><div class="source-guided-grid"><label>Institution de conservation<input class="field" id="genealogySourceHoldingOrganization"></label><label>Fonds ou série<input class="field" id="genealogySourceFondsSeries"></label><label>Cote<input class="field" id="genealogySourceCote"></label><label>Sous-cote<input class="field" id="genealogySourceSubCote"></label><label>Références archivistiques<textarea class="field" id="genealogySourceArchivalReferences" rows="3" placeholder="Une référence par ligne"></textarea></label><label>Langue(s)<textarea class="field" id="genealogySourceLanguages" rows="3" placeholder="Une langue par ligne"></textarea></label></div></section><section><h4>Éléments associés</h4><div class="source-associated-subsection"><h5>Personnes concernées</h5><label for="genealogySourcePersonSearch">Rechercher une personne<input class="field" id="genealogySourcePersonSearch" type="search" autocomplete="off" placeholder="Prénom ou nom"></label><p class="hint" id="genealogySourcePersonEmpty"></p><div id="genealogySourcePersonOptions" class="source-person-options"></div><button class="btn small" type="button" id="genealogySourcePersonMore" hidden>Afficher plus de personnes</button><div class="source-person-selection"><strong>Personnes sélectionnées</strong><p class="hint" id="genealogySourcePersonSelectionEmpty">Aucune personne sélectionnée.</p><div id="genealogySourcePersonSelection" class="person-multiselect-chips"></div></div></div><h5>Documents associés</h5></section><section><h4>Observations</h4><div class="source-guided-grid"><label>Description<textarea class="field" id="genealogySourceDescription" rows="3"></textarea></label><label>Notes de recherche<textarea class="field" id="genealogySourceResearchNotes" rows="3"></textarea></label><label>Hypothèses et incertitudes<textarea class="field" id="genealogySourceHypotheses" rows="3"></textarea></label></div></section>`;
+  genealogySourceGuidedGrid.innerHTML = `<section><h4>Identification</h4><div class="source-guided-grid"><label>Titre de la source<input class="field" id="genealogySourceTitle" maxlength="180" required></label><label>Catégorie ou type<input class="field" id="genealogySourceCategory" maxlength="160"></label><label>Type de date<select class="field" id="genealogySourceDateType"><option value="exact">Date exacte</option><option value="year">Année</option><option value="about">Date approximative</option><option value="between">Période</option><option value="unknown">Date inconnue</option></select></label><label>Date ou valeur<input class="field" id="genealogySourceDate" placeholder="AAAA-MM-JJ ou AAAA"></label><label>Date de début<input class="field" id="genealogySourceDateFrom" placeholder="AAAA-MM-JJ"></label><label>Date de fin<input class="field" id="genealogySourceDateTo" placeholder="AAAA-MM-JJ"></label><label>Lieu ou territoire<input class="field" id="genealogySourcePlace" maxlength="180"></label></div></section><section><h4>Provenance archivistique</h4><div class="source-guided-grid"><label>Institution de conservation<input class="field" id="genealogySourceHoldingOrganization"></label><label>Fonds ou série<input class="field" id="genealogySourceFondsSeries"></label><label>Cote<input class="field" id="genealogySourceCote"></label><label>Sous-cote<input class="field" id="genealogySourceSubCote"></label><label>Références archivistiques<textarea class="field" id="genealogySourceArchivalReferences" rows="3" placeholder="Une référence par ligne"></textarea></label><label>Langue(s)<textarea class="field" id="genealogySourceLanguages" rows="3" placeholder="Une langue par ligne"></textarea></label></div></section><section><h4>Éléments associés</h4><div class="source-associated-subsection"><h5>Personnes concernées</h5><label for="genealogySourcePersonSearch">Rechercher une personne<input class="field" id="genealogySourcePersonSearch" type="search" autocomplete="off" placeholder="Prénom ou nom" role="combobox" aria-expanded="false" aria-controls="genealogySourcePersonOptions" aria-autocomplete="list"></label><p class="hint" id="genealogySourcePersonEmpty"></p><div id="genealogySourcePersonOptions" class="source-person-options" role="listbox" aria-label="Personnes trouvées"></div><button class="btn small" type="button" id="genealogySourcePersonMore" hidden>Afficher plus de personnes</button><div class="source-person-selection"><strong>Personnes sélectionnées</strong><p class="hint" id="genealogySourcePersonSelectionEmpty">Aucune personne sélectionnée.</p><div id="genealogySourcePersonSelection" class="person-multiselect-chips"></div></div></div><h5>Documents associés</h5></section><section><h4>Observations</h4><div class="source-guided-grid"><label>Description<textarea class="field" id="genealogySourceDescription" rows="3"></textarea></label><label>Notes de recherche<textarea class="field" id="genealogySourceResearchNotes" rows="3"></textarea></label><label>Hypothèses et incertitudes<textarea class="field" id="genealogySourceHypotheses" rows="3"></textarea></label></div></section>`;
   grid.append(genealogySourceGuidedGrid);
   genealogySourceTitleLabel = $("genealogyContributionTitleField")?.closest("label");
   const picker = $("genealogySourceDocumentPicker");
@@ -4523,15 +4588,43 @@ function ensureOfficialSourceGuidedFields() {
   if (picker && associatedSection) associatedSection.append(picker);
   // Liaison directe sur le conteneur : les options suivent la personne lors du
   // basculement entre la grille Source et la grille Preuve (DOM déplacé).
-  $("genealogySourcePersonOptions").addEventListener("change", event => {
-    const checkbox = event.target.closest("[data-genealogy-source-person]");
-    if (!checkbox) return;
-    if (checkbox.checked) selectedGenealogySourcePersonIds.add(checkbox.dataset.genealogySourcePerson);
-    else selectedGenealogySourcePersonIds.delete(checkbox.dataset.genealogySourcePerson);
-    renderGenealogySourcePersonSelection();
-    renderProofFieldErrors({});
+  $("genealogySourcePersonOptions").addEventListener("click", event => {
+    const option = event.target.closest("[data-genealogy-source-person]");
+    if (!option) return;
+    toggleGenealogySourcePerson(option.dataset.genealogySourcePerson);
   });
   $("genealogySourcePersonSearch").addEventListener("input", renderGenealogySourcePersonOptions);
+  $("genealogySourcePersonSearch").addEventListener("keydown", event => {
+    if (event.key === "ArrowDown") {
+      renderGenealogySourcePersonOptions();
+      const firstOption = $("genealogySourcePersonOptions").querySelector("[data-genealogy-source-person]");
+      if (firstOption) {
+        event.preventDefault();
+        firstOption.focus();
+      }
+      return;
+    }
+    if (event.key === "Escape" && $("genealogySourcePersonOptions").childElementCount) {
+      event.preventDefault();
+      hideGenealogySourcePersonOptions();
+    }
+  });
+  $("genealogySourcePersonOptions").addEventListener("keydown", event => {
+    const options = [...event.currentTarget.querySelectorAll("[data-genealogy-source-person]")];
+    const index = options.indexOf(document.activeElement);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      options[(index + 1) % options.length]?.focus();
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (index <= 0) $("genealogySourcePersonSearch").focus();
+      else options[index - 1]?.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      hideGenealogySourcePersonOptions();
+      $("genealogySourcePersonSearch").focus();
+    }
+  });
   $("genealogySourcePersonMore").addEventListener("click", () => {
     genealogySourcePersonPagesShown += 1;
     renderGenealogySourcePersonOptions();
@@ -4597,6 +4690,7 @@ function ensureOfficialProofGuidedFields() {
     if (checkbox.checked) selectedGenealogySourcePersonIds.add(checkbox.dataset.proofSuggestedPerson);
     else selectedGenealogySourcePersonIds.delete(checkbox.dataset.proofSuggestedPerson);
     renderGenealogySourcePersonSelection();
+    renderGenealogySourcePersonOptions();
     renderProofFieldErrors({});
   });
   return genealogyProofGuidedGrid;
@@ -5619,14 +5713,15 @@ function renderUnifiedDocumentDetails(item) {
       : linkedSources.length ? linkedSources.map(source => {
         const sourceData = genealogyRecordData(source);
         const sourceTitle = sourceData.title || sourceData.cote || sourceData.category || "Source sans titre";
-        return `<div class="document-unified-source document-unified-source--clickable" role="button" tabindex="0" data-unified-source-card="${esc(source.id)}" aria-label="Consulter la source ${esc(sourceTitle)}"><div class="document-unified-source-head"><strong>${esc(sourceTitle)}</strong>${genealogyStatusBadgeHtml(sourceData.status)}</div></div>`;
+        return `<div class="document-unified-source document-unified-source--clickable" role="button" tabindex="0" data-unified-source-card="${esc(source.id)}" aria-label="Consulter la source ${esc(sourceTitle)}"><div class="document-unified-source-head"><strong>${esc(sourceTitle)}</strong>${genealogyStatusBadgeHtml(sourceData.status)}<span class="document-unified-source-chevron" aria-hidden="true">›</span></div></div>`;
       }).join("")
         : `<p class="document-unified-notice">Aucune source officielle n’est associée à cette fiche.</p>`;
   const sourceActions = isAdminUser()
     ? linkedSources.length
-      ? `<div class="document-unified-source-actions"><button class="btn small" type="button" data-manage-sources-from-document="${esc(item.id)}">Gérer les associations</button></div>`
-      : `<div class="document-unified-source-actions"><button class="btn small" type="button" data-create-source-from-document="${esc(item.id)}">Ajouter une source officielle</button></div>`
+      ? `<button class="btn small" type="button" data-manage-sources-from-document="${esc(item.id)}">Gérer les associations</button>`
+      : `<button class="btn small" type="button" data-create-source-from-document="${esc(item.id)}">Ajouter une source officielle</button>`
     : "";
+  const sourceHead = `<div class="document-unified-section-head"><h4>Sources et provenance</h4>${sourceActions}</div>`;
   const proofState = genealogyCollectionsLoaded.has("genealogyProofs")
     ? genealogyCollectionErrors.has("genealogyProofs") ? "unavailable" : "ready"
     : "loading";
@@ -5641,13 +5736,13 @@ function renderUnifiedDocumentDetails(item) {
         ? linkedProofs.map(proof => {
           const proofData = genealogyRecordData(proof);
           const title = proofFactLabel(proofData.factType) || proofData.factId || "Preuve";
-          return `<div class="document-unified-source document-unified-source--clickable" role="button" tabindex="0" data-unified-proof-card="${esc(proof.id)}" aria-label="Consulter la preuve ${esc(title)}"><div class="document-unified-source-head"><strong>${esc(title)}</strong>${genealogyStatusBadgeHtml(proofData.technicalStatus)}</div></div>`;
+          return `<div class="document-unified-source document-unified-source--clickable" role="button" tabindex="0" data-unified-proof-card="${esc(proof.id)}" aria-label="Consulter la preuve ${esc(title)}"><div class="document-unified-source-head"><strong>${esc(title)}</strong>${genealogyStatusBadgeHtml(proofData.technicalStatus)}<span class="document-unified-source-chevron" aria-hidden="true">›</span></div></div>`;
         }).join("")
         : `<p class="document-unified-notice">Aucune preuve n’est associée à cette fiche documentaire.</p>`;
   const proofActions = isAdminUser()
     ? `<div class="document-unified-section-head"><h4>Preuves</h4><button class="btn small" type="button" data-create-proof-from-document="${esc(item.id)}">+ Créer une preuve</button></div>`
     : `<div class="document-unified-section-head"><h4>Preuves</h4></div>`;
-  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations fichier</h4>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}${sourceActions}</section><section class="document-unified-section">${proofActions}${proofMarkup}</section>`;
+  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations fichier</h4>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section">${sourceHead}${sourceMarkup}</section><section class="document-unified-section">${proofActions}${proofMarkup}</section>`;
 }
 
 function refreshUnifiedDetailsIfOpen() {
@@ -6947,6 +7042,12 @@ function startData() {
       genealogyCollectionErrors.delete(collectionName);
       genealogyLoaded = genealogyCollectionsLoaded.size === genealogyCollections.length;
       renderGenealogyWorkspace();
+      if (genealogyItemRefreshPending) {
+        genealogyItemRefreshPending = false;
+        refreshOpenGenealogyItem();
+        const personId = $("personId")?.value;
+        if ($("personDialog").open && personId) renderPersonDocuments(personId);
+      }
       if (collectionName === "sourceDocuments") {
         if (loadedPeople && loadedDocuments) renderDocuments();
         if (activeDocumentSourceManagerId && $("genealogyItemDialog").open) renderDocumentSourceManager(activeDocumentSourceManagerId);
@@ -7757,6 +7858,10 @@ $("permanentDeleteConfirmBtn").onclick = async () => {
 $("genealogyContributionDialog").addEventListener("close", () => {
   if (reopenUnifiedDocumentAfter("genealogyContributionDialog")) return;
   refreshUnifiedDetailsIfOpen();
+  genealogyItemRefreshPending = true;
+  refreshOpenGenealogyItem();
+  const personId = $("personId")?.value;
+  if ($("personDialog").open && personId) renderPersonDocuments(personId);
 });
 $("genealogyItemContent").addEventListener("click", event => {
   const managedSourceOpen = event.target.closest("[data-managed-source-open]");

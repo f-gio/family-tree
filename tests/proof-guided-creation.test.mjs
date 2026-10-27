@@ -518,8 +518,8 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const selectPerson = async name => {
         await page.fill("#genealogySourcePersonSearch", name);
         await page.waitForTimeout(350);
-        const box = page.locator("#genealogySourcePersonOptions input[type=checkbox]").first();
-        if (await box.count() && !(await box.isChecked())) await box.check();
+        const option = page.locator("#genealogySourcePersonOptions [data-genealogy-source-person]").first();
+        if (await option.count() && (await option.getAttribute("aria-selected")) !== "true") await option.click();
       };
       const removePerson = personId => page.locator(`#genealogySourcePersonSelection [data-remove-genealogy-source-person="${personId}"]`).click();
       const removeDocument = docId => page.locator(`#genealogySourceDocumentSelection [data-remove-genealogy-source-document="${docId}"]`).click();
@@ -750,6 +750,57 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open, { timeout: 10000 });
       await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
       await closeResidualDialogs();
+    });
+
+    await t.test("13. révision depuis la fiche : fiche réactualisée et sélection au clavier", async () => {
+      await closeResidualDialogs();
+      await page.waitForTimeout(300);
+      await page.click('.nav-btn[data-view="genealogy"]');
+      await page.waitForTimeout(600);
+      const proofEntries = page.locator(".genealogy-entry").filter({ has: page.locator('span.genealogy-entry-kind:text-is("Preuve")') });
+      const birthEntry = proofEntries.filter({ hasText: "Naissance" }).first();
+      await birthEntry.click();
+      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
+      const personsSection = page.locator("#genealogyItemContent .document-unified-section").filter({ has: page.locator('h4:text-is("Personnes concernées")') });
+      assert.equal(await personsSection.count(), 1, "section dédiée « Personnes concernées » présente dans la fiche Preuve");
+      assert.ok((await personsSection.locator("[data-genealogy-person]").count()) >= 1, "au moins une personne affichée avant révision");
+
+      // Révision via le menu ⋯ : la contribution s'ouvre par-dessus, la fiche reste ouverte
+      await page.click("#genealogyItemMenuBtn");
+      await page.click('#genealogyItemActionsMenu [data-genealogy-item-action="revise"]');
+      await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
+      assert.ok(await page.locator("#genealogyItemDialog").evaluate(el => el.open), "la fiche Preuve reste ouverte pendant la révision");
+
+      // Sélection compacte au clavier : recherche → flèche bas → Entrée
+      await page.fill("#genealogySourcePersonSearch", "Grace");
+      await page.waitForTimeout(350);
+      await page.keyboard.press("ArrowDown");
+      const focusedId = await page.evaluate(() => document.activeElement?.getAttribute?.("data-genealogy-source-person") || "");
+      assert.ok(focusedId, "la flèche bas déplace le focus sur le premier résultat de recherche");
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(250);
+      assert.equal(await page.locator(`#genealogySourcePersonSelection [data-remove-genealogy-source-person="${focusedId}"]`).count(), 1, "la personne est ajoutée via le clavier");
+
+      // Ne garder que cette personne : retrait des associations initiales
+      const otherIds = await page.$$eval('#genealogySourcePersonSelection [data-remove-genealogy-source-person]', (nodes, keep) => nodes.map(node => node.getAttribute("data-remove-genealogy-source-person")).filter(id => id !== keep), focusedId);
+      for (const id of otherIds) await page.click(`#genealogySourcePersonSelection [data-remove-genealogy-source-person="${id}"]`);
+      await page.waitForTimeout(150);
+      assert.equal(await page.locator("#genealogySourcePersonSelection .person-chip").count(), 1, "seule la nouvelle personne reste sélectionnée");
+
+      await page.click("#genealogyContributionSubmitBtn");
+      await page.waitForFunction(() => !document.getElementById("genealogyContributionDialog").open, { timeout: 15000 });
+      await page.waitForTimeout(700);
+
+      // La fiche restée ouverte affiche la liste réactualisée sans action supplémentaire
+      assert.ok(await page.locator("#genealogyItemDialog").evaluate(el => el.open), "la fiche Preuve est toujours ouverte après la révision");
+      const refreshedSection = page.locator("#genealogyItemContent .document-unified-section").filter({ has: page.locator('h4:text-is("Personnes concernées")') });
+      const refreshedChips = refreshedSection.locator("[data-genealogy-person]");
+      assert.equal(await refreshedChips.count(), 1, "la fiche affiche la nouvelle liste de personnes");
+      assert.match(await refreshedChips.first().innerText(), /Grace/, "la personne mise à jour est visible dans la fiche");
+
+      const birthAfter = JSON.parse(await probe.list("genealogyProofs")).map(entry => entry.data.data || entry.data).find(data => data.factType === "birth");
+      assert.deepEqual(birthAfter?.personIds, [focusedId], "la révision persiste la nouvelle personne comme seule association");
+      await page.keyboard.press("Escape");
     });
 
     assert.deepEqual(pageErrors, [], "aucune erreur JavaScript pendant les parcours");

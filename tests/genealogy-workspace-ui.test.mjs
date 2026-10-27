@@ -432,7 +432,9 @@ test("la fiche document unifiée raccorde l'ajout et la gestion de Source offici
   const unified = app.match(/function renderUnifiedDocumentDetails\(item\)[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(unified.length > 500);
   assert.match(unified, /isAdminUser\(\)\s+\?\s+linkedSources\.length/);
-  assert.match(unified, /linkedSources\.length\s+\?\s*`<div class="document-unified-source-actions"><button[^`]*data-manage-sources-from-document[^`]*<\/button><\/div>`\s*:\s*`<div class="document-unified-source-actions"><button[^`]*data-create-source-from-document[^`]*<\/button><\/div>`/);
+  assert.match(unified, /linkedSources\.length\s+\?\s*`<button[^`]*data-manage-sources-from-document[^`]*<\/button>`\s*:\s*`<button[^`]*data-create-source-from-document[^`]*<\/button>`/);
+  assert.match(unified, /const sourceHead = `<div class="document-unified-section-head"><h4>Sources et provenance<\/h4>\$\{sourceActions\}<\/div>`/, "en-tête de section avec CTA");
+  assert.match(unified, /\$\{sourceHead\}\$\{sourceMarkup\}/, "en-tête raccordé à la section Sources");
   assert.match(app, /function refreshUnifiedDetailsIfOpen\(\) \{[\r\n\s]*if \(!\$\("documentViewerDialog"\)\.open/);
   assert.match(app, /\$\("genealogyItemDialog"\)\.addEventListener\("close", \(\) => \{[\r\n\s]*genealogyItemReturn = null;[\s\S]{0,160}?if \(reopenUnifiedDocumentAfter\("genealogyItemDialog"\)\) return;/);
   assert.match(unified, /data-create-source-from-document="\$\{esc\(item\.id\)\}"/);
