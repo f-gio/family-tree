@@ -394,7 +394,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       // Formulaire en mobile : pastille et retrait (375)
       const label = await openProofDialogFromPerson();
       assert.equal(label, "Ajouter une preuve", "libellé administrateur en mobile");
-      assert.ok(await page.locator("#genealogySourcePersonSelection .person-chip").count() >= 1, "pastille commune en sélection");
+      assert.ok(await page.locator("#genealogySourcePersonSelection .person-multiselect-chip").count() >= 1, "pastille commune en sélection");
       const formBox = await page.evaluate(() => {
         const dialog = document.getElementById("genealogyContributionDialog");
         return { sw: dialog.scrollWidth, cw: dialog.clientWidth };
@@ -402,7 +402,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       assert.ok(formBox.sw <= formBox.cw + 2, "formulaire sans débordement à 375px");
       await page.locator('#genealogySourcePersonSelection [data-remove-genealogy-source-person]').first().click();
       await page.waitForTimeout(200);
-      assert.equal(await page.locator("#genealogySourcePersonSelection .source-person-selection-item").count(), 0, "personne retirée de la sélection");
+      assert.equal(await page.locator("#genealogySourcePersonSelection .person-multiselect-chip").count(), 0, "personne retirée de la sélection");
       await page.keyboard.press("Escape");
     });
 
@@ -426,11 +426,11 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       assert.ok(await page.locator("#genealogyOfficialProofFields").isVisible(), "formulaire guidé en révision");
       assert.ok(!(await page.locator("#genealogyContributionPayload").isVisible()), "aucun champ JSON en révision");
       assert.ok(await page.locator("#genealogyContributionTarget").evaluate(el => el.readOnly), "cible en lecture seule");
-      assert.equal(await page.locator("#genealogySourcePersonSelection .person-chip").count(), 2, "les deux personnes pré-remplies");
+      assert.equal(await page.locator("#genealogySourcePersonSelection .person-multiselect-chip").count(), 2, "les deux personnes pré-remplies");
       // b) retrait d'une personne parmi plusieurs (la dernière de la liste)
       await page.locator('#genealogySourcePersonSelection [data-remove-genealogy-source-person]').last().click();
       await page.waitForTimeout(200);
-      assert.equal(await page.locator("#genealogySourcePersonSelection .person-chip").count(), 1, "une personne retirée de la sélection");
+      assert.equal(await page.locator("#genealogySourcePersonSelection .person-multiselect-chip").count(), 1, "une personne retirée de la sélection");
       const revisionsBefore = await probe.count("genealogyProofRevisions");
       await page.click("#genealogyContributionSubmitBtn");
       await page.waitForFunction(() => !document.getElementById("genealogyContributionDialog").open, { timeout: 15000 });
@@ -518,12 +518,12 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const selectPerson = async name => {
         await page.fill("#genealogySourcePersonSearch", name);
         await page.waitForTimeout(350);
-        const option = page.locator("#genealogySourcePersonOptions [data-genealogy-source-person]").first();
-        if (await option.count() && (await option.getAttribute("aria-selected")) !== "true") await option.click();
+        const option = page.locator("#genealogySourcePersonOptions [data-add-genealogy-source-person]").first();
+        if (await option.count()) await option.click();
       };
       const removePerson = personId => page.locator(`#genealogySourcePersonSelection [data-remove-genealogy-source-person="${personId}"]`).click();
       const removeDocument = docId => page.locator(`#genealogySourceDocumentSelection [data-remove-genealogy-source-document="${docId}"]`).click();
-      const chipCount = () => page.locator("#genealogySourcePersonSelection .person-chip").count();
+      const chipCount = () => page.locator("#genealogySourcePersonSelection .person-multiselect-chip").count();
       const proofData = async factType => {
         const proofs = JSON.parse(await probe.list("genealogyProofs")).map(entry => entry.data.data || entry.data);
         return proofs.find(data => data.factType === factType);
@@ -775,7 +775,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.fill("#genealogySourcePersonSearch", "Grace");
       await page.waitForTimeout(350);
       await page.keyboard.press("ArrowDown");
-      const focusedId = await page.evaluate(() => document.activeElement?.getAttribute?.("data-genealogy-source-person") || "");
+      const focusedId = await page.evaluate(() => document.activeElement?.getAttribute?.("data-add-genealogy-source-person") || "");
       assert.ok(focusedId, "la flèche bas déplace le focus sur le premier résultat de recherche");
       await page.keyboard.press("Enter");
       await page.waitForTimeout(250);
@@ -785,7 +785,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const otherIds = await page.$$eval('#genealogySourcePersonSelection [data-remove-genealogy-source-person]', (nodes, keep) => nodes.map(node => node.getAttribute("data-remove-genealogy-source-person")).filter(id => id !== keep), focusedId);
       for (const id of otherIds) await page.click(`#genealogySourcePersonSelection [data-remove-genealogy-source-person="${id}"]`);
       await page.waitForTimeout(150);
-      assert.equal(await page.locator("#genealogySourcePersonSelection .person-chip").count(), 1, "seule la nouvelle personne reste sélectionnée");
+      assert.equal(await page.locator("#genealogySourcePersonSelection .person-multiselect-chip").count(), 1, "seule la nouvelle personne reste sélectionnée");
 
       await page.click("#genealogyContributionSubmitBtn");
       await page.waitForFunction(() => !document.getElementById("genealogyContributionDialog").open, { timeout: 15000 });

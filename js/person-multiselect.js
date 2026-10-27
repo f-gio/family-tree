@@ -1,3 +1,5 @@
+import { icon } from "./ui-components.js";
+
 export function createPersonMultiSelect({
   kind,
   root,
@@ -10,6 +12,7 @@ export function createPersonMultiSelect({
   suggestionFor,
   nameFor,
   escapeHtml,
+  emptyMessage = "",
   onChange = () => {}
 }) {
   let selectedIds = new Set();
@@ -21,15 +24,21 @@ export function createPersonMultiSelect({
   function renderChips() {
     chips.innerHTML = [...selectedIds].map(id => {
       const name = nameFor(id);
-      return `<span class="person-multiselect-chip"><span class="person-multiselect-chip-label">${escapeHtml(name)}</span><button class="person-multiselect-chip-remove" type="button" ${removeAttribute}="${escapeHtml(id)}" aria-label="Retirer ${escapeHtml(name)} de la sélection">×</button></span>`;
+      return `<span class="person-multiselect-chip">${icon("user")}<span class="person-multiselect-chip-label">${escapeHtml(name)}</span><button class="person-multiselect-chip-remove" type="button" ${removeAttribute}="${escapeHtml(id)}" aria-label="Retirer ${escapeHtml(name)} de la sélection">×</button></span>`;
     }).join("");
   }
 
   function renderResults() {
     if (!matches.length) {
-      results.innerHTML = "";
-      results.hidden = true;
-      input.setAttribute("aria-expanded", "false");
+      if (emptyMessage && String(input.value || "").trim().length >= minQueryLength) {
+        results.innerHTML = `<span class="person-multiselect-empty" role="option" aria-disabled="true">${escapeHtml(emptyMessage)}</span>`;
+        results.hidden = false;
+        input.setAttribute("aria-expanded", "true");
+      } else {
+        results.innerHTML = "";
+        results.hidden = true;
+        input.setAttribute("aria-expanded", "false");
+      }
       return;
     }
     results.innerHTML = matches.map((item, index) => {

@@ -79,9 +79,9 @@ test("formulaire contribution : les trois modes réinitialisent tous les textes 
   assert.equal(elements.payloadHelp.textContent, "Texte libre accepté pour les sources et corrections.");
 
   configureGenealogyContributionDialog(elements, { official: true, type: "proof" });
-  assert.equal(elements.title.textContent, "Créer une donnée officielle");
-  assert.equal(elements.subtitle.textContent, "Cette donnée sera enregistrée officiellement avec son historique.");
-  assert.equal(elements.primaryAction.textContent, "Créer la donnée officielle");
+  assert.equal(elements.title.textContent, "Créer une preuve");
+  assert.equal(elements.subtitle.textContent, "La preuve sera enregistrée officiellement avec son événement d’historique.");
+  assert.equal(elements.primaryAction.textContent, "Créer la preuve");
   assert.equal(elements.target.readOnly, false);
   assert.equal(elements.targetHelp.textContent, "Un identifiant est généré automatiquement si ce champ reste vide.");
   assert.equal(elements.payloadHelp.textContent, "Données JSON structurées requises pour les transcriptions, preuves et conclusions.");
@@ -89,7 +89,7 @@ test("formulaire contribution : les trois modes réinitialisent tous les textes 
   configureGenealogyContributionDialog(elements, { official: true, revise: true, type: "conclusion" });
   assert.equal(elements.title.textContent, "Réviser une donnée officielle");
   assert.equal(elements.subtitle.textContent, "Cette modification créera une nouvelle révision conservée dans l'historique.");
-  assert.equal(elements.primaryAction.textContent, "Enregistrer la nouvelle révision");
+  assert.equal(elements.primaryAction.textContent, "Enregistrer");
   assert.equal(elements.target.readOnly, true);
   assert.equal(elements.targetHelp.textContent, "Référence existante de la donnée révisée ; elle ne peut pas être remplacée.");
   assert.equal(elements.payloadHelp.textContent, "Données JSON structurées requises pour les transcriptions, preuves et conclusions.");

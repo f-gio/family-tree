@@ -72,6 +72,9 @@ test("les fiches harmonisent en-tête, libellés et pile de retour", () => {
   assert.match(css, /--color-proof: #6b4470/, "couleur dédiée prune pour Preuve");
   assert.match(css, /\.document-unified-source-head strong \{[^}]*font-size: var\(--text-md\)/, "titre de carte sous le titre de section");
   assert.match(css, /\.document-unified-source--clickable:focus-visible/, "focus visible sur les cartes cliquables");
+  assert.doesNotMatch(css, /\.document-unified-source--clickable:hover \{ background/, "aucun fond blanc au survol des cartes");
+  assert.match(css, /\.document-unified-source--clickable:hover strong \{ text-decoration: underline/, "titre souligné au survol");
+  assert.match(css, /\.document-unified-source--clickable:hover \.document-unified-source-chevron[^}]*font-weight: var\(--weight-semibold\)/, "chevron renforcé au survol");
   assert.match(app, /\$\("viewerDocumentDetails"\)\.addEventListener\("keydown"/, "navigation clavier des cartes du volet");
 });
 
@@ -117,17 +120,20 @@ test("Documents propose une source sans duplication et consulte les sources lié
   assert.match(app, /action === "create-source"/);
 });
 
-test("le sélecteur de personnes est recherché, paginé et distinct des documents associés", () => {
-  for (const id of ["genealogySourcePersonSearch", "genealogySourcePersonEmpty", "genealogySourcePersonOptions", "genealogySourcePersonMore", "genealogySourcePersonSelection"]) {
+test("le sélecteur de personnes réutilise le composant partagé et reste distinct des documents associés", () => {
+  for (const id of ["genealogySourcePersonSearch", "genealogySourcePersonOptions", "genealogySourcePersonSelection"]) {
     assert.match(app, new RegExp(id), `sélecteur personne absent : ${id}`);
   }
-  assert.match(app, /people\.filter\(item => searchable\(`\$\{item\.firstName \|\| ""\} \$\{item\.middleName \|\| ""\} \$\{item\.lastName \|\| ""\}`\)\.includes\(searchable\(rawQuery\)\)\)/);
-  assert.match(app, /const shown = 10 \* genealogySourcePersonPagesShown/);
-  assert.match(app, /matches\.slice\(0, shown\)/);
-  assert.match(app, /genealogySourcePersonPagesShown \+= 1/);
-  assert.match(app, /data-remove-genealogy-source-person/);
-  assert.match(app, /directoryPersonName\(item\)/);
-  assert.match(app, /formatDirectoryDate\(item\.birthDateInfo, item\.birthDate\)/);
+  assert.match(app, /genealogySourcePersonPicker = createPersonMultiSelect\(\{/, "instance du composant partagé");
+  assert.match(app, /kind: "genealogy-source"/, "attributs de sélection dédiés");
+  assert.match(app, /minQueryLength: DOSSIER_MIN_QUERY_LENGTH/, "longueur minimale identique aux formulaires Documents/Démarches");
+  assert.match(app, /personPickerMatches\(query, selectedIds, \(\) => people\.slice\(\)\.sort\(comparePeopleBySurname\)\)/, "moteur de recherche partagé");
+  assert.match(app, /const \[label, context\] = personSuggestionLabel\(item\)/, "nom, années et branche comme modèle document");
+  assert.match(app, /nameFor: nameOf/, "libellé de pastille partagé");
+  assert.match(app, /emptyMessage: PERSON_PICKER_EMPTY_MESSAGE/, "état sans résultat commun");
+  assert.match(app, /onChange: ids => \{\r?\n\s+selectedGenealogySourcePersonIds = new Set\(ids\)/, "sélection propagée au formulaire");
+  assert.match(app, /class="person-multiselect-results" id="genealogySourcePersonOptions"/, "liste de résultats partagée");
+  assert.match(app, /class="person-multiselect-chips" id="genealogySourcePersonSelection"/, "pastilles de sélection partagées");
   assert.match(app, /<h5>Documents associés<\/h5>/);
 });
 
@@ -281,6 +287,10 @@ test("les cartes Sources & preuves présentent un résumé humain sans JSON brut
   assert.match(app, /Catégorie : \$\{data\.category\}/);
   assert.match(app, /Conservé par |Cote : \$\{data\.cote\}/);
   assert.match(app, /Personnes concernées : \$\{peopleNames\.join\(", "\)\}/);
+  const proofBits = app.match(/if \(kind === "proof"\) \{[\s\S]*?\n  \}/)?.[0] || "";
+  assert.ok(proofBits.length > 100, "branche de résumé des cartes Preuve présente");
+  assert.match(proofBits, /Personnes concernées : \$\{peopleNames\.join\(", "\)\}/, "cartes Preuves : personnes réellement associées affichées");
+  assert.match(proofBits, /Aucune personne associée/, "cartes Preuves : état vide explicite");
   assert.match(app, /Document référencé introuvable/);
   assert.match(app, /référence\$\{missing > 1 \? "s" : ""\} introuvable\$\{missing > 1 \? "s" : ""\} dans la bibliothèque chargée/);
   assert.match(app, /Chargement de la bibliothèque…/);
@@ -437,6 +447,8 @@ test("la fiche document unifiée raccorde l'ajout et la gestion de Source offici
   assert.match(unified, /\$\{sourceHead\}\$\{sourceMarkup\}/, "en-tête raccordé à la section Sources");
   assert.match(app, /function refreshUnifiedDetailsIfOpen\(\) \{[\r\n\s]*if \(!\$\("documentViewerDialog"\)\.open/);
   assert.match(app, /\$\("genealogyItemDialog"\)\.addEventListener\("close", \(\) => \{[\r\n\s]*genealogyItemReturn = null;[\s\S]{0,160}?if \(reopenUnifiedDocumentAfter\("genealogyItemDialog"\)\) return;/);
+  assert.match(unified, /\+ Ajouter une source/, "CTA source compact, aligné sur « + Créer une preuve »");
+  assert.doesNotMatch(unified, /Ajouter une source officielle/, "ancien libellé long retiré");
   assert.match(unified, /data-create-source-from-document="\$\{esc\(item\.id\)\}"/);
   assert.match(unified, /data-manage-sources-from-document="\$\{esc\(item\.id\)\}"/);
   assert.match(app, /\$\("viewerDocumentDetails"\)\.addEventListener\("click"/);
@@ -460,7 +472,7 @@ test("la fiche de consultation d'une preuve affiche des informations métier san
   assert.match(app, /genealogyItemReturn = \{ kind: activeGenealogyItem\.kind/, "pile de retour mémorisée");
   assert.match(app, /proofFactLabel\(proofData\.factType\)[\s\S]{0,400}PROOF_RELATION_LABELS\[proofData\.relation\]/, "preuves liées traduites");
   assert.match(app, /const GENEALOGY_RELATION_LABELS = PROOF_RELATION_LABELS/, "relations centralisées");
-  assert.match(app, /source-person-selection-item person-chip/, "pastille commune en sélection");
+  assert.match(app, /class="person-multiselect-chips" id="genealogySourcePersonSelection"/, "pastille commune en sélection, modèle Documents");
   assert.match(app, /kind === "proof" \? proofDetailsMarkup\(data, record\)/, "branche de consultation dédiée");
   assert.match(app, /const photo = kind === "proof" \? "" : pages\.length/, "aucune zone photo vide pour une preuve");
   assert.match(app, /if \(kind === "proof" && proof\.id === record\.id\) return false;/, "preuve courante exclue des preuves liées");

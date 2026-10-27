@@ -27,6 +27,8 @@ test("Documents : sélecteur partagé, associations existantes et stockage perso
   assert.match(app, /kind === "document"[\s\S]*?\(\) => people\.slice\(\)\.sort\(comparePeopleBySurname\)/);
   assert.match(pickerModule, /selectedIds = new Set\(ids\);/);
   assert.match(pickerModule, /getSelected: \(\) => \[\.\.\.selectedIds\]/);
+  assert.match(pickerModule, /emptyMessage/, "état sans résultat géré par le composant partagé");
+  assert.match(pickerModule, /icon\("user"\)/, "icône Personne uniforme sur les pastilles");
 });
 
 test("le composant partagé recherche, ajoute, retire, conserve les identifiants et reste responsive", async t => {
@@ -77,19 +79,20 @@ test("le composant partagé recherche, ajoute, retire, conserve les identifiants
         findMatches: (query, selected) => entries.filter(item => !selected.has(item.id) && normalize(`${item.firstName} ${item.lastName} ${item.marriedName || ""} ${item.branch}`).includes(normalize(query))),
         suggestionFor: item => ({ label: `${item.firstName} ${item.lastName}`, context: item.branch ? `Branche ${item.branch}` : "" }),
         nameFor: id => entries.find(item => item.id === id) ? `${entries.find(item => item.id === id).firstName} ${entries.find(item => item.id === id).lastName}` : "Personne supprimée",
-        escapeHtml: value => { const node = document.createElement("span"); node.textContent = value; return node.innerHTML; }
+        escapeHtml: value => { const node = document.createElement("span"); node.textContent = value; return node.innerHTML; },
+        emptyMessage: "Aucune personne ne correspond à cette recherche."
       });
       window.__documentPickerTest.setSelected(["p-marie", "legacy-person"]);
     });
 
     const input = page.locator("#pickerHarnessInput");
     await input.fill("mart");
-    assert.equal(await page.locator("#pickerHarnessResults [role=option]").count(), 0, "une association déjà présente ne revient pas dans les résultats");
+    assert.equal(await page.locator("#pickerHarnessResults [data-add-document-person]").count(), 0, "une association déjà présente ne revient pas dans les résultats");
     await input.fill("mar");
-    assert.equal(await page.locator("#pickerHarnessResults [role=option]").count(), 2, "la recherche élargie trouve les personnes pertinentes hors sélection existante");
+    assert.equal(await page.locator("#pickerHarnessResults [data-add-document-person]").count(), 2, "la recherche élargie trouve les personnes pertinentes hors sélection existante");
     await page.locator('[data-add-document-person="p-marc"]').click();
     await input.fill("rossi");
-    assert.equal(await page.locator("#pickerHarnessResults [role=option]").count(), 1, "une personne déjà sélectionnée n’est pas proposée deux fois");
+    assert.equal(await page.locator("#pickerHarnessResults [data-add-document-person]").count(), 1, "une personne déjà sélectionnée n’est pas proposée deux fois");
     await page.locator('[data-add-document-person="p-mario"]').click();
     assert.deepEqual(await page.evaluate(() => window.__documentPickerTest.getSelected()), ["p-marie", "legacy-person", "p-marc", "p-mario"]);
     assert.equal(await page.locator("#pickerHarnessChips .person-multiselect-chip").count(), 4, "les associations existantes et les nouvelles sont visibles");
@@ -101,8 +104,11 @@ test("le composant partagé recherche, ajoute, retire, conserve les identifiants
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
     assert.deepEqual(await page.evaluate(() => window.__documentPickerTest.getSelected()), ["p-marie", "legacy-person", "p-mario", "p-marc"], "ajout clavier sans doublon");
+    await input.fill("z");
+    assert.equal(await page.locator("#pickerHarnessResults").evaluate(node => node.hidden), true, "requête trop courte : liste masquée");
     await input.fill("zz");
-    assert.equal(await page.locator("#pickerHarnessResults").evaluate(node => node.hidden), true, "état sans résultat identique au sélecteur Démarches");
+    assert.equal(await page.locator("#pickerHarnessResults").evaluate(node => node.hidden), false, "état sans résultat visible et identique partout");
+    assert.match(await page.locator("#pickerHarnessResults").textContent(), /Aucune personne ne correspond à cette recherche\./, "message de repli commun");
     await input.fill("conti");
     assert.equal(await page.locator("#pickerHarnessResults [role=option]").count(), 1);
 

@@ -20,7 +20,7 @@ export function configureGenealogyContributionDialog(elements, { official = fals
     ? {
         title: "Réviser une donnée officielle",
         subtitle: "Cette modification créera une nouvelle révision conservée dans l'historique.",
-        actionLabel: "Enregistrer la nouvelle révision",
+        actionLabel: "Enregistrer",
         targetHelp: "Référence existante de la donnée révisée ; elle ne peut pas être remplacée.",
         targetReadOnly: true
       }

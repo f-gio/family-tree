@@ -187,7 +187,7 @@ test("Documents : liste et tuiles restent compactes avec sources liées et actio
               const date = card.querySelector(".card-meta")?.getBoundingClientRect();
               const people = card.querySelector(".document-card-people")?.getBoundingClientRect();
               const menuButton = card.querySelector(".card-actions [data-tile-menu-toggle]")?.getBoundingClientRect();
-              return { left: rect.left, right: rect.right, width: rect.width, titleLeft: title?.left, titleTop: title?.top, titleHeight: title?.height, typeLeft: type?.left, typeTop: type?.top, typeHeight: type?.height, dateLeft: date?.left, dateTop: date?.top, dateHeight: date?.height, peopleLeft: people?.left, peopleTop: people?.top, peopleHeight: people?.height, associationLeft: association?.left, associationTop: association?.top, associationHeight: association?.height, actionsLeft: actions?.left, actionsTop: actions?.top, actionsHeight: actions?.height, menuButton, associationRight: association?.right, actionsRight: actions?.right };
+              return { left: rect.left, right: rect.right, width: rect.width, titleLeft: title?.left, titleTop: title?.top, titleHeight: title?.height, typeLeft: type?.left, typeTop: type?.top, typeHeight: type?.height, dateLeft: date?.left, dateTop: date?.top, dateHeight: date?.height, peopleLeft: people?.left, peopleTop: people?.top, peopleHeight: people?.height, associationLeft: association?.left, associationTop: association?.top, associationHeight: association?.height, associationWidth: association?.width, actionsLeft: actions?.left, actionsTop: actions?.top, actionsHeight: actions?.height, menuButton, associationRight: association?.right, actionsRight: actions?.right };
             }),
             linkedCount: list.querySelectorAll(".document-source-associations")[0]?.textContent,
             menuActions: [...list.querySelectorAll(".tile-context-menu-item")].map(button => button.textContent),
@@ -199,6 +199,7 @@ test("Documents : liste et tuiles restent compactes avec sources liées et actio
         for (const card of metrics.cards) {
           assert.ok(card.left >= -1 && card.right <= metrics.viewportWidth + 1, `${width}px ${mode}: carte dans le viewport`);
           assert.ok(card.associationRight === undefined || card.associationRight <= card.right + 1, `${width}px ${mode}: indicateur source contenu`);
+          assert.ok(card.associationWidth === undefined || card.associationWidth <= 180, `${width}px ${mode}: indicateur source compact, pas étiré (${card.associationWidth})`);
           assert.ok(card.actionsRight === undefined || card.actionsRight <= card.right + 1, `${width}px ${mode}: actions contenues`);
           assert.ok(card.menuButton?.width >= 44 && card.menuButton?.height >= 44, `${width}px ${mode}: menu … tactile`);
         }
