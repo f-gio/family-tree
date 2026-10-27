@@ -268,6 +268,17 @@ test("le sélecteur de documents est paginé, masqué sans recherche et conserve
   assert.match(app, /if \(genealogySourceDocumentLastQuery !== rawQuery\) \{[\s\S]*?genealogySourceDocumentPagesShown = 1;/);
 });
 
+test("les résultats documentaires reprennent la liste flottante des personnes et des capsules ivoire", () => {
+  assert.ok(app.includes("genealogySourceDocumentSearchControl.append("));
+  assert.ok(app.includes('$("genealogySourceDocumentOptions")'));
+  assert.ok(app.includes('.querySelectorAll("[data-genealogy-source-document]")[genealogySourceDocumentActiveIndex]?.scrollIntoView({ block: "nearest" })'));
+  assert.ok(app.includes('class="source-document-option person-multiselect-result'));
+  assert.ok(app.includes('icon("document", "source-document-selection-icon")'));
+  assert.match(css, /\.source-document-selection-item\s*\{[^}]*background: var\(--color-surface\);[^}]*color: var\(--color-text\)/);
+  assert.match(css, /\.source-document-picker-options\.person-multiselect-results\s*\{[^}]*position: fixed;[^}]*box-shadow: var\(--shadow-low\)/);
+  assert.match(css, /\.person-multiselect-results\s*\{[^}]*position: absolute;[\s\S]*?box-shadow: var\(--shadow-dialog\)/);
+});
+
 test("les cartes Sources & preuves présentent un résumé humain sans JSON brut", () => {
   const workspace = app.match(/function renderGenealogyWorkspace\(\) \{[\s\S]*?\r?\n\}\r?\n/)?.[0] || "";
   assert.ok(workspace.length > 500, "le rendu du dossier est présent");

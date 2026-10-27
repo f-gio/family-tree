@@ -4361,7 +4361,7 @@ function renderGenealogySourceDocumentSelection() {
   $("genealogySourceDocumentSelection").innerHTML = selectedIds.map(id => {
     const item = documents.find(value => value.id === id);
     const label = item ? documentDisplayLabel(item) : `Référence introuvable · ${id}`;
-    return `<span class="source-document-selection-item${item ? "" : " is-missing"}"><span>${esc(label)}</span><button type="button" data-remove-genealogy-source-document="${esc(id)}" aria-label="Retirer ${esc(label)} de la source">×</button></span>`;
+    return `<span class="source-document-selection-item${item ? "" : " is-missing"}">${icon("document", "source-document-selection-icon")}<span>${esc(label)}</span><button type="button" data-remove-genealogy-source-document="${esc(id)}" aria-label="Retirer ${esc(label)} de la source">×</button></span>`;
   }).join("");
 }
 
@@ -4417,6 +4417,7 @@ function renderGenealogySourceDocumentPicker() {
   $("genealogySourceDocumentOptions").setAttribute("role", "listbox");
   $("genealogySourceDocumentOptions").setAttribute("aria-multiselectable", "true");
   $("genealogySourceDocumentOptions").hidden = !rawQuery || !matches.length;
+  if (!$("genealogySourceDocumentOptions").hidden) requestAnimationFrame(positionGenealogySourceDocumentOptions);
   const moreButton = $("genealogySourceDocumentMore");
   if (moreButton) moreButton.hidden = !(rawQuery && matches.length > shown);
   renderGenealogySourceDocumentSelection();
@@ -7892,6 +7893,54 @@ $("genealogyItemContent").addEventListener("click", event => {
 });
 $("genealogyContributionForm").addEventListener("submit", event => runSafely(() => saveGenealogyContribution(event), "Enregistrement de proposition impossible"));
 $("genealogyContributionType").addEventListener("change", updateGenealogyContributionPresentation);
+const genealogySourceDocumentSearchInput = $("genealogySourceDocumentSearch");
+const genealogySourceDocumentSearchLabel = genealogySourceDocumentSearchInput.closest("label");
+const genealogySourceDocumentSearchControl = document.createElement("div");
+genealogySourceDocumentSearchControl.className = "source-document-search-control";
+genealogySourceDocumentSearchLabel.before(genealogySourceDocumentSearchControl);
+genealogySourceDocumentSearchControl.append(
+  genealogySourceDocumentSearchLabel,
+  $("genealogySourceDocumentEmpty")
+);
+$("genealogySourceDocumentOptions").classList.add("person-multiselect-results");
+const genealogySourceDocumentOptions = $("genealogySourceDocumentOptions");
+const genealogyContributionDialog = $("genealogyContributionDialog");
+genealogyContributionDialog.append(genealogySourceDocumentOptions);
+function positionGenealogySourceDocumentOptions() {
+  if (genealogySourceDocumentOptions.hidden) return;
+  const visual = window.visualViewport;
+  const viewport = visual && Number.isFinite(visual.width) && Number.isFinite(visual.offsetTop)
+    ? { left: 0, top: visual.offsetTop, right: visual.width, bottom: visual.offsetTop + visual.height }
+    : { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+  const dialogRect = genealogyContributionDialog.getBoundingClientRect();
+  const scrollRect = genealogyContributionDialog.querySelector(".modal-scroll")?.getBoundingClientRect() || dialogRect;
+  const inputRect = genealogySourceDocumentSearchInput.getBoundingClientRect();
+  const margin = 8;
+  const leftLimit = Math.max(viewport.left, dialogRect.left, scrollRect.left);
+  const rightLimit = Math.min(viewport.right, dialogRect.right, scrollRect.right);
+  const width = Math.min(inputRect.width, Math.max(0, rightLimit - leftLimit - margin * 2));
+  const left = Math.max(leftLimit + margin, Math.min(inputRect.left, rightLimit - width - margin));
+  const topLimit = Math.max(viewport.top, dialogRect.top, scrollRect.top);
+  const bottomLimit = Math.min(viewport.bottom, dialogRect.bottom, scrollRect.bottom);
+  const roomBelow = Math.max(0, bottomLimit - inputRect.bottom - margin);
+  const roomAbove = Math.max(0, inputRect.top - topLimit - margin);
+  const placeAbove = roomBelow < 150 && roomAbove > roomBelow;
+  const maxListHeight = parseFloat(getComputedStyle(genealogySourceDocumentOptions).maxHeight) || 256;
+  const availableHeight = Math.min(maxListHeight, placeAbove ? roomAbove : roomBelow);
+  genealogySourceDocumentOptions.style.left = `${left - dialogRect.left}px`;
+  genealogySourceDocumentOptions.style.width = `${width}px`;
+  genealogySourceDocumentOptions.style.maxHeight = `${availableHeight}px`;
+  requestAnimationFrame(() => {
+    if (genealogySourceDocumentOptions.hidden) return;
+    genealogySourceDocumentOptions.style.top = placeAbove
+      ? `${Math.max(topLimit + margin, inputRect.top - genealogySourceDocumentOptions.offsetHeight - 4) - dialogRect.top}px`
+      : `${inputRect.bottom + 4 - dialogRect.top}px`;
+  });
+}
+genealogyContributionDialog.addEventListener("scroll", positionGenealogySourceDocumentOptions, true);
+window.addEventListener("resize", positionGenealogySourceDocumentOptions);
+window.visualViewport?.addEventListener("resize", positionGenealogySourceDocumentOptions);
+window.visualViewport?.addEventListener("scroll", positionGenealogySourceDocumentOptions);
 $("genealogySourceDocumentSearch").addEventListener("input", renderGenealogySourceDocumentPicker);
 $("genealogySourceDocumentSearch").addEventListener("focus", () => {
   if ($("genealogySourceDocumentSearch").value.trim()) renderGenealogySourceDocumentPicker();
@@ -7900,7 +7949,7 @@ $("genealogySourceDocumentSearch").setAttribute("role", "combobox");
 $("genealogySourceDocumentSearch").setAttribute("aria-autocomplete", "list");
 document.addEventListener("click", event => {
   const picker = $("genealogySourceDocumentPicker");
-  if (picker && !picker.contains(event.target) && !$("genealogySourceDocumentOptions").hidden) {
+  if (picker && !picker.contains(event.target) && !genealogySourceDocumentOptions.contains(event.target) && !genealogySourceDocumentOptions.hidden) {
     $("genealogySourceDocumentOptions").hidden = true;
     $("genealogySourceDocumentSearch").setAttribute("aria-expanded", "false");
   }
@@ -7916,6 +7965,7 @@ $("genealogySourceDocumentSearch").addEventListener("keydown", event => {
     event.preventDefault();
     genealogySourceDocumentActiveIndex = (genealogySourceDocumentActiveIndex + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
     renderGenealogySourceDocumentPicker();
+    $("genealogySourceDocumentOptions").querySelectorAll("[data-genealogy-source-document]")[genealogySourceDocumentActiveIndex]?.scrollIntoView({ block: "nearest" });
   } else if (event.key === "Enter" && options.length) {
     event.preventDefault();
     options[Math.max(0, genealogySourceDocumentActiveIndex)]?.click();

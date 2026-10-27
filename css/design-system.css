@@ -2575,19 +2575,18 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .source-document-picker[hidden] { display: none; }
 .source-document-picker .form-section-heading { margin: 0; }
 .source-document-picker .form-section-heading p { margin: var(--space-1) 0 0; }
-.source-document-picker-options { display: grid; gap: var(--space-1); max-height: min(16rem, 45dvh); overflow: auto; padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-sm); background: var(--color-surface-raised); }
-.source-document-picker-options[hidden] { display: none; }
-.source-document-option { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); min-width: 0; min-height: var(--control-touch); padding: var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text); text-align: left; cursor: pointer; }
-.source-document-option:hover, .source-document-option.is-active { background: var(--color-brand-soft); }
+.source-document-search-control { min-width: 0; }
+.source-document-picker-options.person-multiselect-results { position: fixed; max-height: min(16rem, 60dvh); box-shadow: var(--shadow-low); }
+.source-document-option { grid-template-columns: minmax(0, 1fr) auto; }
 .source-document-option-check { width: 1.25rem; color: var(--color-brand); font-weight: var(--weight-bold); text-align: center; }
 .source-document-option-details { display: grid; gap: 2px; min-width: 0; }
 .source-document-option-details strong, .source-document-option-details small { overflow-wrap: anywhere; }
 .source-document-option-details small, .source-document-picker-selection .hint { color: var(--color-text-muted); font-size: var(--text-xs); }
 .source-document-picker-selection { display: grid; gap: var(--space-2); min-width: 0; }
-.source-document-selection-item { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; padding: 2px 4px 2px var(--space-2); border: var(--border-subtle); border-radius: 999px; background: var(--color-surface-muted); color: var(--color-text); font-size: var(--text-xs); }
+.source-document-selection-item { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; padding: 2px 4px 2px var(--space-2); border: var(--border-default); border-radius: 999px; background: var(--color-surface); color: var(--color-text); font-size: var(--text-xs); }
 .source-document-selection-item span { overflow-wrap: anywhere; }
-.source-document-selection-item.is-missing { background: var(--color-surface-muted); color: var(--color-text); }
-.source-document-selection-item button { flex: 0 0 auto; min-width: var(--control-touch); min-height: var(--control-touch); border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; }
+.source-document-selection-icon { flex: 0 0 auto; width: 1rem; height: 1rem; color: var(--color-text-muted); }
+.source-document-selection-item button { flex: 0 0 auto; min-width: var(--control-touch); min-height: var(--control-touch); border: 0; border-radius: 999px; background: transparent; color: var(--color-text-label); cursor: pointer; }
 .source-document-selection-item button:hover { background: var(--color-surface-raised); }
 .source-document-selection-item button:focus-visible, .source-document-option:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
 .genealogy-source-guided-fields { display: grid; gap: var(--space-4); }
