@@ -3602,6 +3602,10 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
     overflow: hidden;
   }
   dialog#personDialog.modal-mobile-sheet--long { max-height: 92dvh; }
+  /* Fiche Source/Preuve : même dialog pour les deux, avec la même hauteur
+     exploitable que la fiche Personne. Sans hauteur imposée, la feuille reste
+     ancrée en bas et le contenu court (Preuve) laisse un grand vide au-dessus. */
+  dialog#genealogyItemDialog.modal-mobile-sheet { height: 92dvh; }
   #personDialog > .person-section-nav { flex: 0 0 auto; }
   #personDialog > .person-modal-form {
     flex: 1 1 auto;
