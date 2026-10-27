@@ -2643,6 +2643,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .source-person-option strong, .source-person-option small { overflow-wrap: anywhere; }
 .source-person-option small { color: var(--color-text-muted); font-size: var(--text-xs); }
 .person-chip { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; padding: 3px 6px 3px 10px; border-radius: 999px; background: var(--color-surface-muted); color: var(--color-text); font-size: var(--text-sm); border: var(--border-default); }
+.document-unified-section .person-chip { background: var(--color-surface); border: var(--border-default); }
 .person-chip .ui-icon { flex: 0 0 auto; color: var(--color-text-muted); }
 .person-chip span { overflow-wrap: anywhere; min-width: 0; }
 .person-chip-consult { cursor: pointer; min-height: var(--control-touch); font: inherit; text-align: left; }

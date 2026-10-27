@@ -482,6 +482,8 @@ test("la fiche de consultation d'une preuve affiche des informations métier san
   assert.match(proofPanel, /data-source-document-open=/, "document consultable");
   assert.match(proofPanel, /Statut et détails techniques/, "panneau technique replié");
   assert.match(proofPanel, /person-chip person-chip-consult/, "pastille commune personne en consultation");
+  assert.match(proofPanel, /<section class="document-unified-section"><h4>Personnes concernées/, "capsules placées dans le panneau beige partagé");
+  assert.match(css, /\.document-unified-section \.person-chip \{ background: var\(--color-surface\); border: var\(--border-default\); \}/);
   assert.match(html, /id="genealogyItemBackBtn"[^>]*aria-label="Revenir à la fiche précédente"/, "bouton de retour entre fiches");
   assert.match(app, /genealogyItemReturn = \{ kind: activeGenealogyItem\.kind/, "pile de retour mémorisée");
   assert.match(app, /proofFactLabel\(proofData\.factType\)[\s\S]{0,400}PROOF_RELATION_LABELS\[proofData\.relation\]/, "preuves liées traduites");
