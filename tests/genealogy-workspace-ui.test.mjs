@@ -260,7 +260,7 @@ test("la source officielle référence des documents sélectionnés sans recopie
 test("le sélecteur de documents est paginé, masqué sans recherche et conserve la sélection", () => {
   assert.match(html, /id="genealogySourceDocumentMore"[\s\S]{0,200}?Afficher plus de résultats<\/button>/);
   assert.match(app, /const shown = SOURCE_DOCUMENT_PICKER_PAGE_SIZE \* genealogySourceDocumentPagesShown/);
-  assert.match(app, /matches\.slice\(0, shown\)/);
+  assert.match(app, /const visibleMatches = matches\.slice\(0, shown\)/);
   assert.match(app, /moreButton\.hidden = !\(rawQuery && matches\.length > shown\)/);
   assert.match(app, /Saisissez au moins un caractère pour rechercher dans la bibliothèque par titre, nom de fichier ou type\./);
   assert.match(app, /\$\("genealogySourceDocumentMore"\)\.addEventListener\("click", \(\) => \{[\s\S]*?genealogySourceDocumentPagesShown \+= 1;[\s\S]*?renderGenealogySourceDocumentPicker\(\)/);

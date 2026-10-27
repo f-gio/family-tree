@@ -121,6 +121,7 @@ let genealogySourcePickerNextSibling = null;
 let genealogySourcePersonPicker = null;
 let genealogySourceDocumentPagesShown = 1;
 let genealogySourceDocumentLastQuery = null;
+let genealogySourceDocumentActiveIndex = -1;
 let genealogyProofGuidedGrid = null;
 let genealogyProofPersonPickerParent = null;
 let genealogyProofPersonPickerNextSibling = null;
@@ -4377,11 +4378,16 @@ function renderGenealogySourceDocumentPicker() {
   if (genealogySourceDocumentLastQuery !== rawQuery) {
     genealogySourceDocumentLastQuery = rawQuery;
     genealogySourceDocumentPagesShown = 1;
+    genealogySourceDocumentActiveIndex = -1;
   }
   const shown = SOURCE_DOCUMENT_PICKER_PAGE_SIZE * genealogySourceDocumentPagesShown;
   const matches = rawQuery ? searchLinkedDocuments(documents, rawQuery) : [];
   const emptyMessage = $("genealogySourceDocumentEmpty");
-  if (!documents.length) {
+  emptyMessage.setAttribute("aria-live", "polite");
+  if (!loadedDocuments) {
+    emptyMessage.textContent = "Chargement des documents de la bibliothèque…";
+    emptyMessage.hidden = false;
+  } else if (!documents.length) {
     emptyMessage.textContent = "Aucun document n’est disponible. Vous pourrez enregistrer la source sans document associé, ou ajouter un document dans la bibliothèque.";
     emptyMessage.hidden = false;
   } else if (!rawQuery) {
@@ -4394,11 +4400,23 @@ function renderGenealogySourceDocumentPicker() {
     emptyMessage.textContent = "";
     emptyMessage.hidden = true;
   }
-  $("genealogySourceDocumentOptions").innerHTML = matches.slice(0, shown).map(item => {
+  const visibleMatches = matches.slice(0, shown);
+  if (genealogySourceDocumentActiveIndex >= visibleMatches.length) genealogySourceDocumentActiveIndex = visibleMatches.length - 1;
+  $("genealogySourceDocumentOptions").innerHTML = visibleMatches.map((item, index) => {
     const label = documentDisplayLabel(item);
     const details = [item.type || item.fileName || "Document", item.date || ""].filter(Boolean).join(" · ");
-    return `<label class="source-document-option"><input type="checkbox" data-genealogy-source-document="${esc(item.id)}"${selectedGenealogySourceDocumentIds.has(item.id) ? " checked" : ""}><span class="source-document-option-details"><strong>${esc(label)}</strong><small>${esc(details)}</small></span></label>`;
+    const selected = selectedGenealogySourceDocumentIds.has(item.id);
+    return `<button id="genealogy-source-document-option-${esc(item.id)}" class="source-document-option person-multiselect-result${index === genealogySourceDocumentActiveIndex ? " is-active" : ""}" type="button" role="option" aria-selected="${selected}" data-genealogy-source-document="${esc(item.id)}" tabindex="-1"><span class="source-document-option-details"><strong>${esc(label)}</strong><small>${esc(details)}</small></span><span class="source-document-option-check" aria-hidden="true">${selected ? "✓" : ""}</span></button>`;
   }).join("");
+  const searchInput = $("genealogySourceDocumentSearch");
+  searchInput.setAttribute("aria-expanded", String(Boolean(rawQuery && matches.length)));
+  searchInput.removeAttribute("aria-activedescendant");
+  if (genealogySourceDocumentActiveIndex >= 0 && visibleMatches[genealogySourceDocumentActiveIndex]) {
+    searchInput.setAttribute("aria-activedescendant", `genealogy-source-document-option-${visibleMatches[genealogySourceDocumentActiveIndex].id}`);
+  }
+  $("genealogySourceDocumentOptions").setAttribute("role", "listbox");
+  $("genealogySourceDocumentOptions").setAttribute("aria-multiselectable", "true");
+  $("genealogySourceDocumentOptions").hidden = !rawQuery || !matches.length;
   const moreButton = $("genealogySourceDocumentMore");
   if (moreButton) moreButton.hidden = !(rawQuery && matches.length > shown);
   renderGenealogySourceDocumentSelection();
@@ -7875,12 +7893,42 @@ $("genealogyItemContent").addEventListener("click", event => {
 $("genealogyContributionForm").addEventListener("submit", event => runSafely(() => saveGenealogyContribution(event), "Enregistrement de proposition impossible"));
 $("genealogyContributionType").addEventListener("change", updateGenealogyContributionPresentation);
 $("genealogySourceDocumentSearch").addEventListener("input", renderGenealogySourceDocumentPicker);
-$("genealogySourceDocumentOptions").addEventListener("change", event => {
-  const checkbox = event.target.closest("[data-genealogy-source-document]");
-  if (!checkbox) return;
-  if (checkbox.checked) selectedGenealogySourceDocumentIds.add(checkbox.dataset.genealogySourceDocument);
-  else selectedGenealogySourceDocumentIds.delete(checkbox.dataset.genealogySourceDocument);
-  renderGenealogySourceDocumentSelection();
+$("genealogySourceDocumentSearch").addEventListener("focus", () => {
+  if ($("genealogySourceDocumentSearch").value.trim()) renderGenealogySourceDocumentPicker();
+});
+$("genealogySourceDocumentSearch").setAttribute("role", "combobox");
+$("genealogySourceDocumentSearch").setAttribute("aria-autocomplete", "list");
+document.addEventListener("click", event => {
+  const picker = $("genealogySourceDocumentPicker");
+  if (picker && !picker.contains(event.target) && !$("genealogySourceDocumentOptions").hidden) {
+    $("genealogySourceDocumentOptions").hidden = true;
+    $("genealogySourceDocumentSearch").setAttribute("aria-expanded", "false");
+  }
+});
+$("genealogySourceDocumentSearch").addEventListener("keydown", event => {
+  const options = [...$("genealogySourceDocumentOptions").querySelectorAll("[data-genealogy-source-document]")];
+  if (event.key === "Escape" && !$("genealogySourceDocumentOptions").hidden) {
+    event.preventDefault();
+    $("genealogySourceDocumentOptions").hidden = true;
+    event.currentTarget.setAttribute("aria-expanded", "false");
+  } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (!options.length) return;
+    event.preventDefault();
+    genealogySourceDocumentActiveIndex = (genealogySourceDocumentActiveIndex + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+    renderGenealogySourceDocumentPicker();
+  } else if (event.key === "Enter" && options.length) {
+    event.preventDefault();
+    options[Math.max(0, genealogySourceDocumentActiveIndex)]?.click();
+  }
+});
+$("genealogySourceDocumentOptions").addEventListener("click", event => {
+  const option = event.target.closest("[data-genealogy-source-document]");
+  if (!option) return;
+  const id = option.dataset.genealogySourceDocument;
+  if (selectedGenealogySourceDocumentIds.has(id)) selectedGenealogySourceDocumentIds.delete(id);
+  else selectedGenealogySourceDocumentIds.add(id);
+  renderGenealogySourceDocumentPicker();
+  $("genealogySourceDocumentSearch").focus();
   if ($("genealogyOfficialProofFields") && !$("genealogyOfficialProofFields").hidden) refreshProofPageOptions($("proofPage")?.value || "");
 });
 $("genealogySourceDocumentSelection").addEventListener("click", event => {
