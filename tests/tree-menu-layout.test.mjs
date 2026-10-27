@@ -79,7 +79,7 @@ test("le menu des contrôles de l’arbre aligne les icônes et les libellés", 
           assert.equal(menu.expanded, "true");
           assert.ok(menu.rows.length >= 3, "actions usuelles présentes");
           if (viewport.isMobile) {
-            assert.deepEqual(menu.rows.map(row => row.label), ["Ajuster", "Recentrer", "Réorganiser", "Exporter"], "toutes les entrées du menu sont rendues");
+            assert.deepEqual(menu.rows.map(row => row.label), ["Plein écran", "Recentrer", "Réorganiser", "Exporter"], "toutes les entrées du menu sont rendues");
             assert.ok(menu.rows.every(row => row.visible && row.y >= -0.5 && row.bottom <= menu.viewport.height + 0.5), "première et dernière entrées entièrement dans le viewport");
             assert.ok(menu.menuBox.y >= -0.5 && menu.menuBox.bottom <= menu.viewport.height + 0.5, "menu entier visible sans clipping du viewport");
             assert.ok(menu.rows.every(row => row.y >= menu.menuBox.y - 0.5 && row.bottom <= menu.menuBox.bottom + 0.5), "aucune entrée coupée par le conteneur du menu");
@@ -102,7 +102,7 @@ test("le menu des contrôles de l’arbre aligne les icônes et les libellés", 
           await page.keyboard.press("Escape");
           assert.equal(await page.locator("#treeMenu").evaluate(element => element.hidden), true, "Échap ferme le menu");
           if (viewport.isMobile) {
-            for (const id of ["menuFitBtn", "centerTreeBtn", "autoLayoutBtn", "menuExportTreeBtn"]) {
+            for (const id of ["centerTreeBtn", "autoLayoutBtn", "menuExportTreeBtn"]) {
               await page.locator("#treeMoreBtn").tap();
               const item = page.locator(`#${id}`);
               const box = await item.boundingBox();

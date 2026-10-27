@@ -1402,6 +1402,69 @@ const camera = createTreeCamera({
   onChange: state => { $("zoomLevel").textContent = `${Math.round(state.scale * 100)} %`; }
 });
 
+const treeViewportElement = $("treeViewport");
+let treeFullscreenActive = false;
+let treeFullscreenFallback = false;
+let treeFullscreenPreserveUntil = 0;
+let pendingTreeFullscreenCenter = null;
+let treeMenuOriginalParent = null;
+let treeMenuOriginalNextSibling = null;
+let previousTreeViewportSize = { width: treeViewportElement.clientWidth, height: treeViewportElement.clientHeight };
+
+function treeWorldCenter() {
+  const state = camera.getState();
+  return {
+    x: (treeViewportElement.clientWidth / 2 - state.x) / state.scale,
+    y: (treeViewportElement.clientHeight / 2 - state.y) / state.scale
+  };
+}
+
+function focusTreeWorldCenter(center) {
+  if (!center) return;
+  camera.focus({ x: center.x, y: center.y, width: 0, height: 0 });
+  previousTreeViewportSize = { width: treeViewportElement.clientWidth, height: treeViewportElement.clientHeight };
+}
+
+function moveTreeMenuToFullscreenLayer(move) {
+  const menu = $("treeMenu");
+  if (move && menu.parentElement !== treeViewportElement) {
+    treeMenuOriginalParent = menu.parentElement;
+    treeMenuOriginalNextSibling = menu.nextSibling;
+    treeViewportElement.append(menu);
+  } else if (!move && treeMenuOriginalParent) {
+    const next = treeMenuOriginalNextSibling?.parentElement === treeMenuOriginalParent ? treeMenuOriginalNextSibling : null;
+    treeMenuOriginalParent.insertBefore(menu, next);
+    treeMenuOriginalParent = null;
+    treeMenuOriginalNextSibling = null;
+  }
+}
+
+function preserveTreeCenterOnViewportResize() {
+  const current = { width: treeViewportElement.clientWidth, height: treeViewportElement.clientHeight };
+  const previous = previousTreeViewportSize;
+  if ((treeFullscreenActive || Date.now() < treeFullscreenPreserveUntil)
+    && previous.width > 0 && previous.height > 0
+    && current.width > 0 && current.height > 0
+    && (previous.width !== current.width || previous.height !== current.height)) {
+    const state = camera.getState();
+    const center = {
+      x: (previous.width / 2 - state.x) / state.scale,
+      y: (previous.height / 2 - state.y) / state.scale
+    };
+    camera.focus({ x: center.x, y: center.y, width: 0, height: 0 });
+  }
+  previousTreeViewportSize = current;
+  if (treeFullscreenActive && !$("treeMenu").hidden) positionFullscreenTreeMenu();
+}
+
+const treeFullscreenResizeObserver = new ResizeObserver(preserveTreeCenterOnViewportResize);
+treeFullscreenResizeObserver.observe(treeViewportElement);
+window.addEventListener("resize", preserveTreeCenterOnViewportResize, { passive: true });
+window.visualViewport?.addEventListener("resize", preserveTreeCenterOnViewportResize);
+window.visualViewport?.addEventListener("scroll", () => {
+  if (treeFullscreenActive && !$("treeMenu").hidden) positionFullscreenTreeMenu();
+});
+
 const treeViewportQuery = window.matchMedia("(max-width: 760px)");
 let treeViewportPortrait = window.matchMedia("(orientation: portrait)").matches;
 let treeViewportFitTimer = 0;
@@ -1454,7 +1517,7 @@ if (typeof window !== "undefined") {
       return { state: camera.getState(), layout: currentLayout };
     },
     controls: () => {
-      const selectors = ["#fitTreeBtn", "#treeMoreBtn", "#treeMenu", "#centerTreeBtn", "#autoLayoutBtn", "#menuFitBtn", "#zoomInBtn", "#zoomOutBtn", "#zoomLevel", ".zoom-control", ".view-control", ".tree-controls"];
+      const selectors = ["#fitTreeBtn", "#treeMoreBtn", "#treeMenu", "#centerTreeBtn", "#autoLayoutBtn", "#treeFullscreenMenuBtn", "#zoomInBtn", "#zoomOutBtn", "#zoomLevel", ".zoom-control", ".view-control", ".tree-controls"];
       const out = {};
       selectors.forEach(sel => {
         const element = document.querySelector(sel);
@@ -1624,16 +1687,16 @@ function renderTree() {
   updateBranchBanner(scope);
 }
 
-// Sur mobile, un vrai changement d'orientation recadre l'arbre. Un simple
-// redimensionnement (barre d'adresse, clavier virtuel) ou un resize desktop
-// ne déclenche aucun fit.
+// Hors plein écran, un vrai changement d'orientation conserve le comportement
+// d'ajustement historique. Pendant et juste après le plein écran, la caméra
+// conserve le point central via ResizeObserver au lieu de refaire un fit.
 function scheduleTreeViewportFit() {
   clearTimeout(treeViewportFitTimer);
   treeViewportFitTimer = setTimeout(() => {
     const portrait = window.matchMedia("(orientation: portrait)").matches;
     if (portrait === treeViewportPortrait) return;
     treeViewportPortrait = portrait;
-    if (treeViewportQuery.matches && !$("appMain").hidden) camera.fit();
+    if (treeViewportQuery.matches && !$("appMain").hidden && !treeFullscreenActive && Date.now() >= treeFullscreenPreserveUntil) camera.fit();
   }, 180);
 }
 
@@ -7311,6 +7374,17 @@ document.addEventListener("click", event => {
 });
 document.addEventListener("keydown", event => {
   if (event.key !== "Escape") return;
+  if (treeFullscreenActive && !$("treeMenu").hidden) {
+    event.preventDefault();
+    setTreeMenu(false);
+    $("treeMoreBtn").focus({ preventScroll: true });
+    return;
+  }
+  if (treeFullscreenActive && !document.querySelector("dialog[open]")) {
+    event.preventDefault();
+    toggleTreeFullscreen();
+    return;
+  }
   if (!$("accountDropdown").hidden) {
     $("accountDropdown").hidden = true;
     $("accountMenuBtn").setAttribute("aria-expanded", "false");
@@ -7619,25 +7693,148 @@ function showZoomBadge() {
 $("zoomOutBtn").onclick = () => { camera.zoomBy(1 / 1.2); showZoomBadge(); };
 $("zoomInBtn").onclick = () => { camera.zoomBy(1.2); showZoomBadge(); };
 $("fitTreeBtn").onclick = () => camera.fit();
+function resetTreeMenuPosition() {
+  const menu = $("treeMenu");
+  ["position", "left", "right", "top", "bottom", "width", "maxWidth", "maxHeight", "overflowY"].forEach(property => menu.style.removeProperty(property.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)));
+}
+function positionFullscreenTreeMenu() {
+  const menu = $("treeMenu");
+  if (!treeFullscreenActive || menu.hidden) return;
+  const visual = window.visualViewport;
+  const bounds = visual && Number.isFinite(visual.width) && Number.isFinite(visual.offsetTop)
+    ? { left: visual.offsetLeft || 0, top: visual.offsetTop, right: (visual.offsetLeft || 0) + visual.width, bottom: visual.offsetTop + visual.height }
+    : { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+  const shellRect = treeViewportElement.getBoundingClientRect();
+  const anchor = $("treeMoreBtn").getBoundingClientRect();
+  const margin = 8;
+  const leftLimit = bounds.left + margin;
+  const rightLimit = bounds.right - margin;
+  menu.style.position = "absolute";
+  menu.style.left = "0px";
+  menu.style.right = "auto";
+  menu.style.top = "0px";
+  menu.style.bottom = "auto";
+  menu.style.maxWidth = `${Math.max(0, rightLimit - leftLimit)}px`;
+  menu.style.maxHeight = `${Math.max(0, bounds.bottom - bounds.top - margin * 2)}px`;
+  menu.style.overflowY = "auto";
+  const width = Math.min(menu.getBoundingClientRect().width, rightLimit - leftLimit);
+  const left = Math.max(leftLimit, Math.min(anchor.right - width, rightLimit - width));
+  const naturalHeight = menu.scrollHeight;
+  const roomBelow = Math.max(0, bounds.bottom - margin - anchor.bottom - 4);
+  const roomAbove = Math.max(0, anchor.top - bounds.top - margin - 4);
+  const placeBelow = roomBelow >= Math.min(naturalHeight, 140) || roomBelow >= roomAbove;
+  const availableHeight = Math.min(naturalHeight, placeBelow ? roomBelow : roomAbove);
+  menu.style.left = `${left - shellRect.left}px`;
+  menu.style.maxHeight = `${availableHeight}px`;
+  const top = placeBelow
+    ? Math.max(bounds.top + margin, Math.min(anchor.bottom + 4, bounds.bottom - margin - availableHeight))
+    : Math.max(bounds.top + margin, anchor.top - 4 - availableHeight);
+  menu.style.top = `${top - shellRect.top}px`;
+}
+function updateTreeFullscreenUi(active, fallback = false) {
+  const wasActive = treeFullscreenActive;
+  const centerToKeep = active
+    ? (pendingTreeFullscreenCenter || treeWorldCenter())
+    : (wasActive ? treeWorldCenter() : null);
+  treeFullscreenActive = active;
+  treeFullscreenFallback = active && fallback;
+  document.documentElement.classList.toggle("tree-fullscreen-active", active);
+  document.documentElement.classList.toggle("tree-fullscreen-fallback", treeFullscreenFallback);
+  treeViewportElement.classList.toggle("tree-fullscreen-active", active);
+  treeViewportElement.classList.toggle("tree-fullscreen-fallback", treeFullscreenFallback);
+  const button = $("treeFullscreenMenuBtn");
+  const label = active ? "Quitter le plein écran" : "Plein écran";
+  button.querySelector("span").textContent = label;
+  button.setAttribute("aria-label", active ? "Quitter le plein écran de l’arbre" : "Afficher l’arbre en plein écran");
+  button.title = label;
+  button.setAttribute("aria-pressed", String(active));
+  button.querySelector("use")?.setAttribute("href", active ? "#icon-minimize" : "#icon-maximize");
+  if (active) {
+    treeFullscreenPreserveUntil = 0;
+    pendingTreeFullscreenCenter = null;
+    moveTreeMenuToFullscreenLayer(true);
+    setTreeMenu(false);
+    requestAnimationFrame(() => {
+      if (!treeFullscreenActive) return;
+      focusTreeWorldCenter(centerToKeep);
+      $("treeMoreBtn").focus({ preventScroll: true });
+    });
+  } else if (wasActive) {
+    setTreeMenu(false);
+    moveTreeMenuToFullscreenLayer(false);
+    treeFullscreenPreserveUntil = Date.now() + 800;
+    requestAnimationFrame(() => {
+      if (treeFullscreenActive) return;
+      focusTreeWorldCenter(centerToKeep);
+      $("treeMoreBtn").focus({ preventScroll: true });
+    });
+  }
+}
+function nativeTreeFullscreenActive() {
+  return document.fullscreenElement === treeViewportElement
+    || document.webkitFullscreenElement === treeViewportElement;
+}
+function syncTreeFullscreenFromBrowser() {
+  if (nativeTreeFullscreenActive()) updateTreeFullscreenUi(true, false);
+  else if (treeFullscreenActive && !treeFullscreenFallback) updateTreeFullscreenUi(false, false);
+}
+async function toggleTreeFullscreen() {
+  if (treeFullscreenActive) {
+    if (treeFullscreenFallback) {
+      updateTreeFullscreenUi(false, false);
+      return;
+    }
+    const exit = document.exitFullscreen || document.webkitExitFullscreen || document.webkitCancelFullScreen;
+    if (typeof exit === "function") {
+      try { await Promise.resolve(exit.call(document)); }
+      catch { return; }
+    }
+    syncTreeFullscreenFromBrowser();
+    return;
+  }
+  pendingTreeFullscreenCenter = treeWorldCenter();
+  const request = treeViewportElement.requestFullscreen || treeViewportElement.webkitRequestFullscreen;
+  if (typeof request === "function") {
+    try {
+      const result = request === treeViewportElement.requestFullscreen
+        ? request.call(treeViewportElement, { navigationUI: "hide" })
+        : request.call(treeViewportElement);
+      await Promise.resolve(result);
+      if (nativeTreeFullscreenActive()) {
+        syncTreeFullscreenFromBrowser();
+        return;
+      }
+    } catch { /* Le mode CSS ci-dessous couvre les navigateurs qui refusent l’API. */ }
+  }
+  updateTreeFullscreenUi(true, true);
+}
+document.addEventListener("fullscreenchange", syncTreeFullscreenFromBrowser);
+document.addEventListener("webkitfullscreenchange", syncTreeFullscreenFromBrowser);
 function setTreeMenu(open) {
   const menu = $("treeMenu");
   menu.hidden = !open;
   $("treeMoreBtn").setAttribute("aria-expanded", String(open));
-  if (!open) return;
-  const canvas = $("treeViewport");
-  const host = $("treeMoreBtn").closest(".view-control");
-  const headroom = host.getBoundingClientRect().top - canvas.getBoundingClientRect().top - 6;
-  menu.style.maxHeight = `${Math.max(0, Math.floor(headroom))}px`;
-  const firstVisible = $("menuFitBtn").offsetParent !== null ? $("menuFitBtn") : $("centerTreeBtn");
+  if (!open) {
+    resetTreeMenuPosition();
+    return;
+  }
+  if (treeFullscreenActive) positionFullscreenTreeMenu();
+  else {
+    resetTreeMenuPosition();
+    const canvas = $("treeViewport");
+    const host = $("treeMoreBtn").closest(".view-control");
+    const headroom = host.getBoundingClientRect().top - canvas.getBoundingClientRect().top - 6;
+    menu.style.maxHeight = `${Math.max(0, Math.floor(headroom))}px`;
+  }
+  const firstVisible = $("treeFullscreenMenuBtn").offsetParent !== null ? $("treeFullscreenMenuBtn") : $("centerTreeBtn");
   firstVisible.focus();
 }
 $("treeMoreBtn").onclick = () => {
   setTreeMenu($("treeMenu").hidden);
 };
-$("menuFitBtn").onclick = () => {
+$("treeFullscreenMenuBtn").onclick = () => {
   setTreeMenu(false);
-  camera.fit();
-  $("treeMoreBtn").focus();
+  toggleTreeFullscreen();
 };
 $("centerTreeBtn").onclick = () => {
   setTreeMenu(false);
@@ -7669,7 +7866,7 @@ $("treeExportDialog").addEventListener("close", () => { if (!$("appMain").hidden
 document.addEventListener("click", event => {
   const menu = $("treeMenu");
   if (menu.hidden) return;
-  if (!event.target.closest(".view-control")) setTreeMenu(false);
+  if (!event.target.closest(".view-control") && !menu.contains(event.target)) setTreeMenu(false);
 });
 $("linkDocumentBtn").onclick = () => {
   const personId = activeId;

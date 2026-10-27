@@ -684,6 +684,76 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   border-radius: inherit;
 }
 
+/* Plein écran de l’arbre : repli CSS pour les navigateurs mobiles sans API native. */
+html.tree-fullscreen-active,
+html.tree-fullscreen-active body { overflow: hidden !important; }
+html.tree-fullscreen-fallback,
+html.tree-fullscreen-fallback body { width: 100%; height: 100%; min-height: 100%; margin: 0; overflow: hidden !important; }
+html.tree-fullscreen-fallback .topbar { display: none !important; }
+html.tree-fullscreen-fallback #appMain {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: block;
+  width: auto;
+  max-width: none;
+  height: 100dvh;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+html.tree-fullscreen-fallback #appMain > :not(#treeViewport) { display: none !important; }
+#treeViewport.tree-fullscreen-fallback,
+#treeViewport:fullscreen,
+#treeViewport:-webkit-full-screen {
+  position: fixed;
+  inset: 0;
+  width: auto;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+.tree-shell.tree-fullscreen-active { overflow: visible; }
+.tree-shell.tree-fullscreen-active .canvas-help { display: none; }
+.tree-shell.tree-fullscreen-active .tree-controls {
+  position: absolute;
+  z-index: 40;
+  inset: auto max(var(--space-2), env(safe-area-inset-right)) max(var(--space-2), env(safe-area-inset-bottom)) max(var(--space-2), env(safe-area-inset-left));
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+.tree-shell.tree-fullscreen-active .tree-controls > * { pointer-events: auto; }
+.tree-shell.tree-fullscreen-active .tree-controls button {
+  min-width: var(--control-touch);
+  min-height: var(--control-touch);
+}
+.tree-shell.tree-fullscreen-active .tree-controls #fitTreeBtn { display: inline-flex; }
+.tree-shell.tree-fullscreen-active .tree-menu {
+  position: absolute;
+  z-index: 50;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@media (orientation: landscape) and (max-height: 600px) {
+  .tree-shell.tree-fullscreen-active .tree-controls {
+    inset: max(var(--space-2), env(safe-area-inset-top)) max(var(--space-2), env(safe-area-inset-right)) auto auto;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+  .tree-shell.tree-fullscreen-active .zoom-control,
+  .tree-shell.tree-fullscreen-active .view-control { display: flex; flex-direction: column; align-items: flex-end; }
+}
+
 @media (max-width: 760px) {
   .tree-filter-toolbar {
     grid-template-columns: minmax(0, 1fr);
@@ -715,12 +785,9 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   }
 }
 
-/* Contrôles Arbre : Ajuster reste permanent sur desktop, les autres actions passent par le menu (⋯). */
+/* Ajuster reste directement accessible dans la barre, y compris sur mobile. */
 @media (max-width: 760px) {
-  #fitTreeBtn { display: none; }
-}
-@media (min-width: 761px) {
-  #menuFitBtn { display: none; }
+  .tree-controls #fitTreeBtn { display: inline-flex; }
 }
 
 /* Arbre : ombres des cartes plus subtiles sur desktop (souris), l'affordance tactile mobile est conservée. */

@@ -419,13 +419,14 @@ async function runViewport(view, page, baseURL) {
   const controls = await page.evaluate(() => window.__treeProbe.controls());
   const moreBtnBox = controls["#treeMoreBtn"];
   const fitBtnBox = controls["#fitTreeBtn"];
-  const mobileLayout = Boolean(fitBtnBox) && fitBtnBox.width === 0;
+  const mobileLayout = cls === "tactile";
   const zoomBox = controls[".zoom-control"];
   const viewBox = controls[".view-control"];
   const panelBox = controls[".tree-controls"];
   check(`${line} · bouton ⋯ du menu d'actions présent en bas à droite`, Boolean(moreBtnBox) && Boolean(viewBox) && viewBox.x > zoomBox.x, JSON.stringify(controls));
   if (mobileLayout) {
-    check(`${line} · mobile (≤760) : Ajuster permanent masqué (⋯ seul en bas à droite)`, Boolean(fitBtnBox) && fitBtnBox.width === 0 && fitBtnBox.height === 0, fitBtnBox ? `fit masqué ${Math.round(fitBtnBox.width)}×${Math.round(fitBtnBox.height)}px` : "Ajuster absent");
+    check(`${line} · mobile (≤760) : « Ajuster » reste directement visible dans la barre`, Boolean(fitBtnBox) && fitBtnBox.width > 0 && fitBtnBox.height > 0, fitBtnBox ? `fit visible ${Math.round(fitBtnBox.width)}×${Math.round(fitBtnBox.height)}px` : "Ajuster absent");
+    assessTouch({ viewport: line, label: "bouton d'action « Ajuster »", box: fitBtnBox, cls, essential: true });
     assessTouch({ viewport: line, label: "bouton d'action « ⋯ (menu d'actions) »", box: moreBtnBox, cls, essential: true });
   } else {
     check(`${line} · desktop/paysage : « Ajuster » permanent visible à gauche du bouton ⋯`, Boolean(fitBtnBox) && fitBtnBox.width > 0 && fitBtnBox.x < moreBtnBox.x, fitBtnBox ? `${fitBtnBox.x.toFixed(0)} vs ${moreBtnBox.x.toFixed(0)} px` : "Ajuster absent");
@@ -486,7 +487,7 @@ async function runViewport(view, page, baseURL) {
   });
   check(`${line} · le % disparaît automatiquement après ~1,5 s`, !badgeGone.show && badgeGone.visibility === "hidden", JSON.stringify(badgeGone));
 
-  /* ---------- Phase B1‴ : menu d'actions de l'arbre (⋯) = Ajuster (mobile) + Recentrer + Réorganiser ---------- */
+  /* ---------- Phase B1‴ : menu d'actions de l'arbre (⋯) = Plein écran + Recentrer + Réorganiser ---------- */
   console.log(`  -- B1‴ · Menu d'actions de l'arbre (⋯) --`);
   const menuInit = await page.evaluate(() => ({
     hidden: document.getElementById("treeMenu").hidden,
@@ -506,12 +507,12 @@ async function runViewport(view, page, baseURL) {
       count: visible.length
     };
   });
-  const expectedItems = mobileLayout ? ["Ajuster", "Recentrer", "Réorganiser", "Exporter"] : ["Recentrer", "Réorganiser", "Exporter"];
+  const expectedItems = ["Plein écran", "Recentrer", "Réorganiser", "Exporter"];
   check(`${line} · clic sur ⋯ : menu ouvert (aria-expanded="true")`, !menuOpened.hidden && menuOpened.expanded === "true", JSON.stringify(menuOpened));
   check(`${line} · menu ${mobileLayout ? "mobile (≤760)" : "desktop/paysage"} : items « ${expectedItems.join(" / ")} » (${menuOpened.count})`, JSON.stringify(menuOpened.items) === JSON.stringify(expectedItems), JSON.stringify(menuOpened.items));
   const menuBoxes = await page.evaluate(() => {
     const out = {};
-    for (const id of ["treeMenu", "centerTreeBtn", "autoLayoutBtn", "menuFitBtn"]) {
+    for (const id of ["treeMenu", "centerTreeBtn", "autoLayoutBtn", "treeFullscreenMenuBtn"]) {
       const r = document.getElementById(id).getBoundingClientRect();
       out[id] = { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
     }
@@ -523,7 +524,7 @@ async function runViewport(view, page, baseURL) {
   check(`${line} · menu entièrement dans le viewport`, Boolean(menuBox) && menuBox.x >= -1 && menuBox.y >= -1 && menuBox.right <= view.width + 1 && menuBox.bottom <= view.height + 1, menuBox ? `${menuBox.x.toFixed(0)},${menuBox.y.toFixed(0)} → ${menuBox.right.toFixed(0)},${menuBox.bottom.toFixed(0)}` : "menu absent");
   check(`${line} · menu ouvert n'intersecte pas le zoom`, !boxesOverlap(menuBox, (await page.evaluate(() => window.__treeProbe.controls()))[".zoom-control"]));
   if (mobileLayout) {
-    assessTouch({ viewport: line, label: "« Ajuster » (menu mobile)", box: menuBoxes["menuFitBtn"], cls, essential: true });
+    assessTouch({ viewport: line, label: "« Plein écran » (menu mobile)", box: menuBoxes["treeFullscreenMenuBtn"], cls, essential: true });
   }
   assessTouch({ viewport: line, label: "« Recentrer » (menu)", box: menuBoxes["centerTreeBtn"], cls, essential: true });
   assessTouch({ viewport: line, label: "« Réorganiser » (menu)", box: menuBoxes["autoLayoutBtn"], cls, essential: true });
@@ -567,18 +568,7 @@ async function runViewport(view, page, baseURL) {
   }));
   check(`${line} · Échap referme le menu d'actions (desktop)`, menuEscape.hidden && menuEscape.expanded === "false");
   check(`${line} · focus restitué au bouton ⋯ après Échap`, menuEscape.focusedId === "treeMoreBtn", menuEscape.focusedId || "aucun");
-  if (mobileLayout) {
-    await page.click("#treeMoreBtn");
-    await page.waitForTimeout(40);
-    const fitFromMenu = await page.evaluate(async () => {
-      const probe = window.__treeProbe;
-      document.getElementById("menuFitBtn").click();
-      await new Promise(resolve => setTimeout(resolve, 60));
-      return { scale: probe.state.scale, menuHidden: document.getElementById("treeMenu").hidden, expanded: document.getElementById("treeMoreBtn").getAttribute("aria-expanded"), focusedId: document.activeElement ? document.activeElement.id : "" };
-    });
-    check(`${line} · mobile : « Ajuster » depuis le menu → échelle = arbre complet (${Math.round(fitFromMenu.scale * 100)} %)`, Math.abs(fitFromMenu.scale - fitExpected) < 0.02);
-    check(`${line} · mobile : « Ajuster » depuis le menu → menu refermé, focus sur ⋯`, fitFromMenu.menuHidden && fitFromMenu.expanded === "false" && fitFromMenu.focusedId === "treeMoreBtn");
-  }
+  check(`${line} · bouton plein écran du menu distinct de l'ajustement direct`, menuBoxes.treeFullscreenMenuBtn.width > 0 && fitBtnBox.width > 0);
 
   /* ---------- Phase B2 : vue Annuaire (coquille réelle + fiches fictives) ---------- */
   console.log(`  -- B2 · Vue Annuaire (coquille réelle + fiches fictives) --`);
