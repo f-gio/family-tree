@@ -713,6 +713,45 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       assert.ok(!JSON.parse(await probe.list("sourceDocuments")).some(item => item.id === sourceId), "Source toujours absente après rechargement");
     });
 
+    await t.test("12. navigation Document → Source et Document → Preuve avec retour au Document", async () => {
+      const linkedSourceId = "ui-nav-linked-source";
+      await probe.createOfficial({
+        type: "source", id: linkedSourceId, revisionId: "ui-nav-source-r1", eventId: "ui-nav-source-e1",
+        data: { id: linkedSourceId, title: "Source navigation test", documentIds: ["doc-probe"], personIds: [], status: "active" },
+        reason: "Fixture navigation document"
+      });
+      await page.click('.nav-btn[data-view="documents"]');
+      await page.waitForTimeout(500);
+      await page.locator(".document-card").filter({ hasText: "Registre probe" }).first().click();
+      await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
+      await page.click("#viewerDetailsExpandBtn");
+      await page.waitForTimeout(300);
+
+      // Document → Source : ouverture directe depuis la carte, aucun retour hérité
+      const sourceCard = page.locator(`[data-unified-source-card="${linkedSourceId}"]`);
+      assert.ok(await sourceCard.count(), "carte Source cliquable présente dans le volet");
+      await sourceCard.click();
+      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
+      assert.ok((await page.locator("#genealogyItemTitle").textContent()).includes("Source navigation test"), "fiche Source ouverte depuis le document");
+      assert.ok(await page.locator("#genealogyItemBackBtn").isHidden(), "aucun bouton retour hérité sur la Source");
+      await page.click('#genealogyItemDialog [data-close="genealogyItemDialog"]');
+      await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open, { timeout: 10000 });
+      await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
+
+      // Document → Preuve : même parcours de retour
+      await page.click("#viewerDetailsExpandBtn");
+      await page.waitForTimeout(300);
+      const proofCard = page.locator("[data-unified-proof-card]").first();
+      assert.ok(await proofCard.count(), "carte Preuve cliquable présente dans le volet");
+      await proofCard.click();
+      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
+      assert.ok(await page.locator("#genealogyItemBackBtn").isHidden(), "aucun bouton retour hérité sur la Preuve");
+      await page.click('#genealogyItemDialog [data-close="genealogyItemDialog"]');
+      await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open, { timeout: 10000 });
+      await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
+      await closeResidualDialogs();
+    });
+
     assert.deepEqual(pageErrors, [], "aucune erreur JavaScript pendant les parcours");
   } finally {
     if (browser) await browser.close();

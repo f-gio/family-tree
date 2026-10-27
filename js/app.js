@@ -532,6 +532,11 @@ function renderDocumentSourceManager(documentId) {
   const linkedSources = documentLinkedSources(documentId);
   if (!documentItem) return;
   activeDocumentSourceManagerId = documentId;
+  // La modale affiche désormais la gestion des liens : aucun enregistrement
+  // actif ne doit survivre d'une consultation antérieure (pile de retour).
+  activeGenealogyItem = null;
+  $("genealogyItemBackBtn").hidden = true;
+  $("genealogyItemMenuBtn").hidden = true;
   $("genealogyItemTitle").textContent = "Sources liées";
   $("genealogyItemSubtitle").textContent = documentDisplayLabel(documentItem);
   $("genealogyItemContent").innerHTML = `<section class="document-source-manager"><h4>${linkedSources.length} source${linkedSources.length > 1 ? "s" : ""} liée${linkedSources.length > 1 ? "s" : ""}</h4>${linkedSources.length ? `<ul>${linkedSources.map(source => {
@@ -4234,7 +4239,7 @@ function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null) 
   const subtitleBadges = (kind === "source" || kind === "proof")
     ? `${genealogyKindBadgeHtml(kind)}${genealogyStatusBadgeHtml(statusValue)}${kind === "source" && data.category ? `<span class="genealogy-status-badge">${esc(data.category)}</span>` : ""}`
     : "";
-  const subtitleText = [genealogyKindLabels[kind], kind === "proof" || kind === "source" ? "" : record.id, record.authorUid ? `Auteur historique : ${record.authorUid}` : ""].filter(Boolean).join(" · ");
+  const subtitleText = [(kind === "proof" || kind === "source") ? "" : genealogyKindLabels[kind], kind === "proof" || kind === "source" ? "" : record.id, record.authorUid ? `Auteur historique : ${record.authorUid}` : ""].filter(Boolean).join(" · ");
   $("genealogyItemSubtitle").innerHTML = subtitleBadges ? `${subtitleBadges}${subtitleText ? ` <span class="card-meta">${esc(subtitleText)}</span>` : ""}` : esc(subtitleText);
   const transcriptionRevision = kind === "transcription"
     ? genealogyRecords.transcriptionRevisions.find(revision => revision.id === data.revisionId || revision.id === data.currentRevisionId)
@@ -5613,7 +5618,8 @@ function renderUnifiedDocumentDetails(item) {
       ? `<p class="document-unified-notice">Les sources associées sont temporairement indisponibles.</p>`
       : linkedSources.length ? linkedSources.map(source => {
         const sourceData = genealogyRecordData(source);
-        return `<details class="document-unified-source"><summary class="document-unified-source-head"><strong>${esc(sourceData.title || sourceData.cote || sourceData.category || "Source sans titre")}</strong>${genealogyStatusBadgeHtml(sourceData.status)}</summary>${sourceDetailFactsMarkup(sourceData)}<div class="document-unified-source-actions"><button class="btn small" type="button" data-unified-source-open="${esc(source.id)}">Consulter la source</button>${isAdminUser() ? `<button class="btn small" type="button" data-unified-source-revise="${esc(source.id)}">Modifier la source</button>` : ""}</div></details>`;
+        const sourceTitle = sourceData.title || sourceData.cote || sourceData.category || "Source sans titre";
+        return `<div class="document-unified-source document-unified-source--clickable" role="button" tabindex="0" data-unified-source-card="${esc(source.id)}" aria-label="Consulter la source ${esc(sourceTitle)}"><div class="document-unified-source-head"><strong>${esc(sourceTitle)}</strong>${genealogyStatusBadgeHtml(sourceData.status)}</div></div>`;
       }).join("")
         : `<p class="document-unified-notice">Aucune source officielle n’est associée à cette fiche.</p>`;
   const sourceActions = isAdminUser()
@@ -5635,13 +5641,13 @@ function renderUnifiedDocumentDetails(item) {
         ? linkedProofs.map(proof => {
           const proofData = genealogyRecordData(proof);
           const title = proofFactLabel(proofData.factType) || proofData.factId || "Preuve";
-          return `<div class="document-unified-source"><div class="document-unified-source-head"><strong>${esc(title)}</strong>${genealogyStatusBadgeHtml(proofData.technicalStatus)}</div><div class="document-unified-source-actions"><button class="btn small" type="button" data-unified-proof-open="${esc(proof.id)}">Consulter la preuve</button></div></div>`;
+          return `<div class="document-unified-source document-unified-source--clickable" role="button" tabindex="0" data-unified-proof-card="${esc(proof.id)}" aria-label="Consulter la preuve ${esc(title)}"><div class="document-unified-source-head"><strong>${esc(title)}</strong>${genealogyStatusBadgeHtml(proofData.technicalStatus)}</div></div>`;
         }).join("")
         : `<p class="document-unified-notice">Aucune preuve n’est associée à cette fiche documentaire.</p>`;
   const proofActions = isAdminUser()
-    ? `<div class="document-unified-source-actions"><button class="btn small" type="button" data-create-proof-from-document="${esc(item.id)}">Créer une preuve</button></div>`
-    : "";
-  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations fichier</h4>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}${sourceActions}</section><section class="document-unified-section"><h4>Preuves</h4>${proofMarkup}${proofActions}</section>`;
+    ? `<div class="document-unified-section-head"><h4>Preuves</h4><button class="btn small" type="button" data-create-proof-from-document="${esc(item.id)}">+ Créer une preuve</button></div>`
+    : `<div class="document-unified-section-head"><h4>Preuves</h4></div>`;
+  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations fichier</h4>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}${sourceActions}</section><section class="document-unified-section">${proofActions}${proofMarkup}</section>`;
 }
 
 function refreshUnifiedDetailsIfOpen() {
@@ -7685,12 +7691,10 @@ $("viewerDocumentDetails").addEventListener("click", event => {
     if (!$("personDialog").open) openPerson(personItem, "directory");
     return;
   }
-  const openSource = event.target.closest("[data-unified-source-open]");
-  if (openSource) return openUnifiedSource(activeViewerDocumentId, openSource.dataset.unifiedSourceOpen);
-  const reviseSource = event.target.closest("[data-unified-source-revise]");
-  if (reviseSource) return openUnifiedSource(activeViewerDocumentId, reviseSource.dataset.unifiedSourceRevise, true);
-  const openProof = event.target.closest("[data-unified-proof-open]");
-  if (openProof) return openUnifiedProof(activeViewerDocumentId, openProof.dataset.unifiedProofOpen);
+  const sourceCard = event.target.closest("[data-unified-source-card]");
+  if (sourceCard) return openUnifiedSource(activeViewerDocumentId, sourceCard.dataset.unifiedSourceCard);
+  const proofCard = event.target.closest("[data-unified-proof-card]");
+  if (proofCard) return openUnifiedProof(activeViewerDocumentId, proofCard.dataset.unifiedProofCard);
   const createSource = event.target.closest("[data-create-source-from-document]");
   if (createSource) return openOfficialSourceFromDocument(createSource.dataset.createSourceFromDocument);
   const manageSources = event.target.closest("[data-manage-sources-from-document]");
@@ -7705,8 +7709,16 @@ $("viewerDocumentDetails").addEventListener("click", event => {
     });
   }
 });
+$("viewerDocumentDetails").addEventListener("keydown", event => {
+  const card = event.target.closest("[data-unified-source-card], [data-unified-proof-card]");
+  if (!card || event.target !== card || !["Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  if (card.dataset.unifiedSourceCard) openUnifiedSource(activeViewerDocumentId, card.dataset.unifiedSourceCard);
+  else openUnifiedProof(activeViewerDocumentId, card.dataset.unifiedProofCard);
+});
 $("genealogyItemDialog").addEventListener("close", () => {
   genealogyItemReturn = null;
+  activeGenealogyItem = null;
   const backButton = $("genealogyItemBackBtn");
   if (backButton) backButton.hidden = true;
   if (reopenUnifiedDocumentAfter("genealogyItemDialog")) return;

@@ -53,6 +53,28 @@ test("les tuiles Sources et Preuves sont cliquables et leur menu est simplifié"
   assert.match(app, /renderGenealogyItemActions\(kind, data\)/, "actions de la fiche peuplées à l'ouverture");
   assert.match(app, /activeGenealogyItem\?\.record\?\.id === targetId \|\| activeGenealogyItem\?\.id === targetId/, "fermeture robuste de la fiche après suppression");
 });
+test("les fiches harmonisent en-tête, libellés et pile de retour", () => {
+  const itemHeadStart = html.indexOf('id="genealogyItemDialog"');
+  const itemHead = html.slice(itemHeadStart, html.indexOf('</dialog>', itemHeadStart));
+  assert.ok(itemHead.includes('class="modal-head-actions"'), "boutons de la fiche regroupés dans la zone droite de l'en-tête");
+  assert.ok(
+    itemHead.indexOf('id="genealogyItemBackBtn"') > -1
+    && itemHead.indexOf('id="genealogyItemBackBtn"') < itemHead.indexOf('id="genealogyItemMenuBtn"')
+    && itemHead.indexOf('id="genealogyItemMenuBtn"') < itemHead.indexOf('data-close="genealogyItemDialog"'),
+    "ordre en-tête : retour, puis …, puis fermeture ×"
+  );
+  assert.match(app, /activeGenealogyItem = null;\r?\n  const backButton/, "l'état actif est réinitialisé à la fermeture de la fiche");
+  assert.match(app, /activeGenealogyItem = null;\r?\n  \$\("genealogyItemBackBtn"\)\.hidden = true;/, "Sources liées ne conserve aucun item actif hérité");
+  assert.doesNotMatch(app, /const subtitleText = \[genealogyKindLabels\[kind\]/, "le type n'est plus répété sous le badge dans le sous-titre");
+  assert.match(app, /data-unified-source-card=/, "carte Source ouvrant directement la fiche");
+  assert.match(app, /data-unified-proof-card=/, "carte Preuve ouvrant directement la fiche");
+  assert.match(css, /--color-source: #46627a/, "couleur dédiée bleu ardoise pour Source");
+  assert.match(css, /--color-proof: #6b4470/, "couleur dédiée prune pour Preuve");
+  assert.match(css, /\.document-unified-source-head strong \{[^}]*font-size: var\(--text-md\)/, "titre de carte sous le titre de section");
+  assert.match(css, /\.document-unified-source--clickable:focus-visible/, "focus visible sur les cartes cliquables");
+  assert.match(app, /\$\("viewerDocumentDetails"\)\.addEventListener\("keydown"/, "navigation clavier des cartes du volet");
+});
+
 test("propositions, décisions, révisions et réexamens passent par le magasin sécurisé du lot 6", () => {
   for (const operation of ["createProposal", "submitProposal", "cancelDraft", "decideProposal", "createOfficial", "reviseOfficial", "createReexaminationEvent", "markNotificationRead"]) {
     assert.ok(app.includes(`genealogyStore.${operation}(`), `opération du magasin absente : ${operation}`);
@@ -361,15 +383,14 @@ test("la consultation depuis Documents compose une fiche unifiée sans remplacer
   assert.match(details, /Personnes concernées/);
   assert.match(details, /Sources et provenance/);
   assert.match(details, /linkedSources\.map\(source/);
-  assert.match(details, /sourceDetailFactsMarkup\(sourceData\)/);
+  assert.match(details, /data-unified-source-card=/, "carte Source cliquable depuis le volet");
   assert.match(details, /Aucune source officielle n’est associée à cette fiche/);
   assert.match(app, /async function openStoredDocument\(item, returnContext = "previous"\)/);
   assert.match(app, /if \(item\.chunkCount && item\.chunkVersion\)[\s\S]*?readChunkedFile\(item\)/);
   assert.match(app, /\$\("viewerExternalBtn"\)\.href = source/);
   assert.match(app, /\$\("viewerImage"\)\.src = source/);
   assert.match(app, /if \(mimeType\.startsWith\("image\/"\)\)/);
-  assert.match(app, /data-unified-source-open=/);
-  assert.match(app, /data-unified-source-revise=/);
+  assert.match(app, /data-unified-source-card=/);
   assert.match(app, /data-unified-person=/);
   assert.match(app, /openStoredDocument\(item, "documents"\)/);
   assert.match(app, /if \(collectionName === "sourceDocuments"\)[\s\S]*?renderUnifiedDocumentDetails\(viewedDocument\)/);
@@ -390,18 +411,17 @@ test("la fiche unifiée du document réutilise le viewer et affiche métadonnée
   for (const field of ["item.type", "item.date", "item.place", "item.notes", "item.personIds"]) assert.ok(unified.includes(field), `champ documentaire absent : ${field}`);
   assert.match(unified, /documentLinkedSources\(item\.id\)/);
   assert.match(unified, /linkedSources\.map\(source/);
-  assert.match(unified, /sourceDetailFactsMarkup\(sourceData\)/);
+  assert.match(unified, /data-unified-source-card=/, "carte Source cliquable");
   assert.match(unified, /"Format", fileFormat/);
   assert.match(unified, /Date d'ajout/);
   assert.match(unified, /Taille/);
   assert.match(unified, /Date du document/);
   assert.doesNotMatch(unified, /data-unified-document-edit=/, "le bouton Modifier a quitté le volet Informations");
   assert.match(unified, /<h4>Preuves<\/h4>/, "section Preuves dédiée présente");
-  assert.match(unified, /data-unified-proof-open=/, "preuve consultable depuis le volet");
-  assert.match(unified, /data-create-proof-from-document=/, "CTA Créer une preuve dans la section Preuves");
+  assert.match(unified, /data-unified-proof-card=/, "carte Preuve cliquable depuis le volet");
+  assert.doesNotMatch(unified, />Consulter la preuve</, "CTA de consultation redondant retiré");
+  assert.match(unified, /data-create-proof-from-document=/, "CTA Créer une preuve en en-tête de section");
   assert.match(unified, /linkedProofs\.filter|genealogyRecordData\(proof\)\.documentId === item\.id/);
-  assert.match(unified, /data-unified-source-open=/);
-  assert.match(unified, /data-unified-source-revise=/);
   assert.doesNotMatch(unified, /JSON\.stringify/);
   assert.match(app, /async function openStoredDocument\(item, returnContext = "previous"\)/);
   assert.match(app, /readChunkedFile\(item\)/);
