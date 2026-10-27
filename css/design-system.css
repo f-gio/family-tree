@@ -2576,19 +2576,20 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .source-document-picker .form-section-heading { margin: 0; }
 .source-document-picker .form-section-heading p { margin: var(--space-1) 0 0; }
 .source-document-search-control { min-width: 0; }
-.source-document-picker-options.person-multiselect-results { position: fixed; max-height: min(16rem, 60dvh); box-shadow: var(--shadow-low); }
+.source-document-picker-options.person-multiselect-results { position: fixed; }
 .source-document-option { grid-template-columns: minmax(0, 1fr) auto; }
 .source-document-option-check { width: 1.25rem; color: var(--color-brand); font-weight: var(--weight-bold); text-align: center; }
 .source-document-option-details { display: grid; gap: 2px; min-width: 0; }
 .source-document-option-details strong, .source-document-option-details small { overflow-wrap: anywhere; }
 .source-document-option-details small, .source-document-picker-selection .hint { color: var(--color-text-muted); font-size: var(--text-xs); }
 .source-document-picker-selection { display: grid; gap: var(--space-2); min-width: 0; }
-.source-document-selection-item { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; padding: 2px 4px 2px var(--space-2); border: var(--border-default); border-radius: 999px; background: var(--color-surface); color: var(--color-text); font-size: var(--text-xs); }
-.source-document-selection-item span { overflow-wrap: anywhere; }
+.source-document-selection-item { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; padding: 0 var(--space-1) 0 var(--space-2); border: var(--border-default); border-radius: 999px; background: var(--color-surface); color: var(--color-text); font-size: var(--text-sm); }
+.source-document-selection-item span { min-width: 0; overflow-wrap: anywhere; }
 .source-document-selection-icon { flex: 0 0 auto; width: 1rem; height: 1rem; color: var(--color-text-muted); }
-.source-document-selection-item button { flex: 0 0 auto; min-width: var(--control-touch); min-height: var(--control-touch); border: 0; border-radius: 999px; background: transparent; color: var(--color-text-label); cursor: pointer; }
-.source-document-selection-item button:hover { background: var(--color-surface-raised); }
-.source-document-selection-item button:focus-visible, .source-document-option:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.selection-chip-remove { display: inline-flex; flex: 0 0 var(--control-touch); align-items: center; justify-content: center; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--color-text-label); cursor: pointer; }
+.selection-chip-remove:hover { background: var(--color-border); color: var(--color-text); }
+.selection-chip-remove:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
+.source-document-option:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
 .genealogy-source-guided-fields { display: grid; gap: var(--space-4); }
 .genealogy-source-guided-fields > section { display: grid; gap: var(--space-3); padding: var(--space-3); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface-muted); }
 .genealogy-source-guided-fields > section h4 { margin: 0; }
@@ -2641,12 +2642,13 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .source-person-option > span { display: grid; gap: 2px; min-width: 0; }
 .source-person-option strong, .source-person-option small { overflow-wrap: anywhere; }
 .source-person-option small { color: var(--color-text-muted); font-size: var(--text-xs); }
-.person-chip { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; padding: 3px 6px 3px 10px; border-radius: 999px; background: var(--color-surface-muted); color: var(--color-text); font-size: var(--text-xs); border: var(--border-subtle); }
+.person-chip { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; padding: 3px 6px 3px 10px; border-radius: 999px; background: var(--color-surface-muted); color: var(--color-text); font-size: var(--text-sm); border: var(--border-default); }
 .person-chip .ui-icon { flex: 0 0 auto; color: var(--color-text-muted); }
 .person-chip span { overflow-wrap: anywhere; min-width: 0; }
 .person-chip-consult { cursor: pointer; min-height: var(--control-touch); font: inherit; text-align: left; }
 .person-chip-consult:hover { text-decoration: underline; }
 .person-chip-consult:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
+.genealogy-source-guided-fields > section .person-multiselect-chip { background: var(--color-surface); border: var(--border-default); }
 .genealogy-source-facts h4 { margin: 0; }
 .source-detail-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--space-2) var(--space-4); }
 .source-detail-fact { display: grid; gap: 2px; min-width: 0; align-content: start; }
@@ -4310,26 +4312,16 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 3px 6px 3px 10px;
-  border: var(--border-subtle);
+  max-width: 100%;
+  min-width: 0;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: var(--border-default);
   border-radius: 999px;
   background: var(--color-surface-muted);
   color: var(--color-text);
   font-size: var(--text-sm);
 }
-.person-multiselect-chip-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-.person-multiselect-chip-remove:hover { background: var(--color-danger-soft); color: var(--color-danger-hover); }
+.person-multiselect-chip-label { min-width: 0; overflow-wrap: anywhere; }
 .person-multiselect-results {
   position: absolute;
   top: calc(100% + var(--space-1));
@@ -4344,7 +4336,7 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
   border: var(--border-default);
   border-radius: var(--radius-md);
   background: var(--color-surface-raised);
-  box-shadow: var(--shadow-dialog);
+  box-shadow: var(--shadow-low);
 }
 .person-multiselect-results[hidden] { display: none; }
 .person-multiselect-result {
@@ -4665,7 +4657,7 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
     max-width: 100%;
     overflow-wrap: anywhere;
   }
-  #documentDialog .person-multiselect-chip-remove { flex: 0 0 1.5rem; }
+  #documentDialog .selection-chip-remove { flex-basis: var(--control-touch); }
   #documentDialog .person-multiselect-results,
   #documentDialog .person-multiselect-result { min-width: 0; max-width: 100%; }
   #documentDialog .document-file-drop {

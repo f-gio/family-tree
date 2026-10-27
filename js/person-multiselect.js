@@ -24,7 +24,7 @@ export function createPersonMultiSelect({
   function renderChips() {
     chips.innerHTML = [...selectedIds].map(id => {
       const name = nameFor(id);
-      return `<span class="person-multiselect-chip">${icon("user")}<span class="person-multiselect-chip-label">${escapeHtml(name)}</span><button class="person-multiselect-chip-remove" type="button" ${removeAttribute}="${escapeHtml(id)}" aria-label="Retirer ${escapeHtml(name)} de la sélection">×</button></span>`;
+      return `<span class="person-multiselect-chip">${icon("user")}<span class="person-multiselect-chip-label">${escapeHtml(name)}</span><button class="person-multiselect-chip-remove selection-chip-remove" type="button" ${removeAttribute}="${escapeHtml(id)}" aria-label="Retirer ${escapeHtml(name)} de la sélection">×</button></span>`;
     }).join("");
   }
 

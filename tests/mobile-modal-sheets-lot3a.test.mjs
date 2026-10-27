@@ -40,7 +40,7 @@ async function openDialog(page, id, mode) {
       document.getElementById("documentCurrentFileArea").hidden = scenario !== "edit";
       document.getElementById("currentDocumentFile").textContent = scenario === "edit" ? `${"Acte_familial_tres_long_nom_".repeat(4)}.jpg · 800 Ko stockés` : "";
       document.getElementById("documentPeopleChips").innerHTML = scenario === "edit"
-        ? ["Marie Rossi", "Andrea Giovannoni", "Personne historique"].map((name, index) => `<span class="person-multiselect-chip"><span class="person-multiselect-chip-label">${name}</span><button class="person-multiselect-chip-remove" type="button" aria-label="Retirer ${name}" data-remove-document-person="person-${index}">×</button></span>`).join("")
+        ? ["Marie Rossi", "Andrea Giovannoni", "Personne historique"].map((name, index) => `<span class="person-multiselect-chip"><span class="person-multiselect-chip-label">${name}</span><button class="person-multiselect-chip-remove selection-chip-remove" type="button" aria-label="Retirer ${name}" data-remove-document-person="person-${index}">×</button></span>`).join("")
         : "";
     } else {
       document.getElementById("dossierId").value = scenario === "edit" ? "fixture-dossier" : "";

@@ -181,6 +181,7 @@ test("la sélection des personnes est une recherche multisélection accessible",
   // Plus aucune case à cocher : un composant de recherche avec chips.
   assert.match(html, /id="dossierPeopleList" data-multiselect-people/);
   assert.match(html, /id="dossierPeopleInput" type="text" role="combobox" aria-expanded="false" aria-controls="dossierPeopleResults" aria-autocomplete="list"/);
+  assert.match(app, /for \(const inputId of \["documentPeopleInput", "dossierPeopleInput", "multiTreeTransferSearch"\]\) \$\(inputId\)\.type = "search"/);
   assert.match(html, /id="dossierPeopleResults" role="listbox" aria-label="Personnes correspondant à la recherche" hidden/);
   assert.ok(!html.includes('type="checkbox" value="'), "plus de cases à cocher de personnes dans la modale");
   assert.ok(!css.includes(".dossier-people"), "l'ancienne interface à cases à cocher a été retirée du CSS");
@@ -381,7 +382,7 @@ test("le CSS Démarches utilise les tokens existants et une largeur bornée pour
   assert.ok(css.includes(".procedure-item {"));
   assert.ok(css.includes(".procedure-action-item"));
   assert.ok(css.includes(".person-multiselect {"));
-  assert.ok(css.includes(".person-multiselect-chip-remove"));
+  assert.ok(css.includes(".selection-chip-remove"));
   assert.match(css, /dialog\.modal-dossier \{ width: min\(1040px, calc\(100vw - 48px\)\); max-width: 1040px; \}/);
   assert.match(css, /\.procedure-action-email-full \{[\s\S]*?white-space: pre-line;/);
   assert.ok(!css.includes(".dossier-people {"), "l'ancienne interface à cases à cocher n'a pas de style résiduel");

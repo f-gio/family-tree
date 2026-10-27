@@ -22,6 +22,7 @@ test("Documents : sélecteur partagé, associations existantes et stockage perso
   assert.ok(dialog.indexOf("documentPeopleList") < dialog.indexOf('id="documentNotes"'), "Notes reste après le sélecteur");
   assert.doesNotMatch(dialog, /id="documentPeople"|type="checkbox"/);
   assert.match(app, /const documentPeoplePicker = createAppPersonPicker\("document"\);/);
+  assert.match(app, /for \(const inputId of \["documentPeopleInput", "dossierPeopleInput", "multiTreeTransferSearch"\]\) \$\(inputId\)\.type = "search"/);
   assert.match(app, /documentPeoplePicker\.setSelected\(item\?\.personIds \|\| \(preselectedPersonId \? \[preselectedPersonId\] : \[\]\)\);/);
   assert.match(app, /personIds: documentPeoplePicker\.getSelected\(\),/);
   assert.match(app, /kind === "document"[\s\S]*?\(\) => people\.slice\(\)\.sort\(comparePeopleBySurname\)/);

@@ -4361,7 +4361,7 @@ function renderGenealogySourceDocumentSelection() {
   $("genealogySourceDocumentSelection").innerHTML = selectedIds.map(id => {
     const item = documents.find(value => value.id === id);
     const label = item ? documentDisplayLabel(item) : `Référence introuvable · ${id}`;
-    return `<span class="source-document-selection-item${item ? "" : " is-missing"}">${icon("document", "source-document-selection-icon")}<span>${esc(label)}</span><button type="button" data-remove-genealogy-source-document="${esc(id)}" aria-label="Retirer ${esc(label)} de la source">×</button></span>`;
+    return `<span class="source-document-selection-item${item ? "" : " is-missing"}">${icon("document", "source-document-selection-icon")}<span>${esc(label)}</span><button class="selection-chip-remove" type="button" data-remove-genealogy-source-document="${esc(id)}" aria-label="Retirer ${esc(label)} de la source">×</button></span>`;
   }).join("");
 }
 
@@ -4557,6 +4557,7 @@ function ensureOfficialSourceGuidedFields() {
   genealogySourcePickerNextSibling = picker?.nextSibling || null;
   const associatedSection = [...genealogySourceGuidedGrid.querySelectorAll("section")].find(section => section.querySelector("h4")?.textContent === "Éléments associés");
   if (picker && associatedSection) associatedSection.append(picker);
+  $("genealogySourcePersonSearch").type = "search";
   // Sélecteur de personnes partagé (modèle « Personnes éventuellement liées ») :
   // le sous-bloc suit la personne lors du basculement entre grille Source et
   // grille Preuve (DOM déplacé), les écouteurs restent attachés au même nœud.
@@ -7902,6 +7903,7 @@ genealogySourceDocumentSearchControl.append(
   genealogySourceDocumentSearchLabel,
   $("genealogySourceDocumentEmpty")
 );
+for (const inputId of ["documentPeopleInput", "dossierPeopleInput", "multiTreeTransferSearch"]) $(inputId).type = "search";
 $("genealogySourceDocumentOptions").classList.add("person-multiselect-results");
 const genealogySourceDocumentOptions = $("genealogySourceDocumentOptions");
 const genealogyContributionDialog = $("genealogyContributionDialog");
