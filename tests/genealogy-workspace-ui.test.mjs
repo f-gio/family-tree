@@ -426,7 +426,8 @@ test("la fiche de consultation d'une preuve affiche des informations métier san
 
 test("le formulaire guidé de preuve remplace le JSON pour les créations officielles", () => {
   assert.match(app, /from "\.\/genealogy-proof-form\.js"/);
-  assert.match(html, /\.\/js\/genealogy-proof-form\.js\?v=4g-preproduction-1/);
+  const release = html.match(/<meta name="asset-release" content="([^"]+)"/)?.[1] || "";
+  assert.ok(release && html.includes(`./js/genealogy-proof-form.js?v=${release}`), "module guidé versionné avec le jeton de publication courant");
   assert.match(app, /genealogyProofGuidedGrid\.id = "genealogyOfficialProofFields"/);
   assert.match(app, /Fait à documenter[\s\S]{0,6000}?Provenance[\s\S]{0,6000}?Citation[\s\S]{0,6000}?Interprétation/);
   assert.match(app, /const guidedProof = officialMode && contributionType === "proof"/);
