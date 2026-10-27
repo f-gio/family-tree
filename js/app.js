@@ -5489,19 +5489,22 @@ async function restoreCompleteBackup(file) {
 
 function renderUnifiedDocumentDetails(item) {
   const facts = [];
-  if (item.type) facts.push(["Type", item.type]);
+  facts.push(["Type", item.type || "Non renseigné"]);
   const fileExtension = String(item.fileName || "").match(/\.([^.\/\\]+)$/)?.[1]?.toUpperCase();
   const mimeFormat = item.mimeType === "application/pdf" ? "PDF" : item.mimeType?.startsWith("image/") ? item.mimeType.slice(6).replace(/^x-/, "").toUpperCase() : "";
   const fileFormat = mimeFormat || fileExtension;
-  if (fileFormat) facts.push(["Format", fileFormat]);
-  if (item.date) facts.push(["Date", formatGenealogyDate(null, item.date)]);
+  facts.push(["Format", fileFormat || "Non renseigné"]);
+  const addedAt = item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString("fr-FR") : "";
+  facts.push(["Date d'ajout", addedAt || "Non renseigné"]);
+  facts.push(["Fichier", item.fileName || "Non renseigné"]);
+  const fileSize = item.fileSize ?? item.storedSize;
+  facts.push(["Taille", fileSize ? formatBytes(fileSize) : "Non renseigné"]);
+  if (item.date) facts.push(["Date du document", formatGenealogyDate(null, item.date)]);
   const place = formatCompactPlace(item.place, item.placeInfo);
   if (place) facts.push(["Lieu", place]);
-  if (item.fileName) facts.push(["Fichier", item.fileName]);
   if (item.notes) facts.push(["Notes", item.notes]);
-  const documentFacts = facts.length
-    ? `<div class="document-unified-facts">${facts.map(([label, value]) => `<div class="document-unified-fact${label === "Fichier" || label === "Notes" ? " document-unified-fact--wide" : ""}"><strong>${esc(label)}</strong><span title="${esc(value)}">${esc(value)}</span></div>`).join("")}</div>`
-    : `<p class="document-unified-notice">Aucune métadonnée complémentaire n’est renseignée.</p>`;
+  const wideLabels = new Set(["Fichier", "Notes"]);
+  const documentFacts = `<div class="document-unified-facts">${facts.map(([label, value]) => `<div class="document-unified-fact${wideLabels.has(label) ? " document-unified-fact--wide" : ""}"><strong>${esc(label)}</strong><span title="${esc(value)}">${esc(value)}</span></div>`).join("")}</div>`;
   const personIds = Array.isArray(item.personIds) ? item.personIds : [];
   const relatedPeople = loadedPeople ? personIds.map(id => people.find(personItem => personItem.id === id)).filter(Boolean) : [];
   const peopleMarkup = !loadedPeople
@@ -5528,7 +5531,28 @@ function renderUnifiedDocumentDetails(item) {
       ? `<div class="document-unified-source-actions"><button class="btn small" type="button" data-manage-sources-from-document="${esc(item.id)}">Gérer les associations</button></div>`
       : `<div class="document-unified-source-actions"><button class="btn small" type="button" data-create-source-from-document="${esc(item.id)}">Ajouter une source officielle</button></div>`
     : "";
-  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations documentaires</h4>${isAdminUser() ? `<button class="btn small" type="button" data-create-proof-from-document="${esc(item.id)}">Créer une preuve</button>` : ""}<button class="btn small" type="button" data-unified-document-edit="${esc(item.id)}">Modifier</button></div>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}${sourceActions}</section>`;
+  const proofState = genealogyCollectionsLoaded.has("genealogyProofs")
+    ? genealogyCollectionErrors.has("genealogyProofs") ? "unavailable" : "ready"
+    : "loading";
+  const linkedProofs = proofState === "ready"
+    ? genealogyRecords.genealogyProofs.filter(proof => genealogyRecordData(proof).documentId === item.id)
+    : [];
+  const proofMarkup = proofState === "loading"
+    ? `<p class="document-unified-notice">Chargement des preuves associées…</p>`
+    : proofState === "unavailable"
+      ? `<p class="document-unified-notice">Les preuves associées sont temporairement indisponibles.</p>`
+      : linkedProofs.length
+        ? linkedProofs.map(proof => {
+          const proofData = genealogyRecordData(proof);
+          const title = proofFactLabel(proofData.factType) || proofData.factId || "Preuve";
+          const status = GENEALOGY_DATA_STATUS_LABELS[proofData.technicalStatus] || proofData.technicalStatus || "à examiner";
+          return `<div class="document-unified-source"><div class="document-unified-source-head"><strong>${esc(title)}</strong><span class="genealogy-status-badge">${esc(status)}</span></div><div class="document-unified-source-actions"><button class="btn small" type="button" data-unified-proof-open="${esc(proof.id)}">Consulter la preuve</button></div></div>`;
+        }).join("")
+        : `<p class="document-unified-notice">Aucune preuve n’est associée à cette fiche documentaire.</p>`;
+  const proofActions = isAdminUser()
+    ? `<div class="document-unified-source-actions"><button class="btn small" type="button" data-create-proof-from-document="${esc(item.id)}">Créer une preuve</button></div>`
+    : "";
+  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}${sourceActions}</section><section class="document-unified-section"><h4>Preuves</h4>${proofMarkup}${proofActions}</section>`;
 }
 
 function refreshUnifiedDetailsIfOpen() {
@@ -5560,6 +5584,16 @@ function openUnifiedSource(documentId, sourceId, revise = false) {
   close("documentViewerDialog");
   if (revise) openGenealogyContribution({ official: true, reviseItem: { kind: "source", record: source, data: genealogyRecordData(source) } });
   else openGenealogyItem("source", sourceId);
+}
+
+function openUnifiedProof(documentId, proofId) {
+  const proof = genealogyRecords.genealogyProofs.find(item => item.id === proofId);
+  if (!proof) return toast("Cette preuve n’est plus disponible.", "error");
+  unifiedViewerReturnDocumentId = documentId;
+  unifiedViewerReopenContext = activeViewerReturnContext;
+  unifiedViewerReturnOnDialogClose = "genealogyItemDialog";
+  close("documentViewerDialog");
+  openGenealogyItem("proof", proofId);
 }
 
 function openUnifiedDocumentEditor(documentId) {
@@ -7556,6 +7590,8 @@ $("viewerDocumentDetails").addEventListener("click", event => {
   if (openSource) return openUnifiedSource(activeViewerDocumentId, openSource.dataset.unifiedSourceOpen);
   const reviseSource = event.target.closest("[data-unified-source-revise]");
   if (reviseSource) return openUnifiedSource(activeViewerDocumentId, reviseSource.dataset.unifiedSourceRevise, true);
+  const openProof = event.target.closest("[data-unified-proof-open]");
+  if (openProof) return openUnifiedProof(activeViewerDocumentId, openProof.dataset.unifiedProofOpen);
   const createSource = event.target.closest("[data-create-source-from-document]");
   if (createSource) return openOfficialSourceFromDocument(createSource.dataset.createSourceFromDocument);
   const manageSources = event.target.closest("[data-manage-sources-from-document]");

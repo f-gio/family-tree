@@ -2102,7 +2102,7 @@ label .field { margin-top: var(--space-2); }
 .pdf-thumbnail canvas { max-width: 100%; object-fit: contain; background: white; box-shadow: var(--shadow-low); }
 .pdf-thumbnail span { font-size: var(--text-xs); }
 .pdf-page-viewport { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface-muted); }
-.pdf-page-canvas { display: block; flex: 0 0 auto; max-width: none; background: white; box-shadow: var(--shadow-low); }
+.pdf-page-canvas { display: block; flex: 0 0 auto; max-width: none; margin: auto; background: white; box-shadow: var(--shadow-low); }
 .pdf-zoom-indicator { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: var(--space-2) var(--space-4); border: var(--border-subtle); border-radius: var(--radius-lg); background: rgb(28 39 34 / 78%); color: white; font-size: var(--text-lg); font-weight: var(--weight-semibold); line-height: 1.2; pointer-events: none; opacity: 0; transition: opacity 160ms ease-out; }
 .pdf-zoom-indicator.is-visible { opacity: 1; }
 .document-unified-details-head { min-height: var(--control-touch); align-items: center; }

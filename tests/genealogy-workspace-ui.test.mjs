@@ -377,8 +377,15 @@ test("la fiche unifiée du document réutilise le viewer et affiche métadonnée
   assert.match(unified, /documentLinkedSources\(item\.id\)/);
   assert.match(unified, /linkedSources\.map\(source/);
   assert.match(unified, /sourceDetailFactsMarkup\(sourceData\)/);
-  assert.match(unified, /\["Format", fileFormat\]/);
-  assert.match(unified, /document-unified-section-head[\s\S]*?data-unified-document-edit=/);
+  assert.match(unified, /"Format", fileFormat/);
+  assert.match(unified, /Date d'ajout/);
+  assert.match(unified, /Taille/);
+  assert.match(unified, /Date du document/);
+  assert.doesNotMatch(unified, /data-unified-document-edit=/, "le bouton Modifier a quitté le volet Informations");
+  assert.match(unified, /<h4>Preuves<\/h4>/, "section Preuves dédiée présente");
+  assert.match(unified, /data-unified-proof-open=/, "preuve consultable depuis le volet");
+  assert.match(unified, /data-create-proof-from-document=/, "CTA Créer une preuve dans la section Preuves");
+  assert.match(unified, /linkedProofs\.filter|genealogyRecordData\(proof\)\.documentId === item\.id/);
   assert.match(unified, /data-unified-source-open=/);
   assert.match(unified, /data-unified-source-revise=/);
   assert.doesNotMatch(unified, /JSON\.stringify/);
@@ -449,7 +456,8 @@ test("le formulaire guidé de preuve remplace le JSON pour les créations offici
 });
 
 test("la fiche unifiée permet de modifier document, source et naviguer vers les personnes", () => {
-  assert.match(app, /data-unified-document-edit=/);
+  assert.match(html, /id="viewerEditBtn"[^>]*>Modifier les informations/, "la modification reste accessible depuis le menu …");
+  assert.match(app, /closest\("\[data-unified-document-edit\]"\)/, "ancien chemin conservé pour compatibilité");
   assert.match(app, /data-unified-person=/);
   assert.match(app, /function openUnifiedDocumentEditor\(documentId\)/);
   assert.match(app, /function openUnifiedSource\(documentId, sourceId, revise = false\)/);
