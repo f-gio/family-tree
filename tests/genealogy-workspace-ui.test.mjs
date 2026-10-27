@@ -39,6 +39,20 @@ test("les documents historiques ont une fiche lisible sans métadonnées JSON, C
   assert.match(app, /if \(kind === "legacy-source"[\s\S]*?openStoredDocument\(item\.record, "archives"\)/);
   assert.match(css, /\.genealogy-entry-legacy-document/);
 });
+test("les tuiles Sources et Preuves sont cliquables et leur menu est simplifié", () => {
+  assert.match(app, /data-primary-tile data-genealogy-tile-kind=/, "tuile Archives cliquable avec identifiant de navigation");
+  assert.match(app, /if \(!tile \|\| event\.target\.closest\("button, a, input, select, textarea, summary, \.tile-context-actions"\)\) return/, "le menu … n'ouvre pas la tuile derrière");
+  assert.match(app, /\$\("genealogyResults"\)\.addEventListener\("keydown"/, "navigation clavier sur la tuile");
+  assert.match(app, /controls\.push\(\{ key: "delete-official", label: "Supprimer définitivement", icon: "trash", danger: true \}\)/, "suppression définitive dans le menu tuile");
+  assert.match(app, /if \(item\.kind === "legacy-source"\) controls\.push\(\{ key: "open", label: "Consulter", icon: "eye" \}\)/, "Consulter réservé aux documents historiques");
+  assert.match(app, /genealogy-status-badge--\$\{item\.kind\}/, "badge de type coloré selon le kind de la tuile");
+  assert.match(app, /genealogy-status-badge--\$\{kind\}/, "badge de type coloré dans les fiches et la visionneuse");
+  assert.match(app, /function requestOfficialDeletion\(kind, id, title\)/, "suppression partagée réutilisée");
+  assert.match(app, /genealogyItemMenuBtn/, "menu … de la fiche");
+  assert.doesNotMatch(app, /function officialDeleteActionsMarkup/, "encadré de suppression retiré des fiches");
+  assert.match(app, /renderGenealogyItemActions\(kind, data\)/, "actions de la fiche peuplées à l'ouverture");
+  assert.match(app, /activeGenealogyItem\?\.record\?\.id === targetId \|\| activeGenealogyItem\?\.id === targetId/, "fermeture robuste de la fiche après suppression");
+});
 test("propositions, décisions, révisions et réexamens passent par le magasin sécurisé du lot 6", () => {
   for (const operation of ["createProposal", "submitProposal", "cancelDraft", "decideProposal", "createOfficial", "reviseOfficial", "createReexaminationEvent", "markNotificationRead"]) {
     assert.ok(app.includes(`genealogyStore.${operation}(`), `opération du magasin absente : ${operation}`);
@@ -286,7 +300,7 @@ test("la fiche détaillée évite le JSON et les photographies trompeuses pour l
   assert.match(app, /Aucune transcription n’est rattachée à cette source\./);
   assert.match(app, /Aucune preuve n’est rattachée à cet élément\./);
   assert.match(app, /: kind === "source" \|\| kind === "proof" \? "" : `<section><div class="genealogy-photo-panel"><p>Aucune photographie n’est associée à cette page\.<\/p><\/div><\/section>`/);
-  assert.match(app, /\? `\$\{sourceFactsBlock\}\$\{linkedDocumentsBlock\}\$\{officialDeleteActionsMarkup\("source", id\)\}<div class="genealogy-detail-grid">/);
+  assert.match(app, /\? `\$\{sourceFactsBlock\}\$\{linkedDocumentsBlock\}<div class="genealogy-detail-grid">/);
 });
 
 test("les documents associés d'une source sont mis en valeur avec consultation de l'original", () => {
@@ -422,7 +436,7 @@ test("la fiche de consultation d'une preuve affiche des informations métier san
   assert.match(proofPanel, /person-chip person-chip-consult/, "pastille commune personne en consultation");
   assert.match(html, /id="genealogyItemBackBtn"[^>]*aria-label="Revenir à la fiche précédente"/, "bouton de retour entre fiches");
   assert.match(app, /genealogyItemReturn = \{ kind: activeGenealogyItem\.kind/, "pile de retour mémorisée");
-  assert.match(app, /proofFactLabel\(proofData\.factType\)[\s\S]{0,160}PROOF_RELATION_LABELS\[proofData\.relation\]/, "preuves liées traduites");
+  assert.match(app, /proofFactLabel\(proofData\.factType\)[\s\S]{0,400}PROOF_RELATION_LABELS\[proofData\.relation\]/, "preuves liées traduites");
   assert.match(app, /const GENEALOGY_RELATION_LABELS = PROOF_RELATION_LABELS/, "relations centralisées");
   assert.match(app, /source-person-selection-item person-chip/, "pastille commune en sélection");
   assert.match(app, /kind === "proof" \? proofDetailsMarkup\(data, record\)/, "branche de consultation dédiée");

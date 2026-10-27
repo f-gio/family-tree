@@ -239,11 +239,10 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const heads = JSON.parse(await probe.list("transcriptionHeads"));
       const headPassage = heads[0]?.data?.data?.passages?.[0] || heads[0]?.data?.passages?.[0] || null;
       console.log("DIAG passages head : " + JSON.stringify(headPassage).slice(0, 300));
-      // Ouverture de la carte via le menu contextuel du workspace
+      // Ouverture directe de la carte (la tuile devient cliquable)
       const transcriptionCard = page.locator(".genealogy-entry").filter({ has: page.locator('span.genealogy-entry-kind:text-is("Transcription")') }).first();
       if (!(await transcriptionCard.count())) throw new Error("carte de transcription absente du workspace");
-      await transcriptionCard.locator("[data-tile-menu-toggle]").click();
-      await transcriptionCard.locator('[data-tile-menu-action="open"]').click();
+      await transcriptionCard.click();
       await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
       const passageButton = page.locator("[data-genealogy-passage-propose]").first();
       assert.ok(await passageButton.count(), "bouton de passage présent");
@@ -282,8 +281,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const proofEntries = page.locator(".genealogy-entry").filter({ has: page.locator('span.genealogy-entry-kind:text-is("Preuve")') });
       assert.ok(await proofEntries.count() >= 3, "au moins trois preuves dans le workspace");
       const targetProof = proofEntries.first();
-      await targetProof.locator("[data-tile-menu-toggle]").click();
-      await targetProof.locator('[data-tile-menu-action="open"]').click();
+      await targetProof.click();
       await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
       const content = page.locator("#genealogyItemContent");
       const bodyText = await content.innerText();
@@ -291,7 +289,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const openTitle = (await page.locator("#genealogyItemTitle").textContent()).trim();
       // informations métier (les libellés sont stylisés en capitales par le design system)
       assert.ok(["Décès", "Naissance", "Mariage"].includes(openTitle), "titre de fait traduit en entête : " + openTitle);
-      assert.equal(await content.locator(".document-unified-section h4").count(), 0, "titre de fait non répété dans le corps");
+      assert.equal(await content.locator(".document-unified-section h4").filter({ hasText: openTitle }).count(), 0, "titre de fait non répété dans le corps");
       assert.ok(bodyLower.includes("confirme"), "relation traduite");
       assert.ok(bodyLower.includes("valeur relevée dans le document"), "valeur relevée affichée");
       assert.ok(bodyLower.includes("personnes concernées"), "personnes affichées");
@@ -324,8 +322,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.click('.nav-btn[data-view="genealogy"]');
       await page.waitForTimeout(600);
       const proofEntries = page.locator(".genealogy-entry").filter({ has: page.locator('span.genealogy-entry-kind:text-is("Preuve")') });
-      await proofEntries.first().locator("[data-tile-menu-toggle]").click();
-      await proofEntries.first().locator('[data-tile-menu-action="open"]').click();
+      await proofEntries.first().click();
       await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
       assert.ok(await page.locator("#genealogyItemBackBtn").isHidden(), "aucun retour sans fiche précédente");
       const firstTitle = (await page.locator("#genealogyItemTitle").textContent()).trim();
@@ -668,7 +665,8 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const proofCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "ui-delete-proof-lock-fact" });
       await proofCard.click();
       await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
-      await page.locator('#genealogyItemContent [data-delete-official-kind="proof"]').click();
+      await page.click("#genealogyItemMenuBtn");
+      await page.click('#genealogyItemActionsMenu [data-genealogy-item-action="delete-official"]');
       await page.waitForSelector("#permanentDeleteDialog[open]", { timeout: 10000 });
       await page.click("#permanentDeleteConfirmBtn");
       await page.waitForFunction(() => !document.getElementById("permanentDeleteDialog").open, { timeout: 15000 });
@@ -693,10 +691,10 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.selectOption("#genealogyKindFilter", "sources");
       await page.waitForTimeout(500);
       const sourceEntry = page.locator(".genealogy-entry").filter({ hasText: "Source officielle test verrou" });
-      await sourceEntry.locator("[data-tile-menu-toggle]").click();
-      await sourceEntry.locator('[data-tile-menu-action="open"]').click();
+      await sourceEntry.click();
       await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
-      await page.locator('#genealogyItemContent [data-delete-official-kind="source"]').click();
+      await page.click("#genealogyItemMenuBtn");
+      await page.click('#genealogyItemActionsMenu [data-genealogy-item-action="delete-official"]');
       await page.waitForSelector("#permanentDeleteDialog[open]", { timeout: 10000 });
       await page.click("#permanentDeleteConfirmBtn");
       await page.waitForFunction(() => !document.getElementById("permanentDeleteDialog").open, { timeout: 15000 });
