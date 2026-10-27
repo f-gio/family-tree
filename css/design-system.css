@@ -2146,6 +2146,24 @@ html.viewer-fullscreen-active body { overflow: hidden !important; }
 .document-unified-fact--wide { grid-column: 1 / -1; }
 .document-unified-fact strong { color: var(--color-text-muted); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .04em; }
 .document-unified-fact span { min-width: 0; overflow-wrap: anywhere; }
+.document-unified-facts--file { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.document-unified-fact--file-name { grid-column: 2 / -1; }
+.document-unified-filename {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.document-unified-filename:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; border-radius: var(--radius-sm); }
 .document-unified-people { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
 .document-unified-people .btn { max-width: 100%; min-height: var(--control-touch); overflow: hidden; text-overflow: ellipsis; }
 .document-unified-source { display: grid; gap: var(--space-3); min-width: 0; padding-top: var(--space-3); border-top: var(--border-subtle); }
@@ -3330,6 +3348,8 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .viewer-dialog .document-unified-section-head .btn { min-height: var(--control-touch); }
   .viewer-dialog .document-unified-facts { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
   .viewer-dialog .document-unified-fact--wide { grid-column: auto; }
+  .viewer-dialog .document-unified-facts--file { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .viewer-dialog .document-unified-fact--file-name { grid-column: 1 / -1; }
   .viewer-dialog .document-unified-people { gap: var(--space-2); }
   .viewer-dialog .document-unified-people .btn { width: 100%; text-align: left; }
   .viewer-dialog .document-unified-source { gap: var(--space-3); padding-top: var(--space-3); }
@@ -3640,6 +3660,41 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   }
   #taskDialog > .modal-body.modal-form > .modal-actions,
   #familyDetailsDialog > .modal-body.modal-form > .modal-actions {
+    position: relative;
+    bottom: auto;
+    flex: 0 0 auto;
+    padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+  }
+  /* Lot UX modales — Contribution (preuve / donnée officielle) alignée sur le
+     comportement de #documentDialog : hauteur stable 92dvh, corps défilable,
+     pied de formulaire fixe avec safe-area. Ciblage ID ; pattern FORM global
+     et autres modales inchangés. */
+  dialog#genealogyContributionDialog.modal-mobile-sheet--form {
+    height: 92dvh;
+    max-height: 92dvh;
+  }
+  #genealogyContributionDialog > .modal-body.modal-form {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: visible;
+    scrollbar-gutter: auto;
+  }
+  #genealogyContributionDialog > .modal-body.modal-form > .modal-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: clip;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #genealogyContributionDialog > .modal-body.modal-form > .modal-scroll::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  #genealogyContributionDialog > .modal-body.modal-form > .modal-actions {
     position: relative;
     bottom: auto;
     flex: 0 0 auto;

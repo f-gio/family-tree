@@ -343,7 +343,7 @@ test("la consultation depuis Documents compose une fiche unifiée sans remplacer
   assert.match(html, /class="document-unified-layout"/);
   assert.match(html, /class="document-original-panel"/);
   assert.match(html, /id="viewerDocumentDetails"/);
-  assert.match(details, /Informations documentaires/);
+  assert.match(details, /Informations fichier/);
   assert.match(details, /Personnes concernées/);
   assert.match(details, /Sources et provenance/);
   assert.match(details, /linkedSources\.map\(source/);

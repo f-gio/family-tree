@@ -5488,23 +5488,27 @@ async function restoreCompleteBackup(file) {
 }
 
 function renderUnifiedDocumentDetails(item) {
-  const facts = [];
-  facts.push(["Type", item.type || "Non renseigné"]);
+  const fileFacts = [];
+  fileFacts.push(["Type", item.type || "Non renseigné"]);
   const fileExtension = String(item.fileName || "").match(/\.([^.\/\\]+)$/)?.[1]?.toUpperCase();
   const mimeFormat = item.mimeType === "application/pdf" ? "PDF" : item.mimeType?.startsWith("image/") ? item.mimeType.slice(6).replace(/^x-/, "").toUpperCase() : "";
   const fileFormat = mimeFormat || fileExtension;
-  facts.push(["Format", fileFormat || "Non renseigné"]);
-  const addedAt = item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString("fr-FR") : "";
-  facts.push(["Date d'ajout", addedAt || "Non renseigné"]);
-  facts.push(["Fichier", item.fileName || "Non renseigné"]);
+  fileFacts.push(["Format", fileFormat || "Non renseigné"]);
   const fileSize = item.fileSize ?? item.storedSize;
-  facts.push(["Taille", fileSize ? formatBytes(fileSize) : "Non renseigné"]);
-  if (item.date) facts.push(["Date du document", formatGenealogyDate(null, item.date)]);
+  fileFacts.push(["Taille", fileSize ? formatBytes(fileSize) : "Non renseigné"]);
+  const addedAt = item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString("fr-FR") : "";
+  fileFacts.push(["Date d'ajout", addedAt || "Non renseigné"]);
+  const fileName = item.fileName || "Non renseigné";
+  const fileGrid = `<div class="document-unified-facts document-unified-facts--file">${fileFacts.map(([label, value]) => `<div class="document-unified-fact"><strong>${esc(label)}</strong><span>${esc(value)}</span></div>`).join("")}<div class="document-unified-fact document-unified-fact--file-name"><strong>Fichier</strong><button type="button" class="document-unified-filename" title="${esc(fileName)}" aria-label="Nom du fichier : ${esc(fileName)}. Activer pour afficher le nom complet." data-unified-filename="${esc(fileName)}">${esc(fileName)}</button></div></div>`;
+  const historicalFacts = [];
+  if (item.date) historicalFacts.push(["Date du document", formatGenealogyDate(null, item.date)]);
   const place = formatCompactPlace(item.place, item.placeInfo);
-  if (place) facts.push(["Lieu", place]);
-  if (item.notes) facts.push(["Notes", item.notes]);
-  const wideLabels = new Set(["Fichier", "Notes"]);
-  const documentFacts = `<div class="document-unified-facts">${facts.map(([label, value]) => `<div class="document-unified-fact${wideLabels.has(label) ? " document-unified-fact--wide" : ""}"><strong>${esc(label)}</strong><span title="${esc(value)}">${esc(value)}</span></div>`).join("")}</div>`;
+  if (place) historicalFacts.push(["Lieu", place]);
+  if (item.notes) historicalFacts.push(["Notes", item.notes]);
+  const historicalGrid = historicalFacts.length
+    ? `<div class="document-unified-facts">${historicalFacts.map(([label, value]) => `<div class="document-unified-fact${label === "Notes" ? " document-unified-fact--wide" : ""}"><strong>${esc(label)}</strong><span>${esc(value)}</span></div>`).join("")}</div>`
+    : "";
+  const documentFacts = fileGrid + historicalGrid;
   const personIds = Array.isArray(item.personIds) ? item.personIds : [];
   const relatedPeople = loadedPeople ? personIds.map(id => people.find(personItem => personItem.id === id)).filter(Boolean) : [];
   const peopleMarkup = !loadedPeople
@@ -5552,7 +5556,7 @@ function renderUnifiedDocumentDetails(item) {
   const proofActions = isAdminUser()
     ? `<div class="document-unified-source-actions"><button class="btn small" type="button" data-create-proof-from-document="${esc(item.id)}">Créer une preuve</button></div>`
     : "";
-  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations documentaires</h4>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}${sourceActions}</section><section class="document-unified-section"><h4>Preuves</h4>${proofMarkup}${proofActions}</section>`;
+  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations fichier</h4>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section"><h4>Sources et provenance</h4>${sourceMarkup}${sourceActions}</section><section class="document-unified-section"><h4>Preuves</h4>${proofMarkup}${proofActions}</section>`;
 }
 
 function refreshUnifiedDetailsIfOpen() {
@@ -7576,6 +7580,8 @@ document.addEventListener("click", event => {
   if (button) openGenealogyItem(button.dataset.openGenealogy, button.dataset.genealogyId);
 });
 $("viewerDocumentDetails").addEventListener("click", event => {
+  const filenameButton = event.target.closest("[data-unified-filename]");
+  if (filenameButton) return toast(`Nom du fichier : ${filenameButton.dataset.unifiedFilename}`);
   const editDocument = event.target.closest("[data-unified-document-edit]");
   if (editDocument) return openUnifiedDocumentEditor(editDocument.dataset.unifiedDocumentEdit);
   const personButton = event.target.closest("[data-unified-person]");
