@@ -338,15 +338,41 @@ test("la fiche détaillée d'une source présente des faits structurés sans JSO
   }
   assert.doesNotMatch(facts, /JSON/);
   assert.match(facts, /Les informations archivistiques de cette source ne sont pas encore renseignées/);
-  assert.match(app, /const sourceFactsBlock = kind === "source" \? sourceDetailFactsMarkup\(data\) : ""/);
+  assert.match(app, /function renderSourcePage\(item, returnContext = null\)/, "les faits structurés sont intégrés à la page dédiée");
+  assert.match(app, /sourceDetailFactsMarkup\(data\).*linkedSourceDocumentsMarkup\(data\)/);
 });
 
-test("la fiche détaillée évite le JSON et les photographies trompeuses pour les sources", () => {
+test("la Source est une page dédiée, la Preuve conserve sa modale", () => {
+  assert.match(html, /<main class="workspace-view page-content-lane source-detail-view" id="sourceDetailView" hidden/);
+  assert.match(html, /id="sourcePageBackBtn"[^>]*aria-label="Retour"/);
+  assert.match(html, /id="sourcePageActionsMenu"[^>]*role="menu"/);
+  assert.match(html, /id="genealogyItemDialog"[^>]*class="modal-lg/);
+  assert.match(app, /if \(kind === "source"\) return renderSourcePage\(item, sourceReturnContext\)/, "Source routée vers la page");
+  assert.match(app, /if \(kind === "proof"\) \{[\s\S]{0,350}\$\("genealogyItemDialog"\)\.showModal\(\)/, "Preuve maintenue en modale");
+  assert.match(app, /sourceTranscriptionsMarkup\(record, data\)/, "transcriptions associées présentées");
+  assert.match(app, /sourceProofsMarkup\(record, data\)/, "preuves liées présentées");
+  assert.match(app, /sourceHistoryMarkup\(record\)/, "historique des révisions présenté");
+  assert.match(css, /\.source-detail-page \{ width: min\(100%, 76rem\)/, "largeur de page desktop bornée");
+  assert.match(css, /\.source-detail-actions-menu \.btn \{[^}]*min-height: var\(--control-touch\)/, "actions secondaires tactiles");
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.source-detail-transcription \{ align-items: stretch; flex-direction: column; \}/, "lecture verticale sur mobile");
+});
+
+test("la présentation Source reste structurée, sans JSON brut et avec un état média explicite", () => {
+  const sourcePage = app.match(/function renderSourcePage\(item, returnContext = null\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const images = app.match(/function sourcePageImagesMarkup\(item\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const transcriptions = app.match(/function sourceTranscriptionsMarkup\(sourceRecord, sourceData\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const proofs = app.match(/function sourceProofsMarkup\(sourceRecord, sourceData\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(sourcePage.length > 500, "composition de la page Source présente");
+  assert.doesNotMatch(sourcePage, /JSON\.stringify|<pre>/, "aucun JSON brut dans la page Source");
+  assert.match(images, /genealogy-photo-panel/, "aperçu de page/photographie conservé");
+  assert.match(images, /Aucune photographie n’est associée à cette page\./, "absence de photographie explicitée");
+  assert.match(images, /Les photos sont référencées, mais leur aperçu n’est pas disponible/, "référence sans aperçu signalée");
+  assert.match(transcriptions, /Aucune transcription n’est rattachée à cette source\./, "état vide transcription explicite");
+  assert.match(proofs, /Aucune preuve n’est liée à cette source\./, "état vide preuves explicite");
+  /* Invariants conservés pour les autres fiches restées en modale. */
   assert.match(app, /kind !== "source" && JSON\.stringify\(data\) !== "\{\}" \? `<pre>/);
-  assert.match(app, /Aucune transcription n’est rattachée à cette source\./);
   assert.match(app, /Aucune preuve n’est rattachée à cet élément\./);
   assert.match(app, /: kind === "source" \|\| kind === "proof" \? "" : `<section><div class="genealogy-photo-panel"><p>Aucune photographie n’est associée à cette page\.<\/p><\/div><\/section>`/);
-  assert.match(app, /\? `\$\{sourceFactsBlock\}\$\{linkedDocumentsBlock\}<div class="genealogy-detail-grid">/);
 });
 
 test("les documents associés d'une source sont mis en valeur avec consultation de l'original", () => {

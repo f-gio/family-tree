@@ -692,13 +692,13 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.waitForTimeout(500);
       const sourceEntry = page.locator(".genealogy-entry").filter({ hasText: "Source officielle test verrou" });
       await sourceEntry.click();
-      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
-      await page.click("#genealogyItemMenuBtn");
-      await page.click('#genealogyItemActionsMenu [data-genealogy-item-action="delete-official"]');
+      await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden, { timeout: 10000 });
+      await page.click("#sourcePageActions > summary");
+      await page.click('#sourcePageActionsMenu [data-genealogy-item-action="delete-official"]');
       await page.waitForSelector("#permanentDeleteDialog[open]", { timeout: 10000 });
       await page.click("#permanentDeleteConfirmBtn");
       await page.waitForFunction(() => !document.getElementById("permanentDeleteDialog").open, { timeout: 15000 });
-      await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open, { timeout: 15000 });
+      await page.waitForFunction(() => document.getElementById("sourceDetailView").hidden, { timeout: 15000 });
       await page.waitForTimeout(500);
       const sourceRemaining = JSON.parse(await probe.list("sourceDocuments")).some(item => item.id === sourceId);
       const sourceRevisionRemaining = JSON.parse(await probe.list("sourceRevisions")).some(item => item.data.objectId === sourceId);
@@ -731,11 +731,11 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const sourceCard = page.locator(`[data-unified-source-card="${linkedSourceId}"]`);
       assert.ok(await sourceCard.count(), "carte Source cliquable présente dans le volet");
       await sourceCard.click();
-      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
-      assert.ok((await page.locator("#genealogyItemTitle").textContent()).includes("Source navigation test"), "fiche Source ouverte depuis le document");
-      assert.ok(await page.locator("#genealogyItemBackBtn").isHidden(), "aucun bouton retour hérité sur la Source");
-      await page.click('#genealogyItemDialog [data-close="genealogyItemDialog"]');
-      await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open, { timeout: 10000 });
+      await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden, { timeout: 10000 });
+      assert.ok((await page.locator("#sourcePageTitle").textContent()).includes("Source navigation test"), "page Source ouverte depuis le document");
+      assert.ok(await page.locator("#sourcePageBackBtn").isVisible(), "retour explicite de la page Source");
+      await page.click("#sourcePageBackBtn");
+      await page.waitForFunction(() => document.getElementById("sourceDetailView").hidden, { timeout: 10000 });
       await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
 
       // Document → Preuve : même parcours de retour
