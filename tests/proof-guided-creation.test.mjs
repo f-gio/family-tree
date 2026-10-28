@@ -282,11 +282,11 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       assert.ok(await proofEntries.count() >= 3, "au moins trois preuves dans le workspace");
       const targetProof = proofEntries.first();
       await targetProof.click();
-      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
-      const content = page.locator("#genealogyItemContent");
+      await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden, { timeout: 10000 });
+      const content = page.locator("#proofPageContent");
       const bodyText = await content.innerText();
       const bodyLower = bodyText.toLowerCase();
-      const openTitle = (await page.locator("#genealogyItemTitle").textContent()).trim();
+      const openTitle = (await page.locator("#proofPageTitle").textContent()).trim();
       // informations métier (les libellés sont stylisés en capitales par le design system)
       assert.ok(["Décès", "Naissance", "Mariage"].includes(openTitle), "titre de fait traduit en entête : " + openTitle);
       assert.equal(await content.locator(".document-unified-section h4").filter({ hasText: openTitle }).count(), 0, "titre de fait non répété dans le corps");
@@ -299,21 +299,22 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       assert.equal(await content.locator("pre").count(), 0, "aucun bloc pre/JSON visible");
       assert.ok(!(await content.innerText()).includes("{ \"factId"), "aucune donnée technique brute");
       assert.ok(!/\b(birth|death|marriage|burial|supports|contradicts|mentions)\b/.test(bodyLower), "aucune clé technique brute visible");
-      // preuves liées : exactement les deux autres preuves de l'émulateur, sans répétition de la courante
-      const linkedButtons = content.locator('section [data-open-genealogy="proof"]');
+      // autres preuves liées : le décompte exclut la preuve courante
+      const linkedButtons = content.locator('[data-open-genealogy="proof"]');
       assert.equal(await linkedButtons.count(), 2, "seules les autres preuves sont listées dans « Preuves liées »");
       // détails techniques repliés
       assert.equal(await content.locator("details.genealogy-proof-technical").count(), 1, "panneau Détails techniques présent");
       assert.ok(!(await content.locator("details.genealogy-proof-technical").first().evaluate(el => el.open)), "Détails techniques repliés");
-      // géométrie
+      // Géométrie de page (plus de modale Proof)
       const box = await page.evaluate(() => {
-        const dialog = document.getElementById("genealogyItemDialog");
-        const grid = document.querySelector("#genealogyItemContent .genealogy-detail-grid");
-        return { sw: dialog.scrollWidth, cw: dialog.clientWidth, cols: grid ? getComputedStyle(grid).gridTemplateColumns.split(" ").length : -1 };
+        const content = document.getElementById("proofPageContent");
+        const facts = content.querySelector(".document-unified-facts");
+        return { sw: content.scrollWidth, cw: content.clientWidth, cols: facts ? getComputedStyle(facts).gridTemplateColumns.split(" ").length : -1 };
       });
-      assert.ok(box.sw <= box.cw + 2, "aucun débordement horizontal du dialogue");
-      assert.equal(box.cols, 1, "panneau pleine largeur sans photographie");
-      await page.keyboard.press("Escape");
+      assert.ok(box.sw <= box.cw + 2, "aucun débordement horizontal de la page");
+      assert.equal(box.cols, 2, "faits présentés en deux colonnes sur ordinateur");
+      await page.click("#proofPageBackBtn");
+      await page.waitForFunction(() => document.getElementById("proofDetailView").hidden, { timeout: 10000 });
     });
 
     await t.test("6. navigation Preuve → Preuve/Personne/Document avec retour explicite", async () => {
@@ -323,42 +324,34 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.waitForTimeout(600);
       const proofEntries = page.locator(".genealogy-entry").filter({ has: page.locator('span.genealogy-entry-kind:text-is("Preuve")') });
       await proofEntries.first().click();
-      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
-      assert.ok(await page.locator("#genealogyItemBackBtn").isHidden(), "aucun retour sans fiche précédente");
-      const firstTitle = (await page.locator("#genealogyItemTitle").textContent()).trim();
-      // Preuve → Preuve liée (même surface) : le retour doit restaurer la fiche précédente
-      const linkedProof = page.locator('#genealogyItemContent [data-open-genealogy="proof"]').first();
+      await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden, { timeout: 10000 });
+      const firstTitle = (await page.locator("#proofPageTitle").textContent()).trim();
+      // Preuve → Preuve liée : le bouton Retour restaure la précédente
+      const linkedProof = page.locator('#proofPageContent [data-open-genealogy="proof"]').first();
       assert.ok(await linkedProof.count(), "preuve liée disponible");
       await linkedProof.click();
       await page.waitForTimeout(400);
-      const secondTitle = (await page.locator("#genealogyItemTitle").textContent()).trim();
+      const secondTitle = (await page.locator("#proofPageTitle").textContent()).trim();
       assert.notEqual(secondTitle, firstTitle, "deuxième preuve ouverte");
-      assert.ok(await page.locator("#genealogyItemBackBtn").isVisible(), "bouton retour affiché");
-      await page.click("#genealogyItemBackBtn");
+      await page.click("#proofPageBackBtn");
       await page.waitForTimeout(600);
-      const afterBack = await page.evaluate(() => ({
-        hidden: document.getElementById("genealogyItemBackBtn").hidden,
-        title: (document.getElementById("genealogyItemTitle").textContent || "").trim(),
-        toast: document.querySelector("[role=status].toast, .toast")?.textContent?.slice(0, 80) || ""
-      }));
-      assert.equal(afterBack.title, firstTitle, "retour sur la fiche précédente — état: " + JSON.stringify(afterBack));
-      assert.ok(await page.locator("#genealogyItemBackBtn").isHidden(), "retour consommé");
-      // Preuve → Personne : fermeture de la fiche personne = retour naturel
-      const chip = page.locator("#genealogyItemContent [data-genealogy-person]").first();
+      assert.equal((await page.locator("#proofPageTitle").textContent()).trim(), firstTitle, "retour à la précédente preuve");
+      // Preuve → Personne : la modale Personne recouvre temporairement la page.
+      const chip = page.locator("#proofPageContent [data-genealogy-person]").first();
       assert.ok(await chip.count(), "personne consultable depuis la preuve");
       await chip.click();
       await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
-      assert.ok(await page.locator("#genealogyItemDialog[open]").count(), "fiche preuve conservée après la visite personne");
-      // Preuve → Document : la visionneuse s'ouvre par-dessus, sa fermeture conserve la preuve
-      const docLink = page.locator("#genealogyItemContent [data-source-document-open]").first();
+      assert.ok(await page.locator("#proofDetailView:not([hidden])").count(), "page Preuve conservée après la visite personne");
+      // Preuve → Document : la visionneuse s'ouvre par-dessus et la page reste appelante.
+      const docLink = page.locator("#proofPageContent [data-source-document-open]").first();
       await docLink.click();
       await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
       await page.keyboard.press("Escape");
       await page.waitForTimeout(400);
-      assert.ok(await page.locator("#genealogyItemDialog[open]").count(), "fiche preuve conservée après la visite document");
-      await page.keyboard.press("Escape");
+      assert.ok(await page.locator("#proofDetailView:not([hidden])").count(), "page Preuve conservée après la visite document");
+      await page.click("#proofPageBackBtn");
     });
 
     await t.test("7. mobile 375/320 : une colonne, aucun débordement, retrait d'une personne", async () => {
@@ -375,21 +368,22 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
         const consult = page.locator('#personGenealogyEvidenceList [data-view-proof]').first();
         assert.ok(await consult.count(), `${width}px : preuve consultable depuis la fiche personne`);
         await consult.click();
-        await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
+        await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden, { timeout: 10000 });
         const box = await page.evaluate(() => {
-          const dialog = document.getElementById("genealogyItemDialog");
-          const facts = document.querySelector("#genealogyItemContent .document-unified-facts");
+          const content = document.getElementById("proofPageContent");
+          const facts = document.querySelector("#proofPageContent .document-unified-facts");
           return {
-            sw: dialog.scrollWidth, cw: dialog.clientWidth,
+            sw: content.scrollWidth, cw: content.clientWidth,
             docSw: document.documentElement.scrollWidth,
             cols: facts ? getComputedStyle(facts).gridTemplateColumns.split(" ").length : -1
           };
         });
-        assert.ok(box.sw <= box.cw + 2, `${width}px : dialogue sans débordement horizontal`);
+        assert.ok(box.sw <= box.cw + 2, `${width}px : page sans débordement horizontal`);
         assert.ok(box.docSw <= width + 1, `${width}px : page sans débordement`);
         assert.equal(box.cols, 1, `${width}px : faits empilés en une colonne`);
-        await page.keyboard.press("Escape");
-        await page.waitForTimeout(300);
+        await page.click("#proofPageBackBtn");
+        await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
+        await closeResidualDialogs();
       }
       // Formulaire en mobile : pastille et retrait (375)
       const label = await openProofDialogFromPerson();
@@ -664,13 +658,14 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.click('[data-person-section="documents"]');
       const proofCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "ui-delete-proof-lock-fact" });
       await proofCard.click();
-      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
-      await page.click("#genealogyItemMenuBtn");
-      await page.click('#genealogyItemActionsMenu [data-genealogy-item-action="delete-official"]');
+      await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden, { timeout: 10000 });
+      await page.click("#proofPageActions > summary");
+      await page.click('#proofPageActionsMenu [data-genealogy-item-action="delete-official"]');
       await page.waitForSelector("#permanentDeleteDialog[open]", { timeout: 10000 });
       await page.click("#permanentDeleteConfirmBtn");
       await page.waitForFunction(() => !document.getElementById("permanentDeleteDialog").open, { timeout: 15000 });
-      await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open, { timeout: 15000 });
+      await page.waitForFunction(() => document.getElementById("proofDetailView").hidden, { timeout: 15000 });
+      await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
       await page.waitForTimeout(500);
       const proofRemaining = JSON.parse(await probe.list("genealogyProofs")).some(item => item.id === proofId);
       const proofRevisionRemaining = JSON.parse(await probe.list("genealogyProofRevisions")).some(item => item.data.objectId === proofId);
@@ -744,10 +739,10 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const proofCard = page.locator("[data-unified-proof-card]").first();
       assert.ok(await proofCard.count(), "carte Preuve cliquable présente dans le volet");
       await proofCard.click();
-      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
-      assert.ok(await page.locator("#genealogyItemBackBtn").isHidden(), "aucun bouton retour hérité sur la Preuve");
-      await page.click('#genealogyItemDialog [data-close="genealogyItemDialog"]');
-      await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open, { timeout: 10000 });
+      await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden, { timeout: 10000 });
+      assert.ok(await page.locator("#proofPageBackBtn").isVisible(), "retour explicite vers le document appelant");
+      await page.click("#proofPageBackBtn");
+      await page.waitForFunction(() => document.getElementById("proofDetailView").hidden, { timeout: 10000 });
       await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
       await closeResidualDialogs();
     });
@@ -760,16 +755,15 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const proofEntries = page.locator(".genealogy-entry").filter({ has: page.locator('span.genealogy-entry-kind:text-is("Preuve")') });
       const birthEntry = proofEntries.filter({ hasText: "Naissance" }).first();
       await birthEntry.click();
-      await page.waitForSelector("#genealogyItemDialog[open]", { timeout: 10000 });
-      const personsSection = page.locator("#genealogyItemContent .document-unified-section").filter({ has: page.locator('h4:text-is("Personnes concernées")') });
+      await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden, { timeout: 10000 });
+      const personsSection = page.locator("#proofPageContent .document-unified-section").filter({ has: page.locator('h4:text-is("Personnes concernées")') });
       assert.equal(await personsSection.count(), 1, "section dédiée « Personnes concernées » présente dans la fiche Preuve");
       assert.ok((await personsSection.locator("[data-genealogy-person]").count()) >= 1, "au moins une personne affichée avant révision");
 
-      // Révision via le menu ⋯ : la contribution s'ouvre par-dessus, la fiche reste ouverte
-      await page.click("#genealogyItemMenuBtn");
-      await page.click('#genealogyItemActionsMenu [data-genealogy-item-action="revise"]');
+      // Révision via l'action principale visible, sans quitter la page Preuve
+      await page.click("#proofPageReviseBtn");
       await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
-      assert.ok(await page.locator("#genealogyItemDialog").evaluate(el => el.open), "la fiche Preuve reste ouverte pendant la révision");
+      assert.ok(await page.locator("#proofDetailView:not([hidden])").count(), "page Preuve conservée pendant la révision");
 
       // Sélection compacte au clavier : recherche → flèche bas → Entrée
       await page.fill("#genealogySourcePersonSearch", "Grace");
@@ -791,16 +785,16 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.waitForFunction(() => !document.getElementById("genealogyContributionDialog").open, { timeout: 15000 });
       await page.waitForTimeout(700);
 
-      // La fiche restée ouverte affiche la liste réactualisée sans action supplémentaire
-      assert.ok(await page.locator("#genealogyItemDialog").evaluate(el => el.open), "la fiche Preuve est toujours ouverte après la révision");
-      const refreshedSection = page.locator("#genealogyItemContent .document-unified-section").filter({ has: page.locator('h4:text-is("Personnes concernées")') });
+      // La page restée ouverte affiche la liste réactualisée sans action supplémentaire
+      assert.ok(await page.locator("#proofDetailView:not([hidden])").count(), "page Preuve toujours affichée après la révision");
+      const refreshedSection = page.locator("#proofPageContent .document-unified-section").filter({ has: page.locator('h4:text-is("Personnes concernées")') });
       const refreshedChips = refreshedSection.locator("[data-genealogy-person]");
       assert.equal(await refreshedChips.count(), 1, "la fiche affiche la nouvelle liste de personnes");
       assert.match(await refreshedChips.first().innerText(), /Grace/, "la personne mise à jour est visible dans la fiche");
 
       const birthAfter = JSON.parse(await probe.list("genealogyProofs")).map(entry => entry.data.data || entry.data).find(data => data.factType === "birth");
       assert.deepEqual(birthAfter?.personIds, [focusedId], "la révision persiste la nouvelle personne comme seule association");
-      await page.keyboard.press("Escape");
+      await page.click("#proofPageBackBtn");
     });
 
     assert.deepEqual(pageErrors, [], "aucune erreur JavaScript pendant les parcours");

@@ -5087,6 +5087,8 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .source-detail-actions > summary::-webkit-details-marker { display: none; }
 .source-detail-actions-menu { position: absolute; z-index: 40; top: calc(100% + var(--space-1)); right: 0; display: grid; gap: var(--space-1); width: min(18rem, calc(100vw - 2rem)); padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-medium); }
 .source-detail-actions-menu .btn { justify-content: flex-start; width: 100%; min-height: var(--control-touch); white-space: normal; text-align: left; }
+.proof-detail-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.proof-detail-revise { min-height: var(--control-touch); white-space: nowrap; }
 .source-detail-content { display: grid; gap: var(--space-4); min-width: 0; }
 .source-detail-content > section { min-width: 0; padding: var(--space-4); border: var(--border-subtle); border-radius: var(--radius-lg); background: var(--color-surface); }
 .source-detail-content > section > h3,
@@ -5108,8 +5110,14 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .source-detail-proof > strong { min-width: 0; overflow-wrap: anywhere; }
 .source-detail-history { margin: 0; padding-inline-start: var(--space-5); }
 .source-detail-history li { padding-block: var(--space-1); overflow-wrap: anywhere; }
+.proof-detail-content .document-unified-fact .btn { min-height: var(--control-touch); }
+.proof-detail-content .document-unified-people .btn { min-height: var(--control-touch); }
+.proof-detail-primary .document-unified-section { background: var(--color-surface); }
 @media (max-width: 760px) {
   .source-detail-header { grid-template-columns: var(--control-touch) minmax(0, 1fr) var(--control-touch); align-items: start; gap: var(--space-2); margin-bottom: var(--space-4); }
+  .proof-detail-header { grid-template-columns: var(--control-touch) minmax(0, 1fr) auto; }
+  .proof-detail-header-actions { align-items: stretch; flex-direction: column; gap: var(--space-1); }
+  .proof-detail-revise { min-height: var(--control-touch); padding-inline: var(--space-2); }
   .source-detail-content { gap: var(--space-3); }
   .source-detail-content > section,
   .source-detail-content .genealogy-source-facts,

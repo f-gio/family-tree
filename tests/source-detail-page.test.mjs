@@ -52,6 +52,7 @@ window.__sourcePageTest = {
     return {
       view: activeView,
       sourceVisible: !$('sourceDetailView').hidden,
+      proofPageVisible: !$('proofDetailView').hidden,
       archivesVisible: !$('genealogyView').hidden,
       documentsVisible: !$('documentsView').hidden,
       workshopVisible: !$('transcriptionWorkshopView').hidden,
@@ -156,15 +157,15 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.waitForFunction(() => !document.getElementById("documentViewerDialog").open);
     assert.equal((await page.evaluate(() => window.__sourcePageTest.state())).sourceVisible, true, "retour direct à la Source");
 
-    /* Source → Preuve : la modale Preuve est temporaire, Source reste dessous. */
+    /* Source → Preuve → Source : retour contextuel vers la page Source. */
     await page.locator('#sourcePageContent [data-open-genealogy="proof"]').click();
-    await page.waitForSelector("#genealogyItemDialog[open]");
+    await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     state = await page.evaluate(() => window.__sourcePageTest.state());
-    assert.equal(state.proofModalOpen, true);
-    assert.equal(state.sourceVisible, true, "Source conservée sous la modale Preuve");
-    await page.locator('#genealogyItemDialog [data-close="genealogyItemDialog"]').click();
-    await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open);
-    assert.equal((await page.evaluate(() => window.__sourcePageTest.state())).sourceVisible, true);
+    assert.equal(state.proofPageVisible, true, "page Preuve affichée");
+    assert.equal(state.sourceVisible, false, "la Source est remplacée par la page Preuve");
+    await page.click("#proofPageBackBtn");
+    await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
+    assert.equal((await page.evaluate(() => window.__sourcePageTest.state())).sourceVisible, true, "retour à la page Source");
 
     /* Document → Source → Document : le bouton Retour rouvre le document appelant. */
     await page.evaluate(() => window.__sourcePageTest.openDocumentThenSource());

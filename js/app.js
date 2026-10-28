@@ -195,6 +195,8 @@ let sourcePageReturnContext = null;
 let activeSourcePagePageId = "";
 let activeSourcePagePhotoId = "";
 let sourcePageZoom = 1;
+let activeProofPageItem = null;
+let proofPageReturnContext = null;
 let genealogyItemRefreshPending = false;
 let activeDocumentSourceManagerId = "";
 let genealogyZoom = 1;
@@ -4336,6 +4338,7 @@ function renderGenealogyWorkspace() {
   }).join("") : emptyState({ iconName: "document", title: "Aucun élément trouvé", description: "Modifiez la recherche ou le filtre sélectionné." });
   $("genealogyOfficialBtn").hidden = !isAdminUser();
   refreshOpenSourcePage();
+  refreshOpenProofPage();
 }
 
 function proofDetailsMarkup(data, record) {
@@ -4350,12 +4353,15 @@ function proofDetailsMarkup(data, record) {
     ? `<ul class="document-unified-people">${personEntries}</ul>`
     : `<p class="document-unified-notice">Aucune personne n’est associée à cette preuve.</p>`}</section>`;
   const documentItem = documents.find(item => item.id === data.documentId);
+  const documentReference = documentItem
+    ? `<button class="btn small" type="button" data-source-document-open="${esc(data.documentId)}">Consulter le document</button>`
+    : data.documentId
+      ? loadedDocuments ? "Document référencé introuvable" : "Chargement du document référencé…"
+      : "Aucun document associé à cette preuve";
   const facts = [
     ["Relation à la conclusion", relationLabel ? esc(relationLabel) : "—"],
     ["Valeur relevée dans le document", data.sourceValue === null || data.sourceValue === undefined ? "Non relevée (valeur inconnue)" : esc(String(data.sourceValue))],
-    ["Document d'origine", documentItem
-      ? `<button class="btn small" type="button" data-source-document-open="${esc(data.documentId)}">Consulter le document</button>`
-      : "Référence introuvable"]
+    ["Document d'origine", documentReference]
   ];
   if (data.pageId) facts.push(["Page", esc(String(data.pageId))]);
   if (data.passageId) {
@@ -4388,6 +4394,176 @@ function proofDetailsMarkup(data, record) {
     + `<div class="document-unified-fact"><strong>Preuve</strong><span>${esc(record.id)}</span></div>`
     + (record.authorUid ? `<div class="document-unified-fact"><strong>Auteur historique</strong><span>${esc(record.authorUid)}</span></div>` : "")
     + `</div></details>`;
+}
+
+function sourceRecordsForProof(proofData) {
+  if (!proofData.documentId) return [];
+  return genealogyRecords.sourceDocuments.filter(record => {
+    const data = genealogyRecordData(record);
+    return record.id === proofData.documentId
+      || (Array.isArray(data.documentIds) && data.documentIds.includes(proofData.documentId));
+  });
+}
+
+function proofSourceMarkup(proofItem) {
+  if (!genealogyCollectionsLoaded.has("sourceDocuments")) {
+    return `<section aria-labelledby="proofPageSourceTitle"><h3 id="proofPageSourceTitle">Source d’origine</h3><p class="card-meta">Chargement des Sources associées…</p></section>`;
+  }
+  if (genealogyCollectionErrors.has("sourceDocuments")) {
+    return `<section aria-labelledby="proofPageSourceTitle"><h3 id="proofPageSourceTitle">Source d’origine</h3><p class="card-meta">Les Sources associées sont temporairement indisponibles.</p></section>`;
+  }
+  const sources = sourceRecordsForProof(proofItem.data);
+  if (!sources.length) {
+    const message = proofItem.data.documentId
+      ? "Aucune source officielle n’est associée au document référencé."
+      : "Aucun document ou source d’origine n’est indiqué pour cette preuve.";
+    return `<section aria-labelledby="proofPageSourceTitle"><h3 id="proofPageSourceTitle">Source d’origine</h3><p class="card-meta">${message}</p></section>`;
+  }
+  return `<section aria-labelledby="proofPageSourceTitle"><h3 id="proofPageSourceTitle">Source${sources.length > 1 ? "s" : ""} d’origine</h3><div class="proof-detail-source-list">${sources.map(record => {
+    const data = genealogyRecordData(record);
+    return `<article class="source-detail-proof"><strong>${esc(data.title || "Source sans titre")}</strong>${genealogyStatusBadgeHtml(data.status)}<button class="btn" type="button" data-proof-source-open="${esc(record.id)}">Consulter la source</button></article>`;
+  }).join("")}</div></section>`;
+}
+
+function proofHistoryMarkup(proofRecord) {
+  const revisions = genealogyRecords.genealogyProofRevisions.filter(revision => revision.objectId === proofRecord.id);
+  if (!revisions.length) return `<section aria-labelledby="proofPageHistoryTitle"><h3 id="proofPageHistoryTitle">Historique des révisions</h3><p class="card-meta">Aucune révision historique disponible.</p></section>`;
+  const rows = revisions.map(revision => {
+    const date = revision.createdAt ? new Date(revision.createdAt).toLocaleDateString("fr-FR") : "date non renseignée";
+    return `<li>${esc(genealogyEventLabel(revision.eventType) || "Révision")} · ${esc(date)}${revision.authorUid ? ` · ${esc(revision.authorUid)}` : ""} · ${esc(revision.id)}</li>`;
+  }).join("");
+  return `<section aria-labelledby="proofPageHistoryTitle"><h3 id="proofPageHistoryTitle">Historique des révisions (${revisions.length})</h3><ol class="source-detail-history">${rows}</ol></section>`;
+}
+
+function proofRelatedMarkup(proofItem) {
+  const current = proofItem.data;
+  const related = genealogyRecords.genealogyProofs.filter(record => {
+    if (record.id === proofItem.record.id) return false;
+    const data = genealogyRecordData(record);
+    return (current.documentId && data.documentId === current.documentId)
+      || (data.transcriptionRevisionId && data.transcriptionRevisionId === proofItem.record.id);
+  });
+  if (!related.length) return "";
+  return `<section aria-labelledby="proofPageRelatedTitle"><h3 id="proofPageRelatedTitle">Autres preuves liées (${related.length})</h3><div class="source-detail-proof-list">${related.map(record => {
+    const data = genealogyRecordData(record);
+    const title = proofFactLabel(data.factType) || data.factId || record.id;
+    return `<article class="source-detail-proof"><strong>${esc(title)}</strong><span>${esc(PROOF_RELATION_LABELS[data.relation] || data.relation || "Mention")}</span>${genealogyStatusBadgeHtml(data.technicalStatus)}<button class="btn" type="button" data-open-genealogy="proof" data-genealogy-id="${esc(record.id)}">Consulter la preuve</button></article>`;
+  }).join("")}</div></section>`;
+}
+
+function proofPageReturnContextFor(item) {
+  if (!$('sourceDetailView').hidden && activeSourcePageItem) {
+    return {
+      kind: "source",
+      id: activeSourcePageItem.record.id,
+      sourceReturnContext: sourcePageReturnContext ? { ...sourcePageReturnContext } : null,
+      view: sourcePageReturnContext?.view || "genealogy"
+    };
+  }
+  if ($("personDialog").open && activeId) {
+    const panel = document.querySelector(`[data-person-panel="${activePersonSection}"]`);
+    return {
+      kind: "person",
+      personId: activeId,
+      source: personDialogSource,
+      draft: capturePersonDraft(),
+      section: activePersonSection,
+      scrollTop: panel?.scrollTop || 0,
+      windowScrollY: window.scrollY || 0,
+      view: activeView
+    };
+  }
+  if ($("documentViewerDialog").open && activeViewerDocumentId) {
+    return {
+      kind: "document",
+      documentId: activeViewerDocumentId,
+      returnContext: activeViewerReturnContext,
+      view: activeView
+    };
+  }
+  if (!$('proofDetailView').hidden && activeProofPageItem) {
+    return {
+      kind: "proof",
+      id: activeProofPageItem.record.id,
+      returnContext: proofPageReturnContext ? { ...proofPageReturnContext } : null,
+      view: proofPageReturnContext?.view || "genealogy"
+    };
+  }
+  return { kind: "view", view: activeView, focusId: item.record.id };
+}
+
+function renderProofPage(item, returnContext = null) {
+  const samePageVisible = !$('proofDetailView').hidden && activeProofPageItem?.record.id === item.record.id;
+  if (!samePageVisible) proofPageReturnContext = returnContext || proofPageReturnContextFor(item);
+  activeProofPageItem = item;
+  activeDocumentSourceManagerId = "";
+  if ($("genealogyItemDialog").open) close("genealogyItemDialog");
+  if ($("personDialog").open) close("personDialog");
+  if ($("documentViewerDialog").open) close("documentViewerDialog");
+  setView("proofDetail");
+  const { record, data } = item;
+  const title = PROOF_FACT_KIND_LABELS[data.factType] || data.factType || data.factId || "Preuve";
+  $("proofPageTitle").textContent = title;
+  const relation = PROOF_RELATION_LABELS[data.relation] || data.relation || "";
+  $("proofPageBadges").innerHTML = `${genealogyKindBadgeHtml("proof")}${genealogyStatusBadgeHtml(data.technicalStatus)}${relation ? `<span class="genealogy-status-badge">${esc(relation)}</span>` : ""}`;
+  $("proofPageContent").innerHTML = `<section class="proof-detail-primary" aria-labelledby="proofPageFactsTitle"><h3 id="proofPageFactsTitle">Information attestée</h3>${proofDetailsMarkup(data, record)}</section>${proofSourceMarkup(item)}${proofRelatedMarkup(item)}${proofHistoryMarkup(record)}`;
+  const controls = genealogyItemActionControls("proof", data);
+  $("proofPageReviseBtn").hidden = !controls.some(control => control.key === "revise");
+  const secondaryControls = controls.filter(control => control.key !== "revise");
+  $("proofPageActionsMenu").innerHTML = secondaryControls.map(control => `<button class="btn${control.danger ? " danger" : ""}" type="button" role="menuitem" data-genealogy-item-action="${control.key}">${icon(control.icon)}<span>${esc(control.label)}</span></button>`).join("");
+  $("proofPageActions").hidden = !secondaryControls.length;
+  $("proofPageActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
+  if (!samePageVisible) requestAnimationFrame(() => $("proofPageBackBtn").focus({ preventScroll: true }));
+}
+
+function refreshOpenProofPage() {
+  if (!activeProofPageItem || $("proofDetailView").hidden) return;
+  const item = genealogyWorkspaceItems().find(value => value.kind === "proof" && value.record.id === activeProofPageItem.record.id);
+  if (!item) return returnFromProofPage();
+  renderProofPage(item);
+}
+
+function returnFromProofPage() {
+  const target = proofPageReturnContext || { kind: "view", view: "genealogy" };
+  proofPageReturnContext = null;
+  activeProofPageItem = null;
+  if (target.kind === "source") {
+    const source = genealogyWorkspaceItems().find(value => value.kind === "source" && value.record.id === target.id);
+    if (source) renderSourcePage(source, target.sourceReturnContext || null);
+    else setView(target.view || "genealogy");
+  } else if (target.kind === "proof" && target.id) {
+    const proof = genealogyWorkspaceItems().find(value => value.kind === "proof" && value.record.id === target.id);
+    if (proof) renderProofPage(proof, target.returnContext || null);
+    else setView(target.view || "genealogy");
+  } else if (target.kind === "document") {
+    setView(target.view || "documents");
+    const documentItem = documents.find(value => value.id === target.documentId);
+    if (documentItem) openStoredDocument(documentItem, target.returnContext || "documents");
+  } else if (target.kind === "person") {
+    setView(target.view || "directory");
+    const personItem = person(target.personId);
+    if (!personItem) return toast("Cette personne n’est plus disponible.", "error");
+    requestAnimationFrame(() => {
+      if ((target.windowScrollY || 0) > 0) window.scrollTo({ left: 0, top: target.windowScrollY, behavior: "instant" });
+      openPerson(personItem, target.source || "directory");
+      restorePersonDraft(target.draft);
+      setPersonSection(target.section || "identity");
+      setTimeout(() => {
+        if (!$("personDialog").open) return;
+        setPersonSection(target.section || "identity");
+        const panel = document.querySelector(`[data-person-panel="${target.section || "identity"}"]`);
+        if (panel) panel.scrollTop = target.scrollTop || 0;
+      }, 45);
+    });
+  } else {
+    setView(target.view || "genealogy");
+    if (target.view === "genealogy" && target.focusId) requestAnimationFrame(() => {
+      const tile = [...$("genealogyResults").querySelectorAll("[data-genealogy-tile-id]")]
+        .find(value => value.dataset.genealogyTileId === target.focusId);
+      if (tile) tile.focus({ preventScroll: true });
+      else $("genealogySearch")?.focus({ preventScroll: true });
+    });
+  }
 }
 
 function genealogyItemActionControls(kind, data) {
@@ -4430,11 +4606,12 @@ function renderGenealogyItemActions(kind, data) {
   if (!controls.length) genealogyItemActionMenu.close();
 }
 
-function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null, sourceReturnContext = null) {
+function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null, itemReturnContext = null) {
   activeDocumentSourceManagerId = "";
   const item = genealogyWorkspaceItems().find(value => value.kind === kind && value.record.id === id);
   if (!item) return toast("Cet élément n’est plus disponible.", "error");
-  if (kind === "source") return renderSourcePage(item, sourceReturnContext);
+  if (kind === "source") return renderSourcePage(item, itemReturnContext);
+  if (kind === "proof") return renderProofPage(item, itemReturnContext);
   if (!genealogyItemReturning && $("genealogyItemDialog").open && activeGenealogyItem && (activeGenealogyItem.kind !== kind || (activeGenealogyItem.record?.id || activeGenealogyItem.id) !== id)) {
     genealogyItemReturn = { kind: activeGenealogyItem.kind, id: activeGenealogyItem.record.id, pageId: activeGenealogyPageId, photoId: activeGenealogyPhotoId };
   }
@@ -5850,12 +6027,13 @@ function sourceHistoryMarkup(sourceRecord) {
 
 function renderSourcePage(item, returnContext = null) {
   const samePageVisible = !$('sourceDetailView').hidden && activeSourcePageItem?.record.id === item.record.id;
+  const sameSource = activeSourcePageItem?.record.id === item.record.id;
   if (!samePageVisible) sourcePageReturnContext = returnContext || {
     kind: "view",
     view: activeView,
     ...(activeView === "genealogy" ? { focusId: item.record.id } : {})
   };
-  if (!samePageVisible) {
+  if (!sameSource) {
     activeSourcePagePageId = "";
     activeSourcePagePhotoId = "";
     sourcePageZoom = 1;
@@ -5893,6 +6071,10 @@ function returnFromSourcePage() {
   } else if (target.kind === "source" && target.id) {
     const source = genealogyWorkspaceItems().find(item => item.kind === "source" && item.record.id === target.id);
     if (source) renderSourcePage(source, target.returnContext || null);
+  } else if (target.kind === "proof" && target.id) {
+    const proof = genealogyWorkspaceItems().find(item => item.kind === "proof" && item.record.id === target.id);
+    if (proof) renderProofPage(proof, target.returnContext || null);
+    else setView(target.view || "genealogy");
   } else {
     setView(target.view || "genealogy");
     if (target.view === "genealogy" && target.focusId) {
@@ -6631,7 +6813,7 @@ async function handleGenealogyWorkspaceClick(event) {
   const tileId = tile.dataset.genealogyTileId;
   const tileItem = genealogyWorkspaceItems().find(value => value.kind === tileKind && value.record.id === tileId);
   if (!tileItem) return;
-  preparePrimaryTileActivation(event, tile, tileItem.kind === "source" ? null : $("genealogyItemDialog"));
+  preparePrimaryTileActivation(event, tile, tileItem.kind === "source" || tileItem.kind === "proof" ? null : $("genealogyItemDialog"));
   openGenealogyItem(tileItem.kind, tileItem.record.id);
 }
 
@@ -7180,11 +7362,17 @@ function openUnifiedSource(documentId, sourceId, revise = false) {
 function openUnifiedProof(documentId, proofId) {
   const proof = genealogyRecords.genealogyProofs.find(item => item.id === proofId);
   if (!proof) return toast("Cette preuve n’est plus disponible.", "error");
-  unifiedViewerReturnDocumentId = documentId;
-  unifiedViewerReopenContext = activeViewerReturnContext;
-  unifiedViewerReturnOnDialogClose = "genealogyItemDialog";
+  const returnContext = {
+    kind: "document",
+    documentId,
+    returnContext: activeViewerReturnContext,
+    view: activeView
+  };
+  unifiedViewerReturnDocumentId = "";
+  unifiedViewerReturnOnDialogClose = "";
+  unifiedViewerReopenContext = "documents";
   close("documentViewerDialog");
-  openGenealogyItem("proof", proofId);
+  renderProofPage({ kind: "proof", record: proof, data: genealogyRecordData(proof), official: true }, returnContext);
 }
 
 function openUnifiedDocumentEditor(documentId) {
@@ -8154,7 +8342,9 @@ function stopPrivateData() {
   if (isTranscriptionWorkshopActive()) teardownTranscriptionWorkshop();
   activeSourcePageItem = null;
   sourcePageReturnContext = null;
-  $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("genealogyView").hidden = $("sourceDetailView").hidden = $("tasksView").hidden = $("dossiersView").hidden = $("transcriptionWorkshopView").hidden = true;
+  activeProofPageItem = null;
+  proofPageReturnContext = null;
+  $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("genealogyView").hidden = $("sourceDetailView").hidden = $("proofDetailView").hidden = $("tasksView").hidden = $("dossiersView").hidden = $("transcriptionWorkshopView").hidden = true;
   if ($("adminDialog").open) $("adminDialog").close();
   if ($("profileDialog").open) $("profileDialog").close();
   if ($("dataDialog").open) $("dataDialog").close();
@@ -8368,12 +8558,16 @@ function setView(view) {
   $("genealogyView").hidden = view !== "genealogy";
   $("sourceDetailView").hidden = view !== "sourceDetail";
   if (view !== "sourceDetail") $("sourcePageActions").open = false;
+  $("proofDetailView").hidden = view !== "proofDetail";
+  if (view !== "proofDetail") $("proofPageActions").open = false;
   $("tasksView").hidden = view !== "tasks";
   $("dossiersView").hidden = view !== "dossiers";
   $("transcriptionWorkshopView").hidden = view !== "transcriptionWorkshop";
   $("addBtn").hidden = view !== "tree";
   $("headerTreeActions").hidden = view !== "tree";
-  const selectedNavView = view === "sourceDetail" ? sourcePageReturnContext?.view || "genealogy" : view;
+  const selectedNavView = view === "sourceDetail" ? sourcePageReturnContext?.view || "genealogy"
+    : view === "proofDetail" ? proofPageReturnContext?.view || "genealogy"
+      : view;
   document.querySelectorAll("[data-view]").forEach(button => {
     const active = button.dataset.view === selectedNavView;
     button.classList.toggle("active", active);
@@ -9464,6 +9658,7 @@ $("permanentDeleteConfirmBtn").onclick = async () => {
     $("permanentDeleteDialog").close();
     if ($("genealogyItemDialog").open && (activeGenealogyItem?.record?.id === targetId || activeGenealogyItem?.id === targetId)) close("genealogyItemDialog");
     if (activeSourcePageItem?.record.id === targetId) returnFromSourcePage();
+    if (activeProofPageItem?.record.id === targetId) returnFromProofPage();
     renderGenealogyWorkspace();
     toast(`« ${title} » supprimé définitivement.`);
   } catch (error) {
@@ -9478,6 +9673,7 @@ $("genealogyContributionDialog").addEventListener("close", () => {
   if (reopenUnifiedDocumentAfter("genealogyContributionDialog")) return;
   refreshUnifiedDetailsIfOpen();
   refreshOpenSourcePage();
+  refreshOpenProofPage();
   genealogyItemRefreshPending = true;
   refreshOpenGenealogyItem();
   const personId = $("personId")?.value;
@@ -9498,6 +9694,53 @@ $("sourcePageActionsMenu").addEventListener("click", event => {
   if (!action || !activeSourcePageItem) return;
   $("sourcePageActions").open = false;
   void performArchiveCardAction(activeSourcePageItem.record.id, action.dataset.genealogyItemAction);
+});
+$("proofPageBackBtn").addEventListener("click", returnFromProofPage);
+$("proofPageActions").addEventListener("toggle", () => {
+  $("proofPageActions").querySelector("summary")?.setAttribute("aria-expanded", String($("proofPageActions").open));
+});
+$("proofPageActions").addEventListener("keydown", event => {
+  if (event.key !== "Escape" || !$("proofPageActions").open) return;
+  event.preventDefault();
+  $("proofPageActions").open = false;
+  $("proofPageActions").querySelector("summary")?.focus();
+});
+$("proofPageReviseBtn").addEventListener("click", () => {
+  if (activeProofPageItem) void performArchiveCardAction(activeProofPageItem.record.id, "revise");
+});
+$("proofPageActionsMenu").addEventListener("click", event => {
+  const action = event.target.closest('[data-genealogy-item-action]');
+  if (!action || !activeProofPageItem) return;
+  $("proofPageActions").open = false;
+  void performArchiveCardAction(activeProofPageItem.record.id, action.dataset.genealogyItemAction);
+});
+$("proofPageContent").addEventListener("click", event => {
+  const sourceButton = event.target.closest("[data-proof-source-open]");
+  if (sourceButton) {
+    const item = genealogyWorkspaceItems().find(value => value.kind === "source" && value.record.id === sourceButton.dataset.proofSourceOpen);
+    if (!item) return toast("Cette source n’est plus disponible.", "error");
+    return renderSourcePage(item, {
+      kind: "proof",
+      id: activeProofPageItem.record.id,
+      returnContext: proofPageReturnContext ? { ...proofPageReturnContext } : null,
+      view: proofPageReturnContext?.view || "genealogy"
+    });
+  }
+  const linkedDocumentButton = event.target.closest("[data-source-document-open]");
+  if (linkedDocumentButton) {
+    const item = documents.find(value => value.id === linkedDocumentButton.dataset.sourceDocumentOpen);
+    if (!item) return toast("Le document référencé n’est plus disponible.", "error");
+    if (!(item.chunkVersion && item.chunkCount) && !item.fileData && !item.fileUrl && !item.externalUrl) {
+      return toast("La fiche existe, mais aucun fichier ou lien consultable n’y est associé.", "error");
+    }
+    return openStoredDocument(item, "proof");
+  }
+  const personButton = event.target.closest("[data-genealogy-person]");
+  if (personButton) {
+    const item = person(personButton.dataset.genealogyPerson);
+    if (!item) return toast("Cette personne n’est plus disponible.", "error");
+    return openPerson(item, "directory");
+  }
 });
 $("sourcePageContent").addEventListener("click", event => {
   const button = event.target.closest("[data-source-document-open]");

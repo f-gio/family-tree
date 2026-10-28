@@ -361,6 +361,22 @@
       <div class="source-detail-content" id="sourcePageContent"></div>
     </div>
   </main>
+  <main class="workspace-view page-content-lane source-detail-view proof-detail-view" id="proofDetailView" hidden aria-labelledby="proofPageTitle">
+    <div class="source-detail-page proof-detail-page">
+      <header class="source-detail-header proof-detail-header">
+        <button class="btn icon-btn source-detail-back proof-detail-back" id="proofPageBackBtn" type="button" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
+        <div class="source-detail-heading proof-detail-heading"><p class="page-kicker">Preuve</p><h2 class="page-title" id="proofPageTitle"></h2><div class="source-detail-header-badges" id="proofPageBadges"></div></div>
+        <div class="proof-detail-header-actions">
+          <button class="btn primary proof-detail-revise" id="proofPageReviseBtn" type="button" hidden>Réviser</button>
+          <details class="source-detail-actions proof-detail-actions" id="proofPageActions">
+            <summary class="btn icon-btn" aria-label="Plus d’actions" title="Plus d’actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
+            <div class="source-detail-actions-menu proof-detail-actions-menu" id="proofPageActionsMenu" role="menu" aria-label="Actions secondaires de la preuve"></div>
+          </details>
+        </div>
+      </header>
+      <div class="source-detail-content proof-detail-content" id="proofPageContent"></div>
+    </div>
+  </main>
   <main class="workspace-view page-content-lane" id="tasksView" hidden>
 <section class="section-head page-heading">
 <div>

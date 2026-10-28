@@ -342,19 +342,43 @@ test("la fiche détaillée d'une source présente des faits structurés sans JSO
   assert.match(app, /sourceDetailFactsMarkup\(data\).*linkedSourceDocumentsMarkup\(data\)/);
 });
 
-test("la Source est une page dédiée, la Preuve conserve sa modale", () => {
+test("Source et Preuve ont des pages dédiées, les autres fiches conservent leur modale", () => {
   assert.match(html, /<main class="workspace-view page-content-lane source-detail-view" id="sourceDetailView" hidden/);
+  assert.match(html, /<main class="workspace-view page-content-lane source-detail-view proof-detail-view" id="proofDetailView" hidden/);
   assert.match(html, /id="sourcePageBackBtn"[^>]*aria-label="Retour"/);
   assert.match(html, /id="sourcePageActionsMenu"[^>]*role="menu"/);
+  assert.match(html, /id="proofPageBackBtn"[^>]*aria-label="Retour"/);
+  assert.match(html, /id="proofPageReviseBtn"[^>]*hidden/);
+  assert.match(html, /id="proofPageActionsMenu"[^>]*role="menu"/);
   assert.match(html, /id="genealogyItemDialog"[^>]*class="modal-lg/);
-  assert.match(app, /if \(kind === "source"\) return renderSourcePage\(item, sourceReturnContext\)/, "Source routée vers la page");
-  assert.match(app, /if \(kind === "proof"\) \{[\s\S]{0,350}\$\("genealogyItemDialog"\)\.showModal\(\)/, "Preuve maintenue en modale");
+  assert.match(app, /if \(kind === "source"\) return renderSourcePage\(item, itemReturnContext\)/, "Source routée vers la page");
+  assert.match(app, /if \(kind === "proof"\) return renderProofPage\(item, itemReturnContext\)/, "Preuve routée vers la page");
+  assert.match(app, /function renderProofPage\(item, returnContext = null\)/);
+  assert.match(app, /proofDetailsMarkup\(data, record\)/, "détails métier de Preuve réutilisés");
+  assert.match(app, /proofPageReturnContextFor\(item\)/, "contexte de retour partagé");
   assert.match(app, /sourceTranscriptionsMarkup\(record, data\)/, "transcriptions associées présentées");
   assert.match(app, /sourceProofsMarkup\(record, data\)/, "preuves liées présentées");
   assert.match(app, /sourceHistoryMarkup\(record\)/, "historique des révisions présenté");
   assert.match(css, /\.source-detail-page \{ width: min\(100%, 76rem\)/, "largeur de page desktop bornée");
   assert.match(css, /\.source-detail-actions-menu \.btn \{[^}]*min-height: var\(--control-touch\)/, "actions secondaires tactiles");
+  assert.match(css, /\.proof-detail-revise \{ min-height: var\(--control-touch\)/, "action principale révision visible");
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.source-detail-transcription \{ align-items: stretch; flex-direction: column; \}/, "lecture verticale sur mobile");
+});
+
+test("la page Preuve conserve les détails métier, les Sources et l'historique sans relations inventées", () => {
+  const proofPage = app.match(/function renderProofPage\(item, returnContext = null\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const sourceMarkup = app.match(/function proofSourceMarkup\(proofItem\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const sourceFinder = app.match(/function sourceRecordsForProof\(proofData\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const historyMarkup = app.match(/function proofHistoryMarkup\(proofRecord\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(proofPage.length > 500, "composition de la page Preuve présente");
+  assert.match(proofPage, /proofDetailsMarkup\(data, record\)/, "faits, personnes, citation et interprétation réutilisés");
+  assert.doesNotMatch(proofPage, /JSON\.stringify|<pre>/, "aucun JSON brut sur la page Preuve");
+  assert.match(sourceFinder, /record\.id === proofData\.documentId/, "Source liée par documentId existant");
+  assert.match(sourceFinder, /data\.documentIds\.includes\(proofData\.documentId\)/, "association par identifiant de document déclaré");
+  assert.match(sourceMarkup, /Aucune source officielle n’est associée au document référencé/);
+  assert.match(historyMarkup, /genealogyProofRevisions\.filter\(revision => revision\.objectId === proofRecord\.id\)/);
+  assert.match(app, /Aucun document associé à cette preuve/, "absence de document distinguée d'une référence manquante");
+  assert.match(app, /Aucune personne n’est associée à cette preuve\./, "association de personnes facultative");
 });
 
 test("la présentation Source reste structurée, sans JSON brut et avec un état média explicite", () => {
