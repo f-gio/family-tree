@@ -308,23 +308,38 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /openTranscriptionWorkshop\(\)/, "point d’entrée de l’atelier");
   assert.match(app, /controls\.push\(\{ key: "transcribe", label: "Transcrire", icon: "edit" \}\)/, "action Transcrire dans le menu de la fiche");
   assert.match(app, /action === "transcribe"/, "routage de l’action Transcrire");
+  assert.match(app, /action\.startsWith\("transcribe:"\)/, "choix explicite du document pour une source multi-JPEG");
   assert.match(app, /confirmTranscriptionWorkshopClose/, "confirmation avant fermeture");
   assert.match(app, /addEventListener\("beforeunload"/, "garde avant rechargement de la page");
-  assert.match(app, /Brouillon local : ces corrections ne sont pas encore enregistrées officiellement|workshopDraftNotice/, "avertissement de brouillon local");
+  assert.match(app, /addEventListener\("popstate"/, "garde du retour système du navigateur");
   assert.doesNotMatch(app, /createPageTextRevision\(\{[\s\S]{0,120}workshop/, "aucune révision créée depuis l’atelier");
   assert.ok(!/from\s+["'][^"']*firebase/.test(workshop), "aucun import Firebase dans le module pur");
   assert.ok(!/\b(setDoc|addDoc|updateDoc|deleteDoc|onSnapshot|getDoc|getDocs|writeBatch|runTransaction)\s*\(/.test(workshop), "aucun accès Firestore dans le module pur");
-  assert.match(html, /id="transcriptionWorkshopDialog"/, "dialog de l’atelier présent");
+  // Vue dédiée intégrée à la navigation, en place de la modale.
+  assert.match(html, /id="transcriptionWorkshopView"/, "vue dédiée de l’atelier présente");
+  assert.doesNotMatch(html, /id="transcriptionWorkshopDialog"/, "l’atelier n’est plus une modale");
+  assert.match(app, /\$\("transcriptionWorkshopView"\)\.hidden = view !== "transcriptionWorkshop"/, "vue commutée par setView");
+  assert.match(app, /if \(view !== "transcriptionWorkshop" && isTranscriptionWorkshopActive\(\)\)/, "confirmation exigée pour quitter via la navigation");
+  assert.match(app, /function exitTranscriptionWorkshop\(\)/, "action Retour gérée");
+  assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour"/, "action Retour dans l’en-tête");
+  assert.match(app, /function teardownTranscriptionWorkshop\(\)/, "nettoyage du lecteur à la sortie");
   for (const tab of ["Original", "Italien", "Français"]) assert.ok(html.includes(`>${tab}</button>`), `onglet ${tab} présent`);
   assert.ok(html.includes('id="workshopPrevBtn"') && html.includes('id="workshopNextBtn"'), "navigation Précédent / Suivant");
   assert.ok(html.includes("Comparer"), "mode Comparer accessible depuis les passages");
-  assert.match(html, /Brouillon local : ces corrections ne sont pas encore enregistrées officiellement\./, "notice de brouillon dans le HTML");
-  assert.match(html, /data-close="transcriptionWorkshopDialog"/, "fermeture via le mécanisme data-close existant");
-  assert.ok(html.includes('id="workshopAddPassageBtn"'), "bouton d’ajout de passage dans le footer");
+  assert.match(html, /id="workshopDraftBadge"[^>]*>Brouillon local</, "indicateur compact « Brouillon local »");
+  assert.match(html, /Les corrections ne sont pas encore enregistrées officiellement et seront perdues à la fermeture ou au rechargement\./, "explication détaillée consultable");
+  assert.match(app, /workshopLossWarning/, "avertissement de perte affiché seulement si dirty");
+  assert.ok(html.includes('id="workshopAddPassageBtn"'), "bouton d’ajout de passage accessible");
   assert.match(html, /\+ Ajouter un passage/, "libellé d’ajout de passage");
+  assert.match(html, /id="workshopDivider"[^>]*role="separator"/, "séparateur de redimensionnement");
   for (const button of html.match(/<button[^>]*id="workshop[^>]*>/g)) {
     assert.match(button, /\btype="button"/, `bouton atelier sans type explicite : ${button}`);
   }
+  // Deux panneaux sur ordinateur, onglets et filtres de champs sur mobile.
+  assert.match(css, /grid-template-columns: minmax\(0, var\(--workshop-split, 55%\)\) auto minmax\(0, 1fr\)/, "deux zones de travail 55/45 redimensionnables");
+  assert.match(css, /\.transcription-workshop-menu-panel \{/, "menu secondaire d’en-tête");
+  assert.match(css, /\.transcription-workshop-passage-menu-panel \{/, "menu discret des actions de passage");
+  assert.match(css, /\.transcription-workshop-image-viewport > img \{ position: absolute/, "zone d’ancrage suivant les offsets du lecteur");
   // Brouillons multipages : conservation pendant la session, confirmation seulement à la fermeture.
   assert.match(app, /transcriptionWorkshopDrafts = new Map\(\)/, "carte de brouillons par page");
   assert.match(app, /function transcriptionWorkshopHasUnsavedChanges\(\)/, "dirty global sur toutes les pages");
@@ -338,9 +353,8 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /data-workshop-delete-passage/, "bouton de suppression des passages créés");
   assert.match(app, /isTranscriptionWorkshopPassageCreated\(draft, passage\.id\)/, "suppression réservée aux passages créés");
   assert.match(app, /Ajoutez un passage pour commencer/, "état vide orienté action");
-  assert.match(css, /\.transcription-workshop-nav \.btn, \.transcription-workshop-actions \.btn \{ min-height: var\(--control-touch\); \}/, "boutons tactiles du footer");
-  assert.match(css, /\.transcription-workshop-layout \{ display: grid; grid-template-columns: minmax\(0, 1\.15fr\)/, "layout ordinateur à trois volets");
-  assert.match(css, /@media \(max-width: 760px\)[\s\S]{0,400}\.transcription-workshop-tabs \{ display: flex; \}/, "onglets mobiles");
+  assert.match(css, /#workshopPageNav \.btn, #workshopPhotoNav \.btn \{ min-width: var\(--control-touch\)/, "cibles tactiles ≥ 44 px");
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]{0,500}\.transcription-workshop-tabs \{ display: flex; \}/, "onglets mobiles");
   assert.match(css, /\.transcription-workshop-passage\.is-selected/, "sélection de passage visible");
   assert.match(css, /--control-touch/, "cibles tactiles via le token existant");
 });

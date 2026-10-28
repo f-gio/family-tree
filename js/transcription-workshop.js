@@ -243,6 +243,15 @@ export function isTranscriptionJpegDocument(documentItem) {
   return /\.jpe?g$/i.test(String(documentItem.fileName || "").trim());
 }
 
+/** Le JPEG doit pouvoir être vérifié localement (empreinte exigée) : fichier
+    importé en chunks ou encodé en data-URL — un lien distant ne l'est pas. */
+export function canInitializeLegacyJpegPage(documentItem) {
+  if (!isTranscriptionJpegDocument(documentItem)) return false;
+  const hasChunks = Boolean(documentItem.chunkCount && documentItem.chunkVersion);
+  const hasDataUrl = typeof documentItem.fileData === "string" && documentItem.fileData.startsWith("data:image/");
+  return hasChunks || hasDataUrl;
+}
+
 /** Page officielle existante qui référence déjà le fichier du document. */
 export function findSourcePageForDocument(source, documentId) {
   if (!source || typeof source !== "object" || !Array.isArray(source.pages)) return null;
