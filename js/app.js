@@ -45,7 +45,11 @@ import {
   transcriptionWorkshopPassagePosition,
   transcriptionWorkshopPassageLabel,
   transcriptionWorkshopTranslationBadge,
-  WORKSHOP_CONFIDENCE_LABELS
+  WORKSHOP_CONFIDENCE_LABELS,
+  isTranscriptionJpegDocument,
+  findSourcePageForDocument,
+  prepareLegacyDocumentPage,
+  LEGACY_DOCUMENT_IMAGE_PREFIX
 } from "./transcription-workshop.js";
 import { PROOF_FACT_KINDS, PROOF_FACT_KIND_LABELS, PROOF_RELATION_LABELS, showProofFamilyRelation, validateProofGuidedFields, buildProofGuidedInput } from "./genealogy-proof-form.js";
 import { BACKUP_ARCHIVE_VERSION, createBackupArchiveManifest, compareBackupCaptureMarkers, generateBackupZip, readBackupZip, prepareBackupRestorePlan } from "./backup-archive.js";
@@ -4378,8 +4382,10 @@ function renderGenealogyItemActions(kind, data) {
   const menu = $("genealogyItemActionsMenu");
   if (!button || !menu) return;
   const controls = [];
+  /* Toute source est transcrivable : même sans pages rattachées, l'atelier
+     affiche un état explicite plutôt que de masquer l'action. */
   const workshopCompatible = kind === "transcription"
-    || (kind === "source" && Array.isArray(data.pages) && data.pages.length > 0);
+    || kind === "source";
   if (workshopCompatible) controls.push({ key: "transcribe", label: "Transcrire", icon: "edit" });
   if ((kind === "source" || kind === "proof") && isAdminUser()) {
     controls.push({ key: "revise", label: "Réviser", icon: "edit" });
@@ -4519,6 +4525,10 @@ let transcriptionWorkshopView = "original";
 let transcriptionWorkshopCompare = false;
 let transcriptionWorkshopResizeObserver = null;
 let transcriptionWorkshopUnloadHandler = null;
+/* URL d'objet du JPEG chargé depuis Firestore pour l'affichage de l'atelier. */
+let transcriptionWorkshopObjectUrl = "";
+/* État de l'initialisation guidée d'une page JPEG (dialog de confirmation). */
+let transcriptionPageInitState = null;
 
 const WORKSHOP_MIN_ZOOM = 1;
 const WORKSHOP_MAX_ZOOM = 6;
@@ -4557,9 +4567,32 @@ function transcriptionWorkshopContextFromItem(item) {
   const documentId = data.documentId || transcriptionData.documentId || (kind === "source" ? record.id : "");
   const source = data.pages ? data : genealogyRecords.sourceDocuments.map(genealogyRecordData).find(value => value.id === documentId);
   const documentRecord = documents.find(value => value.id === documentId);
-  const pages = source?.pages || documentRecord?.pages || [];
+  let pages = source?.pages || documentRecord?.pages || [];
+  let resolvedDocumentId = documentId;
+  /* Pages éventuellement rattachées à un document lié de la source : les
+     transcriptions sont indexées par le document qui porte réellement la page. */
+  if (!pages.length && Array.isArray(source?.documentIds)) {
+    for (const linkedId of source.documentIds) {
+      const linkedDocument = documents.find(value => value.id === linkedId);
+      if (Array.isArray(linkedDocument?.pages) && linkedDocument.pages.length) {
+        pages = linkedDocument.pages;
+        resolvedDocumentId = linkedId;
+        break;
+      }
+    }
+  }
   const title = data.title || data.factType || genealogyKindLabels[kind] || "Document historique";
-  return { kind, record, data, documentId, pages, title };
+  return { kind, record, data, documentId: resolvedDocumentId, pages, title, linkedDocumentIds: Array.isArray(source?.documentIds) ? [...source.documentIds] : [] };
+}
+
+/* État explicite quand un élément consultable ne porte pas encore de pages :
+   la transcription suppose des pages et photographies rattachées au modèle
+   officiel — aucune page n'est inventée ici. */
+function transcriptionWorkshopNoPagesMessage(context) {
+  const hasLinkedDocument = Boolean((context?.linkedDocumentIds || []).length);
+  return hasLinkedDocument
+    ? "Aucune page n’est rattachée à cet élément. Pour la transcrire, rattachez d’abord ses pages et photographies à la source officielle via l’action « Réviser ». Son document original reste consultable."
+    : "Aucune page n’est rattachée à cet élément. Pour la transcrire, rattachez d’abord ses pages et photographies à la source officielle via l’action « Réviser ».";
 }
 
 function transcriptionWorkshopEditorState() {
@@ -4580,9 +4613,223 @@ function openTranscriptionWorkshop() {
   }
   const context = transcriptionWorkshopContextFromItem(item);
   if (!context.documentId) return toast("Aucun document n’est rattaché à cet élément.", "error");
-  if (!context.pages.length) return toast("Aucune page n’est disponible pour cet élément.", "error");
+  if (!context.pages.length) return toast(transcriptionWorkshopNoPagesMessage(context), "error");
   const pageId = context.pages.some(page => page.id === activeGenealogyPageId) ? activeGenealogyPageId : context.pages[0].id;
   return openTranscriptionWorkshopFor(context, pageId, activeGenealogyPhotoId);
+}
+
+function buildTranscriptionWorkshopDocumentContext(documentItem, pages, linkedDocumentIds = []) {
+  return {
+    kind: "document",
+    record: documentItem,
+    data: documentItem,
+    documentId: documentItem.id,
+    pages: Array.isArray(pages) ? pages : [],
+    title: documentDisplayLabel(documentItem),
+    linkedDocumentIds: Array.isArray(linkedDocumentIds) ? [...linkedDocumentIds] : []
+  };
+}
+
+/* Ouvre l'atelier depuis la fiche document unifiée pour un JPEG :
+   - réutilise la page officielle qui référence déjà le fichier, si elle existe ;
+   - sinon propose une initialisation guidée et explicite (administrateurs,
+     validation par l'utilisateur) rattachant une page au document existant ;
+   - aucune page fictive, aucun identifiant provisoire, aucun doublon de fichier. */
+function openTranscriptionWorkshopForDocument(documentItem) {
+  if (!isTranscriptionJpegDocument(documentItem)) {
+    return toast("Seuls les documents JPEG peuvent ouvrir l’atelier de transcription à cette étape.", "error");
+  }
+  const directPages = Array.isArray(documentItem.pages) ? documentItem.pages : [];
+  if (directPages.length) {
+    return openTranscriptionWorkshopFor(buildTranscriptionWorkshopDocumentContext(documentItem, directPages), directPages[0].id, "");
+  }
+  if (!genealogyCollectionsLoaded.has("sourceDocuments")) return toast("Les sources sont en cours de chargement. Réessayez dans un instant.", "info");
+  if (genealogyCollectionErrors.has("sourceDocuments")) return toast("Les sources associées sont temporairement indisponibles.", "error");
+  const linkedSources = documentLinkedSources(documentItem.id);
+  if (!linkedSources.length) {
+    return toast("Rattachez d’abord ce document à une source officielle depuis sa fiche, puis lancez à nouveau « Transcrire ».", "error");
+  }
+  /* Page existante : réutilisée quelle que soit la source liée qui la porte —
+     aucun choix de source n'a lieu sur ce chemin. */
+  for (const record of linkedSources) {
+    const data = genealogyRecordData(record);
+    const existingPage = findSourcePageForDocument(data, documentItem.id);
+    if (existingPage) {
+      return openTranscriptionWorkshopFor(
+        buildTranscriptionWorkshopDocumentContext(documentItem, data.pages, data.documentIds),
+        existingPage.id,
+        ""
+      );
+    }
+  }
+  /* Initialisation : seules les sources actives sont recevables, et la première
+     n'est jamais choisie silencieusement — une seule est auto-sélectionnée et
+     affichée, plusieurs exigent un choix explicite dans le dialogue. */
+  const activeSources = linkedSources.filter(record => (genealogyRecordData(record).status || "active") === "active");
+  if (!activeSources.length) {
+    return toast("Toutes les sources liées à ce document sont archivées. Restaurez-en une avant d’initialiser sa page de transcription.", "error");
+  }
+  if (!isAdminUser()) {
+    return toast("L’initialisation de la page de transcription est réservée aux administrateurs. Faites rattacher une page à cette source via l’action « Réviser ».", "error");
+  }
+  return openTranscriptionPageInitDialog(documentItem, activeSources);
+}
+
+async function computeLegacyDocumentSha256(item) {
+  let bytes = null;
+  if (item.chunkCount && item.chunkVersion) {
+    const blob = await readChunkedFile(item);
+    bytes = new Uint8Array(await blob.arrayBuffer());
+  } else if (typeof item.fileData === "string" && item.fileData.startsWith("data:image/")) {
+    bytes = base64ToBytes(item.fileData.slice(item.fileData.indexOf(",") + 1));
+  } else {
+    throw new Error("Cette ressource ne peut pas être vérifiée localement : l’initialisation nécessite le fichier importé dans l’application.");
+  }
+  if (!bytes?.length) throw new Error("Le fichier du document est introuvable ou vide.");
+  if (!globalThis.crypto?.subtle?.digest) throw new Error("L’empreinte SHA-256 n’est pas disponible dans ce navigateur.");
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("");
+}
+
+function transcriptionPageInitSourceRecord() {
+  const selectedId = transcriptionPageInitState?.selectedSourceId;
+  if (!selectedId) return null;
+  return genealogyRecords.sourceDocuments.find(record => record.id === selectedId) || null;
+}
+
+/* Sous-titre et faits du dialogue : le nom de la source cible est toujours
+   affiché (auto-sélection affichée ou choix encore attendu). */
+function renderTranscriptionPageInitDetails() {
+  const state = transcriptionPageInitState;
+  if (!state) return;
+  const sourceRecord = transcriptionPageInitSourceRecord();
+  const sourceData = sourceRecord ? genealogyRecordData(sourceRecord) : null;
+  const sourceTitle = sourceData ? (sourceData.title || sourceData.cote || sourceData.category || "Source sans titre") : "Source à choisir";
+  $("transcriptionPageInitSubtitle").textContent = `${documentDisplayLabel(state.documentItem)} vers « ${sourceTitle} »`;
+  const facts = $("transcriptionPageInitFacts");
+  if (!state.sha256) {
+    facts.innerHTML = `<p class="hint">Lecture du fichier et calcul de l’empreinte SHA-256…</p>`;
+    return;
+  }
+  facts.innerHTML = [
+    ["Source", sourceTitle],
+    ["Document", documentDisplayLabel(state.documentItem)],
+    ["Fichier", state.documentItem.fileName || "Non renseigné"],
+    ["Format", state.documentItem.mimeType || "Non renseigné"],
+    ["Taille", formatBytes(state.documentItem.fileSize ?? state.documentItem.storedSize ?? 0)],
+    ["Empreinte SHA-256", `${state.sha256.slice(0, 16)}…`]
+  ].map(([label, value]) => `<div class="document-unified-fact"><strong>${esc(label)}</strong><span>${esc(String(value))}</span></div>`).join("");
+}
+
+/* Dialog d'initialisation : affiche le résumé du document, la source cible et
+   l'empreinte, puis attend la validation explicite de l'utilisateur. */
+async function openTranscriptionPageInitDialog(documentItem, activeSources) {
+  if (!isAdminUser()) return toast("L’initialisation de la page de transcription est réservée aux administrateurs.", "error");
+  if (!Array.isArray(activeSources) || !activeSources.length) {
+    return toast("Aucune source active n’est disponible pour initialiser cette page.", "error");
+  }
+  const errorBox = $("transcriptionPageInitError");
+  errorBox.hidden = true;
+  errorBox.textContent = "";
+  const confirmButton = $("transcriptionPageInitConfirmBtn");
+  confirmButton.disabled = true;
+  /* Une seule source active : sélection automatique, affichée dans le sous-titre
+     et les faits. Plusieurs : aucune option présélectionnée, choix obligatoire. */
+  const sourceField = $("transcriptionPageInitSourceField");
+  const sourceSelect = $("transcriptionPageInitSource");
+  const multipleSources = activeSources.length > 1;
+  sourceField.hidden = !multipleSources;
+  sourceSelect.innerHTML = (multipleSources ? `<option value="">Choisir la source…</option>` : "")
+    + activeSources.map(record => {
+      const data = genealogyRecordData(record);
+      return `<option value="${esc(record.id)}">${esc(data.title || data.cote || data.category || "Source sans titre")}</option>`;
+    }).join("");
+  sourceSelect.value = multipleSources ? "" : activeSources[0].id;
+  transcriptionPageInitState = {
+    documentItem,
+    selectedSourceId: multipleSources ? null : activeSources[0].id,
+    sha256: null
+  };
+  renderTranscriptionPageInitDetails();
+  const dialog = $("transcriptionPageInitDialog");
+  if (!dialog.open) dialog.showModal();
+  try {
+    const sha256 = await computeLegacyDocumentSha256(documentItem);
+    if (!dialog.open || !transcriptionPageInitState) return;
+    transcriptionPageInitState.sha256 = sha256;
+    renderTranscriptionPageInitDetails();
+    confirmButton.disabled = !(transcriptionPageInitState.selectedSourceId && sha256);
+  } catch (error) {
+    transcriptionPageInitState = null;
+    if (dialog.open) close("transcriptionPageInitDialog");
+    toast(error.message || "La ressource du document est indisponible.", "error");
+  }
+}
+
+/* Écrit la page via la révision admin existante, puis ouvre l'atelier sur la
+   page nouvellement créée. Aucune écriture sans validation de l'utilisateur. */
+async function confirmTranscriptionPageInit() {
+  const state = transcriptionPageInitState;
+  if (!state) return;
+  if (!isAdminUser()) return toast("L’initialisation de la page de transcription est réservée aux administrateurs.", "error");
+  const confirmButton = $("transcriptionPageInitConfirmBtn");
+  const errorBox = $("transcriptionPageInitError");
+  const fail = message => {
+    confirmButton.disabled = false;
+    errorBox.textContent = message;
+    errorBox.hidden = false;
+  };
+  /* Re-vérification de la source choisie et des droits au moment exact de la
+     confirmation : l'état affiché peut être périmé (archivage, retrait d'une
+     association, perte des droits pendant la session). */
+  if (!state.selectedSourceId) return fail("Choisissez la source qui recevra la page avant de confirmer.");
+  const sourceRecord = genealogyRecords.sourceDocuments.find(record => record.id === state.selectedSourceId);
+  if (!sourceRecord) return fail("La source sélectionnée n’est plus disponible. Fermez le dialogue et réessayez.");
+  const sourceData = genealogyRecordData(sourceRecord);
+  if ((sourceData.status || "active") === "archived") {
+    return fail("La source sélectionnée a été archivée. Restaurez-la avant d’initialiser sa page.");
+  }
+  if (!(sourceData.documentIds || []).includes(state.documentItem.id)) {
+    return fail("La source sélectionnée n’est plus associée à ce document. Fermez le dialogue et réessayez.");
+  }
+  if (!state.sha256) return fail("L’empreinte du fichier n’est pas disponible. Fermez le dialogue et réessayez.");
+  confirmButton.disabled = true;
+  errorBox.hidden = true;
+  const { documentItem, sha256 } = state;
+  try {
+    const pageId = createGenealogyId(refs.sourceDocuments);
+    const photographId = createGenealogyId(refs.sourceDocuments);
+    const prepared = prepareLegacyDocumentPage({
+      source: sourceData,
+      documentItem,
+      sha256,
+      pageId,
+      photographId,
+      importedAt: new Date().toISOString()
+    });
+    const data = createSourceDocument(prepared.source);
+    const revisionId = createGenealogyId(refs.sourceRevisions);
+    const eventId = createGenealogyId(refs.genealogyEvents);
+    await genealogyStore.reviseOfficial({
+      type: "source",
+      id: sourceRecord.id,
+      revisionId,
+      eventId,
+      data,
+      reason: `Page de transcription initialisée depuis le document « ${documentDisplayLabel(documentItem)} » : fichier référencé, non dupliqué`,
+      actorUid: auth.currentUser.uid
+    });
+    close("transcriptionPageInitDialog");
+    transcriptionPageInitState = null;
+    toast("Page initialisée dans une nouvelle révision de la source. L’atelier est prêt.");
+    return openTranscriptionWorkshopFor(
+      buildTranscriptionWorkshopDocumentContext(documentItem, data.pages, data.documentIds),
+      prepared.page.id,
+      ""
+    );
+  } catch (error) {
+    fail(error.message || "L’initialisation de la page a échoué.");
+  }
 }
 
 function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
@@ -4621,6 +4868,48 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
   observeWorkshopImageResize();
 }
 
+function releaseWorkshopObjectUrl() {
+  if (transcriptionWorkshopObjectUrl) {
+    URL.revokeObjectURL(transcriptionWorkshopObjectUrl);
+    transcriptionWorkshopObjectUrl = "";
+  }
+}
+
+/* Affiche le JPEG référencé (chunks, data-URL ou lien direct) dans le volet
+   Original sans dupliquer le fichier : seule l'URL de lecture est produite. */
+async function loadLegacyDocumentImageSource(item) {
+  const mimeType = String(item.mimeType || "");
+  if (!mimeType.startsWith("image/")) return "";
+  if (typeof item.fileData === "string" && item.fileData.startsWith("data:image/")) return item.fileData;
+  if (item.chunkCount && item.chunkVersion) {
+    const blob = await readChunkedFile(item);
+    releaseWorkshopObjectUrl();
+    transcriptionWorkshopObjectUrl = URL.createObjectURL(blob);
+    return transcriptionWorkshopObjectUrl;
+  }
+  if (typeof item.fileUrl === "string" && /^(?:https?:|blob:)/.test(item.fileUrl)) return item.fileUrl;
+  return "";
+}
+
+async function resolveWorkshopImageSource() {
+  const context = transcriptionWorkshopContext;
+  if (!context || context.imageSrc) return;
+  const photo = context.photos.find(value => value.id === context.photoId);
+  const resourceRef = photo?.original?.resourceRef;
+  if (typeof resourceRef !== "string" || !resourceRef.startsWith(LEGACY_DOCUMENT_IMAGE_PREFIX)) return;
+  const documentItem = documents.find(value => value.id === resourceRef.slice(LEGACY_DOCUMENT_IMAGE_PREFIX.length));
+  if (!documentItem) return;
+  try {
+    const imageSource = await loadLegacyDocumentImageSource(documentItem);
+    if (!imageSource || transcriptionWorkshopContext !== context || transcriptionWorkshopContext.imageSrc) return;
+    transcriptionWorkshopContext.imageSrc = imageSource;
+    renderWorkshopImageArea();
+    syncWorkshopZone();
+  } catch {
+    /* Panneau Original : le message « stockage durable indisponible » reste affiché. */
+  }
+}
+
 function renderTranscriptionWorkshop() {
   const context = transcriptionWorkshopContext;
   const draft = transcriptionWorkshopDraft;
@@ -4656,6 +4945,7 @@ function renderTranscriptionWorkshop() {
   if (transcriptionWorkshopCompare) renderWorkshopCompareContent();
   updateWorkshopDraftIndicators();
   updateWorkshopNavigation();
+  void resolveWorkshopImageSource();
 }
 
 function renderWorkshopImageArea() {
@@ -4987,6 +5277,7 @@ function resetTranscriptionWorkshopState() {
   transcriptionWorkshopCompare = false;
   transcriptionWorkshopView = "original";
   transcriptionWorkshopZoom = 1;
+  releaseWorkshopObjectUrl();
   const image = $("workshopPageImage");
   if (image) {
     image.removeAttribute("src");
@@ -5114,6 +5405,16 @@ document.addEventListener("click", event => {
 }, true);
 
 $("transcriptionWorkshopDialog").addEventListener("close", resetTranscriptionWorkshopState);
+
+$("transcriptionPageInitConfirmBtn").onclick = () => { void confirmTranscriptionPageInit(); };
+$("transcriptionPageInitSource").onchange = () => {
+  const state = transcriptionPageInitState;
+  if (!state) return;
+  state.selectedSourceId = $("transcriptionPageInitSource").value || null;
+  renderTranscriptionPageInitDetails();
+  $("transcriptionPageInitConfirmBtn").disabled = !(state.selectedSourceId && state.sha256);
+};
+$("transcriptionPageInitDialog").addEventListener("close", () => { transcriptionPageInitState = null; });
 
 function renderGenealogySourceDocumentSelection() {
   const selectedIds = [...selectedGenealogySourceDocumentIds];
@@ -6446,7 +6747,12 @@ function renderUnifiedDocumentDetails(item) {
   const proofActions = isAdminUser()
     ? `<div class="document-unified-section-head"><h4>Preuves</h4><button class="btn small" type="button" data-create-proof-from-document="${esc(item.id)}">+ Créer une preuve</button></div>`
     : `<div class="document-unified-section-head"><h4>Preuves</h4></div>`;
-  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><h4>Informations fichier</h4>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section">${sourceHead}${sourceMarkup}</section><section class="document-unified-section">${proofActions}${proofMarkup}</section>`;
+  /* Action discrète vers l'atelier : tout document historique déjà consultable
+     dans cette fiche peut ouvrir l'atelier, même sans transcription. */
+  const workshopDocumentAction = (item.chunkVersion || (typeof item.fileData === "string" && item.fileData.startsWith("data:")) || item.fileUrl || item.externalUrl)
+    ? `<button class="btn small" type="button" data-transcribe-document="${esc(item.id)}">Transcrire</button>`
+    : "";
+  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations fichier</h4>${workshopDocumentAction}</div>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section">${sourceHead}${sourceMarkup}</section><section class="document-unified-section">${proofActions}${proofMarkup}</section>`;
 }
 
 function refreshUnifiedDetailsIfOpen() {
@@ -8657,6 +8963,12 @@ $("viewerDocumentDetails").addEventListener("click", event => {
   if (proofCard) return openUnifiedProof(activeViewerDocumentId, proofCard.dataset.unifiedProofCard);
   const createSource = event.target.closest("[data-create-source-from-document]");
   if (createSource) return openOfficialSourceFromDocument(createSource.dataset.createSourceFromDocument);
+  const transcribeDocument = event.target.closest("[data-transcribe-document]");
+  if (transcribeDocument) {
+    const documentItem = documents.find(value => value.id === transcribeDocument.dataset.transcribeDocument);
+    if (!documentItem) return toast("Ce document n’est plus disponible.", "error");
+    return openTranscriptionWorkshopForDocument(documentItem);
+  }
   const manageSources = event.target.closest("[data-manage-sources-from-document]");
   if (manageSources) return renderDocumentSourceManager(manageSources.dataset.manageSourcesFromDocument);
   const createProof = event.target.closest("[data-create-proof-from-document]");

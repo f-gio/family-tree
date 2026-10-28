@@ -2,9 +2,15 @@
    Aucun accès DOM, Firebase, réseau ou stockage. Les corrections produites ici
    restent des brouillons de session : ce module n'écrit dans aucune collection
    officielle (transcriptionHeads, transcriptionRevisions, genealogyProofs,
-   factConclusions) et ne crée aucune révision. */
+   factConclusions) et ne crée aucune révision.
+
+   Exception encadrée : la préparation d'une initialisation de page JPEG
+   ci-dessous construit seulement un futur objet de révision — l'écriture
+   reste du côté de l'application, après validation explicite de l'utilisateur
+   et par le canal admin existant (reviseOfficial). */
 
 import { createPageTextRevision, comparePageTextRevisions, createTranscriptionPassage } from "./document-transcription.js";
+import { addDocumentPage, addPhotographsToPage, validateSourceDocument } from "./source-document-model.js";
 
 export const WORKSHOP_TRANSLATION_STATE_LABELS = Object.freeze({
   "not-started": "Traduction non commencée",
@@ -206,4 +212,79 @@ export function transcriptionWorkshopPassageLabel(passage, index) {
 export function transcriptionWorkshopTranslationBadge(draft, passage) {
   if (draft?.translationReview?.includes(passage?.id)) return WORKSHOP_TRANSLATION_STATE_LABELS["needs-review"];
   return WORKSHOP_TRANSLATION_STATE_LABELS[passage?.translationState] || WORKSHOP_TRANSLATION_STATE_LABELS["not-started"];
+}
+
+/* ---- Page d'atelier à partir d'un JPEG existant (lot 2B.1) ----------------
+   Une page officielle est réutilisée si elle existe déjà ; sinon, une
+   préparation explicite est construite ici et n'est écrite qu'ensuite par
+   l'application, après validation de l'utilisateur, via la révision admin
+   existante. Le fichier original n'est jamais dupliqué : seule sa référence
+   (legacy-document:{id}) et son empreinte sont portées par la source. */
+
+export const LEGACY_DOCUMENT_IMAGE_PREFIX = "legacy-document:";
+
+export function legacyDocumentResourceRef(documentId) {
+  if (typeof documentId !== "string" || !documentId.trim()) throw new TypeError("documentId doit être une chaîne non vide");
+  return `${LEGACY_DOCUMENT_IMAGE_PREFIX}${documentId}`;
+}
+
+export function isLegacyDocumentPhotograph(photograph, documentId = null) {
+  const resourceRef = photograph?.original?.resourceRef;
+  if (typeof resourceRef !== "string" || !resourceRef.startsWith(LEGACY_DOCUMENT_IMAGE_PREFIX)) return false;
+  if (documentId == null) return true;
+  return resourceRef === legacyDocumentResourceRef(documentId);
+}
+
+/** Périmètre lot 2B.1 : JPEG uniquement (mimeType ou extension). */
+export function isTranscriptionJpegDocument(documentItem) {
+  if (!documentItem || typeof documentItem !== "object" || Array.isArray(documentItem)) return false;
+  const mimeType = String(documentItem.mimeType || "").trim().toLowerCase();
+  if (mimeType === "image/jpeg" || mimeType === "image/jpg") return true;
+  return /\.jpe?g$/i.test(String(documentItem.fileName || "").trim());
+}
+
+/** Page officielle existante qui référence déjà le fichier du document. */
+export function findSourcePageForDocument(source, documentId) {
+  if (!source || typeof source !== "object" || !Array.isArray(source.pages)) return null;
+  if (typeof documentId !== "string" || !documentId.trim()) return null;
+  for (const page of source.pages) {
+    if (!page || !Array.isArray(page.photographs)) continue;
+    if (page.photographs.some(photograph => isLegacyDocumentPhotograph(photograph, documentId))) return page;
+  }
+  return null;
+}
+
+/* Construit la prochaine source (brouillon de révision) : une page portant une
+   photographie qui référence le JPEG existant. Aucun octet du fichier n'est
+   recopié ; le SHA-256 fourni atteste du contenu référencé. */
+export function prepareLegacyDocumentPage({ source, documentItem, sha256, pageId, photographId, importedAt = null, pageLabel = "" } = {}) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) throw new TypeError("source doit être un objet source");
+  if (!Array.isArray(source.pages)) throw new TypeError("source.pages doit être un tableau");
+  if (!documentItem || typeof documentItem !== "object" || Array.isArray(documentItem)) throw new TypeError("documentItem doit être un document historique");
+  if (typeof pageId !== "string" || !pageId.trim()) throw new TypeError("pageId doit être une chaîne non vide");
+  if (typeof photographId !== "string" || !photographId.trim()) throw new TypeError("photographId doit être une chaîne non vide");
+  const fileName = String(documentItem.fileName || "").trim();
+  if (!fileName) throw new Error("Le fichier du document est introuvable : la page ne peut pas être initialisée.");
+  const mimeType = String(documentItem.mimeType || "").trim();
+  if (!mimeType) throw new Error("Le type du fichier est inconnu : la page ne peut pas être initialisée.");
+  const sizeBytes = documentItem.fileSize ?? documentItem.storedSize;
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
+    throw new Error("La taille du fichier est inconnue : la page ne peut pas être initialisée.");
+  }
+  if (typeof pageLabel !== "string") throw new TypeError("pageLabel doit être une chaîne");
+  const withPage = addDocumentPage(source, { id: pageId, label: pageLabel });
+  const prepared = addPhotographsToPage(withPage, pageId, [{
+    id: photographId,
+    originalFileName: fileName,
+    mimeType,
+    sizeBytes,
+    sha256,
+    originalRef: legacyDocumentResourceRef(documentItem.id),
+    importedAt
+  }]);
+  const page = prepared.pages.find(value => value.id === pageId);
+  if (!page) throw new Error("La page préparée est introuvable après construction");
+  const validation = validateSourceDocument(prepared);
+  if (!validation.valid) throw new TypeError(`La source préparée est invalide : ${validation.errors.join("; ")}`);
+  return { source: prepared, page, validation };
 }

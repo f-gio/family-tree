@@ -13,9 +13,14 @@ import {
   transcriptionWorkshopPassagePosition,
   transcriptionWorkshopPassageLabel,
   transcriptionWorkshopTranslationBadge,
-  WORKSHOP_TRANSLATION_STATE_LABELS
+  WORKSHOP_TRANSLATION_STATE_LABELS,
+  isTranscriptionJpegDocument,
+  findSourcePageForDocument,
+  prepareLegacyDocumentPage,
+  legacyDocumentResourceRef
 } from "../js/transcription-workshop.js";
 import { createTranscriptionPassage } from "../js/document-transcription.js";
+import { createSourceDocument } from "../js/source-document-model.js";
 
 const samplePassages = () => [
   createTranscriptionPassage({
@@ -137,6 +142,160 @@ test("seuls les passages ajoutés dans le brouillon sont supprimables", () => {
   assert.equal(draft.dirty, true, "une correction officielle subsiste après suppression du passage créé");
   resetTranscriptionWorkshopDraft(draft);
   assert.deepEqual(draft.createdIds, [], "la réinitialisation vide la liste des passages créés");
+});
+
+test("l’accès à l’atelier couvre toute source et tout document consultable", async () => {
+  const app = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
+  assert.match(app, /const workshopCompatible = kind === "transcription"\s*\|\| kind === "source/, "toute source propose Transcrire, même sans pages rattachées");
+  assert.match(app, /data-transcribe-document=/, "action Transcrire dans la fiche document unifiée");
+  assert.match(app, /function openTranscriptionWorkshopForDocument\(documentItem\)/, "ouverture depuis la fiche du document");
+  assert.match(app, /transcriptionWorkshopNoPagesMessage/, "état explicite quand les pages sont absentes");
+  assert.match(app, /rattachez d’abord ses pages et photographies à la source officielle via l’action « Réviser »/, "solution cohérente sans invention de données officielles");
+  assert.match(app, /linkedDocumentIds/, "résolution élargie du contexte");
+  assert.match(app, /linkedDocument\.pages\.length/, "pages récupérées chez un document lié de la source");
+});
+
+const jpegDocument = {
+  id: "doc-jpeg",
+  fileName: "Transaction_Immobiliere.jpg",
+  mimeType: "image/jpeg",
+  fileSize: 123456,
+  chunkCount: 1,
+  chunkVersion: 1
+};
+
+test("un JPEG est identifié et une page existante est réutilisée", () => {
+  assert.equal(isTranscriptionJpegDocument(jpegDocument), true, "mimeType image/jpeg");
+  assert.equal(isTranscriptionJpegDocument({ id: "d", fileName: "scan.JPG" }), true, "extension .JPG");
+  assert.equal(isTranscriptionJpegDocument({ id: "d", fileName: "registre.png", mimeType: "image/png" }), false, "PNG hors périmètre de l’étape");
+  assert.equal(isTranscriptionJpegDocument(null), false, "entrée invalide");
+  assert.equal(legacyDocumentResourceRef("doc-jpeg"), "legacy-document:doc-jpeg");
+
+  const source = createSourceDocument({
+    id: "src-1",
+    title: "Transactions Immobilières",
+    pages: [{
+      id: "page-1", order: 0, label: "", side: null,
+      photographs: [{
+        id: "photo-1", role: "full",
+        original: {
+          originalFileName: "Transaction_Immobiliere.jpg",
+          mimeType: "image/jpeg",
+          sizeBytes: 123456,
+          sha256: "a".repeat(64),
+          resourceRef: legacyDocumentResourceRef("doc-jpeg"),
+          importedAt: null
+        },
+        preview: null
+      }]
+    }]
+  });
+  const existingPage = findSourcePageForDocument(source, "doc-jpeg");
+  assert.equal(existingPage?.id, "page-1", "la page officielle référençant le JPEG est trouvée");
+  assert.equal(findSourcePageForDocument(source, "autre-document"), null, "aucune page pour un autre document");
+  assert.equal(findSourcePageForDocument({ id: "src-sans-pages" }, "doc-jpeg"), null, "source sans pages");
+  assert.equal(findSourcePageForDocument(null, "doc-jpeg"), null, "source absente");
+});
+
+test("l’initialisation prépare une page référençant le JPEG sans dupliquer le fichier", () => {
+  const baseSource = createSourceDocument({ id: "src-1", title: "Transactions Immobilières" });
+  const { source, page, validation } = prepareLegacyDocumentPage({
+    source: baseSource,
+    documentItem: jpegDocument,
+    sha256: "c".repeat(64),
+    pageId: "page-9",
+    photographId: "photo-9",
+    importedAt: "2026-10-28T00:00:00.000Z"
+  });
+  assert.equal(validation.valid, true, "la source préparée passe la validation du modèle");
+  assert.equal(source.pages.length, 1, "une page a été ajoutée");
+  assert.equal(page.id, "page-9");
+  assert.equal(page.order, 0, "order démarré à 0 sur source vide");
+  assert.equal(page.photographs.length, 1);
+  const original = page.photographs[0].original;
+  assert.equal(original.resourceRef, "legacy-document:doc-jpeg", "référence vers le document existant");
+  assert.equal(original.sha256, "c".repeat(64), "empreinte du fichier référencé");
+  assert.equal(original.originalFileName, jpegDocument.fileName);
+  assert.equal(original.sizeBytes, jpegDocument.fileSize);
+  const serialized = JSON.stringify(source);
+  assert.ok(!serialized.includes("fileData"), "aucun octet de fichier recopié");
+  assert.ok(!serialized.includes("chunkCount"), "aucun chunk recopié");
+  assert.equal(serialized.includes("doc-jpeg"), true, "seule la référence du document figure dans la source");
+
+  const withPages = prepareLegacyDocumentPage({
+    source: createSourceDocument({ id: "src-2", title: "S", pages: [{ id: "page-a", order: 0, label: "", side: null, photographs: [] }, { id: "page-b", order: 1, label: "", side: null, photographs: [] }] }),
+    documentItem: jpegDocument,
+    sha256: "d".repeat(64),
+    pageId: "page-c",
+    photographId: "photo-c"
+  });
+  assert.equal(withPages.page.order, 2, "order = max + 1 sur source déjà paginée");
+});
+
+test("l’initialisation refuse une ressource non vérifiable et les entrées invalides", () => {
+  const baseSource = createSourceDocument({ id: "src-1", title: "S" });
+  const args = overrides => ({ source: baseSource, documentItem: { ...jpegDocument, ...overrides }, sha256: "e".repeat(64), pageId: "page-9", photographId: "photo-9" });
+  assert.throws(() => prepareLegacyDocumentPage(args({ fileName: "" })), /introuvable/, "fichier sans nom → ressource indisponible");
+  assert.throws(() => prepareLegacyDocumentPage(args({ mimeType: "" })), /type du fichier/, "type inconnu → ressource indisponible");
+  assert.throws(() => prepareLegacyDocumentPage(args({ fileSize: undefined, storedSize: undefined })), /taille du fichier/, "taille inconnue → ressource indisponible");
+  assert.throws(() => prepareLegacyDocumentPage({ ...args({}), sha256: "abc" }), /sha256/, "empreinte invalide refusée");
+  const sourceWithPage = createSourceDocument({ id: "src-dup", title: "S", pages: [{ id: "page-9", order: 0, label: "", side: null, photographs: [] }] });
+  assert.throws(() => prepareLegacyDocumentPage({ source: sourceWithPage, documentItem: jpegDocument, sha256: "f".repeat(64), pageId: "page-9", photographId: "photo-9" }), /existe déjà/, "pageId déjà présent refusé");
+  assert.throws(() => prepareLegacyDocumentPage({ source: null, documentItem: jpegDocument, sha256: "f".repeat(64), pageId: "p", photographId: "ph" }), /source doit être/, "source absente refusée");
+  assert.throws(() => prepareLegacyDocumentPage({ source: { id: "s" }, documentItem: jpegDocument, sha256: "f".repeat(64), pageId: "p", photographId: "ph" }), /source\.pages/, "source sans pages refusée");
+});
+
+test("l’accès direct aux JPEG applique les portes JPEG, admin et révision explicite", async () => {
+  const [app, html, workshop] = await Promise.all([
+    readFile(new URL("../js/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../js/transcription-workshop.js", import.meta.url), "utf8")
+  ]);
+  // Porte JPEG (périmètre de l'étape).
+  assert.match(app, /if \(!isTranscriptionJpegDocument\(documentItem\)\)/, "gate JPEG avant tout traitement");
+  assert.match(app, /Seuls les documents JPEG peuvent ouvrir l’atelier de transcription à cette étape/, "message hors périmètre explicite");
+  // Réutilisation d'une page existante (aucune sélection de source sur ce chemin).
+  assert.match(app, /const existingPage = findSourcePageForDocument\(data, documentItem\.id\)/, "réutilisation de la page existante");
+  // Sources : actives seulement, jamais la « première » trouvée.
+  assert.match(app, /const activeSources = linkedSources\.filter\(/, "filtrage des seules sources actives");
+  assert.match(app, /Toutes les sources liées à ce document sont archivées/, "blocage explicite si toutes archivées");
+  assert.match(app, /Aucune source active n’est disponible pour initialiser cette page/, "blocage explicite si aucune source valide");
+  assert.doesNotMatch(app, /\|\| linkedSources\[0\]/, "aucun repli silencieux sur la première source");
+  assert.doesNotMatch(app, /const sourceRecord = linkedSources\.find/, "aucune pré-sélection silencieuse d'une source");
+  // Une seule source active → auto-sélection affichée ; plusieurs → choix exigé.
+  assert.match(app, /const multipleSources = activeSources\.length > 1/, "détection du nombre de sources actives");
+  assert.match(app, /selectedSourceId: multipleSources \? null : activeSources\[0\]\.id/, "auto-seulement quand une seule source active");
+  assert.match(html, /id="transcriptionPageInitSourceField"/, "champ de sélection de source présent");
+  assert.match(html, /id="transcriptionPageInitSource"/, "sélecteur de source présent");
+  assert.match(app, /Choisir la source…/, "aucune option présélectionnée si plusieurs sources");
+  assert.match(app, /\$\("transcriptionPageInitSource"\)\.onchange/, "choix explicite de l'utilisateur");
+  assert.match(app, /function renderTranscriptionPageInitDetails\(\)/, "affichage du nom de la source cible");
+  assert.match(app, /\["Source", sourceTitle\]/, "source affichée dans les faits du dialogue");
+  assert.match(app, /\$\("transcriptionPageInitConfirmBtn"\)\.disabled = !\(state\.selectedSourceId && state\.sha256\)/, "confirmation bloquée tant que la source n'est pas choisie");
+  // Re-vérification source + droits au moment de la confirmation.
+  assert.match(app, /async function confirmTranscriptionPageInit[\s\S]{0,700}if \(!state\.selectedSourceId\) return fail\(/, "choix re-vérifié à la confirmation");
+  assert.match(app, /La source sélectionnée n’est plus disponible/, "source disparue détectée");
+  assert.match(app, /La source sélectionnée a été archivée/, "archivage pendant la session détecté");
+  assert.match(app, /La source sélectionnée n’est plus associée à ce document/, "retrait d'association détecté");
+  assert.match(app, /Choisissez la source qui recevra la page avant de confirmer/, "confirmation sans choix refusée");
+  // Ressource indisponible.
+  assert.match(app, /Cette ressource ne peut pas être vérifiée localement/, "ressource non vérifiable explicitement refusée");
+  // Utilisateur non autorisé.
+  assert.match(app, /if \(!isAdminUser\(\)\) \{\s*return toast\("L’initialisation de la page de transcription est réservée aux administrateurs/, "porte admin avant le dialog");
+  assert.match(app, /if \(!isAdminUser\(\)\) return toast\("L’initialisation de la page de transcription est réservée aux administrateurs\.", "error"\);\s*const confirmButton/, "re-vérification admin à la confirmation");
+  // Validation explicite de l'utilisateur.
+  assert.match(html, /id="transcriptionPageInitDialog"/, "dialog d'initialisation présent");
+  assert.match(html, /id="transcriptionPageInitConfirmBtn">Créer la page et transcrire</, "bouton de confirmation explicite");
+  assert.match(html, /fichier JPEG n’est pas dupliqué/, "notice de non-duplication");
+  assert.match(html, /aria-label="Fermer"[^>]*data-close="transcriptionPageInitDialog"|data-close="transcriptionPageInitDialog"[^>]*aria-label="Fermer"/, "fermeture conforme à la convention");
+  // Écriture uniquement par la révision admin existante.
+  assert.match(app, /await genealogyStore\.reviseOfficial\(\{[\s\S]{0,280}fichier référencé, non dupliqué/, "écriture via reviseOfficial avec justification");
+  assert.match(app, /prepareLegacyDocumentPage\(\{[\s\S]{0,220}sha256/, "préparation de la page avec empreinte calculée");
+  // Affichage du JPEG sans duplication de fichier.
+  assert.match(app, /LEGACY_DOCUMENT_IMAGE_PREFIX/, "résolution d'image par référence");
+  assert.match(app, /async function resolveWorkshopImageSource\(\)/, "chargement de l'image à l'ouverture de l'atelier");
+  assert.match(app, /void resolveWorkshopImageSource\(\);/, "résolution appelée à chaque rendu");
+  assert.ok(!/\bsetDoc\b|\baddDoc\b/.test(workshop), "aucune écriture directe dans le module pur");
 });
 
 test("l’atelier est déclaré sans écriture des collections officielles", async () => {
