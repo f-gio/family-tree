@@ -21,6 +21,7 @@ import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText, g
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
 import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
+import { createNavigationContextStore, GENEALOGY_VIEW_CONTEXT_KEY } from "./navigation-context.js";
 import { formatCompactPlace } from "./place-format.js";
 import { describeFirestoreReadError, legacyDocumentCardDetails, configureGenealogyContributionDialog } from "./genealogy-workspace-utils.js";
 import { createPersonMultiSelect } from "./person-multiselect.js";
@@ -4551,6 +4552,12 @@ let transcriptionWorkshopReturn = null;
 let pendingUnavailableAction = null;
 /* Dernière vue de navigation réelle (hors atelier), pour le retour. */
 let activeView = "tree";
+/* Dernière vue réellement affichée (atelier compris) : sert de repère commun
+   pour mémoriser le contexte d'une vue en la quittant et le restaurer en y
+   revenant (Archives : filtres et défilement). */
+let lastDisplayedView = "tree";
+/* Magasin léger de contextes de navigation (filtres, défilement, retours). */
+const navigationContexts = createNavigationContextStore();
 
 function transcriptionWorkshopDraftKey(documentId, pageId) {
   return `${documentId}|${pageId}`;
@@ -4932,8 +4939,20 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
   captureTranscriptionWorkshopReturn();
   renderTranscriptionWorkshop();
   if (!setView("transcriptionWorkshop")) return;
+  markTranscriptionWorkshopHistory();
   createWorkshopImageViewer();
   syncWorkshopZone();
+}
+
+/* Entrée dans l'atelier : une seule entrée d'historique réelle, jamais de pile.
+   Le marqueur rend le bouton Retour du navigateur équivalent au Retour de
+   l'atelier, avec la même confirmation de perte de brouillon. */
+function markTranscriptionWorkshopHistory() {
+  if (history.state?.transcriptionWorkshop) {
+    history.replaceState({ transcriptionWorkshop: true }, "");
+    return;
+  }
+  history.pushState({ transcriptionWorkshop: true }, "");
 }
 
 /** Contexte à restaurer à la sortie : fiche Archives d'origine ou visionneuse.
@@ -4948,7 +4967,11 @@ function captureTranscriptionWorkshopReturn() {
       itemKind: activeGenealogyItem.kind,
       id: activeGenealogyItem.record.id,
       pageId: activeGenealogyPageId,
-      photoId: activeGenealogyPhotoId
+      photoId: activeGenealogyPhotoId,
+      /* Pile de retour de la fiche appelante (fiche ouverte depuis une autre
+         fiche) : conservée à travers l'atelier, la fermeture de la fiche
+         l'effaçant de son côté. */
+      ficheReturn: genealogyItemReturn ? { ...genealogyItemReturn } : null
     };
   } else if (activeViewerDocumentId) {
     transcriptionWorkshopReturn = {
@@ -4963,26 +4986,45 @@ function captureTranscriptionWorkshopReturn() {
   if ($("documentViewerDialog").open) close("documentViewerDialog");
 }
 
-/** Sortie confirmée de l'atelier : restaure la vue d'origine et son contexte. */
+/** Sortie confirmée de l'atelier (bouton Retour et retour système du
+    navigateur) : une seule confirmation et un seul nettoyage, assurés par
+    setView au quitter de la vue, puis restauration de l'origine. */
 function exitTranscriptionWorkshop() {
   if (!isTranscriptionWorkshopActive()) return false;
-  if (!confirmTranscriptionWorkshopClose()) return false;
+  return leaveTranscriptionWorkshop();
+}
+
+function leaveTranscriptionWorkshop() {
+  if (!isTranscriptionWorkshopActive()) return false;
   const target = transcriptionWorkshopReturn;
-  teardownTranscriptionWorkshop();
-  setView(activeView);
+  if (!setView(activeView)) return false;
+  restoreTranscriptionWorkshopOrigin(target);
+  return true;
+}
+
+/** Restaure la fiche ou la visionneuse d'origine après la sortie de l'atelier,
+    y compris la pile de retour entre fiches. */
+function restoreTranscriptionWorkshopOrigin(target) {
   if (target?.kind === "fiche") {
     openGenealogyItem(target.itemKind, target.id, target.pageId, target.photoId);
+    if (target.ficheReturn) {
+      genealogyItemReturn = { ...target.ficheReturn };
+      const backButton = $("genealogyItemBackBtn");
+      if (backButton) backButton.hidden = false;
+    }
   } else if (target?.kind === "document") {
     const documentItem = documents.find(value => value.id === target.documentId);
     if (documentItem) openStoredDocument(documentItem, target.returnContext);
   }
-  return true;
 }
 
 function teardownTranscriptionWorkshop() {
   destroyWorkshopImageViewer();
   resetTranscriptionWorkshopState();
   transcriptionWorkshopReturn = null;
+  /* Retire le marqueur d'entrée d'atelier de l'entrée courante : aucune entrée
+     obsolète de l'atelier ne subsiste dans l'historique après la sortie. */
+  if (history.state?.transcriptionWorkshop) history.replaceState(null, "");
 }
 
 function releaseWorkshopObjectUrl() {
@@ -5506,14 +5548,14 @@ $("transcriptionWorkshopView").addEventListener("input", event => {
   if (transcriptionWorkshopCompare) renderWorkshopCompareContent();
 });
 
-/* Retour système du navigateur : confirmation avant perte, jamais de sortie
-   silencieuse des brouillons. L'URL de l'application ne change jamais. */
+/* Retour système du navigateur : l'entrée d'historique réelle de l'atelier est
+   consommée par Retour — même sortie confirmée que le bouton Retour, jamais de
+   sortie silencieuse des brouillons. L'annulation rétablit l'entrée consommée :
+   aucun empilement artificiel ni boucle de navigation. L'URL de l'application
+   ne change jamais. */
 window.addEventListener("popstate", () => {
   if (!isTranscriptionWorkshopActive()) return;
-  if (confirmTranscriptionWorkshopClose()) {
-    teardownTranscriptionWorkshop();
-    setView(activeView);
-  } else {
+  if (!leaveTranscriptionWorkshop()) {
     history.pushState({ transcriptionWorkshop: true }, "");
   }
 });
@@ -7910,7 +7952,10 @@ function stopPrivateData() {
   updateTreeBranchOptions();
   updateTreeActionButtons();
   $("topbar").hidden = true;
-  $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("genealogyView").hidden = $("tasksView").hidden = true;
+  /* Fermeture sécurisée de l'atelier : brouillons locaux et vue privée
+     libérés, y compris en cas de perte d'accès pendant la transcription. */
+  if (isTranscriptionWorkshopActive()) teardownTranscriptionWorkshop();
+  $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("genealogyView").hidden = $("tasksView").hidden = $("dossiersView").hidden = $("transcriptionWorkshopView").hidden = true;
   if ($("adminDialog").open) $("adminDialog").close();
   if ($("profileDialog").open) $("profileDialog").close();
   if ($("dataDialog").open) $("dataDialog").close();
@@ -8114,6 +8159,10 @@ function setView(view) {
     teardownTranscriptionWorkshop();
   }
   if (view !== "transcriptionWorkshop") activeView = view;
+  /* Contexte de navigation commun : mémorise la vue quittée (Archives :
+     filtres et défilement) pour la restaurer au retour. */
+  const viewChanged = view !== lastDisplayedView;
+  if (viewChanged && lastDisplayedView === "genealogy") saveGenealogyViewContext();
   $("appMain").hidden = view !== "tree";
   $("directoryView").hidden = view !== "directory";
   $("documentsView").hidden = view !== "documents";
@@ -8135,8 +8184,39 @@ function setView(view) {
   if (view === "genealogy") renderGenealogyWorkspace();
   if (view === "tasks") renderTasks();
   if (view === "dossiers") renderProcedures();
+  if (viewChanged) {
+    if (view === "genealogy") restoreGenealogyViewContext();
+    lastDisplayedView = view;
+  }
   if (view === "tree" && !branchView) setTimeout(() => camera.recenter(), 0);
   return true;
+}
+
+/* Archives : filtres (recherche, catégorie) et position de défilement sont
+   mémorisés à la sortie de vue, puis restaurés au retour — la vue masquée fait
+   perdre le défilement de la page, et la restauration garantit la continuité
+   après une fiche, une visionneuse ou l'atelier de transcription. */
+function saveGenealogyViewContext() {
+  navigationContexts.save(GENEALOGY_VIEW_CONTEXT_KEY, {
+    scrollY: window.scrollY || 0,
+    search: $("genealogySearch")?.value || "",
+    kind: $("genealogyKindFilter")?.value || "main"
+  });
+}
+
+function restoreGenealogyViewContext() {
+  const context = navigationContexts.load(GENEALOGY_VIEW_CONTEXT_KEY);
+  if (!context) return;
+  if ($("genealogyKindFilter")) $("genealogyKindFilter").value = context.kind || "main";
+  if ($("genealogySearch")) {
+    $("genealogySearch").value = context.search || "";
+    /* L'événement input resynchronise le bouton d'effacement et le rendu. */
+    $("genealogySearch").dispatchEvent(new Event("input"));
+  }
+  const scrollY = Number(context.scrollY) || 0;
+  /* behavior "instant" : restauration immédiate, à défaut le scroll-behavior
+     global en ferait une animation imprévisible au retour de vue. */
+  if (scrollY > 0) requestAnimationFrame(() => window.scrollTo({ left: 0, top: scrollY, behavior: "instant" }));
 }
 
 function dataError(error) {
