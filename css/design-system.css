@@ -565,6 +565,7 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 .nav-icon .ui-icon { width: 1.25rem; height: 1.25rem; }
 .icon-btn .ui-icon { width: 1.25rem; height: 1.25rem; }
 .tree-controls button { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); }
+.tree-controls button[hidden] { display: none; }
 
 /* Marqueur discret activé exclusivement pour le projet Firebase de recette. */
 .environment-badge {
@@ -719,24 +720,52 @@ html.tree-fullscreen-fallback #appMain > :not(#treeViewport) { display: none !im
   border-radius: 0;
   overflow: visible;
 }
-.tree-shell.tree-fullscreen-active { overflow: visible; }
-.tree-shell.tree-fullscreen-active .canvas-help { display: none; }
-.tree-shell.tree-fullscreen-active .tree-controls {
+/* Sur écrans courts, les règles #appMain .tree-shell / .tree-controls du basis
+   dépassent en spécificité le plein écran : les réactiver en pleine hauteur. */
+html.tree-fullscreen-active #appMain .tree-shell {
+  height: 100dvh;
+  min-height: 0;
+}
+html.tree-fullscreen-active #appMain .tree-controls {
   position: absolute;
   z-index: 40;
-  inset: auto max(var(--space-2), env(safe-area-inset-right)) max(var(--space-2), env(safe-area-inset-bottom)) max(var(--space-2), env(safe-area-inset-left));
+  inset: max(var(--space-2), env(safe-area-inset-top)) max(var(--space-2), env(safe-area-inset-right)) auto max(var(--space-2), env(safe-area-inset-left));
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
   gap: var(--space-2);
   pointer-events: none;
 }
+.tree-shell.tree-fullscreen-active { overflow: visible; }
+.tree-shell.tree-fullscreen-active .canvas-help { display: none; }
 .tree-shell.tree-fullscreen-active .tree-controls > * { pointer-events: auto; }
 .tree-shell.tree-fullscreen-active .tree-controls button {
   min-width: var(--control-touch);
   min-height: var(--control-touch);
 }
-.tree-shell.tree-fullscreen-active .tree-controls #fitTreeBtn { display: inline-flex; }
+.tree-shell.tree-fullscreen-active .zoom-control {
+  flex-direction: row;
+  gap: var(--space-1);
+}
+.tree-shell.tree-fullscreen-active .zoom-control #zoomOutBtn { order: -1; }
+.tree-shell.tree-fullscreen-active .zoom-level {
+  top: calc(100% + var(--space-2));
+  bottom: auto;
+}
+.tree-shell.tree-fullscreen-active .view-control {
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+}
+.tree-shell.tree-fullscreen-active .view-control #fullscreenFitBtn { order: 1; }
+.tree-shell.tree-fullscreen-active .view-control #fullscreenCenterBtn { order: 2; }
+.tree-shell.tree-fullscreen-active .view-control #treeSearchToggleBtn { order: 3; }
+.tree-shell.tree-fullscreen-active .view-control #treeMoreBtn { order: 4; }
+.tree-shell.tree-fullscreen-active .view-control #treeFullscreenBtn { order: 5; display: inline-flex; }
+/* Barre large : Ajuster/Recentrer sont des icônes directes, le menu ne les répète pas. */
+.tree-shell.tree-fullscreen-active .tree-menu #menuFitBtn,
+.tree-shell.tree-fullscreen-active .tree-menu #centerTreeBtn { display: none; }
 .tree-shell.tree-fullscreen-active .tree-menu {
   position: absolute;
   z-index: 50;
@@ -744,14 +773,33 @@ html.tree-fullscreen-fallback #appMain > :not(#treeViewport) { display: none !im
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-@media (orientation: landscape) and (max-height: 600px) {
-  .tree-shell.tree-fullscreen-active .tree-controls {
-    inset: max(var(--space-2), env(safe-area-inset-top)) max(var(--space-2), env(safe-area-inset-right)) auto auto;
-    flex-direction: column;
-    align-items: flex-end;
-  }
-  .tree-shell.tree-fullscreen-active .zoom-control,
-  .tree-shell.tree-fullscreen-active .view-control { display: flex; flex-direction: column; align-items: flex-end; }
+/* Panneau de recherche plein écran : réutilise la barre de recherche existante. */
+.tree-shell.tree-fullscreen-active .tree-fullscreen-search {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  width: min(20rem, calc(100vw - 2 * max(var(--space-2), env(safe-area-inset-left))));
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-low);
+}
+.tree-fullscreen-search[hidden] { display: none; }
+.tree-fullscreen-search .search-bar { width: 100%; }
+.tree-fullscreen-search .field {
+  min-height: var(--control-touch);
+  font-size: 16px;
+}
+/* Portrait étroit : la barre garde Zoom±, Recherche, ⋯ et Quitter ;
+   Ajuster/Recentrer basculent dans le menu… pour rester atteignables à 44 px.
+   La barre complète (7 icônes ≈ 356 px + marges) tient à partir de 372 px. */
+@media (max-width: 371px) {
+  .tree-shell.tree-fullscreen-active .view-control #fullscreenFitBtn,
+  .tree-shell.tree-fullscreen-active .view-control #fullscreenCenterBtn { display: none; }
+  .tree-shell.tree-fullscreen-active .tree-menu #menuFitBtn,
+  .tree-shell.tree-fullscreen-active .tree-menu #centerTreeBtn { display: grid; }
 }
 
 @media (max-width: 760px) {
@@ -785,9 +833,16 @@ html.tree-fullscreen-fallback #appMain > :not(#treeViewport) { display: none !im
   }
 }
 
-/* Ajuster reste directement accessible dans la barre, y compris sur mobile. */
-@media (max-width: 760px) {
-  .tree-controls #fitTreeBtn { display: inline-flex; }
+#treeFullscreenBtn {
+  display: inline-flex;
+  flex: 0 0 var(--control-touch);
+  align-items: center;
+  justify-content: center;
+  width: var(--control-touch);
+  min-width: var(--control-touch);
+  height: var(--control-touch);
+  min-height: var(--control-touch);
+  padding: 0;
 }
 
 /* Arbre : ombres des cartes plus subtiles sur desktop (souris), l'affordance tactile mobile est conservée. */

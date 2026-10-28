@@ -1399,8 +1399,16 @@ function applyManualPositions(layout) {
 const camera = createTreeCamera({
   viewport: $("treeViewport"),
   scene: $("treeScene"),
+  minScale: 0.1,
   onChange: state => { $("zoomLevel").textContent = `${Math.round(state.scale * 100)} %`; }
 });
+const minimumTreeFitScale = 0.25;
+const fitTreeToViewport = camera.fit.bind(camera);
+camera.fit = (padding = 64) => {
+  fitTreeToViewport(padding);
+  const scale = camera.getState().scale;
+  if (scale < minimumTreeFitScale) camera.zoomBy(minimumTreeFitScale / scale);
+};
 
 const treeViewportElement = $("treeViewport");
 let treeFullscreenActive = false;
@@ -1436,6 +1444,42 @@ function moveTreeMenuToFullscreenLayer(move) {
     treeMenuOriginalParent.insertBefore(menu, next);
     treeMenuOriginalParent = null;
     treeMenuOriginalNextSibling = null;
+  }
+}
+
+let treeSearchOriginalParent = null;
+let treeSearchOriginalNextSibling = null;
+let treeFullscreenSearchOpen = false;
+
+function moveTreeSearchToFullscreenLayer(move) {
+  const panel = $("treeFullscreenSearch");
+  const searchBar = panel.querySelector(".search-bar") || document.querySelector(".tree-filter-toolbar > .search-bar");
+  if (!searchBar || !panel) return;
+  if (move && searchBar.parentElement !== panel) {
+    treeSearchOriginalParent = searchBar.parentElement;
+    treeSearchOriginalNextSibling = searchBar.nextSibling;
+    panel.append(searchBar);
+  } else if (!move && treeSearchOriginalParent) {
+    const next = treeSearchOriginalNextSibling?.parentElement === treeSearchOriginalParent ? treeSearchOriginalNextSibling : null;
+    treeSearchOriginalParent.insertBefore(searchBar, next);
+    treeSearchOriginalParent = null;
+    treeSearchOriginalNextSibling = null;
+  }
+}
+
+function setTreeFullscreenSearch(open, { focusToggle = true } = {}) {
+  const panel = $("treeFullscreenSearch");
+  const toggle = $("treeSearchToggleBtn");
+  const next = Boolean(open && treeFullscreenActive);
+  if (next === treeFullscreenSearchOpen && panel.hidden === !next) return;
+  treeFullscreenSearchOpen = next;
+  panel.hidden = !next;
+  toggle.setAttribute("aria-expanded", String(next));
+  if (next) {
+    setTreeMenu(false);
+    $("search").focus({ preventScroll: true });
+  } else if (focusToggle && treeFullscreenActive) {
+    toggle.focus({ preventScroll: true });
   }
 }
 
@@ -1517,7 +1561,7 @@ if (typeof window !== "undefined") {
       return { state: camera.getState(), layout: currentLayout };
     },
     controls: () => {
-      const selectors = ["#fitTreeBtn", "#treeMoreBtn", "#treeMenu", "#centerTreeBtn", "#autoLayoutBtn", "#treeFullscreenMenuBtn", "#zoomInBtn", "#zoomOutBtn", "#zoomLevel", ".zoom-control", ".view-control", ".tree-controls"];
+      const selectors = ["#treeFullscreenBtn", "#treeMoreBtn", "#treeMenu", "#menuFitBtn", "#centerTreeBtn", "#autoLayoutBtn", "#zoomInBtn", "#zoomOutBtn", "#zoomLevel", "#fullscreenFitBtn", "#fullscreenCenterBtn", "#treeSearchToggleBtn", "#treeFullscreenSearch", ".zoom-control", ".view-control", ".tree-controls"];
       const out = {};
       selectors.forEach(sel => {
         const element = document.querySelector(sel);
@@ -1526,6 +1570,28 @@ if (typeof window !== "undefined") {
         out[sel] = { x: rect.x, y: rect.y, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom };
       });
       return out;
+    },
+    fullscreenBar: () => {
+      const describe = button => {
+        const rect = button.getBoundingClientRect();
+        return {
+          id: button.id,
+          label: button.getAttribute("aria-label"),
+          title: button.title,
+          x: rect.x, y: rect.y, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom,
+          visible: rect.width > 0 && rect.height > 0 && getComputedStyle(button).display !== "none"
+        };
+      };
+      const bar = [...document.querySelectorAll(".tree-controls .zoom-control button, .tree-controls .view-control > button")]
+        .filter(button => button.id !== "treeFullscreenSearch")
+        .map(describe)
+        .sort((a, b) => (a.y - b.y) || (a.x - b.x));
+      const menu = [...document.querySelectorAll('#treeMenu [role="menuitem"]')].map(item => ({
+        id: item.id,
+        label: item.textContent.trim(),
+        visible: item.offsetParent !== null
+      }));
+      return { bar, menu };
     }
   };
 }
@@ -7374,6 +7440,11 @@ document.addEventListener("click", event => {
 });
 document.addEventListener("keydown", event => {
   if (event.key !== "Escape") return;
+  if (treeFullscreenActive && treeFullscreenSearchOpen) {
+    event.preventDefault();
+    setTreeFullscreenSearch(false);
+    return;
+  }
   if (treeFullscreenActive && !$("treeMenu").hidden) {
     event.preventDefault();
     setTreeMenu(false);
@@ -7692,11 +7763,15 @@ function showZoomBadge() {
 }
 $("zoomOutBtn").onclick = () => { camera.zoomBy(1 / 1.2); showZoomBadge(); };
 $("zoomInBtn").onclick = () => { camera.zoomBy(1.2); showZoomBadge(); };
-$("fitTreeBtn").onclick = () => camera.fit();
+$("treeFullscreenBtn").onclick = () => toggleTreeFullscreen();
 function resetTreeMenuPosition() {
   const menu = $("treeMenu");
   ["position", "left", "right", "top", "bottom", "width", "maxWidth", "maxHeight", "overflowY"].forEach(property => menu.style.removeProperty(property.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)));
 }
+// En plein écran, le menu est déplacé hors de .tree-controls : le guard de la
+// caméra ne le couvre plus et setPointerCapture détournerait le click des
+// entrées (Réorganiser, Exporter…) vers le viewport.
+$("treeMenu").addEventListener("pointerdown", event => event.stopPropagation());
 function positionFullscreenTreeMenu() {
   const menu = $("treeMenu");
   if (!treeFullscreenActive || menu.hidden) return;
@@ -7742,18 +7817,22 @@ function updateTreeFullscreenUi(active, fallback = false) {
   document.documentElement.classList.toggle("tree-fullscreen-fallback", treeFullscreenFallback);
   treeViewportElement.classList.toggle("tree-fullscreen-active", active);
   treeViewportElement.classList.toggle("tree-fullscreen-fallback", treeFullscreenFallback);
-  const button = $("treeFullscreenMenuBtn");
+  const button = $("treeFullscreenBtn");
   const label = active ? "Quitter le plein écran" : "Plein écran";
-  button.querySelector("span").textContent = label;
   button.setAttribute("aria-label", active ? "Quitter le plein écran de l’arbre" : "Afficher l’arbre en plein écran");
   button.title = label;
   button.setAttribute("aria-pressed", String(active));
   button.querySelector("use")?.setAttribute("href", active ? "#icon-minimize" : "#icon-maximize");
+  $("fullscreenFitBtn").hidden = !active;
+  $("fullscreenCenterBtn").hidden = !active;
+  $("treeSearchToggleBtn").hidden = !active;
   if (active) {
     treeFullscreenPreserveUntil = 0;
     pendingTreeFullscreenCenter = null;
     moveTreeMenuToFullscreenLayer(true);
+    moveTreeSearchToFullscreenLayer(true);
     setTreeMenu(false);
+    setTreeFullscreenSearch(false);
     requestAnimationFrame(() => {
       if (!treeFullscreenActive) return;
       focusTreeWorldCenter(centerToKeep);
@@ -7761,7 +7840,9 @@ function updateTreeFullscreenUi(active, fallback = false) {
     });
   } else if (wasActive) {
     setTreeMenu(false);
+    setTreeFullscreenSearch(false);
     moveTreeMenuToFullscreenLayer(false);
+    moveTreeSearchToFullscreenLayer(false);
     treeFullscreenPreserveUntil = Date.now() + 800;
     requestAnimationFrame(() => {
       if (treeFullscreenActive) return;
@@ -7814,6 +7895,7 @@ function setTreeMenu(open) {
   const menu = $("treeMenu");
   menu.hidden = !open;
   $("treeMoreBtn").setAttribute("aria-expanded", String(open));
+  if (open) setTreeFullscreenSearch(false);
   if (!open) {
     resetTreeMenuPosition();
     return;
@@ -7826,15 +7908,19 @@ function setTreeMenu(open) {
     const headroom = host.getBoundingClientRect().top - canvas.getBoundingClientRect().top - 6;
     menu.style.maxHeight = `${Math.max(0, Math.floor(headroom))}px`;
   }
-  const firstVisible = $("treeFullscreenMenuBtn").offsetParent !== null ? $("treeFullscreenMenuBtn") : $("centerTreeBtn");
-  firstVisible.focus();
+  const firstVisible = [...menu.querySelectorAll('[role="menuitem"]')].find(item => item.offsetParent !== null);
+  firstVisible?.focus();
 }
 $("treeMoreBtn").onclick = () => {
   setTreeMenu($("treeMenu").hidden);
 };
-$("treeFullscreenMenuBtn").onclick = () => {
+$("fullscreenFitBtn").onclick = () => camera.fit();
+$("fullscreenCenterBtn").onclick = () => camera.recenter();
+$("treeSearchToggleBtn").onclick = () => setTreeFullscreenSearch(!treeFullscreenSearchOpen);
+$("menuFitBtn").onclick = () => {
   setTreeMenu(false);
-  toggleTreeFullscreen();
+  camera.fit();
+  $("treeMoreBtn").focus();
 };
 $("centerTreeBtn").onclick = () => {
   setTreeMenu(false);
@@ -7865,8 +7951,9 @@ document.querySelectorAll("[data-export-format]").forEach(button => {
 $("treeExportDialog").addEventListener("close", () => { if (!$("appMain").hidden) $("treeMoreBtn").focus(); });
 document.addEventListener("click", event => {
   const menu = $("treeMenu");
-  if (menu.hidden) return;
-  if (!event.target.closest(".view-control") && !menu.contains(event.target)) setTreeMenu(false);
+  if (!menu.hidden && !event.target.closest(".view-control") && !menu.contains(event.target)) setTreeMenu(false);
+  const searchPanel = $("treeFullscreenSearch");
+  if (!searchPanel.hidden && !event.target.closest(".view-control") && !searchPanel.contains(event.target)) setTreeFullscreenSearch(false, { focusToggle: false });
 });
 $("linkDocumentBtn").onclick = () => {
   const personId = activeId;

@@ -301,7 +301,7 @@ async function runViewport(view, page, baseURL) {
   }
 
   const treeControls = await page.evaluate(() => {
-    const selectors = ["#addBtn", "#search", "#treeBranchFilter", "#zoomOutBtn", "#zoomInBtn", "#fitTreeBtn", "#centerTreeBtn", "#autoLayoutBtn", "#topbar .nav-btn", "#accountMenuBtn"];
+    const selectors = ["#addBtn", "#search", "#treeBranchFilter", "#zoomOutBtn", "#zoomInBtn", "#treeFullscreenBtn", "#menuFitBtn", "#centerTreeBtn", "#autoLayoutBtn", "#topbar .nav-btn", "#accountMenuBtn"];
     const out = {};
     for (const sel of selectors) {
       out[sel] = [...document.querySelectorAll(sel)].map(el => {
@@ -395,7 +395,8 @@ async function runViewport(view, page, baseURL) {
     click("zoomOutBtn");
     await new Promise(resolve => setTimeout(resolve, 40));
     steps.sOut = probe.state.scale;
-    click("fitTreeBtn");
+    click("treeMoreBtn");
+    click("menuFitBtn");
     await new Promise(resolve => setTimeout(resolve, 40));
     steps.fit = probe.state;
     steps.fitLabel = document.getElementById("zoomLevel").textContent;
@@ -418,24 +419,24 @@ async function runViewport(view, page, baseURL) {
 
   const controls = await page.evaluate(() => window.__treeProbe.controls());
   const moreBtnBox = controls["#treeMoreBtn"];
-  const fitBtnBox = controls["#fitTreeBtn"];
+  const fullscreenBtnBox = controls["#treeFullscreenBtn"];
   const mobileLayout = cls === "tactile";
   const zoomBox = controls[".zoom-control"];
   const viewBox = controls[".view-control"];
   const panelBox = controls[".tree-controls"];
   check(`${line} · bouton ⋯ du menu d'actions présent en bas à droite`, Boolean(moreBtnBox) && Boolean(viewBox) && viewBox.x > zoomBox.x, JSON.stringify(controls));
   if (mobileLayout) {
-    check(`${line} · mobile (≤760) : « Ajuster » reste directement visible dans la barre`, Boolean(fitBtnBox) && fitBtnBox.width > 0 && fitBtnBox.height > 0, fitBtnBox ? `fit visible ${Math.round(fitBtnBox.width)}×${Math.round(fitBtnBox.height)}px` : "Ajuster absent");
-    assessTouch({ viewport: line, label: "bouton d'action « Ajuster »", box: fitBtnBox, cls, essential: true });
+    check(`${line} · mobile (≤760) : icône Plein écran présente dans la barre`, Boolean(fullscreenBtnBox) && fullscreenBtnBox.width > 0 && fullscreenBtnBox.height > 0, JSON.stringify(fullscreenBtnBox));
+    assessTouch({ viewport: line, label: "bouton « Plein écran »", box: fullscreenBtnBox, cls, essential: true });
     assessTouch({ viewport: line, label: "bouton d'action « ⋯ (menu d'actions) »", box: moreBtnBox, cls, essential: true });
   } else {
-    check(`${line} · desktop/paysage : « Ajuster » permanent visible à gauche du bouton ⋯`, Boolean(fitBtnBox) && fitBtnBox.width > 0 && fitBtnBox.x < moreBtnBox.x, fitBtnBox ? `${fitBtnBox.x.toFixed(0)} vs ${moreBtnBox.x.toFixed(0)} px` : "Ajuster absent");
-    check(`${line} · desktop/paysage : aucun chevauchement Ajuster ↔ ⋯`, !boxesOverlap(fitBtnBox, moreBtnBox), boxesOverlap(fitBtnBox, moreBtnBox) ? "boîtes intersectées" : `${fitBtnBox.x.toFixed(0)}px..${fitBtnBox.right.toFixed(0)}px / ${moreBtnBox.x.toFixed(0)}px..${moreBtnBox.right.toFixed(0)}px`);
-    assessTouch({ viewport: line, label: "bouton d'action « Ajuster »", box: fitBtnBox, cls, essential: true });
+    check(`${line} · desktop/paysage : icône Plein écran avant le bouton ⋯`, Boolean(fullscreenBtnBox) && fullscreenBtnBox.width > 0 && fullscreenBtnBox.x < moreBtnBox.x, JSON.stringify({ fullscreenBtnBox, moreBtnBox }));
+    check(`${line} · desktop/paysage : aucun chevauchement Plein écran ↔ ⋯`, !boxesOverlap(fullscreenBtnBox, moreBtnBox), "boîtes distinctes");
+    assessTouch({ viewport: line, label: "bouton « Plein écran »", box: fullscreenBtnBox, cls, essential: true });
     assessTouch({ viewport: line, label: "bouton d'action « ⋯ (menu d'actions) »", box: moreBtnBox, cls, essential: true });
   }
   check(`${line} · zoom compact à gauche, groupe d'actions à droite (coins bas du canvas)`, zoomBox.x < viewBox.x, `${zoomBox.x.toFixed(0)} vs ${viewBox.x.toFixed(0)} px`);
-  check(`${line} · le zoom ([+][−]) n'intersecte pas le groupe d'actions (Ajuster/⋯)`, !boxesOverlap(viewBox, zoomBox));
+  check(`${line} · le zoom ([+][−]) n'intersecte pas le groupe d'actions (Plein écran/⋯)`, !boxesOverlap(viewBox, zoomBox));
   const panelInViewport = Boolean(panelBox) && panelBox.x >= -1 && panelBox.y >= -1 && panelBox.right <= view.width + 1 && panelBox.bottom <= view.height + 1;
   check(`${line} · panneau de contrôles entièrement dans le viewport (${panelBox ? `${panelBox.x.toFixed(0)},${panelBox.y.toFixed(0)} → ${panelBox.right.toFixed(0)},${panelBox.bottom.toFixed(0)}` : "absent"})`, panelInViewport);
   if (!panelInViewport) reportIssue(line, "bloquant", "Panneau des contrôles arbre hors viewport", JSON.stringify(panelBox));
@@ -487,7 +488,7 @@ async function runViewport(view, page, baseURL) {
   });
   check(`${line} · le % disparaît automatiquement après ~1,5 s`, !badgeGone.show && badgeGone.visibility === "hidden", JSON.stringify(badgeGone));
 
-  /* ---------- Phase B1‴ : menu d'actions de l'arbre (⋯) = Plein écran + Recentrer + Réorganiser ---------- */
+  /* ---------- Phase B1‴ : menu d'actions de l'arbre (⋯) ---------- */
   console.log(`  -- B1‴ · Menu d'actions de l'arbre (⋯) --`);
   const menuInit = await page.evaluate(() => ({
     hidden: document.getElementById("treeMenu").hidden,
@@ -507,12 +508,12 @@ async function runViewport(view, page, baseURL) {
       count: visible.length
     };
   });
-  const expectedItems = ["Plein écran", "Recentrer", "Réorganiser", "Exporter"];
+  const expectedItems = ["Ajuster", "Recentrer", "Réorganiser", "Exporter"];
   check(`${line} · clic sur ⋯ : menu ouvert (aria-expanded="true")`, !menuOpened.hidden && menuOpened.expanded === "true", JSON.stringify(menuOpened));
   check(`${line} · menu ${mobileLayout ? "mobile (≤760)" : "desktop/paysage"} : items « ${expectedItems.join(" / ")} » (${menuOpened.count})`, JSON.stringify(menuOpened.items) === JSON.stringify(expectedItems), JSON.stringify(menuOpened.items));
   const menuBoxes = await page.evaluate(() => {
     const out = {};
-    for (const id of ["treeMenu", "centerTreeBtn", "autoLayoutBtn", "treeFullscreenMenuBtn"]) {
+    for (const id of ["treeMenu", "menuFitBtn", "centerTreeBtn", "autoLayoutBtn"]) {
       const r = document.getElementById(id).getBoundingClientRect();
       out[id] = { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
     }
@@ -524,7 +525,7 @@ async function runViewport(view, page, baseURL) {
   check(`${line} · menu entièrement dans le viewport`, Boolean(menuBox) && menuBox.x >= -1 && menuBox.y >= -1 && menuBox.right <= view.width + 1 && menuBox.bottom <= view.height + 1, menuBox ? `${menuBox.x.toFixed(0)},${menuBox.y.toFixed(0)} → ${menuBox.right.toFixed(0)},${menuBox.bottom.toFixed(0)}` : "menu absent");
   check(`${line} · menu ouvert n'intersecte pas le zoom`, !boxesOverlap(menuBox, (await page.evaluate(() => window.__treeProbe.controls()))[".zoom-control"]));
   if (mobileLayout) {
-    assessTouch({ viewport: line, label: "« Plein écran » (menu mobile)", box: menuBoxes["treeFullscreenMenuBtn"], cls, essential: true });
+    assessTouch({ viewport: line, label: "« Ajuster » (menu mobile)", box: menuBoxes["menuFitBtn"], cls, essential: true });
   }
   assessTouch({ viewport: line, label: "« Recentrer » (menu)", box: menuBoxes["centerTreeBtn"], cls, essential: true });
   assessTouch({ viewport: line, label: "« Réorganiser » (menu)", box: menuBoxes["autoLayoutBtn"], cls, essential: true });
@@ -568,7 +569,7 @@ async function runViewport(view, page, baseURL) {
   }));
   check(`${line} · Échap referme le menu d'actions (desktop)`, menuEscape.hidden && menuEscape.expanded === "false");
   check(`${line} · focus restitué au bouton ⋯ après Échap`, menuEscape.focusedId === "treeMoreBtn", menuEscape.focusedId || "aucun");
-  check(`${line} · bouton plein écran du menu distinct de l'ajustement direct`, menuBoxes.treeFullscreenMenuBtn.width > 0 && fitBtnBox.width > 0);
+  check(`${line} · Ajuster reste dans le menu et Plein écran dans la barre`, menuBoxes.menuFitBtn.width > 0 && fullscreenBtnBox.width > 0);
 
   /* ---------- Phase B2 : vue Annuaire (coquille réelle + fiches fictives) ---------- */
   console.log(`  -- B2 · Vue Annuaire (coquille réelle + fiches fictives) --`);
