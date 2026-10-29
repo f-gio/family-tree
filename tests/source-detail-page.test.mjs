@@ -56,7 +56,7 @@ window.__sourcePageTest = {
       archivesVisible: !$('genealogyView').hidden,
       documentsVisible: !$('documentsView').hidden,
       workshopVisible: !$('transcriptionWorkshopView').hidden,
-      viewerOpen: $('documentViewerDialog').open,
+      viewerOpen: !$('documentDetailView').hidden,
       proofModalOpen: $('genealogyItemDialog').open,
       sourceTitle: $('sourcePageTitle').textContent,
       sourceReturn: sourcePageReturnContext ? { ...sourcePageReturnContext } : null,
@@ -147,14 +147,16 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     assert.equal(state.archiveContext.scrollY, initialScroll, "position mémorisée avant la navigation");
     assert.ok(Math.abs(state.scrollY - initialScroll) <= 2, `défilement Archives restauré (${state.scrollY}, départ ${initialScroll})`);
 
-    /* Source → Document → retour à la Source : la page demeure sous la modale. */
+    /* Source → Document → retour à la Source : la page Document remplace la
+       Source, son Retour restaure la Source avec son contexte. */
     await page.evaluate(() => window.__sourcePageTest.openSource());
     await page.locator("#sourcePageContent [data-source-document-open]").click();
-    await page.waitForSelector("#documentViewerDialog[open]");
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     state = await page.evaluate(() => window.__sourcePageTest.state());
-    assert.equal(state.sourceVisible, true, "la page Source reste appelante du visualiseur");
-    await page.locator('#documentViewerDialog [data-close="documentViewerDialog"]').click();
-    await page.waitForFunction(() => !document.getElementById("documentViewerDialog").open);
+    assert.equal(state.sourceVisible, false, "la page Document remplace la page Source");
+    assert.equal(state.viewerOpen, true, "lecteur de document affiché");
+    await page.click("#documentPageBackBtn");
+    await page.waitForFunction(() => document.getElementById("documentDetailView").hidden);
     assert.equal((await page.evaluate(() => window.__sourcePageTest.state())).sourceVisible, true, "retour direct à la Source");
 
     /* Source → Preuve → Source : retour contextuel vers la page Source. */
@@ -174,11 +176,11 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     assert.equal(state.sourceReturn?.kind, "document");
     assert.equal(state.viewerOpen, false, "le document appelant est remplacé par la page Source");
     await page.click("#sourcePageBackBtn");
-    await page.waitForSelector("#documentViewerDialog[open]");
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     state = await page.evaluate(() => window.__sourcePageTest.state());
     assert.equal(state.viewerOpen, true, "retour au document appelant");
-    await page.locator('#documentViewerDialog [data-close="documentViewerDialog"]').click();
-    await page.waitForFunction(() => !document.getElementById("documentViewerDialog").open);
+    await page.click("#documentPageBackBtn");
+    await page.waitForFunction(() => document.getElementById("documentDetailView").hidden);
 
     /* Source → Atelier → retour à la Source, sans altérer son contexte. */
     await page.evaluate(() => window.__sourcePageTest.show("genealogy"));

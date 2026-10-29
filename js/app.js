@@ -197,6 +197,10 @@ let activeSourcePagePhotoId = "";
 let sourcePageZoom = 1;
 let activeProofPageItem = null;
 let proofPageReturnContext = null;
+/* Page Document dédiée (lot D) : contexte de retour et onglet mobile. */
+let documentPageReturnContext = null;
+let documentPageTab = "original";
+let documentPageReopenContext = null;
 let genealogyItemRefreshPending = false;
 let activeDocumentSourceManagerId = "";
 let genealogyZoom = 1;
@@ -791,7 +795,7 @@ function preparePrimaryTileActivation(event, tile, dialog) {
   if (dialog) primaryTileFocusReturn.set(dialog, tile);
 }
 
-for (const dialogId of ["personDialog", "documentViewerDialog", "taskDialog", "procedureDetailDialog", "genealogyItemDialog"]) {
+for (const dialogId of ["personDialog", "taskDialog", "procedureDetailDialog", "genealogyItemDialog"]) {
   $(dialogId).addEventListener("close", () => {
     const tile = primaryTileFocusReturn.get($(dialogId));
     primaryTileFocusReturn.delete($(dialogId));
@@ -2312,12 +2316,6 @@ function openPerson(item = null, source = "tree") {
 function close(id) {
   const dialog = $(id);
   if (dialog.open) dialog.close();
-  if (id === "documentViewerDialog" && activeViewerUrl) {
-    URL.revokeObjectURL(activeViewerUrl);
-    activeViewerUrl = "";
-    $("viewerFrame").removeAttribute("src");
-    $("viewerImage").removeAttribute("src");
-  }
   if (id === "personDialog") {
     activeId = null;
     renderer.setActive(null);
@@ -3831,7 +3829,22 @@ function bindModalActionMenu(dialogId, buttonId, menuId) {
 const taskActionMenu = bindModalActionMenu("taskDialog", "taskMenuBtn", "taskActionMenu");
 const documentActionMenu = bindModalActionMenu("documentDialog", "documentMenuBtn", "documentActionMenu");
 const procedureActionMenu = bindModalActionMenu("procedureActionDialog", "procedureActionMenuBtn", "procedureActionMenu");
-const viewerActionMenu = bindModalActionMenu("documentViewerDialog", "viewerActionsBtn", "viewerActionsMenu");
+const viewerActionsPanel = $("documentPageActions");
+const viewerActionMenu = {
+  close: () => { if (viewerActionsPanel) viewerActionsPanel.open = false; }
+};
+if (viewerActionsPanel) {
+  viewerActionsPanel.addEventListener("toggle", () => {
+    viewerActionsPanel.querySelector("summary")?.setAttribute("aria-expanded", String(viewerActionsPanel.open));
+  });
+  viewerActionsPanel.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || !viewerActionsPanel.open) return;
+    event.preventDefault();
+    event.stopPropagation();
+    viewerActionsPanel.open = false;
+    viewerActionsPanel.querySelector("summary")?.focus();
+  });
+}
 const genealogyItemActionMenu = bindModalActionMenu("genealogyItemDialog", "genealogyItemMenuBtn", "genealogyItemActionsMenu");
 $("genealogyItemActionsMenu").addEventListener("click", event => {
   const itemButton = event.target.closest('[role="menuitem"]');
@@ -4473,7 +4486,7 @@ function proofPageReturnContextFor(item) {
       view: activeView
     };
   }
-  if ($("documentViewerDialog").open && activeViewerDocumentId) {
+  if (isDocumentPageVisible() && activeViewerDocumentId) {
     return {
       kind: "document",
       documentId: activeViewerDocumentId,
@@ -4499,7 +4512,7 @@ function renderProofPage(item, returnContext = null) {
   activeDocumentSourceManagerId = "";
   if ($("genealogyItemDialog").open) close("genealogyItemDialog");
   if ($("personDialog").open) close("personDialog");
-  if ($("documentViewerDialog").open) close("documentViewerDialog");
+  closeDocumentPage();
   setView("proofDetail");
   const { record, data } = item;
   const title = PROOF_FACT_KIND_LABELS[data.factType] || data.factType || data.factId || "Preuve";
@@ -4536,9 +4549,13 @@ function returnFromProofPage() {
     if (proof) renderProofPage(proof, target.returnContext || null);
     else setView(target.view || "genealogy");
   } else if (target.kind === "document") {
-    setView(target.view || "documents");
+    setView(target.view === "documentDetail" ? "documentDetail" : target.view || "documents");
     const documentItem = documents.find(value => value.id === target.documentId);
-    if (documentItem) openStoredDocument(documentItem, target.returnContext || "documents");
+    if (documentItem) openStoredDocument(documentItem, {
+      returnContext: target.returnContext || "documents",
+      view: target.view,
+      pageContext: target.pageContext || null
+    });
   } else if (target.kind === "person") {
     setView(target.view || "directory");
     const personItem = person(target.personId);
@@ -5169,17 +5186,19 @@ function captureTranscriptionWorkshopReturn() {
          l'effaçant de son côté. */
       ficheReturn: genealogyItemReturn ? { ...genealogyItemReturn } : null
     };
-  } else if (activeViewerDocumentId) {
+  } else if (isDocumentPageVisible() && activeViewerDocumentId) {
     transcriptionWorkshopReturn = {
       kind: "document",
       documentId: activeViewerDocumentId,
-      returnContext: activeViewerReturnContext
+      returnContext: activeViewerReturnContext,
+      /* Contexte de retour propre à la page Document (Source/Preuve/vue). */
+      pageContext: documentPageReturnContext ? { ...documentPageReturnContext } : null
     };
   } else {
     transcriptionWorkshopReturn = null;
   }
   if ($("genealogyItemDialog").open) $("genealogyItemDialog").close();
-  if ($("documentViewerDialog").open) close("documentViewerDialog");
+  closeDocumentPage();
 }
 
 /** Sortie confirmée de l'atelier (bouton Retour et retour système du
@@ -5214,7 +5233,10 @@ function restoreTranscriptionWorkshopOrigin(target) {
     }
   } else if (target?.kind === "document") {
     const documentItem = documents.find(value => value.id === target.documentId);
-    if (documentItem) openStoredDocument(documentItem, target.returnContext);
+    if (documentItem) openStoredDocument(documentItem, {
+      returnContext: target.returnContext,
+      pageContext: target.pageContext || null
+    });
   }
 }
 
@@ -6065,9 +6087,13 @@ function returnFromSourcePage() {
   sourcePageReturnContext = null;
   activeSourcePageItem = null;
   if (target.kind === "document") {
-    setView(target.view || "documents");
-    const documentItem = documents.find(item => item.id === target.documentId);
-    if (documentItem) openStoredDocument(documentItem, target.returnContext || "documents");
+    setView(target.view === "documentDetail" ? "documentDetail" : target.view || "documents");
+    const documentItem = documents.find(value => value.id === target.documentId);
+    if (documentItem) openStoredDocument(documentItem, {
+      returnContext: target.returnContext || "documents",
+      view: target.view,
+      pageContext: target.pageContext || null
+    });
   } else if (target.kind === "source" && target.id) {
     const source = genealogyWorkspaceItems().find(item => item.kind === "source" && item.record.id === target.id);
     if (source) renderSourcePage(source, target.returnContext || null);
@@ -7317,7 +7343,7 @@ function renderUnifiedDocumentDetails(item) {
 }
 
 function refreshUnifiedDetailsIfOpen() {
-  if (!$("documentViewerDialog").open || !activeViewerDocumentId) return;
+  if (!isDocumentPageVisible() || !activeViewerDocumentId) return;
   const documentItem = documents.find(item => item.id === activeViewerDocumentId);
   if (documentItem) renderUnifiedDocumentDetails(documentItem);
 }
@@ -7331,7 +7357,7 @@ function reopenUnifiedDocumentAfter(dialogId) {
   unifiedViewerReopenContext = "documents";
   setTimeout(() => {
     const item = documents.find(documentItem => documentItem.id === documentId);
-    if (item) openStoredDocument(item, returnContext);
+    if (item) openStoredDocument(item, { returnContext, pageContext: documentPageReopenContext });
   }, 0);
   return true;
 }
@@ -7339,49 +7365,54 @@ function reopenUnifiedDocumentAfter(dialogId) {
 function openUnifiedSource(documentId, sourceId, revise = false) {
   const source = genealogyRecords.sourceDocuments.find(item => item.id === sourceId);
   if (!source) return toast("Cette source n’est plus disponible.", "error");
+  documentPageReopenContext = documentPageReturnContext ? { ...documentPageReturnContext } : null;
   if (!revise) {
     unifiedViewerReturnOnDialogClose = "";
     unifiedViewerReturnDocumentId = "";
     unifiedViewerReopenContext = "documents";
-    close("documentViewerDialog");
+    closeDocumentPage();
     const item = { kind: "source", record: source, data: genealogyRecordData(source), official: true };
     return renderSourcePage(item, {
       kind: "document",
       documentId,
       returnContext: activeViewerReturnContext,
-      view: activeView
+      view: activeView,
+      pageContext: documentPageReopenContext
     });
   }
   unifiedViewerReturnDocumentId = documentId;
   unifiedViewerReopenContext = activeViewerReturnContext;
   unifiedViewerReturnOnDialogClose = revise ? "genealogyContributionDialog" : "genealogyItemDialog";
-  close("documentViewerDialog");
+  closeDocumentPage();
   if (revise) openGenealogyContribution({ official: true, reviseItem: { kind: "source", record: source, data: genealogyRecordData(source) } });
 }
 
 function openUnifiedProof(documentId, proofId) {
   const proof = genealogyRecords.genealogyProofs.find(item => item.id === proofId);
   if (!proof) return toast("Cette preuve n’est plus disponible.", "error");
+  documentPageReopenContext = documentPageReturnContext ? { ...documentPageReturnContext } : null;
   const returnContext = {
     kind: "document",
     documentId,
     returnContext: activeViewerReturnContext,
-    view: activeView
+    view: activeView,
+    pageContext: documentPageReopenContext
   };
   unifiedViewerReturnDocumentId = "";
   unifiedViewerReturnOnDialogClose = "";
   unifiedViewerReopenContext = "documents";
-  close("documentViewerDialog");
+  closeDocumentPage();
   renderProofPage({ kind: "proof", record: proof, data: genealogyRecordData(proof), official: true }, returnContext);
 }
 
 function openUnifiedDocumentEditor(documentId) {
   const item = documents.find(documentItem => documentItem.id === documentId);
   if (!item) return toast("Ce document n’est plus disponible.", "error");
+  documentPageReopenContext = documentPageReturnContext ? { ...documentPageReturnContext } : null;
   unifiedViewerReturnDocumentId = documentId;
   unifiedViewerReopenContext = activeViewerReturnContext;
   unifiedViewerReturnOnDialogClose = "documentDialog";
-  close("documentViewerDialog");
+  closeDocumentPage();
   openDocument(item);
 }
 
@@ -7396,11 +7427,11 @@ function setupViewerImage(item) {
     zoomIndicator: $("viewerZoomIndicator"),
     modeButton: $("viewerImageModeBtn"),
     fullscreenButton: $("viewerFullscreenBtn"),
-    fullscreenHost: $("documentViewerDialog").querySelector(".document-original-panel"),
-    fullscreenRoot: $("documentViewerDialog"),
+    fullscreenHost: $("documentDetailView").querySelector(".document-original-panel"),
+    fullscreenRoot: $("documentDetailView"),
     initialMode: selectInitialDocumentImageMode({ naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight })
   });
-  document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = false; });
+  document.querySelectorAll("#documentDetailView .viewer-image-only").forEach(control => { control.hidden = false; });
   $("viewerImageControls").hidden = false;
   arrangeViewerImageChrome();
 }
@@ -7415,7 +7446,7 @@ function arrangeViewerImageChrome() {
   const panelToggles = $("pdfPanelToggles");
   const thumbnailsButton = $("pdfThumbnailsBtn");
   const toolbar = $("viewerPdfToolbar");
-  const panel = $("documentViewerDialog").querySelector(".document-original-panel");
+  const panel = $("documentDetailView").querySelector(".document-original-panel");
   const narrow = window.matchMedia("(max-width: 760px)").matches;
   if (narrow) {
     if (fullscreenButton.parentElement !== controls) controls.insertBefore(fullscreenButton, externalButton);
@@ -7462,7 +7493,7 @@ function arrangePdfChrome() {
     viewerBody.after(pagination);
     pagination.after(toggles);
     toggles.after(rail);
-    const originalHead = document.querySelector("#documentViewerDialog .document-original-head");
+    const originalHead = document.querySelector("#documentDetailView .document-original-head");
     if (originalHead && $("viewerDetailsExpandBtn").parentElement !== originalHead) originalHead.append($("viewerDetailsExpandBtn"));
     for (const id of ["pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn"]) toolbar.append($(id));
     pagination.hidden = false;
@@ -7476,7 +7507,7 @@ function arrangePdfChrome() {
 
 function restoreViewerPdfChrome() {
   const expand = $("viewerDetailsExpandBtn");
-  const head = document.querySelector("#documentViewerDialog .document-original-head");
+  const head = document.querySelector("#documentDetailView .document-original-head");
   if (expand && head && !head.contains(expand)) head.appendChild(expand);
   const external = $("viewerExternalBtn");
   const imageControls = $("viewerImageControls");
@@ -7505,7 +7536,7 @@ async function setupViewerPdf(source, documentId) {
   const viewerImageViewport = $("viewerImageViewport");
   viewerImageViewport.classList.add("viewer-pdf-active");
   $("viewerImageControls").hidden = true;
-  document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = true; });
+  document.querySelectorAll("#documentDetailView .viewer-image-only").forEach(control => { control.hidden = true; });
   $("viewerFrame").hidden = true;
   $("viewerImage").hidden = true;
   $("viewerMessage").hidden = true;
@@ -7531,12 +7562,12 @@ async function setupViewerPdf(source, documentId) {
     fitModeButton: ids("pdfFitModeBtn"),
     thumbnailsButton: ids("pdfThumbnailsBtn"),
     fullscreenButton: ids("pdfFullscreenBtn"),
-    fullscreenHost: $("documentViewerDialog").querySelector(".document-original-panel"),
-    fullscreenRoot: $("documentViewerDialog"),
+    fullscreenHost: $("documentDetailView").querySelector(".document-original-panel"),
+    fullscreenRoot: $("documentDetailView"),
     zoomIndicator: ids("pdfZoomIndicator"),
-    bindingRoot: $("documentViewerDialog")
+    bindingRoot: $("documentDetailView")
   });
-  if (activeViewerDocumentId !== documentId || !$("documentViewerDialog").open) {
+  if (activeViewerDocumentId !== documentId || !isDocumentPageVisible()) {
     result.destroy();
     viewerImageViewport.classList.remove("viewer-pdf-active");
     hideViewerPdfChrome();
@@ -7577,14 +7608,188 @@ function setUnifiedDetailsCollapsed(collapsed) {
   $("viewerDetailsExpandBtn").querySelector("use")?.setAttribute("href", collapsed ? "#icon-panel-expand" : "#icon-panel-collapse");
 }
 
+/** Vrai quand la page Document dédiée est la vue affichée. */
+function isDocumentPageVisible() {
+  return !$("documentDetailView").hidden;
+}
+
+/** Contexte d'origine de la page Document : Source, Preuve, Personne ou vue. */
+function captureDocumentPageReturnContext() {
+  if (!$("sourceDetailView").hidden && activeSourcePageItem) {
+    return {
+      kind: "source",
+      id: activeSourcePageItem.record.id,
+      sourceReturnContext: sourcePageReturnContext ? { ...sourcePageReturnContext } : null,
+      view: sourcePageReturnContext?.view || "genealogy"
+    };
+  }
+  if (!$("proofDetailView").hidden && activeProofPageItem) {
+    return {
+      kind: "proof",
+      id: activeProofPageItem.record.id,
+      returnContext: proofPageReturnContext ? { ...proofPageReturnContext } : null,
+      view: proofPageReturnContext?.view || "genealogy"
+    };
+  }
+  if ($("genealogyItemDialog").open && activeGenealogyItem) {
+    return {
+      kind: "item",
+      itemKind: activeGenealogyItem.kind,
+      id: activeGenealogyItem.record.id,
+      pageId: activeGenealogyPageId,
+      photoId: activeGenealogyPhotoId,
+      view: activeView
+    };
+  }
+  if ($("personDialog").open && activeId) {
+    const panel = document.querySelector(`[data-person-panel="${activePersonSection}"]`);
+    return {
+      kind: "person",
+      personId: activeId,
+      source: personDialogSource,
+      draft: capturePersonDraft(),
+      section: activePersonSection,
+      scrollTop: panel?.scrollTop || 0,
+      windowScrollY: window.scrollY || 0,
+      view: activeView
+    };
+  }
+  return { kind: "view", view: activeView, ...(activeView === "genealogy" ? { focusId: null } : {}) };
+}
+
+/** Repli de contexte quand un appel structuré ne fournit pas de pageContext
+    (flux historiques) : on revient à la vue d'origine déclarée, sinon aux
+    Documents. */
+function documentPageFallbackContext(structured) {
+  const view = structured.view && structured.view !== "documentDetail" ? structured.view : "documents";
+  return { kind: "view", view };
+}
+
+/** Libère les ressources du lecteur (URL objet, moteurs image/PDF) sans changer de vue.
+    Idempotent : appelé à chaque fermeture ou changement de destination. */
+function closeDocumentPage() {
+  viewerImageState?.destroy();
+  viewerImageState = null;
+  arrangeViewerImageChrome();
+  viewerPdfState?.destroy();
+  viewerPdfState = null;
+  $("viewerImageViewport").classList.remove("viewer-pdf-active");
+  hideViewerPdfChrome();
+  restoreViewerPdfChrome();
+  $("viewerImageControls").hidden = true;
+  document.querySelectorAll("#documentDetailView .viewer-image-only").forEach(control => { control.hidden = true; });
+  if (activeViewerUrl) URL.revokeObjectURL(activeViewerUrl);
+  activeViewerUrl = "";
+  $("viewerFrame").removeAttribute("src");
+  $("viewerImage").removeAttribute("src");
+  $("viewerImage").onload = null;
+  $("viewerImage").removeAttribute("style");
+  $("viewerExternalBtn").removeAttribute("href");
+  $("viewerExternalBtn").hidden = true;
+  activeViewerDocumentId = "";
+}
+
+/** Sortie de la page Document vers son origine (bouton Retour, Échap, retours). */
+function returnFromDocumentPage() {
+  if (!isDocumentPageVisible()) return false;
+  const target = documentPageReturnContext || { kind: "view", view: "documents" };
+  documentPageReturnContext = null;
+  closeDocumentPage();
+  restoreDocumentPageOrigin(target);
+  return true;
+}
+
+/** Restaure la Source, la Preuve, la Personne ou la vue d'origine. */
+function restoreDocumentPageOrigin(target) {
+  if (target.kind === "source") {
+    const source = genealogyWorkspaceItems().find(item => item.kind === "source" && item.record.id === target.id);
+    if (source) renderSourcePage(source, target.sourceReturnContext || null);
+    else setView(target.view || "genealogy");
+  } else if (target.kind === "proof") {
+    const proof = genealogyWorkspaceItems().find(item => item.kind === "proof" && item.record.id === target.id);
+    if (proof) renderProofPage(proof, target.returnContext || null);
+    else setView(target.view || "genealogy");
+  } else if (target.kind === "item") {
+    setView(target.view || "genealogy");
+    openGenealogyItem(target.itemKind, target.id, target.pageId, target.photoId);
+  } else if (target.kind === "person") {
+    setView(target.view || "directory");
+    const personItem = person(target.personId);
+    if (!personItem) return toast("Cette personne n’est plus disponible.", "error");
+    requestAnimationFrame(() => {
+      if ((target.windowScrollY || 0) > 0) window.scrollTo({ left: 0, top: target.windowScrollY, behavior: "instant" });
+      openPerson(personItem, target.source || "directory");
+      restorePersonDraft(target.draft);
+      setPersonSection(target.section || "identity");
+      setTimeout(() => {
+        if (!$("personDialog").open) return;
+        setPersonSection(target.section || "identity");
+        const panel = document.querySelector(`[data-person-panel="${target.section || "identity"}"]`);
+        if (panel) panel.scrollTop = target.scrollTop || 0;
+      }, 45);
+    });
+  } else {
+    setView(target.view || "documents");
+    if (target.view === "genealogy" && target.focusId) requestAnimationFrame(() => {
+      const tile = [...$("genealogyResults").querySelectorAll("[data-genealogy-tile-id]")]
+        .find(value => value.dataset.genealogyTileId === target.focusId);
+      if (tile) tile.focus({ preventScroll: true });
+      else $("genealogySearch")?.focus({ preventScroll: true });
+    });
+  }
+}
+
+/** Onglets Original / Informations (mobile) : commute les panneaux de la page. */
+function setDocumentPageTab(tab) {
+  documentPageTab = tab === "info" ? "info" : "original";
+  const layout = $("documentUnifiedLayout");
+  if (layout) layout.dataset.panel = documentPageTab;
+  const originalTab = $("documentPageOriginalTab");
+  const infoTab = $("documentPageInfoTab");
+  if (originalTab) {
+    const originalActive = documentPageTab === "original";
+    originalTab.classList.toggle("is-active", originalActive);
+    originalTab.setAttribute("aria-selected", String(originalActive));
+    infoTab?.classList.toggle("is-active", !originalActive);
+    infoTab?.setAttribute("aria-selected", String(!originalActive));
+  }
+  if (documentPageTab === "original") requestAnimationFrame(() => {
+    if (viewerImageState) viewerImageState.fit?.();
+    if (viewerPdfState) viewerPdfState.resize?.();
+  });
+  /* Accessibilité : les trois commandes (mobile + desktop) reflètent l'état
+     de l'onglet courant (chevron piloté par aria-expanded via le CSS). */
+  const expanded = documentPageTab === "info";
+  const detailsLabel = expanded ? "Masquer les informations" : "Afficher les informations";
+  for (const id of ["viewerDetailsBtn", "viewerDetailsExpandBtn", "viewerDetailsCollapseBtn"]) {
+    const control = $(id);
+    if (!control) continue;
+    control.setAttribute("aria-expanded", String(expanded));
+    control.setAttribute("aria-label", detailsLabel);
+    control.title = detailsLabel;
+  }
+}
+
 async function openStoredDocument(item, returnContext = "previous") {
   if (!item) return;
+  /* Réouverture directe : libère le lecteur précédent avant rechargement. */
+  closeDocumentPage();
   activeViewerDocumentId = item.id;
-  activeViewerReturnContext = returnContext;
+  const structured = returnContext && typeof returnContext === "object";
+  activeViewerReturnContext = structured ? (returnContext.returnContext || "previous") : returnContext;
+  documentPageReturnContext = structured
+    ? (returnContext.pageContext ? { ...returnContext.pageContext } : documentPageFallbackContext(returnContext))
+    : captureDocumentPageReturnContext();
+  /* Les couches modales sont refermées : la page Document devient l'unique
+     affichage, leur contexte étant déjà capturé pour le retour. */
+  if ($("genealogyItemDialog").open) close("genealogyItemDialog");
+  if ($("personDialog").open) close("personDialog");
   $("viewerEditBtn").hidden = false;
   renderUnifiedDocumentDetails(item);
-  setUnifiedDetailsCollapsed(true);
+  setUnifiedDetailsCollapsed(false);
   $("viewerTitle").textContent = documentDisplayLabel(item);
+  $("viewerTitle").setAttribute("aria-label", documentDisplayLabel(item));
+  $("viewerTitle").title = documentDisplayLabel(item);
   const headerMetadata = [
     item.type || "",
     item.date ? formatGenealogyDate(null, item.date) : "",
@@ -7594,7 +7799,7 @@ async function openStoredDocument(item, returnContext = "previous") {
   $("viewerSubtitle").textContent = headerMetadata.join(" · ") || "Aperçu dans Family Tree";
   $("viewerImage").hidden = true;
   $("viewerImageControls").hidden = true;
-  document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = true; });
+  document.querySelectorAll("#documentDetailView .viewer-image-only").forEach(control => { control.hidden = true; });
   $("viewerImage").onload = null;
   $("viewerImage").removeAttribute("style");
   viewerImageState?.destroy();
@@ -7610,7 +7815,9 @@ async function openStoredDocument(item, returnContext = "previous") {
   $("viewerMessage").textContent = "Chargement du document…";
   $("viewerExternalBtn").hidden = true;
   $("viewerExternalBtn").removeAttribute("href");
-  $("documentViewerDialog").showModal();
+  setDocumentPageTab("original");
+  if (!setView("documentDetail")) return;
+  requestAnimationFrame(() => $("documentPageBackBtn").focus({ preventScroll: true }));
   try {
     let source = item.fileUrl || item.externalUrl || "";
     let mimeType = item.mimeType || "";
@@ -8344,7 +8551,10 @@ function stopPrivateData() {
   sourcePageReturnContext = null;
   activeProofPageItem = null;
   proofPageReturnContext = null;
-  $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("genealogyView").hidden = $("sourceDetailView").hidden = $("proofDetailView").hidden = $("tasksView").hidden = $("dossiersView").hidden = $("transcriptionWorkshopView").hidden = true;
+  /* Page Document : vues et ressources du lecteur libérées (URL objet, moteurs). */
+  closeDocumentPage();
+  documentPageReturnContext = null;
+  $("appMain").hidden = $("directoryView").hidden = $("documentsView").hidden = $("genealogyView").hidden = $("sourceDetailView").hidden = $("proofDetailView").hidden = $("documentDetailView").hidden = $("tasksView").hidden = $("dossiersView").hidden = $("transcriptionWorkshopView").hidden = true;
   if ($("adminDialog").open) $("adminDialog").close();
   if ($("profileDialog").open) $("profileDialog").close();
   if ($("dataDialog").open) $("dataDialog").close();
@@ -8552,6 +8762,8 @@ function setView(view) {
      filtres et défilement) pour la restaurer au retour. */
   const viewChanged = view !== lastDisplayedView;
   if (viewChanged && lastDisplayedView === "genealogy") saveGenealogyViewContext();
+  /* Quitter la page Document : libère URL objet et moteurs (idempotent). */
+  if (viewChanged && lastDisplayedView === "documentDetail") closeDocumentPage();
   $("appMain").hidden = view !== "tree";
   $("directoryView").hidden = view !== "directory";
   $("documentsView").hidden = view !== "documents";
@@ -8560,6 +8772,8 @@ function setView(view) {
   if (view !== "sourceDetail") $("sourcePageActions").open = false;
   $("proofDetailView").hidden = view !== "proofDetail";
   if (view !== "proofDetail") $("proofPageActions").open = false;
+  $("documentDetailView").hidden = view !== "documentDetail";
+  if (view !== "documentDetail") $("documentPageActions").open = false;
   $("tasksView").hidden = view !== "tasks";
   $("dossiersView").hidden = view !== "dossiers";
   $("transcriptionWorkshopView").hidden = view !== "transcriptionWorkshop";
@@ -8567,7 +8781,8 @@ function setView(view) {
   $("headerTreeActions").hidden = view !== "tree";
   const selectedNavView = view === "sourceDetail" ? sourcePageReturnContext?.view || "genealogy"
     : view === "proofDetail" ? proofPageReturnContext?.view || "genealogy"
-      : view;
+      : view === "documentDetail" ? documentPageReturnContext?.view || "documents"
+        : view;
   document.querySelectorAll("[data-view]").forEach(button => {
     const active = button.dataset.view === selectedNavView;
     button.classList.toggle("active", active);
@@ -8652,7 +8867,7 @@ function startData() {
     syncState();
     updateReadyViews();
     const viewedDocument = documents.find(item => item.id === activeViewerDocumentId);
-    if ($("documentViewerDialog").open && viewedDocument) renderUnifiedDocumentDetails(viewedDocument);
+    if (isDocumentPageVisible() && viewedDocument) renderUnifiedDocumentDetails(viewedDocument);
   }, dataError));
   unsubs.push(onSnapshot(refs.families, snapshot => {
     families = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
@@ -8667,7 +8882,7 @@ function startData() {
     updateReadyViews();
     renderGenealogySourceDocumentPicker();
     const viewedDocument = documents.find(item => item.id === activeViewerDocumentId);
-    if ($("documentViewerDialog").open && viewedDocument) renderUnifiedDocumentDetails(viewedDocument);
+    if (isDocumentPageVisible() && viewedDocument) renderUnifiedDocumentDetails(viewedDocument);
   }, dataError));
   unsubs.push(onSnapshot(refs.tasks, snapshot => {
     tasks = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
@@ -8703,7 +8918,7 @@ function startData() {
         if (loadedPeople && loadedDocuments) renderDocuments();
         if (activeDocumentSourceManagerId && $("genealogyItemDialog").open) renderDocumentSourceManager(activeDocumentSourceManagerId);
         const viewedDocument = documents.find(item => item.id === activeViewerDocumentId);
-        if ($("documentViewerDialog").open && viewedDocument) renderUnifiedDocumentDetails(viewedDocument);
+        if (isDocumentPageVisible() && viewedDocument) renderUnifiedDocumentDetails(viewedDocument);
       }
     }, error => {
       console.error(`Chargement de ${collectionName} impossible`, error);
@@ -9043,6 +9258,13 @@ document.addEventListener("keydown", event => {
     setTreeMenu(false);
     $("treeMoreBtn").focus();
   }
+  /* Page Document : Échap conserve l'ancien réflexe de fermeture de la
+     visionneuse (retour au contexte d'origine), sans agir pendant le plein
+     écran ni au-dessus d'une modale. */
+  if (isDocumentPageVisible() && !document.fullscreenElement && !document.querySelector("dialog[open]")) {
+    event.preventDefault();
+    returnFromDocumentPage();
+  }
 });
 
 $("documentsList").onclick = event => {
@@ -9060,14 +9282,13 @@ $("documentsList").onclick = event => {
   if (!tile || event.target.closest("button, a, input, select, textarea, summary, .tile-context-actions")) return;
   const item = documents.find(value => value.id === tile.dataset.documentCard);
   if (!item) return;
-  preparePrimaryTileActivation(event, tile, $("documentViewerDialog"));
+  preparePrimaryTileActivation(event, tile, null);
   openStoredDocument(item, "documents");
 };
 $("documentsList").addEventListener("keydown", event => {
   const tile = event.target.closest(".document-card[data-document-card][data-document-openable='true']");
   if (!tile || event.target !== tile || !["Enter", " "].includes(event.key)) return;
   pendingPrimaryTilePointer = null;
-  primaryTileFocusReturn.delete($("documentViewerDialog"));
   event.preventDefault();
   openStoredDocument(documents.find(value => value.id === tile.dataset.documentCard), "documents");
 });
@@ -9594,7 +9815,8 @@ $("viewerDocumentDetails").addEventListener("click", event => {
   if (personButton) {
     const personItem = person(personButton.dataset.unifiedPerson);
     if (!personItem) return toast("Cette personne n’est plus disponible.", "error");
-    close("documentViewerDialog");
+    /* La fiche Personne s'ouvre au-dessus de la page : le retour est sa
+       fermeture, la page Document reste appelante et intacte. */
     if (!$("personDialog").open) openPerson(personItem, "directory");
     return;
   }
@@ -10023,28 +10245,16 @@ const viewerPdfMedia = window.matchMedia("(max-width: 760px)");
 const onViewerPdfMediaChange = () => { if (viewerPdfState) arrangePdfChrome(); };
 if (typeof viewerPdfMedia.addEventListener === "function") viewerPdfMedia.addEventListener("change", onViewerPdfMediaChange);
 else if (typeof viewerPdfMedia.addListener === "function") viewerPdfMedia.addListener(onViewerPdfMediaChange);
-$("documentViewerDialog").addEventListener("close", () => {
-  activeViewerDocumentId = "";
-  viewerImageState?.destroy();
-  viewerImageState = null;
-  arrangeViewerImageChrome();
-  viewerPdfState?.destroy();
-  viewerPdfState = null;
-  $("viewerImageViewport").classList.remove("viewer-pdf-active");
-  hideViewerPdfChrome();
-  restoreViewerPdfChrome();
-  $("viewerImageControls").hidden = true;
-  document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = true; });
-  if (activeViewerUrl) URL.revokeObjectURL(activeViewerUrl);
-  activeViewerUrl = "";
-  $("viewerFrame").removeAttribute("src");
-  $("viewerImage").removeAttribute("src");
-  $("viewerImage").onload = null;
-  $("viewerImage").removeAttribute("style");
-  $("viewerExternalBtn").removeAttribute("href");
-  $("viewerExternalBtn").hidden = true;
+/* Page Document dédiée : Retour, onglets Original/Informations (mobile) et
+   repli des informations (desktop) — plus de modal ni de close listener. */
+$("documentPageBackBtn").addEventListener("click", returnFromDocumentPage);
+document.querySelectorAll("[data-document-page-tab]").forEach(tab => {
+  tab.addEventListener("click", () => setDocumentPageTab(tab.dataset.documentPageTab));
 });
-$("viewerDetailsBtn").onclick = () => setUnifiedDetailsCollapsed($("viewerDetailsBtn").getAttribute("aria-expanded") === "true");
+$("viewerDetailsBtn").onclick = () => {
+  if (window.matchMedia("(max-width: 760px)").matches) setDocumentPageTab("info");
+  else setUnifiedDetailsCollapsed($("viewerDetailsBtn").getAttribute("aria-expanded") === "true");
+};
 const pdfPanelsMedia = window.matchMedia("(max-width: 760px)");
 const onPdfPanelsMediaChange = () => { if (viewerPdfState) arrangePdfChrome(); };
 if (typeof pdfPanelsMedia.addEventListener === "function") pdfPanelsMedia.addEventListener("change", onPdfPanelsMediaChange);

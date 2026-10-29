@@ -84,7 +84,7 @@ window.__proofPageTest = {
       archiveVisible: !$('genealogyView').hidden,
       documentsVisible: !$('documentsView').hidden,
       personDialogOpen: $('personDialog').open,
-      viewerOpen: $('documentViewerDialog').open,
+      viewerOpen: !$('documentDetailView').hidden,
       title: $('proofPageTitle').textContent,
       returnContext: proofPageReturnContext ? { ...proofPageReturnContext } : null,
       search: $('genealogySearch').value,
@@ -191,21 +191,25 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.click("#proofPageBackBtn");
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
 
-    /* Document → Preuve → Document. Le document direct reste une modale au-dessus de la page. */
+    /* Document → Preuve → Document : la page Preuve rend le document appelant
+       au Retour, puis Preuve → Document → Preuve. */
     await page.evaluate(() => window.__proofPageTest.openDocumentThenProof());
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     state = await page.evaluate(() => window.__proofPageTest.state());
     assert.equal(state.returnContext.kind, "document");
     await page.click("#proofPageBackBtn");
-    await page.waitForSelector("#documentViewerDialog[open]");
-    await page.locator('#documentViewerDialog [data-close="documentViewerDialog"]').click();
-    await page.waitForFunction(() => !document.getElementById("documentViewerDialog").open);
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+    await page.click("#documentPageBackBtn");
+    await page.waitForFunction(() => document.getElementById("documentDetailView").hidden);
     await page.evaluate(() => window.__proofPageTest.openProof());
     await page.locator("#proofPageContent [data-source-document-open]").click();
-    await page.waitForSelector("#documentViewerDialog[open]");
-    assert.equal((await page.evaluate(() => window.__proofPageTest.state())).proofVisible, true, "page Preuve conservée sous le lecteur");
-    await page.locator('#documentViewerDialog [data-close="documentViewerDialog"]').click();
-    await page.waitForFunction(() => !document.getElementById("documentViewerDialog").open);
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+    state = await page.evaluate(() => window.__proofPageTest.state());
+    assert.equal(state.proofVisible, false, "la page Document remplace la page Preuve");
+    assert.equal(state.viewerOpen, true, "lecteur de document affiché");
+    await page.click("#documentPageBackBtn");
+    await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
+    assert.equal((await page.evaluate(() => window.__proofPageTest.state())).proofVisible, true, "retour à la page Preuve");
 
     /* Personne → Preuve → retour Personne : section, brouillon et défilement restaurés. */
     await page.evaluate(() => window.__proofPageTest.openPerson());

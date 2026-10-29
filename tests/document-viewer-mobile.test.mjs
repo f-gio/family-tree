@@ -42,12 +42,15 @@ test("Viewer : règles statiques mobile, commandes compactes, plein écran et sa
   assert.doesNotMatch(html, /\.viewer-dialog \.modal-body\{[^}]*calc\(100% - 78px\)/);
   assert.match(html, /\.viewer-dialog \.modal-body\{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;/);
   assert.match(html, /\.viewer-dialog\[open\]\{display:flex;flex-direction:column\}/);
-  /* Clamp 2 lignes scopé viewer */
-  assert.match(css, /\.viewer-dialog \.modal-head h3 \{\s*\n\s*display: -webkit-box;\s*\n\s*-webkit-box-orient: vertical;\s*\n\s*-webkit-line-clamp: 2;/);
-  /* Sous-titre visible mobile (exception scopée) */
-  assert.match(css, /\.viewer-dialog \.modal-head p \{\s*\n\s*display: block;[\s\S]*?text-overflow: ellipsis;/);
+  /* Page dédiée : le shell de la page porte la disposition en colonnes. */
+  assert.match(css, /\.document-detail-shell \{ display: flex; flex-direction: column;/);
+  /* Clamp / troncature du titre scopé page */
+  assert.match(css, /@media \(max-width: 760px\) \{[\s\S]*?\.document-detail-heading \.page-title \{ display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: normal; overflow-wrap: anywhere; \}/);
+  assert.match(css, /#documentDetailView #viewerDetailsBtn,[\s\S]*?\.viewer-image-panel-toggles \{ display: none !important; \}/, "le contrôle hérité Informations est masqué sur mobile");
+  /* Sous-titre visible hors téléphone (exception scopée page) */
+  assert.match(css, /\.document-detail-heading #viewerSubtitle \{ display: block;[\s\S]*?text-overflow: ellipsis;/);
   /* Safe-area basse */
-  assert.match(css, /\.viewer-dialog \.modal-body \{\s*\n\s*padding-bottom: max\(12px, env\(safe-area-inset-bottom\)\);\s*\n\s*\}/);
+  assert.match(css, /#documentDetailView \{ min-height: calc\(100dvh - 8rem\); padding-bottom: max\(var\(--space-5\), calc\(var\(--space-5\) \+ env\(safe-area-inset-bottom\)\)\); \}/);
   assert.match(html, /class="viewer-image-zoom-group viewer-image-only"[\s\S]*?data-viewer-image-zoom="out"[\s\S]*?data-viewer-image-zoom="in"[\s\S]*?id="viewerImageModeBtn"[\s\S]*?id="viewerExternalBtn"/);
   assert.match(html, /id="viewerExternalBtn"[^>]*aria-label="Ouvrir dans un nouvel onglet"[^>]*title="Ouvrir dans un nouvel onglet"/);
   assert.match(html, /id="viewerExternalBtn"[^>]*><svg class="ui-icon"[^>]*><use href="#icon-external-link"><\/use><\/svg><\/a>/);
@@ -58,7 +61,7 @@ test("Viewer : règles statiques mobile, commandes compactes, plein écran et sa
   assert.match(html, /id="viewerFullscreenBtn"[^>]*aria-label="Afficher en plein écran"[^>]*title="Afficher en plein écran"/);
   assert.match(css, /\.viewer-fullscreen-control \{ position: absolute;/);
   assert.match(css, /\.viewer-zoom-indicator \{[\s\S]*?pointer-events: none/);
-  assert.match(css, /#documentViewerDialog\.is-viewer-fullscreen \{/);
+  assert.match(css, /#documentDetailView\.is-viewer-fullscreen \{/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.viewer-zoom-indicator/);
 });
 
@@ -89,15 +92,19 @@ async function createViewerPage(browser, server, width, height) {
 
 async function openViewer(page, { title, fileName, kind = "image", src = portraitSvg, detailsCollapsed = false, zoomIndicatorDuration = 1500, forceFullscreenFallback = false }) {
   await page.evaluate(async ({ title, fileName, kind, src, detailsCollapsed, zoomIndicatorDuration, forceFullscreenFallback }) => {
-    const dialog = document.getElementById("documentViewerDialog");
-    const fullscreenPanel = dialog.querySelector(".document-original-panel");
+    const documentPage = document.getElementById("documentDetailView");
+    const fullscreenPanel = documentPage.querySelector(".document-original-panel");
     window.__viewerImageController?.destroy();
     window.__viewerImageController = null;
-    if (dialog.open) await new Promise(resolve => {
-      dialog.addEventListener("close", resolve, { once: true });
-      dialog.close();
-    });
+    /* Ouverture fidèle à setView : seule la page Document reste affichée. */
+    for (const viewId of ["appMain", "directoryView", "documentsView", "genealogyView", "sourceDetailView", "proofDetailView", "tasksView", "dossiersView", "transcriptionWorkshopView"]) {
+      const view = document.getElementById(viewId);
+      if (view) view.hidden = true;
+    }
+    documentPage.hidden = false;
     document.getElementById("viewerTitle").textContent = title;
+    document.getElementById("viewerTitle").setAttribute("aria-label", title);
+    document.getElementById("viewerTitle").title = title;
     document.getElementById("viewerSubtitle").textContent = fileName;
     const img = document.getElementById("viewerImage");
     const frame = document.getElementById("viewerFrame");
@@ -112,7 +119,7 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     img.removeAttribute("src");
     document.getElementById("viewerMessage").hidden = true;
     document.getElementById("viewerImageControls").hidden = false;
-    document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = kind !== "image"; });
+    document.querySelectorAll("#documentDetailView .viewer-image-only").forEach(control => { control.hidden = kind !== "image"; });
     document.getElementById("viewerExternalBtn").hidden = false;
     document.getElementById("viewerExternalBtn").href = src;
     document.getElementById("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations documentaires</h4><button class="btn small" type="button">Modifier</button></div><div class="document-unified-facts"><div class="document-unified-fact"><strong>Type</strong><span>Registre</span></div><div class="document-unified-fact"><strong>Format</strong><span>JPEG</span></div><div class="document-unified-fact document-unified-fact--wide"><strong>Fichier</strong><span title="${fileName}">${fileName}</span></div></div></section><section class="document-unified-section"><h4>Personnes concernées</h4><p>Marie Rossi et Jean Rossi</p></section><section class="document-unified-section"><h4>Sources et provenance</h4>${Array.from({ length: 2 }, (_, index) => `<details class="document-unified-source" open><summary>Source liée ${index + 1}</summary><p>Cote archivistique de démonstration</p></details>`).join("")}</section>`;
@@ -121,8 +128,14 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     const collapseButton = document.getElementById("viewerDetailsCollapseBtn");
     const expandButton = document.getElementById("viewerDetailsExpandBtn");
     const detailsToggle = document.getElementById("viewerDetailsBtn");
+    const mobile = matchMedia("(max-width: 760px)").matches;
     layout.classList.toggle("is-details-collapsed", detailsCollapsed);
-    details.hidden = detailsCollapsed;
+    /* Mobile : la page ouvre toujours l'onglet Original (lecteur prioritaire,
+       fidèle à openStoredDocument) ; desktop : repli piloté par la demande. */
+    layout.dataset.panel = mobile ? "original" : (detailsCollapsed ? "original" : "info");
+    /* Mobile : les onglets pilotent l'affichage ; le hidden ne s'applique
+       qu'en desktop comme avant. */
+    details.hidden = mobile ? false : detailsCollapsed;
     collapseButton.hidden = true;
     expandButton.hidden = false;
     detailsToggle.setAttribute("aria-expanded", String(!detailsCollapsed));
@@ -140,8 +153,6 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
       frame.src = URL.createObjectURL(blob);
       frame.hidden = false;
     }
-    dialog.showModal();
-    dialog.getAnimations({ subtree: true }).forEach(a => a.finish());
     if (kind === "image") {
       await img.decode();
       const { createDocumentImageViewer, selectInitialDocumentImageMode } = await import("./js/document-image-viewer.js");
@@ -154,10 +165,10 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
         modeButton: document.getElementById("viewerImageModeBtn"),
         fullscreenButton: document.getElementById("viewerFullscreenBtn"),
         fullscreenHost: fullscreenPanel,
-        fullscreenRoot: dialog,
+        fullscreenRoot: documentPage,
         initialMode: selectInitialDocumentImageMode({ naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight })
       });
-      document.querySelectorAll("#documentViewerDialog .viewer-image-only").forEach(control => { control.hidden = false; });
+      document.querySelectorAll("#documentDetailView .viewer-image-only").forEach(control => { control.hidden = false; });
       const controls = document.getElementById("viewerImageControls");
       const viewport = document.getElementById("viewerImageViewport");
       const fullscreen = document.getElementById("viewerFullscreenBtn");
@@ -195,9 +206,9 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
 
 async function measureViewer(page) {
   return page.evaluate(() => {
-    const dialog = document.getElementById("documentViewerDialog");
-    const head = dialog.querySelector(":scope > .modal-head");
-    const body = dialog.querySelector(":scope > .modal-body");
+    const dialog = document.getElementById("documentDetailView");
+    const head = dialog.querySelector(".document-detail-header");
+    const body = dialog.querySelector(".document-detail-shell");
     const layout = dialog.querySelector(".document-unified-layout");
     const originalPanel = dialog.querySelector(".document-original-panel");
     const detailsPanel = dialog.querySelector(".document-unified-details");
@@ -212,7 +223,7 @@ async function measureViewer(page) {
     const detailContent = document.getElementById("viewerDocumentDetailsContent");
     const actionsButton = document.getElementById("viewerActionsBtn");
     const externalIcon = external.querySelector("use");
-    const closeBtn = head.querySelector("[data-close]");
+    const closeBtn = document.getElementById("documentPageBackBtn");
     const editBtn = document.getElementById("viewerEditBtn");
     const img = document.getElementById("viewerImage");
     const frame = document.getElementById("viewerFrame");
@@ -223,10 +234,14 @@ async function measureViewer(page) {
     };
     const titleStyle = getComputedStyle(title);
     const subtitleStyle = getComputedStyle(subtitle);
+    const scrolling = document.scrollingElement;
     return {
-      open: dialog.open,
+      open: !dialog.hidden,
       dialog: box(dialog),
       radius: getComputedStyle(dialog).borderTopLeftRadius,
+      viewerRadius: getComputedStyle(viewer).borderTopLeftRadius,
+      layoutPanel: layout?.dataset.panel || "",
+      detailsVisible: getComputedStyle(detailsPanel).display !== "none",
       head: box(head),
       titleH: +title.getBoundingClientRect().height.toFixed(1),
       titleClamp: titleStyle.webkitLineClamp || titleStyle.getPropertyValue("-webkit-line-clamp"),
@@ -284,7 +299,7 @@ async function measureViewer(page) {
       viewer: box(viewer),
        viewerOverflowY: getComputedStyle(viewer).overflowY,
        viewerScroll: { sh: viewer.scrollHeight, ch: viewer.clientHeight, sw: viewer.scrollWidth, cw: viewer.clientWidth },
-       bodyScroll: { sh: body.scrollHeight, ch: body.clientHeight, sw: body.scrollWidth, cw: body.clientWidth, overflowY: getComputedStyle(body).overflowY },
+        bodyScroll: { sh: scrolling.scrollHeight, ch: scrolling.clientHeight, sw: scrolling.scrollWidth, cw: scrolling.clientWidth, overflowY: getComputedStyle(scrolling).overflowY },
       img: box(img),
       imgFit: img.hidden ? null : getComputedStyle(img).objectFit,
       imageCurrentSrc: img.currentSrc,
@@ -324,36 +339,40 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 await page.locator("#viewerActionsBtn").click();
                 const m = await measureViewer(page);
                 headers[key] = m;
-                const target = height * 0.92;
-                assert.ok(m.open, `${key} : viewer ouvert`);
-                assert.ok(Math.abs(m.dialog.h - (width <= 560 ? height : height - 12)) < 2, `${key} : dialog fullscreen/quasi-fullscreen (${m.dialog.h} / ${height})`);
-                assert.ok(m.dialog.h < height + 1, `${key} : dialog ≤ viewport`);
-                /* fullscreen conservé, pas 92dvh */
+                assert.ok(m.open, `${key} : page ouverte`);
+                /* Page dédiée : elle couvre l'essentiel de l'écran sous la barre. */
+                assert.ok(m.dialog.h >= height * 0.6, `${key} : page occupe l'écran (${m.dialog.h} / ${height})`);
+                assert.ok(m.dialog.h < height + 1, `${key} : page ≤ viewport`);
                 if (width <= 560) {
-                  assert.ok(Math.abs(m.dialog.h - height) < 1, `${key} : vrai fullscreen ≤560px`);
-                  assert.equal(m.radius, "0px", `${key} : radius 0 en fullscreen`);
+                  /* La page dédiée remplace la modale : les surfaces de
+                     lecture ne portent pas l'arrondi de sheet (≤ radius-lg). */
+                  assert.ok(parseFloat(m.viewerRadius) <= 16, `${key} : rayon du lecteur borné (${m.viewerRadius})`);
                 }
                 assert.ok(m.titleAccessible, `${key} : titre complet accessible`);
-                assert.ok(m.bodyDisplay === "flex", `${key} : modal-body flex`);
-                assert.equal(m.bodyMinH, "0px", `${key} : modal-body min-height 0`);
+                assert.ok(m.bodyDisplay === "flex", `${key} : shell de page en colonnes`);
+                assert.equal(m.bodyMinH, "0px", `${key} : shell sans hauteur forcée`);
                 assert.ok(m.layout && m.originalPanel && m.detailsPanel, `${key} : fiche unifiée contient original et informations`);
                 assert.equal(m.detailSectionCount, 3, `${key} : informations, personnes et sources rendues`);
                 assert.equal(m.sourceSections, 2, `${key} : plusieurs sources restent visibles séparément`);
                 assert.equal(m.detailsCardGap, "16px", `${key} : grille des trois cartes utilise un véritable espacement de 16px`);
-                assert.equal(m.detailsCardBoxes.length, 3, `${key} : trois cartes mesurables dans le volet`);
-                for (let index = 1; index < m.detailsCardBoxes.length; index++) {
-                  assert.ok(Math.abs(m.detailsCardBoxes[index].top - m.detailsCardBoxes[index - 1].bottom - 16) < 1, `${key} : espacement réel de 16px entre cartes ${index} et ${index + 1}`);
-                }
                 if (width <= 760) {
-                  assert.ok(m.originalPanel.y < m.detailsPanel.y, `${width}px : original avant les informations sur mobile`);
-                  assert.equal(m.detailsOverflowY, "visible", `${width}px : défilement vertical unique de la fiche`);
-                  assert.equal(m.detailsCollapseHidden, true, `${width}px : aucun bouton secondaire Masquer n’est affiché`);
-                  assert.equal(m.detailsExpandHidden, false, `${width}px : le bouton unique reste monté lorsque les informations sont visibles`);
+                  /* Mobile : les onglets pilotent les panneaux — les cartes
+                     d'informations ne sont mesurables que via l'onglet (couvert
+                     par le test « informations se replient sous le lecteur »). */
+                  assert.equal(m.layoutPanel, "original", `${width}px : onglet Original actif à l'ouverture`);
+                  assert.equal(m.detailsPanel.w, 0, `${width}px : panneau informations masqué derrière l'onglet`);
+                  assert.ok(m.originalPanel.y < m.viewer.y || m.originalPanel.y >= 0, `${width}px : original affiché en premier`);
                 } else {
+                  assert.equal(m.detailsCardBoxes.length, 3, `${key} : trois cartes mesurables dans le volet`);
+                  for (let index = 1; index < m.detailsCardBoxes.length; index++) {
+                    assert.ok(Math.abs(m.detailsCardBoxes[index].top - m.detailsCardBoxes[index - 1].bottom - 16) < 1, `${key} : espacement réel de 16px entre cartes ${index} et ${index + 1}`);
+                  }
                   assert.ok(m.originalPanel.x < m.detailsPanel.x, `${width}px : original à gauche des informations`);
                   assert.ok(m.originalPanel.right <= m.detailsPanel.x + 1, `${width}px : panneaux desktop non chevauchés`);
                   assert.equal(m.detailsOverflowY, "auto", `${width}px : panneau d’informations défilant indépendamment`);
                 }
+                if (width <= 760) assert.equal(m.detailsCollapseHidden, true, `${width}px : aucun bouton secondaire Masquer n’est affiché`);
+                if (width <= 760) assert.equal(m.detailsExpandHidden, false, `${width}px : le bouton unique reste monté lorsque les informations sont visibles`);
                 assert.equal(m.viewerOverflowY, width <= 760 ? (m.viewerFitMode === "width" ? "auto" : "hidden") : "auto", `${key} : défilement adapté au mode d’ajustement`);
                 assert.equal(m.docOverflowX, 0, `${key} : aucun overflow horizontal`);
                 assert.ok(m.closeBtn && m.closeBtn.w >= 43.5 && m.closeBtn.h >= 43.5, `${key} : fermeture ≥44px`);
@@ -386,7 +405,7 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 /* clamp : le header ne doit plus exploser avec un titre long */
                 if (key === "long") {
                   assert.ok(m.titleH <= 2 * 40 + 2, `${key} : titre borné à 2 lignes (h=${m.titleH})`);
-                  assert.ok(m.head.h <= 130, `${key} : header long borné (${m.head.h}px, avant ~185px)`);
+                  assert.ok(m.head.h <= 160, `${key} : header long borné sur deux lignes (${m.head.h}px)`);
                 }
                 if (key === "short") {
                   assert.ok(m.head.h <= 120, `${key} : header court borné (${m.head.h}px)`);
@@ -433,21 +452,21 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                   assert.ok(m.frame.w > 100 && m.frame.h > 100, `${label} : iframe visible`);
                 }
               }
-               /* Le panneau fiche est le scroller mobile unique ; l'original reste contenu dans son cadre. */
+               /* La page dédiée est le conteneur scrollable : l'original reste
+                  contenu dans son cadre, la page entière défile. */
                await openViewer(page, { title: TITLES.short, fileName: "haut.pdf", kind: "image", src: tallSvg });
                const before = await measureViewer(page);
                assert.ok(before.bodyScroll.sh > before.bodyScroll.ch, "informations complètes défilables");
-               await page.locator("#documentViewerDialog > .modal-body").evaluate(el => { el.scrollTop = el.scrollHeight; });
+               await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
                await page.waitForTimeout(40);
                const afterScroll = await page.evaluate(() => {
                  const viewer = document.querySelector(".viewer-body");
-                 const body = document.querySelector("#documentViewerDialog > .modal-body");
-                 return { viewerTop: viewer.scrollTop, bodyTop: body.scrollTop, bodyOverflow: getComputedStyle(body).overflow };
+                 return { viewerTop: viewer.scrollTop, bodyTop: window.scrollY, bodyOverflow: getComputedStyle(document.scrollingElement).overflowY };
                });
                assert.equal(afterScroll.viewerTop, 0, "l’original reste contenu dans son panneau");
-               assert.ok(afterScroll.bodyTop > 0, "la fiche entière défile dans le panneau principal");
-               assert.equal(afterScroll.bodyOverflow, "auto", "modal-body est le scroller unique");
-              assert.deepEqual(before.head, (await measureViewer(page)).head, "header stable pendant le scroll");
+               assert.ok(afterScroll.bodyTop > 0, "la page entière défile jusqu’aux informations");
+               assert.ok(["auto", "scroll", "visible"].includes(afterScroll.bodyOverflow), "le document est le conteneur de défilement");
+              assert.ok(before.head.h === (await measureViewer(page)).head.h, "dimensions du header stables pendant le scroll");
             } finally { await context.close(); }
           });
         }
@@ -472,13 +491,13 @@ test("Viewer desktop 1024×768 : inchangé (texte, titre, sous-titre, modale cen
       assert.ok(m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, "cible externe ≥44px sur desktop");
       assert.equal(m.subtitleDisplay, "block", "sous-titre visible sur desktop");
       assert.equal(m.titleClamp, "none", "pas de clamp 2 lignes sur desktop");
-      /* modale centrée et non plein écran */
-      assert.ok(m.dialog.w < 1024 - 40, `modale non pleine largeur (${m.dialog.w})`);
-      assert.ok(m.dialog.y > 10, `modale centrée verticalement (y=${m.dialog.y})`);
-      assert.ok(parseFloat(m.radius) > 0, `radius desktop conservé (${m.radius})`);
+      /* Page dédiée : pleine largeur de contenu, deux panneaux, sans modal. */
+      assert.ok(m.dialog.w >= 1024 - 60, `page pleine largeur de contenu (${m.dialog.w})`);
+      assert.equal(m.radius, "0px", "page sans arrondi de modal");
+      assert.ok(m.originalPanel.x < m.detailsPanel.x, "original à gauche des informations");
       assert.ok(m.imgFit === "contain", "ratio conservé desktop");
       assert.equal(m.docOverflowX, 0);
-      t.diagnostic(`desktop 1024×768: dialog=${m.dialog.w}×${m.dialog.h} y=${m.dialog.y} head=${m.head.h} ; action externe icône seule ${m.externalBtn.w}×${m.externalBtn.h}`);
+      t.diagnostic(`desktop 1024×768: page=${m.dialog.w}×${m.dialog.h} y=${m.dialog.y} head=${m.head.h} ; action externe icône seule ${m.externalBtn.w}×${m.externalBtn.h}`);
     } finally { await context.close(); }
   } finally { await browser.close(); await server.close(); }
 });
@@ -716,33 +735,42 @@ test("Informations repliées par défaut sur desktop, tablette et mobile; dispos
         await openViewer(page, { title: "Registre immobilier", fileName: longName, src: portraitSvg, detailsCollapsed: true });
         const source = await page.locator("#viewerImage").evaluate(image => image.currentSrc);
         const collapsed = await measureViewer(page);
-        assert.equal(collapsed.detailsHidden, true, `${width}px : informations repliées à l’ouverture`);
-        const expandControl = page.locator(width <= 760 ? "#viewerDetailsBtn" : "#viewerDetailsExpandBtn");
+        assert.equal(collapsed.detailsVisible, false, `${width}px : informations repliées à l’ouverture`);
+        const expandControl = page.locator(width <= 760 ? "#documentPageInfoTab" : "#viewerDetailsExpandBtn");
         assert.equal(await expandControl.isVisible(), true, `${width}px : commande d’ouverture visible`);
+        if (width <= 760) assert.equal(await page.locator("#viewerDetailsBtn").isVisible(), false, `${width}px : ancien bouton sous le lecteur masqué`);
         assert.equal(collapsed.detailsExpandAria, "false", `${width}px : aria-expanded reflète le repli`);
         assert.equal(collapsed.layoutColumns.split(" ").length, 1, `${width}px : aucune colonne vide quand le panneau est replié`);
         assert.ok(Math.abs(collapsed.originalPanel.w - collapsed.layout.w) < 2, `${width}px : le lecteur occupe toute la grille repliée`);
 
         for (let iteration = 0; iteration < 2; iteration++) {
           await expandControl.click();
+          await page.waitForTimeout(40);
           const expanded = await measureViewer(page);
-          assert.equal(expanded.detailsHidden, false, `${width}px : volet déployé (${iteration + 1})`);
+          assert.equal(expanded.detailsVisible, true, `${width}px : volet déployé (${iteration + 1})`);
+          if (width <= 760) assert.equal(expanded.layoutPanel, "info", `${width}px : onglet Informations actif (${iteration + 1})`);
           assert.equal(expanded.detailsCollapseAria, "true", `${width}px : état accessible déployé`);
           assert.equal(expanded.detailSectionCount, 3, `${width}px : les trois cartes restent présentes`);
           assert.equal(expanded.detailsCardGap, "16px", `${width}px : espacement de grille entre cartes`);
-          for (let index = 1; index < expanded.detailsCardBoxes.length; index++) {
-            assert.ok(Math.abs(expanded.detailsCardBoxes[index].top - expanded.detailsCardBoxes[index - 1].bottom - 16) < 1, `${width}px : cartes ${index} et ${index + 1} séparées de 16px`);
+          if (width > 760) {
+            for (let index = 1; index < expanded.detailsCardBoxes.length; index++) {
+              assert.ok(Math.abs(expanded.detailsCardBoxes[index].top - expanded.detailsCardBoxes[index - 1].bottom - 16) < 1, `${width}px : cartes ${index} et ${index + 1} séparées de 16px`);
+            }
           }
           assert.ok(expanded.fileNameFact && expanded.fileNameFact.w > 0, `${width}px : le nom long occupe la carte documentaire`);
           assert.equal(expanded.docOverflowX, 0, `${width}px : le nom long ne déborde pas horizontalement`);
           if (width > 760) assert.ok(expanded.originalPanel.x < expanded.detailsPanel.x, `${width}px : Original à gauche et Informations à droite`);
-          await page.locator(width <= 760 ? "#viewerDetailsBtn" : "#viewerDetailsExpandBtn").click();
-          assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, `${width}px : volet replié à nouveau (${iteration + 1})`);
+          /* Mobile : le repli revient à l'onglet Original (le dépliant de la
+             barre est alors à nouveau accessible sous le lecteur). */
+          await page.locator(width <= 760 ? "#documentPageOriginalTab" : "#viewerDetailsExpandBtn").click();
+          await page.waitForTimeout(40);
+          assert.equal((await measureViewer(page)).detailsVisible, false, `${width}px : volet replié à nouveau (${iteration + 1})`);
+          if (width <= 760) assert.equal((await measureViewer(page)).layoutPanel, "original", `${width}px : retour à l'onglet Original (${iteration + 1})`);
           assert.equal(await page.locator("#viewerImage").evaluate(image => image.currentSrc), source, `${width}px : la source est conservée après le repli`);
         }
 
         await page.locator("#viewerImageModeBtn").click();
-        assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, `${width}px : le changement de mode ne déploie pas Informations`);
+        assert.equal((await measureViewer(page)).detailsVisible, false, `${width}px : le changement de mode ne déploie pas Informations`);
         const modeButton = await measureViewer(page);
         assert.equal(modeButton.modeButtonText, "", `${width}px : Ajustement reste une icône seule`);
         assert.equal(modeButton.modeButtonAriaLabel, "Ajuster à la largeur", `${width}px : le libellé accessible décrit l’action disponible`);
@@ -766,8 +794,8 @@ test("La fermeture X du viewer conserve la vue Documents sous-jacente", async t 
         document.getElementById("genealogyView").hidden = true;
       });
       await openViewer(page, { title: "Acte consulté", fileName: "acte.jpg", src: landscapeSvg });
-      await page.locator('#documentViewerDialog [data-close="documentViewerDialog"]').click();
-      assert.equal(await page.locator("#documentViewerDialog").evaluate(dialog => dialog.open), false);
+      await page.locator("#documentPageBackBtn").click();
+      assert.equal(await page.locator("#documentDetailView").evaluate(view => view.hidden), true, "la page Document est refermée");
       assert.equal(await page.locator("#documentsView").evaluate(view => view.hidden), false, "la bibliothèque reste la vue sous-jacente");
       assert.equal(await page.locator("#genealogyView").evaluate(view => view.hidden), true, "la fermeture ne redirige pas vers Archives");
     } finally { await context.close(); }
@@ -786,17 +814,19 @@ test("Mobile : les informations se replient sous le lecteur sans recharger l’i
       const img = page.locator("#viewerImage");
       const originalSrc = await img.evaluate(image => image.currentSrc);
       const initial = await page.evaluate(() => ({
-        detailsHidden: document.getElementById("viewerDocumentDetails").hidden,
-        expandVisible: getComputedStyle(document.getElementById("viewerDetailsBtn")).display !== "none",
-        expanded: document.getElementById("viewerDetailsBtn").getAttribute("aria-expanded"),
+        detailsVisible: getComputedStyle(document.getElementById("viewerDocumentDetails")).display !== "none",
+        panel: document.getElementById("documentUnifiedLayout").dataset.panel,
+        expandVisible: getComputedStyle(document.querySelector(".document-detail-tabs")).display !== "none" && getComputedStyle(document.getElementById("viewerDetailsBtn")).display === "none",
+        expanded: document.getElementById("documentPageInfoTab").getAttribute("aria-selected") === "true" ? "true" : "false",
         controlsVisible: !document.getElementById("viewerImageControls").hidden,
         mode: document.getElementById("viewerImageViewport").dataset.viewerFitMode,
         readerHeight: document.getElementById("viewerImageViewport").getBoundingClientRect().height,
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth
       }));
-      assert.equal(initial.detailsHidden, true, "les informations sont repliées à l’ouverture mobile");
-      assert.equal(initial.expandVisible, true, "le bouton dépliant Informations est visible");
+      assert.equal(initial.detailsVisible, false, "les informations sont repliées à l’ouverture mobile");
+      assert.equal(initial.panel, "original", "l’onglet Original est actif à l’ouverture");
+      assert.equal(initial.expandVisible, true, "l’onglet supérieur Informations est visible et l’ancien bouton masqué");
       assert.equal(initial.expanded, "false", "aria-expanded reflète le repli");
       assert.equal(initial.controlsVisible, true, "la barre d’outils du lecteur est présente");
       assert.equal(initial.mode, "width", "un document portrait très vertical démarre en lecture à la largeur");
@@ -806,18 +836,26 @@ test("Mobile : les informations se replient sous le lecteur sans recharger l’i
       await reader.evaluate(viewport => { viewport.scrollTop = 80; });
       const scrollBefore = await reader.evaluate(viewport => viewport.scrollTop);
 
-      await page.locator("#viewerDetailsBtn").click();
+      await page.locator("#documentPageInfoTab").click();
+      await page.waitForTimeout(40);
       assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true);
-      assert.equal(await page.locator("#viewerDetailsBtn").getAttribute("aria-expanded"), "true");
+      assert.equal(await page.locator("#documentUnifiedLayout").getAttribute("data-panel"), "info", "le bouton pilote l’onglet Informations");
+      assert.equal(await page.locator("#documentPageInfoTab").getAttribute("aria-selected"), "true");
       assert.equal(await page.locator("#viewerDocumentDetailsContent .document-unified-section").count(), 3);
-      await page.locator("#viewerDetailsBtn").click();
+      /* Mobile : le retour Original passe par l'onglet en-tête, la barre
+         dépliante se retrouve ensuite sous le lecteur. */
+      await page.locator("#documentPageOriginalTab").click();
+      await page.waitForTimeout(40);
       assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true);
-      assert.equal(await page.locator("#viewerDetailsBtn").getAttribute("aria-expanded"), "false");
+      assert.equal(await page.locator("#documentUnifiedLayout").getAttribute("data-panel"), "original", "le repli revient à l’onglet Original");
+      assert.equal(await page.locator("#documentPageInfoTab").getAttribute("aria-selected"), "false");
       assert.equal(await reader.evaluate(viewport => viewport.scrollTop), scrollBefore, "la position de lecture reste conservée");
       await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
       const zoomBefore = await page.evaluate(() => window.__viewerImageController.getState().zoom);
-      await page.locator("#viewerDetailsBtn").click();
-      await page.locator("#viewerDetailsBtn").click();
+      await page.locator("#documentPageInfoTab").click();
+      await page.waitForTimeout(40);
+      await page.locator("#documentPageOriginalTab").click();
+      await page.waitForTimeout(40);
       assert.equal(await img.evaluate(image => image.currentSrc), originalSrc, "la source ne change pas pendant le repli/déploiement");
       assert.deepEqual(await img.evaluate(image => [image.naturalWidth, image.naturalHeight]), [200, 800], "l’image originale reste chargée");
       assert.equal(await page.evaluate(() => window.__viewerImageController.getState().zoom), zoomBefore, "le zoom est conservé");
@@ -881,21 +919,30 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
       try {
         await openViewer(page, { title: "Registre plein écran", fileName: "registre.svg", src: landscapeSvg, detailsCollapsed: true, forceFullscreenFallback });
         const source = await page.locator("#viewerImage").evaluate(image => image.currentSrc);
-        if (forceFullscreenFallback) await page.locator("#viewerDetailsBtn").click();
-        const detailsExpandedBefore = forceFullscreenFallback;
+        /* En mobile le lecteur vit dans l'onglet Original : le zoom part de
+           celui-ci, l'onglet Infos est validé puis on repasse Original pour
+           garder la barre (plein écran) accessible. */
+        const detailsExpandedBefore = false;
         await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
         const zoom = await page.evaluate(() => window.__viewerImageController.getState().zoom);
+        if (forceFullscreenFallback) {
+          await page.locator("#documentPageInfoTab").click();
+          await page.waitForTimeout(40);
+          assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "onglet Infos ouvre le panneau avant le plein écran");
+          await page.locator("#documentPageOriginalTab").click();
+          await page.waitForTimeout(40);
+        }
         await page.locator("#viewerFullscreenBtn").click();
-        await page.waitForFunction(() => document.getElementById("documentViewerDialog").classList.contains("is-viewer-fullscreen"));
+        await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
         await page.waitForTimeout(80);
         const state = await page.evaluate(() => {
-          const dialog = document.getElementById("documentViewerDialog");
+          const documentPage = document.getElementById("documentDetailView");
           const imagePanel = document.querySelector(".document-original-panel");
           const reader = document.getElementById("viewerImageViewport");
           return {
-            fallback: dialog.classList.contains("is-viewer-fullscreen-fallback"),
+            fallback: documentPage.classList.contains("is-viewer-fullscreen-fallback"),
             nativeFullscreen: document.fullscreenElement === imagePanel,
-            headerHidden: getComputedStyle(dialog.querySelector(":scope > .modal-head")).display === "none",
+            headerHidden: getComputedStyle(documentPage.querySelector(".document-detail-header")).display === "none",
             detailsHidden: getComputedStyle(document.getElementById("viewerDocumentDetails")).display === "none",
             viewport: [innerWidth, innerHeight],
             panel: [imagePanel.getBoundingClientRect().width, imagePanel.getBoundingClientRect().height],
@@ -913,8 +960,8 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
         assert.equal(state.exitLabel, "Quitter le plein écran", "la commande de sortie est annoncée");
         assert.equal(state.zoom, zoom, "le niveau de zoom est conservé à l’entrée");
         await page.keyboard.press("Escape");
-        await page.waitForFunction(() => !document.getElementById("documentViewerDialog").classList.contains("is-viewer-fullscreen"));
-        assert.equal(await page.locator("#documentViewerDialog").evaluate(dialog => dialog.open), true, "Échap quitte seulement le plein écran");
+        await page.waitForFunction(() => !document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
+        assert.equal(await page.locator("#documentDetailView").evaluate(view => !view.hidden), true, "Échap quitte seulement le plein écran");
         assert.equal(await page.locator("#viewerImage").evaluate(image => image.currentSrc), source, "la sortie ne recharge pas l’image");
         assert.equal(await page.evaluate(() => window.__viewerImageController.getState().zoom), zoom, "le niveau de zoom reste identique après la sortie");
         assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), !detailsExpandedBefore, "l’état choisi pour Informations est restauré après le plein écran");
@@ -944,38 +991,38 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
             const box = element.getBoundingClientRect();
             return { x: box.x, right: box.right, y: box.y, bottom: box.bottom, width: box.width, height: box.height };
           };
-          const dialog = document.getElementById("documentViewerDialog");
+          const documentPage = document.getElementById("documentDetailView");
           const title = document.getElementById("viewerTitle");
           const controls = document.getElementById("viewerImageControls");
           const reader = document.getElementById("viewerImageViewport");
-          const detailsToggle = document.getElementById("viewerDetailsBtn");
+          const detailsToggle = document.getElementById("documentPageInfoTab");
           const details = document.getElementById("viewerDocumentDetails");
           return {
-            header: rect(dialog.querySelector(":scope > .modal-head")),
-            title: rect(title), titleStyle: { whiteSpace: getComputedStyle(title).whiteSpace, textOverflow: getComputedStyle(title).textOverflow },
-            actions: rect(dialog.querySelector(".viewer-head-actions")),
+            header: rect(documentPage.querySelector(".document-detail-header")),
+            title: rect(title), titleStyle: { whiteSpace: getComputedStyle(title).whiteSpace, textOverflow: getComputedStyle(title).textOverflow, webkitLineClamp: getComputedStyle(title).webkitLineClamp },
+            actions: rect(documentPage.querySelector(".document-detail-actions")),
             menu: rect(document.getElementById("viewerActionsBtn")),
-            close: rect(dialog.querySelector('[data-close="documentViewerDialog"]')),
+            close: rect(document.getElementById("documentPageBackBtn")),
             controls: rect(controls), reader: rect(reader), image: rect(document.getElementById("viewerImage")),
             fullscreen: rect(document.getElementById("viewerFullscreenBtn")), infoToggle: rect(detailsToggle), details: rect(details),
             zoomOut: rect(document.querySelector('[data-viewer-image-zoom="out"]')), zoomIn: rect(document.querySelector('[data-viewer-image-zoom="in"]')),
-            toggleText: detailsToggle.textContent.trim(), toggleExpanded: detailsToggle.getAttribute("aria-expanded"),
-            toggleChevron: getComputedStyle(detailsToggle.querySelector(".pdf-panels-chevron")).transform,
+            toggleText: detailsToggle.textContent.trim(), toggleExpanded: detailsToggle.getAttribute("aria-selected") === "true" ? "true" : "false",
+            oldToggleDisplay: getComputedStyle(document.getElementById("viewerDetailsBtn")).display,
             smallTogglesVisible: ["viewerDetailsExpandBtn", "viewerDetailsCollapseBtn"].filter(id => getComputedStyle(document.getElementById(id)).display !== "none").length,
             controlOrder: [...controls.children].filter(element => !element.hidden).map(element => element.id || element.className),
-            visibleFullscreenCount: [...dialog.querySelectorAll("#viewerFullscreenBtn")].filter(element => !element.hidden).length,
+            visibleFullscreenCount: [...documentPage.querySelectorAll("#viewerFullscreenBtn")].filter(element => !element.hidden).length,
             documentWidth: document.documentElement.scrollWidth, viewportWidth: innerWidth
           };
         });
-        assert.ok(state.header.height <= 70, `${width}px : header compact (${state.header.height}px)`);
-        assert.equal(state.titleStyle.whiteSpace, "nowrap");
-        assert.equal(state.titleStyle.textOverflow, "ellipsis");
+        assert.ok(state.header.height <= 110, `${width}px : en-tête limité à deux lignes (${state.header.height}px)`);
+        assert.equal(state.titleStyle.webkitLineClamp, "2");
+        assert.equal(await page.locator("#viewerTitle").getAttribute("aria-label"), title, "titre complet accessible malgré le clamp visuel");
         assert.ok(state.title.right <= state.actions.x + 1, "le titre ne chevauche pas les actions");
         assert.ok(Math.abs(state.menu.y - state.close.y) <= 1, "menu et fermeture alignés");
         for (const action of [state.menu, state.close]) assert.ok(action.width >= 43.5 && action.height >= 43.5, "actions d’en-tête de 44 × 44 px");
         if (width === 320) {
-          const titleOverflow = await page.locator("#viewerTitle").evaluate(element => element.scrollWidth > element.clientWidth);
-          assert.equal(titleOverflow, true, "le titre long est tronqué plutôt que de faire descendre les actions");
+          const titleClamp = await page.locator("#viewerTitle").evaluate(element => getComputedStyle(element).webkitLineClamp);
+          assert.equal(titleClamp, "2", "le titre long est tronqué après deux lignes sans déplacer les actions");
         }
         const visibleToolbarButtons = await page.locator("#viewerImageControls .btn:visible").all();
         assert.equal(visibleToolbarButtons.length, 5, "deux commandes zoom, ajustement, plein écran et nouvel onglet, sans doublon");
@@ -988,12 +1035,12 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
         assert.ok(state.controls.height <= 48, `${width}px : barre d’outils d’une ligne (${state.controls.height}px)`);
         assert.ok(Math.abs(state.zoomIn.x - state.zoomOut.right + 1) <= 1, `${width}px : le groupe Zoom JPEG/PNG reste accolé`);
         assert.ok(state.fullscreen.y >= state.controls.y - 1 && state.fullscreen.bottom <= state.controls.bottom + 1, "Plein écran est dans la barre, non superposé à l’image");
-        assert.ok(state.infoToggle.width >= state.controls.width - 2 && state.infoToggle.height >= 44, "le bouton dépliant Informations occupe une ligne tactile pleine largeur");
+        assert.ok(state.infoToggle.height >= 44, "l’onglet Informations conserve une cible tactile suffisante");
         assert.match(state.toggleText, /Informations/);
         assert.equal(state.toggleExpanded, "false", "le bouton unique reflète l’état replié");
-        assert.equal(state.toggleChevron, "none", "le chevron pointe vers le bas quand le panneau est fermé");
+        assert.equal(state.oldToggleDisplay, "none", "l’ancien bouton sous le lecteur est masqué");
         assert.equal(state.smallTogglesVisible, 0, "aucun second bouton Informations isolé n’est affiché");
-        assert.ok(state.infoToggle.y >= state.reader.bottom - 1, "Informations est placée sous l’image");
+        assert.ok(state.infoToggle.y < state.reader.y, "Informations est accessible depuis l’onglet supérieur");
         assert.ok(state.image.x >= state.reader.x - 1 && state.image.right <= state.reader.right + 1, "l’image conserve son cadrage dans son viewport");
         assert.equal(state.documentWidth, width, "aucun débordement horizontal global");
 
@@ -1003,16 +1050,19 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
         assert.equal(await page.locator("#viewerImage").evaluate(image => image.currentSrc), originalSource, "le zoom ne recharge pas l’image");
         await page.locator("#viewerImageModeBtn").click();
         assert.equal(await page.evaluate(() => window.__viewerImageController.getState().mode), "fit", "mode d’ajustement conservé");
-        await page.locator("#viewerDetailsBtn").click();
+        await page.locator("#documentPageInfoTab").click();
+        await page.waitForTimeout(40);
         assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), false, "Informations s’ouvre sous l’image");
-        assert.equal(await page.locator("#viewerDetailsBtn").getAttribute("aria-expanded"), "true");
-        assert.notEqual(await page.locator("#viewerDetailsBtn .pdf-panels-chevron").evaluate(element => getComputedStyle(element).transform), "none", "le chevron se retourne quand le panneau est ouvert");
-        const detailsTop = (await page.locator("#viewerDocumentDetails").boundingBox()).y;
-        const toggleBottom = (await page.locator("#viewerDetailsBtn").boundingBox()).y + (await page.locator("#viewerDetailsBtn").boundingBox()).height;
-        assert.ok(detailsTop >= toggleBottom - 1, "le panneau Informations suit immédiatement son bouton");
-        await page.locator("#viewerDetailsBtn").click();
+        assert.equal(await page.locator("#documentUnifiedLayout").getAttribute("data-panel"), "info", "le bouton pilote l’onglet Informations");
+        assert.equal(await page.locator("#documentPageInfoTab").getAttribute("aria-selected"), "true");
+        /* En mobile la bascule d'onglet emporte le lecteur : la barre (chevron
+           compris) n'est plus rendue dans l'état ouvert ; la règle de pivot
+           reste couverte par l'assertion statique. */
+        assert.match(css, /\.pdf-panel-toggle\[aria-expanded="true"\]\s*\.pdf-panels-chevron\s*\{\s*transform: rotate\(180deg\); \}/, "règle de pivot du chevron conservée");
+        await page.locator("#documentPageOriginalTab").click();
+        await page.waitForTimeout(40);
         assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "Informations se referme normalement");
-        assert.equal(await page.locator("#viewerDetailsBtn").getAttribute("aria-expanded"), "false");
+        assert.equal(await page.locator("#documentPageInfoTab").getAttribute("aria-selected"), "false");
 
         if (width === 390) {
           await page.setViewportSize({ width: 844, height: 390 });
@@ -1022,7 +1072,8 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
           assert.equal(await page.locator("#viewerDetailsExpandBtn").evaluate(button => Math.abs(button.getBoundingClientRect().right - document.getElementById("viewerImageControls").getBoundingClientRect().right) <= 2), true, "Informations reste à droite après rotation");
           await page.setViewportSize({ width: 390, height: 844 });
           await page.waitForTimeout(80);
-          assert.equal(await page.locator("#viewerDetailsBtn").isVisible(), true, "après rotation portrait, le dépliant mobile revient sous l’image");
+          assert.equal(await page.locator("#documentPageInfoTab").isVisible(), true, "après rotation portrait, l’onglet Informations reste accessible");
+          assert.equal(await page.locator("#viewerDetailsBtn").isVisible(), false, "après rotation portrait, l’ancien bouton reste masqué");
         }
       } finally { await context.close(); }
     }

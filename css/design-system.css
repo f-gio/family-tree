@@ -2159,8 +2159,8 @@ label .field { margin-top: var(--space-2); }
   background: var(--color-surface);
 }
 
-.viewer-dialog .modal-body { overflow: hidden; }
-.viewer-dialog .modal-body { flex: 1 1 auto; min-height: 0; }
+.document-detail-view .modal-body { overflow: hidden; }
+.document-detail-view .modal-body { flex: 1 1 auto; min-height: 0; }
 .document-unified-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(19rem, .8fr); gap: var(--space-4); flex: 1 1 auto; min-width: 0; min-height: 0; }
 .document-original-panel { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 0; }
 .document-original-panel h4, .document-unified-details h4 { margin: 0; }
@@ -2240,25 +2240,25 @@ label .field { margin-top: var(--space-2); }
 .pdf-zoom-indicator.is-visible { opacity: 1; }
 .document-unified-details-head { min-height: var(--control-touch); align-items: center; }
 @media (min-width: 761px) {
-  .viewer-dialog .document-original-panel:has(#viewerImage:not([hidden])) { gap: var(--space-3); }
-  .viewer-dialog .document-original-panel:has(#viewerImage:not([hidden])) > .document-original-head { display: none; }
-  .viewer-dialog .document-original-panel:has(#viewerImage:not([hidden])) .viewer-image-controls { width: 100%; justify-content: flex-start; }
+  .document-detail-view .document-original-panel:has(#viewerImage:not([hidden])) { gap: var(--space-3); }
+  .document-detail-view .document-original-panel:has(#viewerImage:not([hidden])) > .document-original-head { display: none; }
+  .document-detail-view .document-original-panel:has(#viewerImage:not([hidden])) .viewer-image-controls { width: 100%; justify-content: flex-start; }
 }
-#documentViewerDialog.is-viewer-fullscreen .pdf-viewer-toolbar { position: relative; z-index: 2; }
-#documentViewerDialog.is-viewer-fullscreen .document-original-panel .viewer-body.viewer-pdf-active { width: 100% !important; min-height: 0 !important; height: 100% !important; }
+#documentDetailView.is-viewer-fullscreen .pdf-viewer-toolbar { position: relative; z-index: 2; }
+#documentDetailView.is-viewer-fullscreen .document-original-panel .viewer-body.viewer-pdf-active { width: 100% !important; min-height: 0 !important; height: 100% !important; }
 @media (prefers-reduced-motion: reduce) {
   .pdf-panels-chevron, .pdf-zoom-indicator { transition-duration: 0.01ms; }
 }
-#documentViewerDialog.is-viewer-fullscreen { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100dvh !important; max-width: none !important; max-height: none !important; margin: 0 !important; padding: 0 !important; overflow: hidden; border: 0; border-radius: 0; }
-#documentViewerDialog.is-viewer-fullscreen .modal-head { display: none; }
-#documentViewerDialog.is-viewer-fullscreen .modal-body { display: flex !important; flex: 1 1 auto !important; min-height: 0 !important; padding: 0 !important; overflow: hidden !important; }
-#documentViewerDialog.is-viewer-fullscreen .document-unified-layout { display: grid !important; grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: minmax(0, 1fr) !important; flex: 1 1 auto !important; width: 100% !important; height: 100% !important; min-height: 0 !important; gap: 0 !important; }
-#documentViewerDialog.is-viewer-fullscreen .document-unified-details,
-#documentViewerDialog.is-viewer-fullscreen .document-original-head { display: none; }
-#documentViewerDialog.is-viewer-fullscreen .document-original-panel { grid-column: 1 !important; flex: 1 1 auto !important; height: 100% !important; min-height: 0 !important; gap: var(--space-2); padding: max(var(--space-3), env(safe-area-inset-top)) max(var(--space-3), env(safe-area-inset-right)) max(var(--space-3), env(safe-area-inset-bottom)) max(var(--space-3), env(safe-area-inset-left)); }
-#documentViewerDialog.is-viewer-fullscreen .viewer-image-controls { position: relative; z-index: 2; flex: 0 0 auto; justify-content: center; }
-#documentViewerDialog.is-viewer-fullscreen .document-original-panel .viewer-body { flex: 1 1 auto !important; width: 100% !important; height: auto !important; min-height: 0 !important; }
-#documentViewerDialog.is-viewer-fullscreen .viewer-body iframe { height: 100%; }
+#documentDetailView.is-viewer-fullscreen { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100dvh !important; max-width: none !important; max-height: none !important; margin: 0 !important; padding: 0 !important; overflow: hidden; border: 0; border-radius: 0; }
+#documentDetailView.is-viewer-fullscreen .modal-head { display: none; }
+#documentDetailView.is-viewer-fullscreen .modal-body { display: flex !important; flex: 1 1 auto !important; min-height: 0 !important; padding: 0 !important; overflow: hidden !important; }
+#documentDetailView.is-viewer-fullscreen .document-unified-layout { display: grid !important; grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: minmax(0, 1fr) !important; flex: 1 1 auto !important; width: 100% !important; height: 100% !important; min-height: 0 !important; gap: 0 !important; }
+#documentDetailView.is-viewer-fullscreen .document-unified-details,
+#documentDetailView.is-viewer-fullscreen .document-original-head { display: none; }
+#documentDetailView.is-viewer-fullscreen .document-original-panel { grid-column: 1 !important; flex: 1 1 auto !important; height: 100% !important; min-height: 0 !important; gap: var(--space-2); padding: max(var(--space-3), env(safe-area-inset-top)) max(var(--space-3), env(safe-area-inset-right)) max(var(--space-3), env(safe-area-inset-bottom)) max(var(--space-3), env(safe-area-inset-left)); }
+#documentDetailView.is-viewer-fullscreen .viewer-image-controls { position: relative; z-index: 2; flex: 0 0 auto; justify-content: center; }
+#documentDetailView.is-viewer-fullscreen .document-original-panel .viewer-body { flex: 1 1 auto !important; width: 100% !important; height: auto !important; min-height: 0 !important; }
+#documentDetailView.is-viewer-fullscreen .viewer-body iframe { height: 100%; }
 html.viewer-fullscreen-active,
 html.viewer-fullscreen-active body { overflow: hidden !important; }
 @media (prefers-reduced-motion: reduce) {
@@ -2322,9 +2322,9 @@ html.viewer-fullscreen-active body { overflow: hidden !important; }
 .document-unified-source-actions .btn { min-height: var(--control-touch); }
 .document-unified-notice { margin: 0; color: var(--color-text-muted); font-size: var(--text-sm); }
 @media (min-width: 761px) {
-  #documentViewerDialog .modal-body { padding: var(--space-4); }
-  #documentViewerDialog .document-unified-layout { grid-template-columns: minmax(0, 1.15fr) minmax(21rem, .85fr); }
-  #documentViewerDialog .document-unified-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
+  #documentDetailView .modal-body { padding: var(--space-4); }
+  #documentDetailView .document-unified-layout { grid-template-columns: minmax(0, 1.15fr) minmax(21rem, .85fr); }
+  #documentDetailView .document-unified-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
 }
 .admin-search-label { display: block; margin-block: var(--space-4); }
 
@@ -2365,7 +2365,7 @@ html.viewer-fullscreen-active body { overflow: hidden !important; }
   dialog.modal-xl,
   .person-dialog[open],
   .settings-dialog[open],
-  .viewer-dialog {
+  .document-detail-view {
     width: calc(100% - 0.75rem);
     max-width: none;
     max-height: calc(100dvh - 0.75rem);
@@ -3521,30 +3521,30 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .modal-actions .right { gap: var(--space-2); }
   .modal-actions .btn { min-height: var(--control-touch); }
 
-  .viewer-dialog:has(#viewerImage:not([hidden])) .modal-head { flex-wrap: nowrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
-  .viewer-dialog:has(#viewerImage:not([hidden])) .modal-head > div:first-child { flex: 1 1 auto; min-width: 0; }
-  .viewer-dialog:has(#viewerImage:not([hidden])) .modal-head h3 { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .viewer-dialog:has(#viewerImage:not([hidden])) .viewer-head-actions { flex: 0 0 auto; width: auto; flex-wrap: nowrap; justify-content: flex-end; gap: var(--space-1); }
-  .viewer-dialog:has(#viewerImage:not([hidden])) .viewer-head-actions .icon-btn { flex: 0 0 var(--control-touch); width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); padding: 0; }
-  .viewer-dialog .document-original-panel:has(#viewerImage:not([hidden])) { gap: var(--space-2); }
-  .viewer-dialog .document-original-panel:has(#viewerImage:not([hidden])) .viewer-image-controls { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-start; gap: var(--space-1); width: 100%; min-width: 0; }
-  .viewer-dialog .document-original-panel:has(#viewerImage:not([hidden])) .viewer-fullscreen-control.viewer-image-only { position: static; inset: auto; z-index: auto; flex: 0 0 var(--control-touch); width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); }
-  .viewer-dialog .document-original-panel:has(#viewerImage:not([hidden])) .viewer-open-original { flex: 0 0 var(--control-touch); margin-left: auto; }
+  .document-detail-view:has(#viewerImage:not([hidden])) .modal-head { flex-wrap: nowrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+  .document-detail-view:has(#viewerImage:not([hidden])) .modal-head > div:first-child { flex: 1 1 auto; min-width: 0; }
+  .document-detail-view:has(#viewerImage:not([hidden])) .modal-head h3 { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .document-detail-view:has(#viewerImage:not([hidden])) .viewer-head-actions { flex: 0 0 auto; width: auto; flex-wrap: nowrap; justify-content: flex-end; gap: var(--space-1); }
+  .document-detail-view:has(#viewerImage:not([hidden])) .viewer-head-actions .icon-btn { flex: 0 0 var(--control-touch); width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); padding: 0; }
+  .document-detail-view .document-original-panel:has(#viewerImage:not([hidden])) { gap: var(--space-2); }
+  .document-detail-view .document-original-panel:has(#viewerImage:not([hidden])) .viewer-image-controls { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-start; gap: var(--space-1); width: 100%; min-width: 0; }
+  .document-detail-view .document-original-panel:has(#viewerImage:not([hidden])) .viewer-fullscreen-control.viewer-image-only { position: static; inset: auto; z-index: auto; flex: 0 0 var(--control-touch); width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); }
+  .document-detail-view .document-original-panel:has(#viewerImage:not([hidden])) .viewer-open-original { flex: 0 0 var(--control-touch); margin-left: auto; }
   .viewer-head-actions { flex: 0 0 auto; }
   .viewer-head-actions .btn.small { min-height: var(--control-touch); }
 
   /* Lot viewer mobile — header compact et prévisible : titre borné à 2 lignes,
      nom de fichier visible (exception à la règle modal-head p masquée ≤560px),
-     safe-area basse. Scope strictement #documentViewerDialog / .viewer-dialog. */
-  .viewer-dialog .modal-head > div:first-child { min-width: 0; flex: 1 1 auto; }
-  .viewer-dialog .modal-head h3 {
+     safe-area basse. Scope strictement #documentDetailView / .viewer-dialog. */
+  .document-detail-view .modal-head > div:first-child { min-width: 0; flex: 1 1 auto; }
+  .document-detail-view .modal-head h3 {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     overflow: hidden;
     overflow-wrap: anywhere;
   }
-  .viewer-dialog .modal-head p {
+  .document-detail-view .modal-head p {
     display: block;
     margin: 2px 0 0;
     font-size: var(--text-xs);
@@ -3554,57 +3554,57 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
     text-overflow: ellipsis;
     max-width: 100%;
   }
-  .viewer-dialog .modal-body {
+  .document-detail-view .modal-body {
     padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
-  .viewer-dialog .document-unified-layout { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); flex: 0 0 auto; }
-  .viewer-dialog .modal-body { overflow: auto; }
-  .viewer-dialog .document-original-panel .viewer-body { flex: 0 0 auto; height: min(42dvh, 22rem); min-height: 12rem; }
-  .viewer-dialog .document-unified-layout.is-details-collapsed .document-original-panel .viewer-body { height: min(68dvh, calc(100dvh - 13rem)); min-height: 12rem; }
-  .viewer-dialog .document-original-panel .viewer-body { overflow: hidden; }
-  .viewer-dialog .document-original-panel .viewer-body[data-viewer-fit-mode="width"] { overflow-x: hidden; overflow-y: auto; }
-  .viewer-dialog .document-original-panel:has(.viewer-body.viewer-pdf-active) { display: flex; flex-direction: column; gap: var(--space-2); }
-  .viewer-dialog .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar { grid-row: auto; flex-wrap: nowrap; }
-  .viewer-dialog .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #pdfFitModeBtn { margin-left: 0; }
-  .viewer-dialog .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #viewerExternalBtn { margin-left: auto; }
-  .viewer-dialog .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-thumbnail-rail { grid-row: auto; flex: 0 0 auto; padding: var(--space-1) 0; border-inline: 0; border-block: var(--border-default); border-radius: 0; overflow-x: auto; overflow-y: hidden; min-height: 6.25rem; }
-   .viewer-dialog .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-panel-toggles { display: grid; }
-   .viewer-dialog:has(.viewer-body.viewer-pdf-active) #viewerDetailsCollapseBtn,
-   .viewer-dialog:has(#viewerImage:not([hidden])) #viewerDetailsExpandBtn,
-   .viewer-dialog:has(#viewerImage:not([hidden])) #viewerDetailsCollapseBtn { display: none !important; }
-   .viewer-dialog .document-original-panel:has(#viewerImage:not([hidden])) .pdf-panel-toggles.viewer-image-panel-toggles { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
-   .viewer-dialog .document-original-panel:has(#viewerImage:not([hidden])) .viewer-image-panel-toggles #viewerDetailsBtn { width: 100%; }
-  .viewer-dialog .document-original-panel .viewer-body.viewer-pdf-active { flex: 0 0 auto; height: min(58dvh, calc(100dvh - 15rem)); min-height: 12rem; overflow: hidden; }
+  .document-detail-view .document-unified-layout { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); flex: 0 0 auto; }
+  .document-detail-view .modal-body { overflow: auto; }
+  .document-detail-view .document-original-panel .viewer-body { flex: 0 0 auto; height: min(42dvh, 22rem); min-height: 12rem; }
+  .document-detail-view .document-unified-layout.is-details-collapsed .document-original-panel .viewer-body { height: min(68dvh, calc(100dvh - 13rem)); min-height: 12rem; }
+  .document-detail-view .document-original-panel .viewer-body { overflow: hidden; }
+  .document-detail-view .document-original-panel .viewer-body[data-viewer-fit-mode="width"] { overflow-x: hidden; overflow-y: auto; }
+  .document-detail-view .document-original-panel:has(.viewer-body.viewer-pdf-active) { display: flex; flex-direction: column; gap: var(--space-2); }
+  .document-detail-view .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar { grid-row: auto; flex-wrap: nowrap; }
+  .document-detail-view .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #pdfFitModeBtn { margin-left: 0; }
+  .document-detail-view .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #viewerExternalBtn { margin-left: auto; }
+  .document-detail-view .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-thumbnail-rail { grid-row: auto; flex: 0 0 auto; padding: var(--space-1) 0; border-inline: 0; border-block: var(--border-default); border-radius: 0; overflow-x: auto; overflow-y: hidden; min-height: 6.25rem; }
+   .document-detail-view .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-panel-toggles { display: grid; }
+   .document-detail-view:has(.viewer-body.viewer-pdf-active) #viewerDetailsCollapseBtn,
+   .document-detail-view:has(#viewerImage:not([hidden])) #viewerDetailsExpandBtn,
+   .document-detail-view:has(#viewerImage:not([hidden])) #viewerDetailsCollapseBtn { display: none !important; }
+   .document-detail-view .document-original-panel:has(#viewerImage:not([hidden])) .pdf-panel-toggles.viewer-image-panel-toggles { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+   .document-detail-view .document-original-panel:has(#viewerImage:not([hidden])) .viewer-image-panel-toggles #viewerDetailsBtn { width: 100%; }
+  .document-detail-view .document-original-panel .viewer-body.viewer-pdf-active { flex: 0 0 auto; height: min(58dvh, calc(100dvh - 15rem)); min-height: 12rem; overflow: hidden; }
   .pdf-thumbnail-list { display: flex; align-items: stretch; justify-items: initial; width: max-content; min-width: 100%; gap: var(--space-2); }
   .pdf-thumbnail { flex: 0 0 4.25rem; width: 4.25rem; }
   .pdf-thumbnail canvas { max-height: 4.75rem; }
   .pdf-pagination { gap: var(--space-1); }
   .pdf-page-status { min-width: 3rem; }
   .pdf-viewer-toolbar { --pdf-toolbar-gap: 2px; }
-  .viewer-dialog .document-unified-details { overflow: visible; padding-right: 0; }
-  .viewer-dialog .document-unified-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
-  .viewer-dialog .viewer-image-controls { width: 100%; gap: var(--space-1); }
-  .viewer-dialog .viewer-image-zoom-group .btn { width: var(--control-touch); min-width: var(--control-touch); }
-  .viewer-dialog .viewer-image-controls .viewer-image-mode { flex: 0 0 var(--control-touch); width: var(--control-touch); min-width: var(--control-touch); padding: 0; }
-   .viewer-dialog .viewer-open-original { flex: 0 0 var(--control-touch); margin-left: auto; }
-  .viewer-dialog .viewer-image-controls .btn { min-height: var(--control-touch); }
-  .viewer-dialog .document-unified-details { gap: var(--space-4); }
-  .viewer-dialog .document-unified-section { gap: var(--space-3); padding: var(--space-3); }
-  .viewer-dialog .document-unified-section > h4 { margin-bottom: var(--space-1); }
-  .viewer-dialog .document-unified-section-head .btn { min-height: var(--control-touch); }
-  .viewer-dialog .document-unified-facts { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
-  .viewer-dialog .document-unified-fact--wide { grid-column: auto; }
-  .viewer-dialog .document-unified-facts--file { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .viewer-dialog .document-unified-fact--file-name { grid-column: 1 / -1; }
-  .viewer-dialog .document-unified-people { gap: var(--space-2); }
-  .viewer-dialog .document-unified-people .btn { width: 100%; text-align: left; }
-  .viewer-dialog .document-unified-source { gap: var(--space-3); padding-top: var(--space-3); }
-  .viewer-dialog .document-unified-source-head { align-items: flex-start; }
-  .viewer-dialog .document-unified-source-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
-  .viewer-dialog .document-unified-source-actions .btn { width: 100%; }
-  .viewer-dialog #viewerDetailsExpandBtn,
-  .viewer-dialog #viewerDetailsCollapseBtn { min-height: var(--control-touch); white-space: nowrap; }
-  .viewer-dialog .document-unified-source .source-detail-fact { grid-template-columns: minmax(6.5rem, .7fr) minmax(0, 1.3fr); }
+  .document-detail-view .document-unified-details { overflow: visible; padding-right: 0; }
+  .document-detail-view .document-unified-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
+  .document-detail-view .viewer-image-controls { width: 100%; gap: var(--space-1); }
+  .document-detail-view .viewer-image-zoom-group .btn { width: var(--control-touch); min-width: var(--control-touch); }
+  .document-detail-view .viewer-image-controls .viewer-image-mode { flex: 0 0 var(--control-touch); width: var(--control-touch); min-width: var(--control-touch); padding: 0; }
+   .document-detail-view .viewer-open-original { flex: 0 0 var(--control-touch); margin-left: auto; }
+  .document-detail-view .viewer-image-controls .btn { min-height: var(--control-touch); }
+  .document-detail-view .document-unified-details { gap: var(--space-4); }
+  .document-detail-view .document-unified-section { gap: var(--space-3); padding: var(--space-3); }
+  .document-detail-view .document-unified-section > h4 { margin-bottom: var(--space-1); }
+  .document-detail-view .document-unified-section-head .btn { min-height: var(--control-touch); }
+  .document-detail-view .document-unified-facts { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+  .document-detail-view .document-unified-fact--wide { grid-column: auto; }
+  .document-detail-view .document-unified-facts--file { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .document-detail-view .document-unified-fact--file-name { grid-column: 1 / -1; }
+  .document-detail-view .document-unified-people { gap: var(--space-2); }
+  .document-detail-view .document-unified-people .btn { width: 100%; text-align: left; }
+  .document-detail-view .document-unified-source { gap: var(--space-3); padding-top: var(--space-3); }
+  .document-detail-view .document-unified-source-head { align-items: flex-start; }
+  .document-detail-view .document-unified-source-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .document-detail-view .document-unified-source-actions .btn { width: 100%; }
+  .document-detail-view #viewerDetailsExpandBtn,
+  .document-detail-view #viewerDetailsCollapseBtn { min-height: var(--control-touch); white-space: nowrap; }
+  .document-detail-view .document-unified-source .source-detail-fact { grid-template-columns: minmax(6.5rem, .7fr) minmax(0, 1.3fr); }
   .account-dropdown {
     position: fixed;
     left: 0.5rem;
@@ -3644,13 +3644,13 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 }
 
 @media (max-width: 560px) {
-  .viewer-dialog:has(.viewer-body.viewer-pdf-active) .modal-head { flex-wrap: nowrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
-  .viewer-dialog:has(.viewer-body.viewer-pdf-active) .modal-head > div:first-child { flex: 1 1 auto; min-width: 0; }
-  .viewer-dialog:has(.viewer-body.viewer-pdf-active) .modal-head h3 { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .viewer-dialog .modal-head p { display: none; }
-  .viewer-dialog:has(.viewer-body.viewer-pdf-active) .viewer-head-actions { flex: 0 0 auto; width: auto; flex-wrap: nowrap; justify-content: flex-end; gap: var(--space-1); }
-  .viewer-dialog:has(.viewer-body.viewer-pdf-active) .viewer-head-actions .icon-btn { flex: 0 0 var(--control-touch); width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); padding: 0; }
-  .viewer-dialog #viewerBackBtn, .viewer-dialog #viewerEditBtn { flex: 0 0 auto; padding-inline: var(--space-2); white-space: nowrap; }
+  .document-detail-view:has(.viewer-body.viewer-pdf-active) .modal-head { flex-wrap: nowrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); }
+  .document-detail-view:has(.viewer-body.viewer-pdf-active) .modal-head > div:first-child { flex: 1 1 auto; min-width: 0; }
+  .document-detail-view:has(.viewer-body.viewer-pdf-active) .modal-head h3 { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .document-detail-view .modal-head p { display: none; }
+  .document-detail-view:has(.viewer-body.viewer-pdf-active) .viewer-head-actions { flex: 0 0 auto; width: auto; flex-wrap: nowrap; justify-content: flex-end; gap: var(--space-1); }
+  .document-detail-view:has(.viewer-body.viewer-pdf-active) .viewer-head-actions .icon-btn { flex: 0 0 var(--control-touch); width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); padding: 0; }
+  .document-detail-view #viewerBackBtn, .document-detail-view #viewerEditBtn { flex: 0 0 auto; padding-inline: var(--space-2); white-space: nowrap; }
 }
 
 /* Vue Arbre : le canvas prend l'espace libre quand la page tient dans le viewport.
@@ -3715,7 +3715,7 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
 /* Viewer : « Nouvel onglet » réduit à l'icône seule sur très petits écrans.
    aria-label/title conservent l'accessible name ; cible ≥44px. */
 @media (max-width: 480px) {
-  .viewer-dialog #viewerExternalBtn {
+  .document-detail-view #viewerExternalBtn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -3725,7 +3725,7 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
     min-height: var(--control-touch);
     padding: 0;
   }
-  .viewer-dialog #viewerExternalBtn .ui-icon { width: 1.25rem; height: 1.25rem; }
+  .document-detail-view #viewerExternalBtn .ui-icon { width: 1.25rem; height: 1.25rem; }
 }
 
 @media (max-width: 390px) {
@@ -5113,6 +5113,56 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .proof-detail-content .document-unified-fact .btn { min-height: var(--control-touch); }
 .proof-detail-content .document-unified-people .btn { min-height: var(--control-touch); }
 .proof-detail-primary .document-unified-section { background: var(--color-surface); }
+/* Page Document dédiée (lot D) : en-tête compact, deux panneaux sur desktop,
+   onglets Original/Informations sur mobile. Reprend le lecteur existant. */
+.document-detail-shell { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+#documentDetailView { min-height: calc(100dvh - 8rem); padding-bottom: max(var(--space-5), calc(var(--space-5) + env(safe-area-inset-bottom))); }
+.document-detail-header { display: grid; grid-template-columns: var(--control-touch) minmax(0, 1fr) auto; align-items: start; gap: var(--space-3); }
+.document-detail-back { min-width: var(--control-touch); min-height: var(--control-touch); }
+.document-detail-heading { min-width: 0; }
+.document-detail-heading .page-kicker { margin-top: 0; }
+.document-detail-heading .page-title { overflow-wrap: anywhere; }
+.document-detail-heading #viewerSubtitle { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.document-detail-actions { position: relative; }
+.document-detail-actions > summary { display: inline-flex; align-items: center; justify-content: center; min-width: var(--control-touch); min-height: var(--control-touch); cursor: pointer; list-style: none; }
+.document-detail-actions > summary::-webkit-details-marker { display: none; }
+.document-detail-actions-menu { position: absolute; z-index: 40; top: calc(100% + var(--space-1)); right: 0; min-width: min(17rem, calc(100vw - 2rem)); padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-medium); }
+.document-detail-actions-menu .btn { justify-content: flex-start; width: 100%; min-height: var(--control-touch); white-space: normal; text-align: left; }
+.document-detail-tabs { display: none; }
+#documentDetailView .document-detail-layout { grid-template-columns: minmax(0, 1.45fr) minmax(21rem, .85fr); height: min(74dvh, 58rem); }
+#documentDetailView .document-detail-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
+#documentDetailView .document-original-panel { overflow-y: auto; overscroll-behavior: contain; padding-inline-end: var(--space-1); }
+#documentDetailView .document-unified-details { overflow-y: auto; overscroll-behavior: contain; }
+#documentDetailView .document-original-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+#documentDetailView.is-viewer-fullscreen .document-detail-header,
+#documentDetailView.is-viewer-fullscreen .document-detail-tabs { display: none; }
+#documentDetailView.is-viewer-fullscreen { display: flex !important; flex-direction: column; }
+#documentDetailView.is-viewer-fullscreen .document-detail-shell { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; gap: 0; }
+#documentDetailView.is-viewer-fullscreen .document-detail-layout { flex: 1 1 auto; height: auto !important; min-height: 0; }
+@media (max-width: 760px) {
+  .document-detail-header { gap: var(--space-2); margin-bottom: var(--space-2); }
+  .document-detail-heading .page-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: normal; overflow-wrap: anywhere; }
+  .document-detail-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+  .document-detail-tab { display: inline-flex; align-items: center; justify-content: center; min-height: var(--control-touch); padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-muted); font-weight: var(--weight-semibold); }
+  .document-detail-tab.is-active { background: var(--color-brand-soft); border-color: var(--color-brand); color: var(--color-brand); }
+  #documentDetailView .document-detail-layout { grid-template-columns: minmax(0, 1fr); height: auto; gap: var(--space-3); }
+  #documentUnifiedLayout[data-panel="original"] > .document-unified-details { display: none; }
+  #documentUnifiedLayout[data-panel="info"] > .document-original-panel { display: none; }
+  /* L’onglet supérieur Informations remplace le contrôle hérité sous le lecteur.
+     Sur PDF, seul ce bouton disparaît : la commande Miniatures reste disponible. */
+  #documentDetailView #viewerDetailsBtn,
+  #documentDetailView .document-original-panel:has(#viewerImage:not([hidden])) .viewer-image-panel-toggles { display: none !important; }
+  #documentDetailView .document-original-panel { overflow: visible; padding-inline-end: 0; }
+  #documentDetailView .document-original-panel .viewer-body { height: min(48dvh, 26rem); min-height: 14rem; }
+  #documentDetailView .document-original-panel .viewer-body[data-viewer-fit-mode="width"] { height: auto; min-height: 14rem; }
+  #documentDetailView .document-unified-details { overflow: visible; }
+  #documentDetailView .document-unified-facts { grid-template-columns: minmax(0, 1fr); }
+  #documentDetailView .viewer-image-controls { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+}
+@media (max-width: 560px) {
+  /* Téléphone : le nom de fichier cède la place à la lecture. */
+  #documentDetailView .document-detail-heading #viewerSubtitle { display: none; }
+}
 @media (max-width: 760px) {
   .source-detail-header { grid-template-columns: var(--control-touch) minmax(0, 1fr) var(--control-touch); align-items: start; gap: var(--space-2); margin-bottom: var(--space-4); }
   .proof-detail-header { grid-template-columns: var(--control-touch) minmax(0, 1fr) auto; }

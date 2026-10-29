@@ -69,18 +69,20 @@ const baseUrl = `http://127.0.0.1:${server.address().port}`;
 const builtHtml = await readFile(join(DIST, "index.html"), "utf8");
 const spriteStart = builtHtml.indexOf('<svg class="svg-sprite"');
 const spriteEnd = builtHtml.indexOf("</svg>", spriteStart) + "</svg>".length;
-const dialogStart = builtHtml.indexOf('<dialog id="documentViewerDialog"');
-const dialogEnd = builtHtml.indexOf("</dialog>", dialogStart) + "</dialog>".length;
+/* Lot D : le lecteur vit dans la page dédiée extraite de l'artefact. */
+const pageStart = builtHtml.lastIndexOf("<main", builtHtml.indexOf('id="documentDetailView"'));
+const pageEnd = builtHtml.indexOf("</main>", pageStart) + "</main>".length;
 const inlineCss = [...builtHtml.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join("\n");
-const pageDocument = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="${baseUrl}/"><link rel="stylesheet" href="${baseUrl}/css/design-system.css"><style>${inlineCss}</style></head><body>${builtHtml.slice(spriteStart, spriteEnd)}${builtHtml.slice(dialogStart, dialogEnd)}</body></html>`;
+const pageDocument = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="${baseUrl}/"><link rel="stylesheet" href="${baseUrl}/css/design-system.css"><style>${inlineCss}</style></head><body>${builtHtml.slice(spriteStart, spriteEnd)}${builtHtml.slice(pageStart, pageEnd)}</body></html>`;
 
 async function launchPdfViewer(page, isNarrow) {
   await page.setContent(pageDocument, { waitUntil: "load" });
   await page.evaluate(async ({ baseUrl, isNarrow }) => {
     const get = id => document.getElementById(id);
-    const dialog = get("documentViewerDialog");
-    dialog.showModal();
+    const dialog = get("documentDetailView");
+    dialog.hidden = false;
     get("viewerTitle").textContent = "PDF de test";
+    get("viewerTitle").setAttribute("aria-label", "PDF de test");
     get("viewerSubtitle").textContent = "archive.pdf";
     get("viewerDocumentDetailsContent").innerHTML = "<section class='document-unified-section'><h4>Informations documentaires</h4><p>Archive de test</p></section>";
     const layout = get("documentUnifiedLayout");
@@ -89,6 +91,8 @@ async function launchPdfViewer(page, isNarrow) {
     const detailsToggle = get("viewerDetailsBtn");
     const collapse = collapsed => {
       layout.classList.toggle("is-details-collapsed", collapsed);
+      /* La page pilote l'affichage mobile via les onglets. */
+      layout.dataset.panel = collapsed ? "original" : "info";
       details.hidden = collapsed;
       expandButton.hidden = false;
       get("viewerDetailsCollapseBtn").hidden = true;
@@ -97,9 +101,13 @@ async function launchPdfViewer(page, isNarrow) {
       const label = collapsed ? "Afficher les informations" : "Masquer les informations";
       expandButton.setAttribute("aria-label", label);
       detailsToggle.setAttribute("aria-label", label);
+      get("documentPageOriginalTab").setAttribute("aria-selected", String(collapsed));
+      get("documentPageInfoTab").setAttribute("aria-selected", String(!collapsed));
     };
     expandButton.addEventListener("click", () => collapse(!layout.classList.contains("is-details-collapsed")));
     detailsToggle.addEventListener("click", () => collapse(detailsToggle.getAttribute("aria-expanded") === "true"));
+    get("documentPageOriginalTab").addEventListener("click", () => collapse(true));
+    get("documentPageInfoTab").addEventListener("click", () => collapse(false));
     collapse(true);
 
     const toolbar = get("viewerPdfToolbar");
@@ -187,10 +195,17 @@ test("PDF production : disposition, pagination, miniatures et commandes sur desk
         await page.waitForFunction(() => !document.getElementById("viewerPdfThumbnails").hidden);
         const withRail = await measure();
         assert.ok(withRail.rail.y >= withRail.toggles.bottom - 1, "miniatures ouvertes sous les boutons dépliants");
-        await page.locator("#viewerDetailsBtn").click();
+         await page.locator("#documentPageInfoTab").click();
         await page.waitForFunction(() => !document.getElementById("viewerDocumentDetails").hidden);
-        assert.ok((await measure()).page.y >= (await measure()).surface.bottom - 1, "pagination visible avec Informations ouvertes");
+        /* Onglet Infos (lot D) : le lecteur cède la place ; la barre dépliante
+           pilote l'onglet et l'ordre document → pagination revient avec
+           l'onglet Original. */
+         assert.equal(await page.locator("#documentUnifiedLayout").getAttribute("data-panel"), "info", "ouverture des Informations pilotée par l’onglet");
+         assert.equal(await page.locator("#viewerDetailsBtn").isVisible(), false, "l’ancien bouton PDF Informations est masqué en mobile");
         assert.equal(await page.locator("#viewerDetailsCollapseBtn").evaluate(button => getComputedStyle(button).display), "none", "aucun bouton Informations redondant");
+         await page.locator("#documentPageOriginalTab").click();
+        await page.waitForTimeout(40);
+        assert.ok((await measure()).page.y >= (await measure()).surface.bottom - 1, "pagination restaurée sous le document sur l’onglet Original");
       } else {
         const toolbarBox = await page.locator("#viewerPdfToolbar").boundingBox();
         const toolbarItems = await page.locator("#viewerPdfToolbar > *").evaluateAll(elements => elements.map(element => ({ id: element.id, hidden: element.hidden, rect: element.getBoundingClientRect().toJSON() })));
@@ -234,9 +249,9 @@ test("PDF production : disposition, pagination, miniatures et commandes sur desk
       await page.waitForFunction(() => document.getElementById("pdfPageStatus").textContent.includes("2 / 3"));
       assert.equal(await page.locator('.pdf-thumbnail[data-pdf-page="2"]').getAttribute("aria-current"), "page", "miniature active synchronisée au numéro de page");
       await page.locator("#pdfFullscreenBtn").click();
-      await page.waitForFunction(() => document.getElementById("documentViewerDialog").classList.contains("is-viewer-fullscreen"));
+      await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
       await page.keyboard.press("Escape");
-      await page.waitForFunction(() => !document.getElementById("documentViewerDialog").classList.contains("is-viewer-fullscreen"));
+      await page.waitForFunction(() => !document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
       await page.evaluate(() => window.__productionPdfViewer.destroy());
       await page.close();
       t.diagnostic(`${name} : zoom groupé, commandes indépendantes et navigation validés`);

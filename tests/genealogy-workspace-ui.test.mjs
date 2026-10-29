@@ -450,7 +450,7 @@ test("l'interface distingue les médias historiques optimisés et indique l'abse
 
 test("la consultation depuis Documents compose une fiche unifiée sans remplacer les modèles existants", () => {
   const details = app.match(/function renderUnifiedDocumentDetails\(item\)[\s\S]*?\n\}/)?.[0] || "";
-  assert.match(html, /class="document-unified-layout"/);
+  assert.match(html, /class="document-detail-layout document-unified-layout"/);
   assert.match(html, /class="document-original-panel"/);
   assert.match(html, /id="viewerDocumentDetails"/);
   assert.match(details, /Informations fichier/);
@@ -509,7 +509,7 @@ test("la fiche document unifiée raccorde l'ajout et la gestion de Source offici
   assert.match(unified, /linkedSources\.length\s+\?\s*`<button[^`]*data-manage-sources-from-document[^`]*<\/button>`\s*:\s*`<button[^`]*data-create-source-from-document[^`]*<\/button>`/);
   assert.match(unified, /const sourceHead = `<div class="document-unified-section-head"><h4>Sources et provenance<\/h4>\$\{sourceActions\}<\/div>`/, "en-tête de section avec CTA");
   assert.match(unified, /\$\{sourceHead\}\$\{sourceMarkup\}/, "en-tête raccordé à la section Sources");
-  assert.match(app, /function refreshUnifiedDetailsIfOpen\(\) \{[\r\n\s]*if \(!\$\("documentViewerDialog"\)\.open/);
+  assert.match(app, /function refreshUnifiedDetailsIfOpen\(\) \{[\r\n\s]*if \(!isDocumentPageVisible\(\)/);
   assert.match(app, /\$\("genealogyItemDialog"\)\.addEventListener\("close", \(\) => \{[\r\n\s]*genealogyItemReturn = null;[\s\S]{0,160}?if \(reopenUnifiedDocumentAfter\("genealogyItemDialog"\)\) return;/);
   assert.match(unified, /\+ Ajouter une source/, "CTA source compact, aligné sur « + Créer une preuve »");
   assert.doesNotMatch(unified, /Ajouter une source officielle/, "ancien libellé long retiré");
@@ -578,10 +578,10 @@ test("la fiche unifiée permet de modifier document, source et naviguer vers les
   assert.match(app, /openGenealogyContribution\(\{ official: true, reviseItem: \{ kind: "source"/);
   assert.match(app, /reopenUnifiedDocumentAfter\("documentDialog"\)/);
   assert.match(app, /reopenUnifiedDocumentAfter\("genealogyContributionDialog"\)/);
-  assert.match(html, /document-unified-layout/);
+  assert.match(html, /class="document-detail-layout document-unified-layout"/);
   assert.match(html, /document-unified-details/);
   assert.match(css, /\.document-unified-layout \{ display: grid; grid-template-columns: minmax\(0, 1\.2fr\) minmax\(19rem, \.8fr\)/);
-  assert.match(css, /\.viewer-dialog \.document-unified-layout \{ grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(css, /\.document-detail-view \.document-unified-layout \{ grid-template-columns: minmax\(0, 1fr\)/);
 });
 
 test("le visualiseur branche le zoom image et réserve le menu d’actions du header", () => {
@@ -593,11 +593,12 @@ test("le visualiseur branche le zoom image et réserve le menu d’actions du he
   assert.match(app, /function setupViewerImage\(item\)[\s\S]*?createDocumentImageViewer\(/);
   assert.match(app, /zoomIndicator: \$\("viewerZoomIndicator"\)/);
   assert.match(app, /fullscreenButton: \$\("viewerFullscreenBtn"\)/);
-  assert.match(app, /fullscreenHost: \$\("documentViewerDialog"\)\.querySelector\("\.document-original-panel"\)/);
+  assert.match(app, /fullscreenHost: \$\("documentDetailView"\)\.querySelector\("\.document-original-panel"\)/);
   assert.match(app, /viewerImageControls"\)\.hidden = true/);
   assert.match(app, /if \(mimeType\.startsWith\("image\/"\)\)[\s\S]*?setupViewerImage\(item\)/);
   assert.match(app, /function setUnifiedDetailsCollapsed\(collapsed\)[\s\S]*?details\.hidden = collapsed/);
-  assert.match(app, /setUnifiedDetailsCollapsed\(true\)/);
+  /* Page dédiée : les deux panneaux sont ouverts par défaut sur desktop. */
+  assert.match(app, /setUnifiedDetailsCollapsed\(false\)/);
   assert.doesNotMatch(app, /if \(window\.innerWidth <= 760\) collapsed = false/);
   assert.match(html, /id="viewerDetailsExpandBtn" aria-controls="viewerDocumentDetails" aria-expanded="false"/);
   assert.match(html, /id="viewerDetailsCollapseBtn" aria-controls="viewerDocumentDetails" aria-expanded="true"/);
@@ -614,11 +615,11 @@ test("les informations du viewer gardent leur repli unique et une mise en page m
   assert.match(app, /layout\.classList\.toggle\("is-details-collapsed", collapsed\)/);
   assert.match(app, /details\.hidden = collapsed/);
   assert.match(css, /\.document-unified-layout \{ display: grid; grid-template-columns: minmax\(0, 1\.2fr\) minmax\(19rem, \.8fr\)/);
-  assert.match(css, /\.viewer-dialog \.document-unified-layout \{ grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(css, /\.document-detail-view \.document-unified-layout \{ grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(css, /\.document-unified-layout\.is-details-collapsed \.document-original-panel \.viewer-body \{ height: min\(68dvh, calc\(100dvh - 13rem\)\)/);
   assert.match(css, /\.document-unified-details-content \{ display: grid; align-content: start; gap: var\(--space-4\);/);
   assert.match(css, /\.document-unified-fact--wide \{ grid-column: 1 \/ -1; \}/);
-  assert.match(css, /\.viewer-dialog \.document-unified-source-actions \.btn \{ width: 100%; \}/);
+  assert.match(css, /\.document-detail-view \.document-unified-source-actions \.btn \{ width: 100%; \}/);
   assert.match(html, /class="btn icon-btn viewer-details-toggle"[^>]*id="viewerDetailsCollapseBtn"/);
   assert.match(html, /class="btn icon-btn viewer-details-toggle"[^>]*id="viewerDetailsExpandBtn"/);
 });
@@ -637,5 +638,5 @@ test("le viewer expose l’indicateur de zoom et les commandes de plein écran a
   assert.match(imageViewer, /setFullscreenState\(true, true\)/);
   assert.match(imageViewer, /zoomIndicatorTimer !== null\) globalThis\.clearTimeout/);
   assert.match(css, /\.viewer-zoom-indicator \{[\s\S]*?pointer-events: none/);
-  assert.match(css, /#documentViewerDialog\.is-viewer-fullscreen \.document-original-panel \.viewer-body/);
+  assert.match(css, /#documentDetailView\.is-viewer-fullscreen \.document-original-panel \.viewer-body/);
 });

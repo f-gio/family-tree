@@ -94,10 +94,13 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
     };
 
     const closeResidualDialogs = () => page.evaluate(() => {
-      for (const id of ["genealogyContributionDialog", "personDialog", "documentViewerDialog", "genealogyItemDialog"]) {
+      for (const id of ["genealogyContributionDialog", "personDialog", "genealogyItemDialog"]) {
         const dialog = document.getElementById(id);
         if (dialog?.open) dialog.close();
       }
+      /* Page Document dédiée (lot D) : sortie par le Retour de la page. */
+      const documentPage = document.getElementById("documentDetailView");
+      if (documentPage && !documentPage.hidden) document.getElementById("documentPageBackBtn").click();
     });
 
     const openProofDialogFromPerson = async () => {
@@ -158,9 +161,12 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.click('.nav-btn[data-view="documents"]');
       await page.waitForSelector("#documentsList", { timeout: 10000 });
       await page.locator(".document-card").getByText("Registre probe", { exact: false }).first().click();
-      await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
+      await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden, { timeout: 10000 });
       // ouverture du volet Informations (desktop)
-      if (await page.locator("#viewerDetailsExpandBtn").isVisible()) await page.click("#viewerDetailsExpandBtn");
+      await page.evaluate(() => {
+        const layout = document.getElementById("documentUnifiedLayout");
+        if (layout.classList.contains("is-details-collapsed")) document.getElementById("viewerDetailsExpandBtn").click();
+      });
       await page.waitForSelector("[data-create-proof-from-document]", { timeout: 10000 });
       await page.click("[data-create-proof-from-document]");
       await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
@@ -186,8 +192,8 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.waitForTimeout(800);
       assert.equal(await probe.count("genealogyProofs"), 2, "seconde preuve créée");
       // réouverture : le volet doit refléter la nouvelle preuve liée
-      const detailsOpen = await page.locator("#documentViewerDialog[open]").count();
-      assert.ok(detailsOpen === 1, "visionneuse toujours ouverte après fermeture du dialogue");
+      const detailsOpen = await page.locator("#documentDetailView:not([hidden])").count();
+      assert.ok(detailsOpen === 1, "page Document toujours affichée après fermeture du dialogue");
     });
 
     await t.test("3. géométrie : aucun débordement horizontal du dialogue", async () => {
@@ -344,13 +350,15 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
       assert.ok(await page.locator("#proofDetailView:not([hidden])").count(), "page Preuve conservée après la visite personne");
-      // Preuve → Document : la visionneuse s'ouvre par-dessus et la page reste appelante.
+      // Preuve → Document : la page Document prend la place de la page Preuve ;
+      // Échap conserve le retour contextuel vers la Preuve appelante.
       const docLink = page.locator("#proofPageContent [data-source-document-open]").first();
       await docLink.click();
-      await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
+      await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden, { timeout: 10000 });
+      assert.ok(!(await page.locator("#proofDetailView").count()) || await page.locator("#proofDetailView").evaluate(el => el.hidden), "la page Preuve est remplacée par le document");
       await page.keyboard.press("Escape");
       await page.waitForTimeout(400);
-      assert.ok(await page.locator("#proofDetailView:not([hidden])").count(), "page Preuve conservée après la visite document");
+      assert.ok(await page.locator("#proofDetailView:not([hidden])").count(), "page Preuve restaurée après la visite document");
       await page.click("#proofPageBackBtn");
     });
 
@@ -709,6 +717,9 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
     });
 
     await t.test("12. navigation Document → Source et Document → Preuve avec retour au Document", async () => {
+      /* Le volet unifié est un parcours desktop : on sort du viewport mobile
+         résiduel du sous-test 7. */
+      await page.setViewportSize({ width: 1280, height: 900 });
       const linkedSourceId = "ui-nav-linked-source";
       await probe.createOfficial({
         type: "source", id: linkedSourceId, revisionId: "ui-nav-source-r1", eventId: "ui-nav-source-e1",
@@ -718,8 +729,11 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.click('.nav-btn[data-view="documents"]');
       await page.waitForTimeout(500);
       await page.locator(".document-card").filter({ hasText: "Registre probe" }).first().click();
-      await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
-      await page.click("#viewerDetailsExpandBtn");
+      await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden, { timeout: 10000 });
+      await page.evaluate(() => {
+        const layout = document.getElementById("documentUnifiedLayout");
+        if (layout.classList.contains("is-details-collapsed")) document.getElementById("viewerDetailsExpandBtn").click();
+      });
       await page.waitForTimeout(300);
 
       // Document → Source : ouverture directe depuis la carte, aucun retour hérité
@@ -731,10 +745,13 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       assert.ok(await page.locator("#sourcePageBackBtn").isVisible(), "retour explicite de la page Source");
       await page.click("#sourcePageBackBtn");
       await page.waitForFunction(() => document.getElementById("sourceDetailView").hidden, { timeout: 10000 });
-      await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
+      await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden, { timeout: 10000 });
 
       // Document → Preuve : même parcours de retour
-      await page.click("#viewerDetailsExpandBtn");
+      await page.evaluate(() => {
+        const layout = document.getElementById("documentUnifiedLayout");
+        if (layout.classList.contains("is-details-collapsed")) document.getElementById("viewerDetailsExpandBtn").click();
+      });
       await page.waitForTimeout(300);
       const proofCard = page.locator("[data-unified-proof-card]").first();
       assert.ok(await proofCard.count(), "carte Preuve cliquable présente dans le volet");
@@ -743,7 +760,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       assert.ok(await page.locator("#proofPageBackBtn").isVisible(), "retour explicite vers le document appelant");
       await page.click("#proofPageBackBtn");
       await page.waitForFunction(() => document.getElementById("proofDetailView").hidden, { timeout: 10000 });
-      await page.waitForSelector("#documentViewerDialog[open]", { timeout: 10000 });
+      await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden, { timeout: 10000 });
       await closeResidualDialogs();
     });
 

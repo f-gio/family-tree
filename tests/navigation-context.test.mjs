@@ -95,7 +95,7 @@ test("l'origine de l'atelier conserve la pile de retour entre fiches", () => {
   assert.match(restore, /openGenealogyItem\(target\.itemKind, target\.id, target\.pageId, target\.photoId\)/, "fiche d'origine rouverte");
   assert.match(restore, /genealogyItemReturn = \{ \.\.\.target\.ficheReturn \};/, "pile de retour restaurée");
   assert.match(restore, /const backButton = \$\("genealogyItemBackBtn"\);/, "bouton Retour de la fiche resynchronisé");
-  assert.match(restore, /openStoredDocument\(documentItem, target\.returnContext\)/, "visionneuse d'origine rouverte avec son contexte");
+  assert.match(restore, /openStoredDocument\(documentItem, \{[\s\S]{0,180}pageContext: target\.pageContext \|\| null/, "page Document d'origine rouverte avec son contexte structuré (lot D)");
 });
 
 test("stopPrivateData ferme l'atelier et masque sa vue privée", () => {
