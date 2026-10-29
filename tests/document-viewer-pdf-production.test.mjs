@@ -83,31 +83,26 @@ async function launchPdfViewer(page, isNarrow) {
     dialog.hidden = false;
     get("viewerTitle").textContent = "PDF de test";
     get("viewerTitle").setAttribute("aria-label", "PDF de test");
-    get("viewerSubtitle").textContent = "archive.pdf";
     get("viewerDocumentDetailsContent").innerHTML = "<section class='document-unified-section'><h4>Informations documentaires</h4><p>Archive de test</p></section>";
     const layout = get("documentUnifiedLayout");
     const details = get("viewerDocumentDetails");
     const expandButton = get("viewerDetailsExpandBtn");
-    const detailsToggle = get("viewerDetailsBtn");
+    /* Lot G : volets mobiles fermés par défaut, ouverts par les bascules sous
+       la pagination ; le repli desktop passe par le bouton unique de la barre. */
     const collapse = collapsed => {
       layout.classList.toggle("is-details-collapsed", collapsed);
-      /* La page pilote l'affichage mobile via les onglets. */
-      layout.dataset.panel = collapsed ? "original" : "info";
       details.hidden = collapsed;
       expandButton.hidden = false;
       get("viewerDetailsCollapseBtn").hidden = true;
       expandButton.setAttribute("aria-expanded", String(!collapsed));
-      detailsToggle.setAttribute("aria-expanded", String(!collapsed));
       const label = collapsed ? "Afficher les informations" : "Masquer les informations";
       expandButton.setAttribute("aria-label", label);
+      const detailsToggle = get("viewerDetailsBtn");
+      detailsToggle.setAttribute("aria-expanded", String(!collapsed));
       detailsToggle.setAttribute("aria-label", label);
-      get("documentPageOriginalTab").setAttribute("aria-selected", String(collapsed));
-      get("documentPageInfoTab").setAttribute("aria-selected", String(!collapsed));
     };
-    expandButton.addEventListener("click", () => collapse(!layout.classList.contains("is-details-collapsed")));
-    detailsToggle.addEventListener("click", () => collapse(detailsToggle.getAttribute("aria-expanded") === "true"));
-    get("documentPageOriginalTab").addEventListener("click", () => collapse(true));
-    get("documentPageInfoTab").addEventListener("click", () => collapse(false));
+    if (!isNarrow) expandButton.addEventListener("click", () => collapse(!layout.classList.contains("is-details-collapsed")));
+    get("viewerDetailsBtn").addEventListener("click", () => collapse(get("viewerDetailsBtn").getAttribute("aria-expanded") === "true"));
     collapse(true);
 
     const toolbar = get("viewerPdfToolbar");
@@ -173,7 +168,7 @@ test("PDF production : disposition, pagination, miniatures et commandes sur desk
           toolbar: rect("viewerPdfToolbar"), surface: rect("viewerPdfSurface"), page: rect("pdfPageNav"), toggles: rect("pdfPanelToggles"),
           rail: rect("viewerPdfThumbnails"), zoomOut: rect("pdfZoomOutBtn"), zoomIn: rect("pdfZoomInBtn"),
           fit: rect("pdfFitModeBtn"), fullscreen: rect("pdfFullscreenBtn"), external: rect("viewerExternalBtn"),
-          info: rect(isMobile ? "viewerDetailsBtn" : "viewerDetailsExpandBtn"), status: rect("pdfPageStatus"),
+          info: rect("viewerDetailsExpandBtn"), details: rect("viewerDocumentDetails"), status: rect("pdfPageStatus"),
           width: document.documentElement.scrollWidth, viewport: innerWidth
         };
       }, mobile);
@@ -191,21 +186,23 @@ test("PDF production : disposition, pagination, miniatures et commandes sur desk
         assert.ok(initial.page.bottom <= initial.toggles.y + 1, "pagination avant les boutons dépliants");
         assert.ok(initial.page.y >= initial.surface.bottom - 1, "pagination directement sous le document");
         assert.ok(initial.status.x > initial.page.x && initial.status.right < initial.page.right, "numéro de page centré entre les flèches");
+        /* Lot G : deux bascules équilibrées, volets fermés par défaut. */
+        assert.equal(await page.evaluate(() => document.getElementById("viewerDocumentDetails").hidden), true, "volet Informations fermé par défaut");
+        assert.equal(await page.evaluate(() => document.getElementById("viewerPdfThumbnails").hidden), true, "miniatures fermées par défaut");
+        const toggleBox = await page.locator("#pdfThumbnailsBtn").boundingBox();
+        const infoToggleBox = await page.locator("#viewerDetailsBtn").boundingBox();
+        assert.ok(Math.abs(toggleBox.height - infoToggleBox.height) <= 1 && Math.abs(toggleBox.width - infoToggleBox.width) <= 1, "bascules Miniatures/Informations équilibrées, même style et même hauteur");
+        assert.ok(toggleBox.x < infoToggleBox.x, "Miniatures à gauche, Informations à droite");
+        /* Les deux volets ouverts : contenu sous la rangée, sans chevauchement,
+           miniatures juste avant Informations. */
         await page.locator("#pdfThumbnailsBtn").click();
         await page.waitForFunction(() => !document.getElementById("viewerPdfThumbnails").hidden);
+        await page.locator("#viewerDetailsBtn").click();
+        await page.waitForFunction(() => !document.getElementById("viewerDocumentDetails").hidden);
+        await page.waitForTimeout(400);
         const withRail = await measure();
         assert.ok(withRail.rail.y >= withRail.toggles.bottom - 1, "miniatures ouvertes sous les boutons dépliants");
-         await page.locator("#documentPageInfoTab").click();
-        await page.waitForFunction(() => !document.getElementById("viewerDocumentDetails").hidden);
-        /* Onglet Infos (lot D) : le lecteur cède la place ; la barre dépliante
-           pilote l'onglet et l'ordre document → pagination revient avec
-           l'onglet Original. */
-         assert.equal(await page.locator("#documentUnifiedLayout").getAttribute("data-panel"), "info", "ouverture des Informations pilotée par l’onglet");
-         assert.equal(await page.locator("#viewerDetailsBtn").isVisible(), false, "l’ancien bouton PDF Informations est masqué en mobile");
-        assert.equal(await page.locator("#viewerDetailsCollapseBtn").evaluate(button => getComputedStyle(button).display), "none", "aucun bouton Informations redondant");
-         await page.locator("#documentPageOriginalTab").click();
-        await page.waitForTimeout(40);
-        assert.ok((await measure()).page.y >= (await measure()).surface.bottom - 1, "pagination restaurée sous le document sur l’onglet Original");
+        assert.ok(withRail.rail.bottom <= withRail.details.y + 1, "les miniatures restent immédiatement avant le bloc Informations");
       } else {
         const toolbarBox = await page.locator("#viewerPdfToolbar").boundingBox();
         const toolbarItems = await page.locator("#viewerPdfToolbar > *").evaluateAll(elements => elements.map(element => ({ id: element.id, hidden: element.hidden, rect: element.getBoundingClientRect().toJSON() })));

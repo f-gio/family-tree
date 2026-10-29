@@ -46,9 +46,16 @@ test("Viewer : règles statiques mobile, commandes compactes, plein écran et sa
   assert.match(css, /\.document-detail-shell \{ display: flex; flex-direction: column;/);
   /* Clamp / troncature du titre scopé page */
   assert.match(css, /\.dedicated-page-heading > h2 \{ display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; \}/);
-  assert.match(css, /#documentDetailView #viewerDetailsBtn,[\s\S]*?\.viewer-image-panel-toggles \{ display: none !important; \}/, "le contrôle hérité Informations est masqué sur mobile");
-  /* Métadonnées conservées sous le titre, sans occuper plusieurs rangées. */
-  assert.match(css, /\.document-detail-heading #viewerSubtitle \{ display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
+  /* Lot G : plus d'onglet supérieur — les volets mobiles repassent par les
+     bascules sous le lecteur (Miniatures + Informations sur PDF, Informations
+     seul sur image), fermés par défaut. */
+  assert.match(html, /id="viewerDetailsBtn"[^>]*aria-expanded="false"/, "la bascule Informations sous le lecteur est de retour");
+  assert.match(html, /id="pdfThumbnailsBtn"[^>]*aria-controls="viewerPdfThumbnails"/, "la bascule Miniatures reste en place");
+  assert.doesNotMatch(html, /document-detail-tabs|data-document-page-tab|data-panel=/, "plus d'onglets mobiles : volets dans le flux de la page");
+  /* Lot G : aucun sous-titre sous le titre Document — la visionneuse remonte
+     immédiatement sous l'en-tête. */
+  assert.doesNotMatch(html, /id="viewerSubtitle"/, "le sous-titre Document a disparu du DOM");
+  assert.doesNotMatch(css, /#viewerSubtitle/, "aucune règle résiduelle pour le sous-titre");
   /* Safe-area basse */
   assert.match(css, /#documentDetailView \{ min-height: calc\(100dvh - 8rem\); padding-bottom: max\(var\(--space-5\), calc\(var\(--space-5\) \+ env\(safe-area-inset-bottom\)\)\); \}/);
   assert.match(html, /class="viewer-image-zoom-group viewer-image-only"[\s\S]*?data-viewer-image-zoom="out"[\s\S]*?data-viewer-image-zoom="in"[\s\S]*?id="viewerImageModeBtn"[\s\S]*?id="viewerExternalBtn"/);
@@ -108,7 +115,6 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     document.getElementById("viewerTitle").textContent = title;
     document.getElementById("viewerTitle").setAttribute("aria-label", title);
     document.getElementById("viewerTitle").title = title;
-    document.getElementById("viewerSubtitle").textContent = fileName;
     const img = document.getElementById("viewerImage");
     const frame = document.getElementById("viewerFrame");
     if (forceFullscreenFallback) {
@@ -132,22 +138,22 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     const expandButton = document.getElementById("viewerDetailsExpandBtn");
     const detailsToggle = document.getElementById("viewerDetailsBtn");
     const mobile = matchMedia("(max-width: 760px)").matches;
-    layout.classList.toggle("is-details-collapsed", detailsCollapsed);
-    /* Mobile : la page ouvre toujours l'onglet Original (lecteur prioritaire,
-       fidèle à openStoredDocument) ; desktop : repli piloté par la demande. */
-    layout.dataset.panel = mobile ? "original" : (detailsCollapsed ? "original" : "info");
-    /* Mobile : les onglets pilotent l'affichage ; le hidden ne s'applique
-       qu'en desktop comme avant. */
-    details.hidden = mobile ? false : detailsCollapsed;
+    /* Lot G : volets mobiles fermés par défaut (comme la capture iPhone
+       validée) ; desktop conserve son repli à la demande. */
+    const effectiveCollapsed = mobile ? true : detailsCollapsed;
+    layout.classList.toggle("is-details-collapsed", effectiveCollapsed);
+    details.hidden = effectiveCollapsed;
     collapseButton.hidden = true;
     expandButton.hidden = false;
-    detailsToggle.setAttribute("aria-expanded", String(!detailsCollapsed));
-    collapseButton.setAttribute("aria-expanded", String(!detailsCollapsed));
-    expandButton.setAttribute("aria-expanded", String(!detailsCollapsed));
-    const detailsLabel = detailsCollapsed ? "Afficher les informations" : "Masquer les informations";
+    collapseButton.setAttribute("aria-expanded", String(!effectiveCollapsed));
+    expandButton.setAttribute("aria-expanded", String(!effectiveCollapsed));
+    detailsToggle.setAttribute("aria-expanded", String(!effectiveCollapsed));
+    const detailsLabel = effectiveCollapsed ? "Afficher les informations" : "Masquer les informations";
     expandButton.setAttribute("aria-label", detailsLabel);
     expandButton.title = detailsLabel;
-    expandButton.querySelector("use")?.setAttribute("href", detailsCollapsed ? "#icon-panel-expand" : "#icon-panel-collapse");
+    detailsToggle.setAttribute("aria-label", detailsLabel);
+    detailsToggle.title = detailsLabel;
+    expandButton.querySelector("use")?.setAttribute("href", effectiveCollapsed ? "#icon-panel-expand" : "#icon-panel-collapse");
     if (kind === "image") {
       img.src = src;
       img.hidden = false;
@@ -193,7 +199,6 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
         } else {
           pdfToolbar.append(thumbnails);
           thumbnails.hidden = false;
-          toggles.classList.remove("viewer-image-panel-toggles");
           toggles.hidden = true;
           controls.append(fullscreen, external, expandButton);
         }
@@ -217,7 +222,6 @@ async function measureViewer(page) {
     const detailsPanel = dialog.querySelector(".document-unified-details");
     const viewer = dialog.querySelector(".viewer-body");
     const title = document.getElementById("viewerTitle");
-    const subtitle = document.getElementById("viewerSubtitle");
     const external = document.getElementById("viewerExternalBtn");
     const modeButton = document.getElementById("viewerImageModeBtn");
     const zoomGroup = document.querySelector(".viewer-image-zoom-group");
@@ -236,7 +240,6 @@ async function measureViewer(page) {
       return { x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1), right: +r.right.toFixed(1), bottom: +r.bottom.toFixed(1), maxHeight: getComputedStyle(el).maxHeight, overflowY: getComputedStyle(el).overflowY };
     };
     const titleStyle = getComputedStyle(title);
-    const subtitleStyle = getComputedStyle(subtitle);
     const scrolling = document.scrollingElement;
     return {
       open: !dialog.hidden,
@@ -251,11 +254,7 @@ async function measureViewer(page) {
       titleOverflow: titleStyle.overflow,
       titleText: title.textContent,
       titleAccessible: dialog.getAttribute("aria-labelledby") === "viewerTitle" && title.textContent.length > 0,
-      subtitleDisplay: subtitleStyle.display,
-      subtitleH: +subtitle.getBoundingClientRect().height.toFixed(1),
-      subtitleOverflowX: subtitleStyle.overflowX,
-      subtitleEllipsis: subtitleStyle.textOverflow,
-      subtitleText: subtitle.textContent,
+      subtitleAbsent: !document.getElementById("viewerSubtitle"),
       externalHidden: external.hidden,
       externalIconHref: externalIcon?.getAttribute("href") || null,
       externalText: external.textContent.trim(),
@@ -355,17 +354,16 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 assert.ok(m.titleAccessible, `${key} : titre complet accessible`);
                 assert.ok(m.bodyDisplay === "flex", `${key} : shell de page en colonnes`);
                 assert.equal(m.bodyMinH, "0px", `${key} : shell sans hauteur forcée`);
-                assert.ok(m.layout && m.originalPanel && m.detailsPanel, `${key} : fiche unifiée contient original et informations`);
+                assert.ok(m.layout && m.originalPanel, `${key} : fiche unifiée contient le lecteur et son volet Informations`);
                 assert.equal(m.detailSectionCount, 3, `${key} : informations, personnes et sources rendues`);
                 assert.equal(m.sourceSections, 2, `${key} : plusieurs sources restent visibles séparément`);
                 assert.equal(m.detailsCardGap, "16px", `${key} : grille des trois cartes utilise un véritable espacement de 16px`);
                 if (width <= 760) {
-                  /* Mobile : les onglets pilotent les panneaux — les cartes
-                     d'informations ne sont mesurables que via l'onglet (couvert
-                     par le test « informations se replient sous le lecteur »). */
-                  assert.equal(m.layoutPanel, "original", `${width}px : onglet Original actif à l'ouverture`);
-                  assert.equal(m.detailsPanel.w, 0, `${width}px : panneau informations masqué derrière l'onglet`);
-                  assert.ok(m.originalPanel.y < m.viewer.y || m.originalPanel.y >= 0, `${width}px : original affiché en premier`);
+                  /* Lot G : volets fermés par défaut — les Informations sont
+                     repliées à l'ouverture, la bascule les ouvre dans le flux. */
+                  assert.equal(m.detailsVisible, false, `${width}px : informations fermées par défaut`);
+                  assert.equal(m.detailsPanel, null, `${width}px : volet Informations replié sans réserver d'espace`);
+                  assert.ok(await page.locator("#viewerDetailsBtn").isVisible(), `${width}px : bascule Informations sous le lecteur`);
                 } else {
                   assert.equal(m.detailsCardBoxes.length, 3, `${key} : trois cartes mesurables dans le volet`);
                   for (let index = 1; index < m.detailsCardBoxes.length; index++) {
@@ -400,10 +398,9 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 await page.keyboard.press("Escape");
                 assert.ok(m.externalAriaLabel === "Ouvrir dans un nouvel onglet", `${key} : aria-label conservé`);
                 assert.ok(m.externalTitle === "Ouvrir dans un nouvel onglet", `${key} : title conservé`);
-                 /* Métadonnées essentielles restent visibles, compactées sur une ligne en téléphone. */
-                 assert.notEqual(m.subtitleDisplay, "none", `${key} : sous-titre visible`);
-                 assert.equal(m.subtitleEllipsis, "ellipsis", `${key} : ellipsis sous-titre`);
-                /* clamp : le header ne doit plus exploser avec un titre long */
+                 /* Lot G : aucun sous-titre sous le titre Document. */
+                 assert.equal(m.subtitleAbsent, true, `${key} : aucun sous-titre résiduel sous le titre`);
+                 /* clamp : le header ne doit plus exploser avec un titre long */
                 if (key === "long") {
                   assert.ok(m.titleH <= 2 * 40 + 2, `${key} : titre borné à 2 lignes (h=${m.titleH})`);
                   assert.ok(m.head.h <= 160, `${key} : header long borné sur deux lignes (${m.head.h}px)`);
@@ -490,8 +487,8 @@ test("Viewer desktop 1024×768 : inchangé (texte, titre, sous-titre, modale cen
       assert.equal(m.externalText, "", "l’action externe reste une icône seule sur desktop");
       assert.equal(m.externalIconHref, "#icon-external-link");
       assert.ok(m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, "cible externe ≥44px sur desktop");
-       assert.notEqual(m.subtitleDisplay, "none", "métadonnées visibles sur desktop");
-       assert.equal(m.titleClamp, "2", "titre limité à deux lignes sur desktop aussi");
+       assert.equal(m.subtitleAbsent, true, "aucun sous-titre sous le titre Document (lot G)");
+        assert.equal(m.titleClamp, "2", "titre limité à deux lignes sur desktop aussi");
       /* Page dédiée : pleine largeur de contenu, deux panneaux, sans modal. */
       assert.ok(m.dialog.w >= 1024 - 60, `page pleine largeur de contenu (${m.dialog.w})`);
       assert.equal(m.radius, "0px", "page sans arrondi de modal");
@@ -723,7 +720,7 @@ test("Desktop : panneau d'informations repliable sans recharger ni réinitialise
   } finally { await browser.close(); await server.close(); }
 });
 
-test("Informations repliées par défaut sur desktop, tablette et mobile; disposition réversible", async t => {
+test("Informations repliées par défaut sur desktop, visibles sous le lecteur en mobile; disposition réversible", async t => {
   let browser;
   try { browser = await chromium.launch({ headless: true }); }
   catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
@@ -736,20 +733,28 @@ test("Informations repliées par défaut sur desktop, tablette et mobile; dispos
         await openViewer(page, { title: "Registre immobilier", fileName: longName, src: portraitSvg, detailsCollapsed: true });
         const source = await page.locator("#viewerImage").evaluate(image => image.currentSrc);
         const collapsed = await measureViewer(page);
-        assert.equal(collapsed.detailsVisible, false, `${width}px : informations repliées à l’ouverture`);
-        const expandControl = page.locator(width <= 760 ? "#documentPageInfoTab" : "#viewerDetailsExpandBtn");
-        assert.equal(await expandControl.isVisible(), true, `${width}px : commande d’ouverture visible`);
-        if (width <= 760) assert.equal(await page.locator("#viewerDetailsBtn").isVisible(), false, `${width}px : ancien bouton sous le lecteur masqué`);
+        /* Lot G : volet Informations fermé par défaut à toutes les largeurs. */
+        assert.equal(collapsed.detailsVisible, false, `${width}px : informations repliées à l'ouverture`);
+        /* Mobile : la bascule Informations vit sous la visionneuse ; desktop :
+           le bouton unique reste dans la barre. */
+        const expandControl = page.locator(width <= 760 ? "#viewerDetailsBtn" : "#viewerDetailsExpandBtn");
+        assert.equal(await expandControl.isVisible(), true, `${width}px : commande d'ouverture visible`);
         assert.equal(collapsed.detailsExpandAria, "false", `${width}px : aria-expanded reflète le repli`);
         assert.equal(collapsed.layoutColumns.split(" ").length, 1, `${width}px : aucune colonne vide quand le panneau est replié`);
-        assert.ok(Math.abs(collapsed.originalPanel.w - collapsed.layout.w) < 2, `${width}px : le lecteur occupe toute la grille repliée`);
+        assert.ok(Math.abs(collapsed.originalPanel.w - collapsed.layout.w) < 2, `${width}px : le lecteur occupe toute la largeur`);
+        if (width <= 760) {
+          const toggleBox = await page.locator("#viewerDetailsBtn").boundingBox();
+          const readerBox = await page.locator("#viewerImageViewport").boundingBox();
+          assert.ok(toggleBox.y >= readerBox.y, `${width}px : la bascule Informations est sous la visionneuse`);
+          assert.ok(toggleBox.height >= 44, `${width}px : bascule Informations tactile ≥44px`);
+        }
+        assert.equal(collapsed.docOverflowX, 0, `${width}px : le nom long ne déborde pas horizontalement`);
 
         for (let iteration = 0; iteration < 2; iteration++) {
           await expandControl.click();
           await page.waitForTimeout(40);
           const expanded = await measureViewer(page);
           assert.equal(expanded.detailsVisible, true, `${width}px : volet déployé (${iteration + 1})`);
-          if (width <= 760) assert.equal(expanded.layoutPanel, "info", `${width}px : onglet Informations actif (${iteration + 1})`);
           assert.equal(expanded.detailsCollapseAria, "true", `${width}px : état accessible déployé`);
           assert.equal(expanded.detailSectionCount, 3, `${width}px : les trois cartes restent présentes`);
           assert.equal(expanded.detailsCardGap, "16px", `${width}px : espacement de grille entre cartes`);
@@ -759,24 +764,19 @@ test("Informations repliées par défaut sur desktop, tablette et mobile; dispos
             }
           }
           assert.ok(expanded.fileNameFact && expanded.fileNameFact.w > 0, `${width}px : le nom long occupe la carte documentaire`);
-          assert.equal(expanded.docOverflowX, 0, `${width}px : le nom long ne déborde pas horizontalement`);
           if (width > 760) assert.ok(expanded.originalPanel.x < expanded.detailsPanel.x, `${width}px : Original à gauche et Informations à droite`);
-          /* Mobile : le repli revient à l'onglet Original (le dépliant de la
-             barre est alors à nouveau accessible sous le lecteur). */
-          await page.locator(width <= 760 ? "#documentPageOriginalTab" : "#viewerDetailsExpandBtn").click();
+          else assert.ok(expanded.detailsPanel.y >= expanded.originalPanel.bottom - 1, `${width}px : le volet ouvert suit le lecteur dans le flux vertical`);
+          await expandControl.click();
           await page.waitForTimeout(40);
           assert.equal((await measureViewer(page)).detailsVisible, false, `${width}px : volet replié à nouveau (${iteration + 1})`);
-          if (width <= 760) assert.equal((await measureViewer(page)).layoutPanel, "original", `${width}px : retour à l'onglet Original (${iteration + 1})`);
           assert.equal(await page.locator("#viewerImage").evaluate(image => image.currentSrc), source, `${width}px : la source est conservée après le repli`);
         }
-
         await page.locator("#viewerImageModeBtn").click();
-        assert.equal((await measureViewer(page)).detailsVisible, false, `${width}px : le changement de mode ne déploie pas Informations`);
         const modeButton = await measureViewer(page);
         assert.equal(modeButton.modeButtonText, "", `${width}px : Ajustement reste une icône seule`);
-        assert.equal(modeButton.modeButtonAriaLabel, "Ajuster à la largeur", `${width}px : le libellé accessible décrit l’action disponible`);
+        assert.equal(modeButton.modeButtonAriaLabel, "Ajuster à la largeur", `${width}px : le libellé accessible décrit l'action disponible`);
         assert.equal(modeButton.modeIconHref, "#icon-fit-width", `${width}px : icône dynamique du mode disponible`);
-        t.diagnostic(`${width}×${height} : lecteur replié=${collapsed.originalPanel.w}px ; espacement cartes=${collapsed.detailsCardGap}`);
+        t.diagnostic(`${width}×${height} : lecteur=${collapsed.originalPanel.w}px ; espacement cartes=${collapsed.detailsCardGap}`);
       } finally { await context.close(); }
     }
   } finally { await browser.close(); await server.close(); }
@@ -803,7 +803,7 @@ test("La fermeture X du viewer conserve la vue Documents sous-jacente", async t 
   } finally { await browser.close(); await server.close(); }
 });
 
-test("Mobile : les informations se replient sous le lecteur sans recharger l’image", async t => {
+test("Mobile : les informations suivent le lecteur dans le flux vertical sans recharger l'image", async t => {
   let browser;
   try { browser = await chromium.launch({ headless: true }); }
   catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
@@ -816,59 +816,53 @@ test("Mobile : les informations se replient sous le lecteur sans recharger l’i
       const originalSrc = await img.evaluate(image => image.currentSrc);
       const initial = await page.evaluate(() => ({
         detailsVisible: getComputedStyle(document.getElementById("viewerDocumentDetails")).display !== "none",
-        panel: document.getElementById("documentUnifiedLayout").dataset.panel,
-        expandVisible: getComputedStyle(document.querySelector(".document-detail-tabs")).display !== "none" && getComputedStyle(document.getElementById("viewerDetailsBtn")).display === "none",
-        expanded: document.getElementById("documentPageInfoTab").getAttribute("aria-selected") === "true" ? "true" : "false",
         controlsVisible: !document.getElementById("viewerImageControls").hidden,
         mode: document.getElementById("viewerImageViewport").dataset.viewerFitMode,
         readerHeight: document.getElementById("viewerImageViewport").getBoundingClientRect().height,
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth
       }));
-      assert.equal(initial.detailsVisible, false, "les informations sont repliées à l’ouverture mobile");
-      assert.equal(initial.panel, "original", "l’onglet Original est actif à l’ouverture");
-      assert.equal(initial.expandVisible, true, "l’onglet supérieur Informations est visible et l’ancien bouton masqué");
-      assert.equal(initial.expanded, "false", "aria-expanded reflète le repli");
-      assert.equal(initial.controlsVisible, true, "la barre d’outils du lecteur est présente");
+      assert.equal(initial.detailsVisible, false, "les informations sont fermées par défaut sur mobile (lot G)");
+      assert.equal(await page.locator("#viewerDetailsBtn").isVisible(), true, "la bascule Informations est visible sous la visionneuse");
+      assert.equal(await page.locator(".document-detail-tabs").count(), 0, "aucun onglet Original/Informations sur mobile");
+      assert.equal(initial.controlsVisible, true, "la barre d'outils du lecteur est présente");
       assert.equal(initial.mode, "width", "un document portrait très vertical démarre en lecture à la largeur");
-      assert.ok(initial.readerHeight > 42 * 844 / 100, "le lecteur replié utilise davantage de hauteur mobile");
+      assert.ok(initial.readerHeight > 42 * 844 / 100, "le lecteur garde une hauteur mobile exploitable");
       assert.equal(initial.scrollWidth, initial.clientWidth, "aucun débordement horizontal");
       const reader = page.locator("#viewerImageViewport");
       await reader.evaluate(viewport => { viewport.scrollTop = 80; });
       const scrollBefore = await reader.evaluate(viewport => viewport.scrollTop);
 
-      await page.locator("#documentPageInfoTab").click();
-      await page.waitForTimeout(40);
-      assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true);
-      assert.equal(await page.locator("#documentUnifiedLayout").getAttribute("data-panel"), "info", "le bouton pilote l’onglet Informations");
-      assert.equal(await page.locator("#documentPageInfoTab").getAttribute("aria-selected"), "true");
+      /* Lot G : la bascule Informations ouvre le volet sous le lecteur, dans
+         le défilement naturel de la page ; l'état du lecteur est conservé. */
+      await page.locator("#viewerDetailsBtn").click();
+      await page.waitForTimeout(60);
+      assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "la bascule ouvre le volet Informations");
       assert.equal(await page.locator("#viewerDocumentDetailsContent .document-unified-section").count(), 3);
-      /* Mobile : le retour Original passe par l'onglet en-tête, la barre
-         dépliante se retrouve ensuite sous le lecteur. */
-      await page.locator("#documentPageOriginalTab").click();
+      const infoBox = await page.locator("#viewerDocumentDetails").boundingBox();
+      const toggleBox = await page.locator("#viewerDetailsBtn").boundingBox();
+      assert.ok(infoBox.y >= toggleBox.y, "le volet ouvert s'affiche sous la rangée de bascule");
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
       await page.waitForTimeout(40);
-      assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true);
-      assert.equal(await page.locator("#documentUnifiedLayout").getAttribute("data-panel"), "original", "le repli revient à l’onglet Original");
-      assert.equal(await page.locator("#documentPageInfoTab").getAttribute("aria-selected"), "false");
       assert.equal(await reader.evaluate(viewport => viewport.scrollTop), scrollBefore, "la position de lecture reste conservée");
       await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
       const zoomBefore = await page.evaluate(() => window.__viewerImageController.getState().zoom);
-      await page.locator("#documentPageInfoTab").click();
+      await page.locator("#viewerDetailsBtn").click();
+      await page.waitForTimeout(60);
+      assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "la bascule referme le volet Informations");
       await page.waitForTimeout(40);
-      await page.locator("#documentPageOriginalTab").click();
-      await page.waitForTimeout(40);
-      assert.equal(await img.evaluate(image => image.currentSrc), originalSrc, "la source ne change pas pendant le repli/déploiement");
-      assert.deepEqual(await img.evaluate(image => [image.naturalWidth, image.naturalHeight]), [200, 800], "l’image originale reste chargée");
+      assert.equal(await img.evaluate(image => image.currentSrc), originalSrc, "la source ne change pas pendant l'ouverture/fermeture du volet");
+      assert.deepEqual(await img.evaluate(image => [image.naturalWidth, image.naturalHeight]), [200, 800], "l'image originale reste chargée");
       assert.equal(await page.evaluate(() => window.__viewerImageController.getState().zoom), zoomBefore, "le zoom est conservé");
       assert.equal(await page.locator("#viewerFrame").isHidden(), true, "le comportement image ne bascule pas vers le panneau PDF");
 
       await openViewer(page, { title: "Registre PDF", fileName: "registre-1891.pdf", kind: "pdf", detailsCollapsed: true });
-      assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "le PDF bénéficie aussi du repli initial mobile");
+      assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "le PDF démarre aussi avec les Informations fermées");
       assert.equal(await page.locator("#viewerImage").isHidden(), true, "un PDF ne passe pas par le rendu image");
       const pdfFrame = await page.locator("#viewerFrame").boundingBox();
       assert.ok(pdfFrame && pdfFrame.width > 100 && pdfFrame.height > 100, "le lecteur PDF reste visible dans la zone prioritaire");
       assert.ok(await page.locator("#viewerExternalBtn").evaluate(anchor => !anchor.hidden && getComputedStyle(anchor).display !== "none"), "le lien PDF reste présent dans le DOM et affiché");
-      assert.equal(await page.locator("#viewerExternalBtn").isVisible(), true, "l’ouverture externe du PDF reste disponible");
+      assert.equal(await page.locator("#viewerExternalBtn").isVisible(), true, "l'ouverture externe du PDF reste disponible");
     } finally { await context.close(); }
   } finally { await browser.close(); await server.close(); }
 });
@@ -920,19 +914,11 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
       try {
         await openViewer(page, { title: "Registre plein écran", fileName: "registre.svg", src: landscapeSvg, detailsCollapsed: true, forceFullscreenFallback });
         const source = await page.locator("#viewerImage").evaluate(image => image.currentSrc);
-        /* En mobile le lecteur vit dans l'onglet Original : le zoom part de
-           celui-ci, l'onglet Infos est validé puis on repasse Original pour
-           garder la barre (plein écran) accessible. */
+        /* Lot G : volet Informations fermé par défaut sur mobile — le plein
+           écran le masque par le CSS et la sortie restaure son état replié. */
         const detailsExpandedBefore = false;
         await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
         const zoom = await page.evaluate(() => window.__viewerImageController.getState().zoom);
-        if (forceFullscreenFallback) {
-          await page.locator("#documentPageInfoTab").click();
-          await page.waitForTimeout(40);
-          assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "onglet Infos ouvre le panneau avant le plein écran");
-          await page.locator("#documentPageOriginalTab").click();
-          await page.waitForTimeout(40);
-        }
         await page.locator("#viewerFullscreenBtn").click();
         await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
         await page.waitForTimeout(80);
@@ -976,7 +962,7 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
 test("Visionneuse d’images : barre desktop et bouton Informations harmonisés sur mobile", async t => {
   assert.match(app, /function arrangeViewerImageChrome\(\)/, "positionnement dédié de la visionneuse image présent");
   assert.match(app, /controls\.insertBefore\(fullscreenButton, externalButton\)/, "Plein écran est déplacé dans la barre d’outils image");
-  assert.match(app, /viewport\.after\(panelToggles\)/, "le bouton dépliant Informations apparaît sous le document image");
+  assert.match(app, /viewport\.after\(panelToggles\)/, "la bascule Informations apparaît sous le document image");
   assert.match(app, /imageViewerMedia\.addEventListener\("change", onImageViewerMediaChange\)/, "le repositionnement suit l’orientation responsive");
   const browser = await chromium.launch({ headless: true });
   const server = await startStaticServer(ROOT);
@@ -998,7 +984,6 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
           const title = document.getElementById("viewerTitle");
           const controls = document.getElementById("viewerImageControls");
           const reader = document.getElementById("viewerImageViewport");
-          const detailsToggle = document.getElementById("documentPageInfoTab");
           const details = document.getElementById("viewerDocumentDetails");
           return {
             header: rect(documentPage.querySelector(".document-detail-header")),
@@ -1007,10 +992,10 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
             menu: rect(document.getElementById("viewerActionsBtn")),
             close: rect(document.getElementById("documentPageBackBtn")),
             controls: rect(controls), reader: rect(reader), image: rect(document.getElementById("viewerImage")),
-            fullscreen: rect(document.getElementById("viewerFullscreenBtn")), infoToggle: rect(detailsToggle), details: rect(details),
+            fullscreen: rect(document.getElementById("viewerFullscreenBtn")), details: rect(details),
             zoomOut: rect(document.querySelector('[data-viewer-image-zoom="out"]')), zoomIn: rect(document.querySelector('[data-viewer-image-zoom="in"]')),
-            toggleText: detailsToggle.textContent.trim(), toggleExpanded: detailsToggle.getAttribute("aria-selected") === "true" ? "true" : "false",
-            oldToggleDisplay: getComputedStyle(document.getElementById("viewerDetailsBtn")).display,
+            detailsHidden: details.hidden,
+            legacyTogglePresent: !!document.getElementById("viewerDetailsBtn"),
             smallTogglesVisible: ["viewerDetailsExpandBtn", "viewerDetailsCollapseBtn"].filter(id => getComputedStyle(document.getElementById(id)).display !== "none").length,
             controlOrder: [...controls.children].filter(element => !element.hidden).map(element => element.id || element.className),
             visibleFullscreenCount: [...documentPage.querySelectorAll("#viewerFullscreenBtn")].filter(element => !element.hidden).length,
@@ -1039,12 +1024,14 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
         assert.ok(state.controls.height <= 48, `${width}px : barre d’outils d’une ligne (${state.controls.height}px)`);
         assert.ok(Math.abs(state.zoomIn.x - state.zoomOut.right + 1) <= 1, `${width}px : le groupe Zoom JPEG/PNG reste accolé`);
         assert.ok(state.fullscreen.y >= state.controls.y - 1 && state.fullscreen.bottom <= state.controls.bottom + 1, "Plein écran est dans la barre, non superposé à l’image");
-        assert.ok(state.infoToggle.height >= 44, "l’onglet Informations conserve une cible tactile suffisante");
-        assert.match(state.toggleText, /Informations/);
-        assert.equal(state.toggleExpanded, "false", "le bouton unique reflète l’état replié");
-        assert.equal(state.oldToggleDisplay, "none", "l’ancien bouton sous le lecteur est masqué");
+        /* Lot G : un seul bouton Informations sous la visionneuse — volet
+           repliable fermé par défaut, aucune espace réservé aux Miniatures. */
+        assert.equal(state.legacyTogglePresent, true, "la bascule Informations est bien le bouton sous le lecteur");
         assert.equal(state.smallTogglesVisible, 0, "aucun second bouton Informations isolé n’est affiché");
-        assert.ok(state.infoToggle.y < state.reader.y, "Informations est accessible depuis l’onglet supérieur");
+        assert.equal(state.detailsHidden, true, "volet Informations fermé par défaut sur mobile");
+        const infoToggleBox = await page.locator("#viewerDetailsBtn").boundingBox();
+        assert.ok(infoToggleBox.y >= state.reader.bottom - 1, "la bascule Informations suit la visionneuse");
+        assert.ok(infoToggleBox.height >= 44, "bascule Informations avec cible tactile ≥44px");
         assert.ok(state.image.x >= state.reader.x - 1 && state.image.right <= state.reader.right + 1, "l’image conserve son cadrage dans son viewport");
         assert.equal(state.documentWidth, width, "aucun débordement horizontal global");
 
@@ -1054,19 +1041,10 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
         assert.equal(await page.locator("#viewerImage").evaluate(image => image.currentSrc), originalSource, "le zoom ne recharge pas l’image");
         await page.locator("#viewerImageModeBtn").click();
         assert.equal(await page.evaluate(() => window.__viewerImageController.getState().mode), "fit", "mode d’ajustement conservé");
-        await page.locator("#documentPageInfoTab").click();
-        await page.waitForTimeout(40);
-        assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), false, "Informations s’ouvre sous l’image");
-        assert.equal(await page.locator("#documentUnifiedLayout").getAttribute("data-panel"), "info", "le bouton pilote l’onglet Informations");
-        assert.equal(await page.locator("#documentPageInfoTab").getAttribute("aria-selected"), "true");
-        /* En mobile la bascule d'onglet emporte le lecteur : la barre (chevron
-           compris) n'est plus rendue dans l'état ouvert ; la règle de pivot
-           reste couverte par l'assertion statique. */
+        /* Le volet reste fermé pendant les actions de lecture ; la bascule
+           l'ouvre dans le flux, puis le referme sans recharger l'image. */
+        assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "Informations restent repliées pendant la lecture");
         assert.match(css, /\.pdf-panel-toggle\[aria-expanded="true"\]\s*\.pdf-panels-chevron\s*\{\s*transform: rotate\(180deg\); \}/, "règle de pivot du chevron conservée");
-        await page.locator("#documentPageOriginalTab").click();
-        await page.waitForTimeout(40);
-        assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "Informations se referme normalement");
-        assert.equal(await page.locator("#documentPageInfoTab").getAttribute("aria-selected"), "false");
 
         if (width === 390) {
           await page.setViewportSize({ width: 844, height: 390 });
@@ -1076,8 +1054,8 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
           assert.equal(await page.locator("#viewerDetailsExpandBtn").evaluate(button => Math.abs(button.getBoundingClientRect().right - document.getElementById("viewerImageControls").getBoundingClientRect().right) <= 2), true, "Informations reste à droite après rotation");
           await page.setViewportSize({ width: 390, height: 844 });
           await page.waitForTimeout(80);
-          assert.equal(await page.locator("#documentPageInfoTab").isVisible(), true, "après rotation portrait, l’onglet Informations reste accessible");
-          assert.equal(await page.locator("#viewerDetailsBtn").isVisible(), false, "après rotation portrait, l’ancien bouton reste masqué");
+          assert.equal(await page.locator("#viewerDetailsBtn").isVisible(), true, "après rotation portrait, la bascule Informations reste accessible");
+          assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "après rotation portrait, le volet reste fermé par défaut");
         }
       } finally { await context.close(); }
     }

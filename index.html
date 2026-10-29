@@ -390,7 +390,7 @@
         <button class="btn dedicated-page-back document-detail-back" id="documentPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
       </div>
       <header class="dedicated-page-header document-detail-header">
-        <div class="dedicated-page-heading document-detail-heading"><div class="document-detail-kicker"><p class="page-kicker">Document</p><span class="badge document-detail-category" id="viewerCategoryBadge" hidden></span></div><h2 class="page-title" id="viewerTitle">Consulter le document</h2><p class="card-meta" id="viewerSubtitle">Aperçu dans Family Tree</p></div>
+        <div class="dedicated-page-heading document-detail-heading"><div class="document-detail-kicker"><p class="page-kicker">Document</p><span class="badge document-detail-category" id="viewerCategoryBadge" hidden></span></div><h2 class="page-title" id="viewerTitle">Consulter le document</h2></div>
         <details class="dedicated-page-actions document-detail-actions" id="documentPageActions">
           <summary class="btn icon-btn" id="viewerActionsBtn" aria-label="Actions du document" title="Actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
           <div class="document-detail-actions-menu" id="viewerActionsMenu" role="menu" aria-label="Actions du document">
@@ -398,11 +398,7 @@
           </div>
         </details>
       </header>
-      <div class="document-detail-tabs" role="tablist" aria-label="Vues du document">
-        <button class="document-detail-tab is-active" type="button" id="documentPageOriginalTab" role="tab" aria-selected="true" aria-controls="documentUnifiedLayout" data-document-page-tab="original">Original</button>
-        <button class="document-detail-tab" type="button" id="documentPageInfoTab" role="tab" aria-selected="false" aria-controls="documentUnifiedLayout" data-document-page-tab="info">Informations</button>
-      </div>
-      <div class="document-detail-layout document-unified-layout" id="documentUnifiedLayout" data-panel="original">
+      <div class="document-detail-layout document-unified-layout" id="documentUnifiedLayout">
         <section class="document-original-panel" aria-label="Document original">
           <div class="document-original-head"><h4 id="viewerOriginalHeading">Original</h4><button class="btn icon-btn viewer-details-toggle" type="button" id="viewerDetailsExpandBtn" aria-controls="viewerDocumentDetails" aria-expanded="false" aria-label="Afficher les informations" title="Afficher les informations" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-panel-expand"></use></svg><span class="sr-only">Afficher les informations</span></button></div>
           <div class="viewer-image-controls" id="viewerImageControls" role="group" aria-label="Commandes de lecture du document" hidden>

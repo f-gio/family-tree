@@ -5129,21 +5129,19 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .document-detail-kicker { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; margin: 0 0 4px; }
 .document-detail-heading .document-detail-kicker .page-kicker { margin: 0; }
 .document-detail-category { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.document-detail-heading #viewerSubtitle { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .document-detail-actions { position: relative; }
 .document-detail-actions > summary { display: inline-flex; align-items: center; justify-content: center; min-width: var(--control-touch); min-height: var(--control-touch); cursor: pointer; list-style: none; }
 .document-detail-actions > summary::-webkit-details-marker { display: none; }
 .document-detail-actions-menu { position: absolute; z-index: 40; top: calc(100% + var(--space-1)); right: 0; min-width: min(17rem, calc(100vw - 2rem)); padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-medium); }
 .document-detail-actions-menu .btn { justify-content: flex-start; width: 100%; min-height: var(--control-touch); white-space: normal; text-align: left; }
-.document-detail-tabs { display: none; }
+/* Lot G : les onglets Original/Informations ont disparu — panneaux en flux. */
 #documentDetailView .document-detail-layout { grid-template-columns: minmax(0, 1.45fr) minmax(21rem, .85fr); height: auto; align-items: start; }
 #documentDetailView .document-detail-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
 #documentDetailView .document-original-panel { height: min(74dvh, 58rem); min-height: 22rem; overflow: visible; padding-inline-end: var(--space-1); }
 #documentDetailView .document-unified-details { min-height: 0; overflow: visible; }
 #documentDetailView .document-original-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 #documentDetailView.is-viewer-fullscreen .document-detail-return,
-#documentDetailView.is-viewer-fullscreen .document-detail-header,
-#documentDetailView.is-viewer-fullscreen .document-detail-tabs { display: none; }
+#documentDetailView.is-viewer-fullscreen .document-detail-header { display: none; }
 #documentDetailView.is-viewer-fullscreen { display: flex !important; flex-direction: column; }
 #documentDetailView.is-viewer-fullscreen .document-detail-shell { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; gap: 0; }
 #documentDetailView.is-viewer-fullscreen .document-detail-layout { flex: 1 1 auto; height: auto !important; min-height: 0; }
@@ -5152,26 +5150,15 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
   .workspace-view .dedicated-page-heading > h2 { font-size: clamp(1.35rem, 6vw, 1.9rem); line-height: 1.1; }
   .source-detail-header { margin-bottom: var(--space-4); }
   .document-detail-header { margin-bottom: var(--space-2); }
-  .document-detail-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
-  .document-detail-tab { display: inline-flex; align-items: center; justify-content: center; min-height: var(--control-touch); padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-muted); font-weight: var(--weight-semibold); }
-  .document-detail-tab.is-active { background: var(--color-brand-soft); border-color: var(--color-brand); color: var(--color-brand); }
+  /* Lot G : plus d'onglets mobiles — les deux panneaux se suivent dans le
+     flux vertical (Ordre : visionneuse, puis [miniatures], puis Informations). */
   #documentDetailView .document-detail-layout { grid-template-columns: minmax(0, 1fr); height: auto; gap: var(--space-3); }
-  #documentUnifiedLayout[data-panel="original"] > .document-unified-details { display: none; }
-  #documentUnifiedLayout[data-panel="info"] > .document-original-panel { display: none; }
-  /* L’onglet supérieur Informations remplace le contrôle hérité sous le lecteur.
-     Sur PDF, seul ce bouton disparaît : la commande Miniatures reste disponible. */
-  #documentDetailView #viewerDetailsBtn,
-  #documentDetailView .document-original-panel:has(#viewerImage:not([hidden])) .viewer-image-panel-toggles { display: none !important; }
   #documentDetailView .document-original-panel { height: auto; min-height: 0; overflow: visible; padding-inline-end: 0; }
   #documentDetailView .document-original-panel .viewer-body { height: min(48dvh, 26rem); min-height: 14rem; }
   #documentDetailView .document-original-panel .viewer-body[data-viewer-fit-mode="width"] { height: auto; min-height: 14rem; }
   #documentDetailView .document-unified-details { overflow: visible; }
   #documentDetailView .document-unified-facts { grid-template-columns: minmax(0, 1fr); }
   #documentDetailView .viewer-image-controls { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
-}
-@media (max-width: 560px) {
-  /* Métadonnées essentielles visibles sur téléphone, avec une seule ligne compacte. */
-  #documentDetailView .document-detail-heading #viewerSubtitle { display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
 }
 @media (max-width: 760px) {
   .source-detail-header { margin-bottom: var(--space-4); }

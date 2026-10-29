@@ -197,9 +197,9 @@ let activeSourcePagePhotoId = "";
 let sourcePageZoom = 1;
 let activeProofPageItem = null;
 let proofPageReturnContext = null;
-/* Page Document dédiée (lot D) : contexte de retour et onglet mobile. */
+/* Page Document dédiée (lot D) : contexte de retour ; lot G supprime les
+   onglets mobiles — les deux panneaux vivent en flux vertical. */
 let documentPageReturnContext = null;
-let documentPageTab = "original";
 let documentPageReopenContext = null;
 let genealogyItemRefreshPending = false;
 let activeDocumentSourceManagerId = "";
@@ -7514,9 +7514,9 @@ function arrangeViewerImageChrome() {
   const externalButton = $("viewerExternalBtn");
   const expandButton = $("viewerDetailsExpandBtn");
   const detailsToggle = $("viewerDetailsBtn");
-  const panelToggles = $("pdfPanelToggles");
   const thumbnailsButton = $("pdfThumbnailsBtn");
   const toolbar = $("viewerPdfToolbar");
+  const panelToggles = $("pdfPanelToggles");
   const panel = $("documentDetailView").querySelector(".document-original-panel");
   const narrow = window.matchMedia("(max-width: 760px)").matches;
   if (narrow) {
@@ -7525,16 +7525,20 @@ function arrangeViewerImageChrome() {
     if (originalHead && expandButton.parentElement !== originalHead) originalHead.append(expandButton);
     if (thumbnailsButton.parentElement !== toolbar) toolbar.append(thumbnailsButton);
     thumbnailsButton.hidden = true;
+    /* Lot G : un seul bouton Informations sous la visionneuse image — volet
+       repliable, fermé par défaut, aucun espace réservé aux Miniatures. */
     panelToggles.append(detailsToggle);
     panelToggles.classList.add("viewer-image-panel-toggles");
     panelToggles.hidden = false;
     viewport.after(panelToggles);
+    setUnifiedDetailsCollapsed(true);
   } else {
     if (thumbnailsButton.parentElement !== toolbar) toolbar.append(thumbnailsButton);
     thumbnailsButton.hidden = false;
     panelToggles.classList.remove("viewer-image-panel-toggles");
     panelToggles.hidden = true;
     controls.append(fullscreenButton, externalButton, expandButton);
+    setUnifiedDetailsCollapsed(false);
   }
 }
 
@@ -7569,10 +7573,14 @@ function arrangePdfChrome() {
     for (const id of ["pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn"]) toolbar.append($(id));
     pagination.hidden = false;
     toggles.hidden = false;
+    /* Lot G : deux bascules équilibrées sous la pagination (Miniatures à
+       gauche, Informations à droite), volets fermés par défaut. */
+    setUnifiedDetailsCollapsed(true);
   } else {
     pagination.hidden = true;
     toggles.hidden = true;
     for (const id of ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn", "viewerDetailsExpandBtn"]) toolbar.append($(id));
+    setUnifiedDetailsCollapsed(false);
   }
 }
 
@@ -7810,36 +7818,9 @@ function restoreDocumentPageOrigin(target) {
   }
 }
 
-/** Onglets Original / Informations (mobile) : commute les panneaux de la page. */
-function setDocumentPageTab(tab) {
-  documentPageTab = tab === "info" ? "info" : "original";
-  const layout = $("documentUnifiedLayout");
-  if (layout) layout.dataset.panel = documentPageTab;
-  const originalTab = $("documentPageOriginalTab");
-  const infoTab = $("documentPageInfoTab");
-  if (originalTab) {
-    const originalActive = documentPageTab === "original";
-    originalTab.classList.toggle("is-active", originalActive);
-    originalTab.setAttribute("aria-selected", String(originalActive));
-    infoTab?.classList.toggle("is-active", !originalActive);
-    infoTab?.setAttribute("aria-selected", String(!originalActive));
-  }
-  if (documentPageTab === "original") requestAnimationFrame(() => {
-    if (viewerImageState) viewerImageState.fit?.();
-    if (viewerPdfState) viewerPdfState.resize?.();
-  });
-  /* Accessibilité : les trois commandes (mobile + desktop) reflètent l'état
-     de l'onglet courant (chevron piloté par aria-expanded via le CSS). */
-  const expanded = documentPageTab === "info";
-  const detailsLabel = expanded ? "Masquer les informations" : "Afficher les informations";
-  for (const id of ["viewerDetailsBtn", "viewerDetailsExpandBtn", "viewerDetailsCollapseBtn"]) {
-    const control = $(id);
-    if (!control) continue;
-    control.setAttribute("aria-expanded", String(expanded));
-    control.setAttribute("aria-label", detailsLabel);
-    control.title = detailsLabel;
-  }
-}
+/** Onglets Original / Informations supprimés (lot G) : les deux panneaux
+    vivent en flux vertical sous l'en-tête ; les Informations restent
+    dépliables sur ordinateur uniquement. */
 
 async function openStoredDocument(item, returnContext = "previous") {
   if (!item) return;
@@ -7858,23 +7839,19 @@ async function openStoredDocument(item, returnContext = "previous") {
   if ($("personDialog").open) close("personDialog");
   $("viewerEditBtn").hidden = false;
   renderUnifiedDocumentDetails(item);
-  setUnifiedDetailsCollapsed(false);
+  /* Lot G : volets mobiles fermés par défaut (Miniatures et Informations),
+     Informations dépliées sur ordinateur. */
+  setUnifiedDetailsCollapsed(window.matchMedia("(max-width: 760px)").matches);
   $("viewerTitle").textContent = documentDisplayLabel(item);
   $("viewerTitle").setAttribute("aria-label", documentDisplayLabel(item));
   $("viewerTitle").title = documentDisplayLabel(item);
   /* Badge catégorie à côté du libellé DOCUMENT : la valeur métier du document
-     (dont « Autre ») quand elle existe, aucun libellé fabriqué sinon. */
+     (dont « Autre ») quand elle existe, aucun libellé fabriqué sinon.
+     Lot G : aucun sous-titre sous le titre — les métadonnées vivent dans le
+     panneau Informations, la visionneuse remonte sous l'en-tête. */
   const categoryBadge = $("viewerCategoryBadge");
   categoryBadge.textContent = item.type || "";
   categoryBadge.hidden = !item.type;
-  /* Le nom de fichier et le type vivent déjà dans le panneau Informations :
-     le sous-titre se limite aux métadonnées de contexte. */
-  const headerMetadata = [
-    item.date ? formatGenealogyDate(null, item.date) : "",
-    formatCompactPlace(item.place, item.placeInfo)
-  ].filter(value => Boolean(value) && value !== "—");
-  $("viewerSubtitle").textContent = headerMetadata.join(" · ") || "Aperçu dans Family Tree";
-  $("viewerSubtitle").title = $("viewerSubtitle").textContent;
   $("viewerImage").hidden = true;
   $("viewerImageControls").hidden = true;
   document.querySelectorAll("#documentDetailView .viewer-image-only").forEach(control => { control.hidden = true; });
@@ -7893,7 +7870,6 @@ async function openStoredDocument(item, returnContext = "previous") {
   $("viewerMessage").textContent = "Chargement du document…";
   $("viewerExternalBtn").hidden = true;
   $("viewerExternalBtn").removeAttribute("href");
-  setDocumentPageTab("original");
   if (!setView("documentDetail")) return;
   requestAnimationFrame(() => $("documentPageBackBtn").focus({ preventScroll: true }));
   try {
@@ -10326,16 +10302,11 @@ const viewerPdfMedia = window.matchMedia("(max-width: 760px)");
 const onViewerPdfMediaChange = () => { if (viewerPdfState) arrangePdfChrome(); };
 if (typeof viewerPdfMedia.addEventListener === "function") viewerPdfMedia.addEventListener("change", onViewerPdfMediaChange);
 else if (typeof viewerPdfMedia.addListener === "function") viewerPdfMedia.addListener(onViewerPdfMediaChange);
-/* Page Document dédiée : Retour, onglets Original/Informations (mobile) et
-   repli des informations (desktop) — plus de modal ni de close listener. */
+/* Page Document dédiée : Retour, bascules mobiles des volets (Miniatures /
+   Informations) et repli desktop — plus d'onglet supérieur (lot G), plus de
+   modal ni de close listener. */
 $("documentPageBackBtn").addEventListener("click", returnFromDocumentPage);
-document.querySelectorAll("[data-document-page-tab]").forEach(tab => {
-  tab.addEventListener("click", () => setDocumentPageTab(tab.dataset.documentPageTab));
-});
-$("viewerDetailsBtn").onclick = () => {
-  if (window.matchMedia("(max-width: 760px)").matches) setDocumentPageTab("info");
-  else setUnifiedDetailsCollapsed($("viewerDetailsBtn").getAttribute("aria-expanded") === "true");
-};
+$("viewerDetailsBtn").onclick = () => setUnifiedDetailsCollapsed(!$("documentUnifiedLayout").classList.contains("is-details-collapsed"));
 const pdfPanelsMedia = window.matchMedia("(max-width: 760px)");
 const onPdfPanelsMediaChange = () => { if (viewerPdfState) arrangePdfChrome(); };
 if (typeof pdfPanelsMedia.addEventListener === "function") pdfPanelsMedia.addEventListener("change", onPdfPanelsMediaChange);

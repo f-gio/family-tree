@@ -86,15 +86,16 @@ window.__documentPageTest = {
       })(),
       categoryBadgeText: $("viewerCategoryBadge").textContent,
       categoryBadgeHidden: $("viewerCategoryBadge").hidden,
-      subtitleText: $("viewerSubtitle").textContent,
+      subtitleAbsent: !document.getElementById("viewerSubtitle"),
       imageVisible: !$("viewerImage").hidden,
       pageWidth: $("documentDetailView").getBoundingClientRect().width,
       pageMaxHeight: getComputedStyle($("documentDetailView")).maxHeight,
       pageBorderRadius: getComputedStyle($("documentDetailView")).borderRadius,
       titleLabel: $("viewerTitle").getAttribute("aria-label"),
       titleLineClamp: getComputedStyle($("viewerTitle")).webkitLineClamp,
-      tabsVisible: getComputedStyle(document.querySelector(".document-detail-tabs")).display !== "none",
-      legacyInfoToggleVisible: getComputedStyle($("viewerDetailsBtn")).display !== "none",
+      tabsAbsent: !document.querySelector(".document-detail-tabs"),
+      infoToggleVisible: getComputedStyle($("viewerDetailsBtn")).display !== "none",
+      infoHidden: $("viewerDocumentDetails").hidden,
       infoVisible: getComputedStyle($("viewerDocumentDetails")).display !== "none",
       headerClass: $("documentDetailView").querySelector("header").className,
       detailsOverflowY: getComputedStyle($("viewerDocumentDetails")).overflowY,
@@ -156,9 +157,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.backAboveHeader, true, "le Retour occupe une ligne indépendante au-dessus de l’en-tête");
     assert.equal(state.categoryBadgeText, "Registre", "badge de catégorie à côté de DOCUMENT");
     assert.equal(state.categoryBadgeHidden, false, "badge visible quand la catégorie existe");
-    assert.equal(state.subtitleText.includes("registre.jpg"), false, "nom de fichier retiré du sous-titre (déjà dans Informations)");
-    assert.equal(state.subtitleText.includes("Registre"), false, "type non répété dans le sous-titre (badge catégorie)");
-    assert.equal(state.subtitleText.includes("1891"), true, "date de contexte conservée sous le titre");
+    assert.equal(state.subtitleAbsent, true, "aucun sous-titre sous le titre Document (lot G)");
     assert.ok(state.headerClass.includes("dedicated-page-header"), "en-tête Document partagé");
     assert.equal(state.imageVisible, true, "aperçu du document chargé");
     await page.click("#documentPageBackBtn");
@@ -248,27 +247,31 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.pageMaxHeight, "none", "aucune hauteur maximale de modale à 320px");
     assert.equal(state.pageBorderRadius, "0px", "pas de coins de modale sur la page mobile");
     assert.ok(state.backHeight >= 44, `Retour ≥ 44px (${state.backHeight})`);
-    assert.equal(state.tabsVisible, true, "onglets Original et Informations visibles à 320px");
-    assert.equal(state.legacyInfoToggleVisible, false, "ancien bouton Informations masqué à 320px");
+    /* Lot G : plus d'onglets — volet Informations fermé par défaut sur mobile,
+       ouvert par la bascule sous la visionneuse. */
+    assert.equal(state.tabsAbsent, true, "aucun onglet Original/Informations à 320px");
+    assert.equal(state.infoToggleVisible, true, "bascule Informations visible sous la visionneuse à 320px");
+    assert.equal(state.infoVisible, false, "informations fermées par défaut à 320px");
+    assert.equal(state.infoHidden, true, "volet replié à l'ouverture à 320px");
+    assert.equal(await page.locator("#viewerImage").isVisible(), true, "le lecteur reste affiché à 320px");
+    await page.click("#viewerDetailsBtn");
+    assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "la bascule ouvre le volet Informations à 320px");
+    await page.click("#viewerDetailsBtn");
+    assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "la bascule referme le volet à 320px");
+    assert.equal(state.subtitleAbsent, true, "aucun sous-titre résiduel à 320px");
     assert.equal(state.titleLineClamp, "2", "titre limité à deux lignes à 320px");
     assert.equal(state.titleLabel, state.title, "titre complet accessible à 320px");
-    await page.click("#documentPageInfoTab");
-    assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "onglet supérieur ouvre Informations à 320px");
-    await page.click("#documentPageOriginalTab");
-    assert.equal(await page.locator("#viewerImage").isVisible(), true, "onglet Original restaure le lecteur à 320px");
     await page.setViewportSize({ width: 390, height: 844 });
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.horizontalOverflow, false, "aucun débordement horizontal à 390px");
     assert.equal(state.pageWidth, 390, "la page Document utilise toute la largeur à 390px");
     assert.equal(state.pageMaxHeight, "none", "aucune hauteur maximale de modale à 390px");
-    assert.equal(state.tabsVisible, true, "onglets visibles à 390px");
-    assert.equal(state.legacyInfoToggleVisible, false, "ancien bouton Informations masqué à 390px");
+    assert.equal(state.tabsAbsent, true, "aucun onglet Original/Informations à 390px");
+    assert.equal(state.infoToggleVisible, true, "bascule Informations visible à 390px");
+    assert.equal(state.infoHidden, true, "informations fermées par défaut à 390px");
+    assert.equal(await page.locator("#viewerImage").isVisible(), true, "le lecteur reste affiché à 390px");
     assert.equal(state.titleLineClamp, "2", "titre limité à deux lignes à 390px");
     assert.equal(state.titleLabel, state.title, "titre complet accessible à 390px");
-    await page.click("#documentPageInfoTab");
-    assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "onglet supérieur ouvre Informations à 390px");
-    await page.click("#documentPageOriginalTab");
-    assert.equal(await page.locator("#viewerImage").isVisible(), true, "onglet Original restaure le lecteur à 390px");
     for (const [width, height] of [[320, 844], [390, 844], [1440, 900]]) {
       await page.setViewportSize({ width, height });
       await page.evaluate(() => window.__documentPageTest.transcribe());
@@ -282,7 +285,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     }
     await page.setViewportSize({ width: 1280, height: 900 });
     state = await page.evaluate(() => window.__documentPageTest.state());
-    assert.equal(state.tabsVisible, false, "onglets mobiles absents sur ordinateur");
+    assert.equal(state.tabsAbsent, true, "aucun onglet Original/Informations sur ordinateur");
     assert.equal(state.infoVisible, true, "panneau Informations desktop reste visible");
     assert.equal(state.detailsOverflowY, "visible", "les Informations suivent le défilement naturel de la page");
     assert.deepEqual(errors, [], `erreurs JavaScript : ${errors.join(" | ")}`);
