@@ -7,6 +7,7 @@ const hooks = `
 window.__proofPageTest = {
   show(view = "genealogy") { $("authScreen").hidden = true; setView(view); },
   seed() {
+    const firestoreTimestamp = { toDate() { return new Date("2024-01-01T00:00:00Z"); } };
     const documentItem = {
       id: "proof-document-fixture", title: "Registre justificatif", type: "Acte", fileName: "registre.txt",
       mimeType: "text/plain", fileData: "data:text/plain;base64,SGVsbG8=", personIds: ["proof-person-fixture"]
@@ -35,12 +36,13 @@ window.__proofPageTest = {
       sourceRevisions: [],
       transcriptionHeads: [], transcriptionRevisions: [],
       genealogyProofs: [proof, { id: relatedProofData.id, data: relatedProofData }],
-      genealogyProofRevisions: [{ id: "proof-revision-fixture", objectId: proof.id, eventType: "proof.created", createdAt: new Date("2024-01-01T00:00:00Z"), authorUid: "fixture-author" }],
+      genealogyProofRevisions: [{ id: "proof-revision-fixture", objectId: proof.id, eventType: "proof.created", createdAt: firestoreTimestamp, authorUid: "fixture-author" }],
       factConclusions: [], conclusionRevisions: [], genealogyProposals: [], genealogyEvents: [], genealogyNotifications: []
     };
     genealogyLoaded = true;
     genealogyCollectionsLoaded = new Set(["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyEvents", "genealogyNotifications"]);
     currentUserProfile = { role: "admin" };
+    adminUsersCache = [{ id: "fixture-author", displayName: "Auteur de démonstration" }];
     renderGenealogyWorkspace();
   },
   openProof() { openGenealogyItem("proof", "proof-detail-fixture"); },
@@ -99,6 +101,8 @@ window.__proofPageTest = {
       backHeight: $('proofPageBackBtn').getBoundingClientRect().height,
       reviseHeight: $('proofPageReviseBtn').getBoundingClientRect().height,
       menuHeight: document.querySelector('#proofPageActions > summary').getBoundingClientRect().height,
+      reviseY: $('proofPageReviseBtn').getBoundingClientRect().y,
+      menuY: document.querySelector('#proofPageActions > summary').getBoundingClientRect().y,
       documentLinkHeight: document.querySelector('#proofPageContent [data-source-document-open]')?.getBoundingClientRect().height || 0,
       personLinkHeight: document.querySelector('#proofPageContent [data-genealogy-person]')?.getBoundingClientRect().height || 0,
       sourceLinkHeight: document.querySelector('#proofPageContent [data-proof-source-open]')?.getBoundingClientRect().height || 0,
@@ -145,6 +149,12 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     let state = await page.evaluate(() => window.__proofPageTest.state());
     assert.equal(state.title, "Naissance");
+    assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour aux Archives");
+    assert.equal(await page.locator("#proofPageTitle").getAttribute("aria-label"), state.title, "titre complet accessible");
+    assert.ok(await page.locator("#proofDetailView header.dedicated-page-header").count(), "en-tête partagé de page dédiée");
+    const revisionHistory = await page.locator("#proofPageContent .source-detail-history").innerText();
+    assert.doesNotMatch(revisionHistory, /Invalid Date|fixture-author|proof-revision-fixture/);
+    assert.match(revisionHistory, /Auteur de démonstration/);
     assert.equal(state.factColumnCount, 2, "faits structurés en deux colonnes sur ordinateur");
     assert.match(await page.locator("#proofPageContent").innerText(), /Valeur relevée dans le document[\s\S]*1890/i);
     assert.match(await page.locator("#proofPageContent").innerText(), /née le quinze mars/);
@@ -197,6 +207,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     state = await page.evaluate(() => window.__proofPageTest.state());
     assert.equal(state.returnContext.kind, "document");
+    assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour au Document");
     await page.click("#proofPageBackBtn");
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     await page.click("#documentPageBackBtn");
@@ -250,6 +261,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
       assert.ok(state.backHeight >= 44, `Retour ≥ 44 px à ${width}px`);
       assert.ok(state.reviseHeight >= 44, `Réviser ≥ 44 px à ${width}px`);
       assert.ok(state.menuHeight >= 44, `menu ≥ 44 px à ${width}px`);
+      assert.ok(Math.abs(state.reviseY - state.menuY) <= 1, `Réviser et menu restent sur la même rangée à ${width}px`);
       assert.ok(state.documentLinkHeight >= 44, `Document ≥ 44 px à ${width}px`);
       assert.ok(state.personLinkHeight >= 44, `Personne ≥ 44 px à ${width}px`);
       assert.ok(state.sourceLinkHeight >= 44, `Source ≥ 44 px à ${width}px`);

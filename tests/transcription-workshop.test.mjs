@@ -322,13 +322,17 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /if \(view !== "transcriptionWorkshop" && isTranscriptionWorkshopActive\(\)\)/, "confirmation exigée pour quitter via la navigation");
   assert.match(app, /function exitTranscriptionWorkshop\(\)/, "action Retour gérée");
   assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour"/, "action Retour dans l’en-tête");
+  assert.match(html, /class="dedicated-page-header transcription-workshop-header"/, "l’atelier réutilise l’en-tête commun");
+  assert.match(html, /class="btn icon-btn dedicated-page-back"[^>]*id="workshopBackBtn"/, "Retour Atelier utilise la cible tactile partagée");
   assert.match(app, /function teardownTranscriptionWorkshop\(\)/, "nettoyage du lecteur à la sortie");
   for (const tab of ["Original", "Italien", "Français"]) assert.ok(html.includes(`>${tab}</button>`), `onglet ${tab} présent`);
   assert.ok(html.includes('id="workshopPrevBtn"') && html.includes('id="workshopNextBtn"'), "navigation Précédent / Suivant");
   assert.ok(html.includes("Comparer"), "mode Comparer accessible depuis les passages");
   assert.match(html, /id="workshopDraftBadge"[^>]*>Brouillon local</, "indicateur compact « Brouillon local »");
   assert.match(html, /Les corrections ne sont pas encore enregistrées officiellement et seront perdues à la fermeture ou au rechargement\./, "explication détaillée consultable");
-  assert.match(app, /workshopLossWarning/, "avertissement de perte affiché seulement si dirty");
+  assert.doesNotMatch(html, /id="workshopLossWarning"/, "aucun bandeau de perte permanent ne double le badge brouillon");
+  assert.match(app, /classList\.toggle\("is-dirty", dirty\)/, "le badge unique signale les modifications non enregistrées");
+  assert.match(app, /confirmTranscriptionWorkshopClose/, "une confirmation explicite protège toujours les brouillons à la sortie");
   assert.ok(html.includes('id="workshopAddPassageBtn"'), "bouton d’ajout de passage accessible");
   assert.match(html, /\+ Ajouter un passage/, "libellé d’ajout de passage");
   assert.match(html, /id="workshopDivider"[^>]*role="separator"/, "séparateur de redimensionnement");
@@ -338,6 +342,10 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   // Deux panneaux sur ordinateur, onglets et filtres de champs sur mobile.
   assert.match(css, /grid-template-columns: minmax\(0, var\(--workshop-split, 55%\)\) auto minmax\(0, 1fr\)/, "deux zones de travail 55/45 redimensionnables");
   assert.match(css, /\.transcription-workshop-menu-panel \{/, "menu secondaire d’en-tête");
+  assert.match(css, /\.dedicated-page-back \{[^}]*min-width: var\(--control-touch\)[^}]*min-height: var\(--control-touch\)/, "Retour commun ≥44px");
+  assert.match(css, /\.transcription-workshop-heading h2 \{[^}]*-webkit-line-clamp: 2/, "titre Atelier lisible sur deux lignes maximum");
+  assert.match(css, /\.transcription-workshop-passage\.is-selected \{ flex: 1 0 auto; min-height: 0;/, "le passage actif utilise la hauteur disponible");
+  assert.match(css, /\.transcription-workshop-passage textarea \{ width: 100%; flex: 1 1 auto; min-height: clamp\(8rem, 24dvh, 16rem\)/, "champs de transcription agrandis selon la hauteur d’écran");
   assert.match(css, /\.transcription-workshop-passage-menu-panel \{/, "menu discret des actions de passage");
   assert.match(css, /\.transcription-workshop-image-viewport > img \{ position: absolute/, "zone d’ancrage suivant les offsets du lecteur");
   // Brouillons multipages : conservation pendant la session, confirmation seulement à la fermeture.

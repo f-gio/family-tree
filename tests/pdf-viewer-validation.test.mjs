@@ -540,7 +540,7 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
         };
       });
       if (viewport.width <= 390) {
-        assert.ok(mobileHeader.header.height <= 110, `en-tête mobile contenu sur deux lignes (${mobileHeader.header.height}px)`);
+        assert.ok(mobileHeader.header.height <= 130, `en-tête mobile contenu avec métadonnées visibles (${mobileHeader.header.height}px)`);
         assert.equal(mobileHeader.titleStyle.lineClamp, "2", "titre tronqué au-delà de deux lignes");
         assert.ok(mobileHeader.title.right <= mobileHeader.actions.x + 1, "le titre ne chevauche pas les actions");
         assert.ok(Math.abs(mobileHeader.menu.y - mobileHeader.close.y) <= 1, "menu et fermeture alignés sur la même ligne");

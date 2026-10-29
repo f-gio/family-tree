@@ -7,6 +7,7 @@ const hooks = `
 window.__sourcePageTest = {
   show(view = "genealogy") { $("authScreen").hidden = true; setView(view); },
   seed() {
+    const firestoreTimestamp = { toDate() { return new Date("2024-01-01T00:00:00Z"); } };
     const source = {
       id: "source-page-fixture", title: "Registre paroissial — titre de démonstration très long pour vérifier le retour à la ligne",
       status: "active", category: "État civil", date: "1897", placeOrTerritory: "Palermo",
@@ -26,7 +27,13 @@ window.__sourcePageTest = {
     };
     genealogyRecords = {
       sourceDocuments: [{ id: source.id, data: source }],
-      sourceRevisions: [{ id: "source-revision-fixture", objectId: source.id, eventType: "source.created", createdAt: new Date("2024-01-01T00:00:00Z") }],
+      sourceRevisions: [
+        { id: "source-revision-timestamp", objectId: source.id, eventType: "source.created", createdAt: firestoreTimestamp, authorUid: "fixture-author" },
+        { id: "source-revision-date", objectId: source.id, eventType: "source.revised", createdAt: new Date("2024-02-01T00:00:00Z") },
+        { id: "source-revision-iso", objectId: source.id, eventType: "source.revised", createdAt: "2024-03-01T00:00:00.000Z" },
+        { id: "source-revision-number", objectId: source.id, eventType: "source.revised", createdAt: 1711929600000 },
+        { id: "source-revision-invalid", objectId: source.id, eventType: "source.revised", createdAt: "not-a-date" }
+      ],
       transcriptionHeads: [{ id: "transcription-page-fixture", data: { id: "transcription-page-fixture", documentId: documentItem.id, pageId: "page-fixture", revisionId: "transcription-revision-fixture" } }],
       transcriptionRevisions: [{ id: "transcription-revision-fixture", data: { objectId: "transcription-page-fixture", data: { documentId: documentItem.id, pageId: "page-fixture", passages: [{ id: "passage-fixture", textIt: "Testo italiano", translationFr: "Texte français" }] } } }],
       genealogyProofs: [{ id: "proof-page-fixture", data: { id: "proof-page-fixture", factId: "fact-fixture", factType: "birth.date", documentId: source.id, relation: "supports", technicalStatus: "active", personIds: [] } }],
@@ -37,6 +44,7 @@ window.__sourcePageTest = {
     genealogyLoaded = true;
     genealogyCollectionsLoaded = new Set(["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyEvents", "genealogyNotifications"]);
     currentUserProfile = { role: "admin" };
+    adminUsersCache = [{ id: "fixture-author", displayName: "Auteur de démonstration" }];
     renderGenealogyWorkspace();
   },
   openSource() { openGenealogyItem("source", "source-page-fixture"); },
@@ -64,9 +72,12 @@ window.__sourcePageTest = {
       filter: $('genealogyKindFilter').value,
       archiveContext: navigationContexts.load("genealogy"),
       scrollY: window.scrollY,
-      actionLabels: [...$('sourcePageActionsMenu').querySelectorAll('[data-genealogy-item-action]')].map(button => button.dataset.genealogyItemAction),
+      actionLabels: [...(!$('sourcePageReviseBtn').hidden ? ["revise"] : []), ...$('sourcePageActionsMenu').querySelectorAll('[data-genealogy-item-action]')].map(button => typeof button === "string" ? button : button.dataset.genealogyItemAction),
       horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
       actionHeight: document.querySelector('#sourcePageActions > summary').getBoundingClientRect().height,
+      reviseHeight: $("sourcePageReviseBtn").getBoundingClientRect().height,
+      reviseY: $("sourcePageReviseBtn").getBoundingClientRect().y,
+      menuY: document.querySelector('#sourcePageActions > summary').getBoundingClientRect().y,
       backHeight: $('sourcePageBackBtn').getBoundingClientRect().height,
       documentActionHeight: document.querySelector('[data-source-document-open]')?.getBoundingClientRect().height || 0,
       proofActionHeight: document.querySelector('#sourcePageContent [data-open-genealogy="proof"]')?.getBoundingClientRect().height || 0,
@@ -105,6 +116,12 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.locator('[data-genealogy-tile-id="source-page-fixture"]').evaluate(tile => tile.click());
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
     assert.match(await page.locator("#sourcePageTitle").textContent(), /Registre paroissial/);
+    assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux Archives");
+    const revisionHistory = await page.locator("#sourcePageContent .source-detail-history").innerText();
+    assert.doesNotMatch(revisionHistory, /Invalid Date|fixture-author|source-revision-/);
+    assert.match(revisionHistory, /Auteur de démonstration/);
+    assert.match(revisionHistory, /Date non renseignée/);
+    assert.equal(await page.locator("#sourcePageContent .source-detail-history time").count(), 5, "dates historiques rendues en éléments time");
     await page.click("#sourcePageBackBtn");
     await page.waitForFunction(() => document.getElementById("sourceDetailView").hidden);
 
@@ -123,6 +140,9 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     let state = await page.evaluate(() => window.__sourcePageTest.state());
     assert.equal(state.sourceVisible, true);
     assert.match(state.sourceTitle, /Registre paroissial/);
+    assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux Archives");
+    assert.equal(await page.locator("#sourcePageTitle").getAttribute("aria-label"), state.sourceTitle, "titre complet accessible");
+    assert.ok(await page.locator("#sourceDetailView header.dedicated-page-header").count(), "en-tête partagé de page dédiée");
     assert.ok(await page.getByText("Institution de conservation", { exact: true }).count());
     assert.ok(await page.locator("#sourcePageContent [data-source-document-open]").count(), "document associé consultable");
     assert.ok(await page.locator("#sourcePageImage").count(), "aperçu de photographie associé affiché");
@@ -152,6 +172,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.evaluate(() => window.__sourcePageTest.openSource());
     await page.locator("#sourcePageContent [data-source-document-open]").click();
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+    assert.equal(await page.locator("#documentPageBackBtn").getAttribute("aria-label"), "Retour à la Source");
     state = await page.evaluate(() => window.__sourcePageTest.state());
     assert.equal(state.sourceVisible, false, "la page Document remplace la page Source");
     assert.equal(state.viewerOpen, true, "lecteur de document affiché");
@@ -162,6 +183,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     /* Source → Preuve → Source : retour contextuel vers la page Source. */
     await page.locator('#sourcePageContent [data-open-genealogy="proof"]').click();
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
+    assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour à la Source");
     state = await page.evaluate(() => window.__sourcePageTest.state());
     assert.equal(state.proofPageVisible, true, "page Preuve affichée");
     assert.equal(state.sourceVisible, false, "la Source est remplacée par la page Preuve");
@@ -200,7 +222,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
 
     /* Révision inchangée : le formulaire existant s'ouvre au-dessus de la page. */
     await page.click("#sourcePageActions > summary");
-    await page.click('#sourcePageActionsMenu [data-genealogy-item-action="revise"]');
+    await page.click("#sourcePageReviseBtn");
     await page.waitForSelector("#genealogyContributionDialog[open]");
     assert.equal((await page.evaluate(() => window.__sourcePageTest.state())).sourceVisible, true);
     await page.locator('#genealogyContributionDialog [data-close="genealogyContributionDialog"]').first().click();
@@ -212,8 +234,10 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
       await page.evaluate(() => window.__sourcePageTest.openSource());
       state = await page.evaluate(() => window.__sourcePageTest.state());
       assert.equal(state.horizontalOverflow, false, `aucun défilement horizontal à ${width}px`);
-      assert.ok(state.actionHeight >= 44, `cible tactile menu à ${width}px (${state.actionHeight}px)`);
-      assert.ok(state.backHeight >= 44, `cible tactile Retour à ${width}px (${state.backHeight}px)`);
+       assert.ok(state.actionHeight >= 44, `cible tactile menu à ${width}px (${state.actionHeight}px)`);
+       assert.ok(state.backHeight >= 44, `cible tactile Retour à ${width}px (${state.backHeight}px)`);
+       assert.ok(state.reviseHeight >= 44, `action Réviser visible à ${width}px (${state.reviseHeight}px)`);
+       assert.ok(Math.abs(state.reviseY - state.menuY) <= 1, `Réviser et menu sur la même rangée à ${width}px`);
       assert.ok(state.documentActionHeight >= 44, `cible tactile document à ${width}px (${state.documentActionHeight}px)`);
       assert.ok(state.proofActionHeight >= 44, `cible tactile preuve à ${width}px (${state.proofActionHeight}px)`);
       assert.ok(state.transcriptionActionHeight >= 44, `cible tactile transcription à ${width}px (${state.transcriptionActionHeight}px)`);

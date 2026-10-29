@@ -345,8 +345,13 @@ test("la fiche détaillée d'une source présente des faits structurés sans JSO
 test("Source et Preuve ont des pages dédiées, les autres fiches conservent leur modale", () => {
   assert.match(html, /<main class="workspace-view page-content-lane source-detail-view" id="sourceDetailView" hidden/);
   assert.match(html, /<main class="workspace-view page-content-lane source-detail-view proof-detail-view" id="proofDetailView" hidden/);
+  assert.match(html, /class="dedicated-page-header source-detail-header"/);
+  assert.match(html, /class="dedicated-page-header source-detail-header proof-detail-header"/);
+  assert.match(html, /class="dedicated-page-header document-detail-header"/);
+  assert.match(html, /class="dedicated-page-header transcription-workshop-header"/);
   assert.match(html, /id="sourcePageBackBtn"[^>]*aria-label="Retour"/);
   assert.match(html, /id="sourcePageActionsMenu"[^>]*role="menu"/);
+  assert.match(html, /id="sourcePageReviseBtn"[^>]*hidden/);
   assert.match(html, /id="proofPageBackBtn"[^>]*aria-label="Retour"/);
   assert.match(html, /id="proofPageReviseBtn"[^>]*hidden/);
   assert.match(html, /id="proofPageActionsMenu"[^>]*role="menu"/);
@@ -362,7 +367,13 @@ test("Source et Preuve ont des pages dédiées, les autres fiches conservent leu
   assert.match(css, /\.source-detail-page \{ width: min\(100%, 76rem\)/, "largeur de page desktop bornée");
   assert.match(css, /\.source-detail-actions-menu \.btn \{[^}]*min-height: var\(--control-touch\)/, "actions secondaires tactiles");
   assert.match(css, /\.proof-detail-revise \{ min-height: var\(--control-touch\)/, "action principale révision visible");
+  assert.match(css, /\.dedicated-page-header \{ display: grid; grid-template-columns: var\(--control-touch\)/, "structure partagée et cibles tactiles");
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.source-detail-transcription \{ align-items: stretch; flex-direction: column; \}/, "lecture verticale sur mobile");
+});
+
+test("le panneau Informations du Document regroupe les états de chargement des associations", () => {
+  assert.match(app, /Chargement des associations…/);
+  assert.doesNotMatch(app, /Chargement des personnes associées…|Chargement des sources associées…|Chargement des preuves associées…/);
 });
 
 test("la page Preuve conserve les détails métier, les Sources et l'historique sans relations inventées", () => {

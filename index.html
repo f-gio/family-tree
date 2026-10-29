@@ -350,25 +350,28 @@
 </main>
   <main class="workspace-view page-content-lane source-detail-view" id="sourceDetailView" hidden aria-labelledby="sourcePageTitle">
     <div class="source-detail-page">
-      <header class="source-detail-header">
-        <button class="btn icon-btn source-detail-back" id="sourcePageBackBtn" type="button" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
-        <div class="source-detail-heading"><p class="page-kicker">Source</p><h2 class="page-title" id="sourcePageTitle"></h2><div class="source-detail-header-badges" id="sourcePageBadges"></div></div>
-        <details class="source-detail-actions" id="sourcePageActions">
-          <summary class="btn icon-btn" aria-label="Plus d’actions" title="Plus d’actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
-          <div class="source-detail-actions-menu" id="sourcePageActionsMenu" role="menu" aria-label="Actions de la source"></div>
-        </details>
+      <header class="dedicated-page-header source-detail-header">
+        <button class="btn icon-btn dedicated-page-back source-detail-back" id="sourcePageBackBtn" type="button" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
+        <div class="dedicated-page-heading source-detail-heading"><p class="page-kicker">Source</p><h2 class="page-title" id="sourcePageTitle"></h2><div class="source-detail-header-badges" id="sourcePageBadges"></div></div>
+        <div class="dedicated-page-actions source-detail-header-actions">
+          <button class="btn primary proof-detail-revise" id="sourcePageReviseBtn" type="button" hidden>Réviser</button>
+          <details class="dedicated-page-actions source-detail-actions" id="sourcePageActions">
+            <summary class="btn icon-btn" aria-label="Plus d’actions" title="Plus d’actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
+            <div class="source-detail-actions-menu" id="sourcePageActionsMenu" role="menu" aria-label="Actions secondaires de la source"></div>
+          </details>
+        </div>
       </header>
       <div class="source-detail-content" id="sourcePageContent"></div>
     </div>
   </main>
   <main class="workspace-view page-content-lane source-detail-view proof-detail-view" id="proofDetailView" hidden aria-labelledby="proofPageTitle">
     <div class="source-detail-page proof-detail-page">
-      <header class="source-detail-header proof-detail-header">
-        <button class="btn icon-btn source-detail-back proof-detail-back" id="proofPageBackBtn" type="button" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
-        <div class="source-detail-heading proof-detail-heading"><p class="page-kicker">Preuve</p><h2 class="page-title" id="proofPageTitle"></h2><div class="source-detail-header-badges" id="proofPageBadges"></div></div>
-        <div class="proof-detail-header-actions">
+      <header class="dedicated-page-header source-detail-header proof-detail-header">
+        <button class="btn icon-btn dedicated-page-back source-detail-back proof-detail-back" id="proofPageBackBtn" type="button" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
+        <div class="dedicated-page-heading source-detail-heading proof-detail-heading"><p class="page-kicker">Preuve</p><h2 class="page-title" id="proofPageTitle"></h2><div class="source-detail-header-badges" id="proofPageBadges"></div></div>
+        <div class="dedicated-page-actions proof-detail-header-actions">
           <button class="btn primary proof-detail-revise" id="proofPageReviseBtn" type="button" hidden>Réviser</button>
-          <details class="source-detail-actions proof-detail-actions" id="proofPageActions">
+          <details class="dedicated-page-actions source-detail-actions proof-detail-actions" id="proofPageActions">
             <summary class="btn icon-btn" aria-label="Plus d’actions" title="Plus d’actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
             <div class="source-detail-actions-menu proof-detail-actions-menu" id="proofPageActionsMenu" role="menu" aria-label="Actions secondaires de la preuve"></div>
           </details>
@@ -379,10 +382,10 @@
   </main>
   <main class="workspace-view page-content-lane document-detail-view" id="documentDetailView" hidden aria-labelledby="viewerTitle">
     <div class="document-detail-shell">
-      <header class="document-detail-header">
-        <button class="btn icon-btn document-detail-back" id="documentPageBackBtn" type="button" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
-        <div class="document-detail-heading"><p class="page-kicker">Document</p><h2 class="page-title" id="viewerTitle">Consulter le document</h2><p class="card-meta" id="viewerSubtitle">Aperçu dans Family Tree</p></div>
-        <details class="document-detail-actions" id="documentPageActions">
+      <header class="dedicated-page-header document-detail-header">
+        <button class="btn icon-btn dedicated-page-back document-detail-back" id="documentPageBackBtn" type="button" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
+        <div class="dedicated-page-heading document-detail-heading"><p class="page-kicker">Document</p><h2 class="page-title" id="viewerTitle">Consulter le document</h2><p class="card-meta" id="viewerSubtitle">Aperçu dans Family Tree</p></div>
+        <details class="dedicated-page-actions document-detail-actions" id="documentPageActions">
           <summary class="btn icon-btn" id="viewerActionsBtn" aria-label="Actions du document" title="Actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
           <div class="document-detail-actions-menu" id="viewerActionsMenu" role="menu" aria-label="Actions du document">
             <button class="btn" id="viewerEditBtn" type="button" role="menuitem">Modifier les informations</button>
@@ -806,16 +809,15 @@
 </dialog>
   <dialog id="genealogyItemDialog" class="modal-lg modal-mobile-sheet modal-mobile-sheet--long" aria-labelledby="genealogyItemTitle"><div class="modal-head"><div><h3 id="genealogyItemTitle">Dossier généalogique</h3><p id="genealogyItemSubtitle"></p></div><div class="modal-head-actions"><button class="btn icon-btn" type="button" id="genealogyItemBackBtn" hidden aria-label="Revenir à la fiche précédente" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button><button class="btn icon-btn" type="button" id="genealogyItemMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="genealogyItemActionsMenu" aria-label="Plus d’actions" title="Plus d’actions" hidden>⋯</button><button class="btn icon-btn" type="button" data-close="genealogyItemDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button><div class="modal-action-menu" id="genealogyItemActionsMenu" role="menu" aria-label="Actions de la fiche" hidden></div></div></div><div class="modal-body" id="genealogyItemContent"></div></dialog>
   <main class="workspace-view page-content-lane transcription-workshop-view" id="transcriptionWorkshopView" hidden>
-<header class="transcription-workshop-header">
-<button class="btn icon-btn" type="button" id="workshopBackBtn" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
-<div class="transcription-workshop-heading"><h2 id="workshopDocumentTitle"></h2><p class="card-meta" id="workshopPageLabel"></p></div>
-<div class="transcription-workshop-head-status">
+<header class="dedicated-page-header transcription-workshop-header">
+<button class="btn icon-btn dedicated-page-back" type="button" id="workshopBackBtn" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
+<div class="dedicated-page-heading transcription-workshop-heading"><p class="page-kicker">Atelier de transcription</p><h2 id="workshopDocumentTitle"></h2><p class="card-meta" id="workshopPageLabel"></p></div>
+<div class="dedicated-page-actions transcription-workshop-head-status">
 <button class="transcription-workshop-draft" type="button" id="workshopDraftBadge" aria-expanded="false" aria-controls="workshopDraftHelp">Brouillon local</button>
 <details class="transcription-workshop-menu" id="workshopActionsMenu"><summary class="btn icon-btn" aria-label="Plus d’actions de l’atelier" title="Plus d’actions">⋯</summary><div class="transcription-workshop-menu-panel"><button class="btn danger" type="button" id="workshopResetBtn">Annuler les changements</button></div></details>
 </div>
 </header>
 <p class="transcription-workshop-help" id="workshopDraftHelp" hidden>Les corrections ne sont pas encore enregistrées officiellement et seront perdues à la fermeture ou au rechargement.</p>
-<p class="transcription-workshop-loss" id="workshopLossWarning" role="status" hidden>Modifications non enregistrées : elles seront perdues à la fermeture de l’atelier.</p>
 <p class="transcription-workshop-state" id="workshopState" hidden></p>
 <div class="transcription-workshop-tabs" role="tablist" aria-label="Vues de l’atelier">
 <button class="transcription-workshop-tab is-active" type="button" role="tab" id="workshopTabOriginal" aria-selected="true" aria-controls="workshopPanelOriginal" data-workshop-tab="original">Original</button>

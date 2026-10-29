@@ -45,10 +45,10 @@ test("Viewer : règles statiques mobile, commandes compactes, plein écran et sa
   /* Page dédiée : le shell de la page porte la disposition en colonnes. */
   assert.match(css, /\.document-detail-shell \{ display: flex; flex-direction: column;/);
   /* Clamp / troncature du titre scopé page */
-  assert.match(css, /@media \(max-width: 760px\) \{[\s\S]*?\.document-detail-heading \.page-title \{ display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: normal; overflow-wrap: anywhere; \}/);
+  assert.match(css, /\.dedicated-page-heading > h2 \{ display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; \}/);
   assert.match(css, /#documentDetailView #viewerDetailsBtn,[\s\S]*?\.viewer-image-panel-toggles \{ display: none !important; \}/, "le contrôle hérité Informations est masqué sur mobile");
-  /* Sous-titre visible hors téléphone (exception scopée page) */
-  assert.match(css, /\.document-detail-heading #viewerSubtitle \{ display: block;[\s\S]*?text-overflow: ellipsis;/);
+  /* Métadonnées conservées sous le titre, sans occuper plusieurs rangées. */
+  assert.match(css, /\.document-detail-heading #viewerSubtitle \{ display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
   /* Safe-area basse */
   assert.match(css, /#documentDetailView \{ min-height: calc\(100dvh - 8rem\); padding-bottom: max\(var\(--space-5\), calc\(var\(--space-5\) \+ env\(safe-area-inset-bottom\)\)\); \}/);
   assert.match(html, /class="viewer-image-zoom-group viewer-image-only"[\s\S]*?data-viewer-image-zoom="out"[\s\S]*?data-viewer-image-zoom="in"[\s\S]*?id="viewerImageModeBtn"[\s\S]*?id="viewerExternalBtn"/);
@@ -102,6 +102,9 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
       if (view) view.hidden = true;
     }
     documentPage.hidden = false;
+    const pageActions = document.getElementById("documentPageActions");
+    pageActions.hidden = false;
+    pageActions.open = false;
     document.getElementById("viewerTitle").textContent = title;
     document.getElementById("viewerTitle").setAttribute("aria-label", title);
     document.getElementById("viewerTitle").title = title;
@@ -230,7 +233,7 @@ async function measureViewer(page) {
     const box = el => {
       if (!el || el.hidden) return null;
       const r = el.getBoundingClientRect();
-      return { x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1), right: +r.right.toFixed(1), bottom: +r.bottom.toFixed(1) };
+      return { x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1), right: +r.right.toFixed(1), bottom: +r.bottom.toFixed(1), maxHeight: getComputedStyle(el).maxHeight, overflowY: getComputedStyle(el).overflowY };
     };
     const titleStyle = getComputedStyle(title);
     const subtitleStyle = getComputedStyle(subtitle);
@@ -342,7 +345,8 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 assert.ok(m.open, `${key} : page ouverte`);
                 /* Page dédiée : elle couvre l'essentiel de l'écran sous la barre. */
                 assert.ok(m.dialog.h >= height * 0.6, `${key} : page occupe l'écran (${m.dialog.h} / ${height})`);
-                assert.ok(m.dialog.h < height + 1, `${key} : page ≤ viewport`);
+                assert.equal(m.dialog.maxHeight, "none", `${key} : aucune hauteur maximale héritée de modale`);
+                assert.equal(m.radius, "0px", `${key} : page sans coins hérités de modale`);
                 if (width <= 560) {
                   /* La page dédiée remplace la modale : les surfaces de
                      lecture ne portent pas l'arrondi de sheet (≤ radius-lg). */
@@ -396,12 +400,9 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 await page.keyboard.press("Escape");
                 assert.ok(m.externalAriaLabel === "Ouvrir dans un nouvel onglet", `${key} : aria-label conservé`);
                 assert.ok(m.externalTitle === "Ouvrir dans un nouvel onglet", `${key} : title conservé`);
-                /* sous-titre fileName visible tablette, masqué sur téléphone pour préserver l'espace de lecture */
-                if (width <= 560) assert.equal(m.subtitleDisplay, "none", `${key} : sous-titre masqué pour libérer l'espace mobile`);
-                else {
-                  assert.notEqual(m.subtitleDisplay, "none", `${key} : sous-titre visible`);
-                  assert.equal(m.subtitleEllipsis, "ellipsis", `${key} : ellipsis sous-titre`);
-                }
+                 /* Métadonnées essentielles restent visibles, compactées sur une ligne en téléphone. */
+                 assert.notEqual(m.subtitleDisplay, "none", `${key} : sous-titre visible`);
+                 assert.equal(m.subtitleEllipsis, "ellipsis", `${key} : ellipsis sous-titre`);
                 /* clamp : le header ne doit plus exploser avec un titre long */
                 if (key === "long") {
                   assert.ok(m.titleH <= 2 * 40 + 2, `${key} : titre borné à 2 lignes (h=${m.titleH})`);
@@ -489,8 +490,8 @@ test("Viewer desktop 1024×768 : inchangé (texte, titre, sous-titre, modale cen
       assert.equal(m.externalText, "", "l’action externe reste une icône seule sur desktop");
       assert.equal(m.externalIconHref, "#icon-external-link");
       assert.ok(m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, "cible externe ≥44px sur desktop");
-      assert.equal(m.subtitleDisplay, "block", "sous-titre visible sur desktop");
-      assert.equal(m.titleClamp, "none", "pas de clamp 2 lignes sur desktop");
+       assert.notEqual(m.subtitleDisplay, "none", "métadonnées visibles sur desktop");
+       assert.equal(m.titleClamp, "2", "titre limité à deux lignes sur desktop aussi");
       /* Page dédiée : pleine largeur de contenu, deux panneaux, sans modal. */
       assert.ok(m.dialog.w >= 1024 - 60, `page pleine largeur de contenu (${m.dialog.w})`);
       assert.equal(m.radius, "0px", "page sans arrondi de modal");
@@ -1014,7 +1015,7 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
             documentWidth: document.documentElement.scrollWidth, viewportWidth: innerWidth
           };
         });
-        assert.ok(state.header.height <= 110, `${width}px : en-tête limité à deux lignes (${state.header.height}px)`);
+        assert.ok(state.header.height <= 126, `${width}px : en-tête compact avec titre limité à deux lignes (${state.header.height}px)`);
         assert.equal(state.titleStyle.webkitLineClamp, "2");
         assert.equal(await page.locator("#viewerTitle").getAttribute("aria-label"), title, "titre complet accessible malgré le clamp visuel");
         assert.ok(state.title.right <= state.actions.x + 1, "le titre ne chevauche pas les actions");

@@ -280,7 +280,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
 
   function updateModeButton() {
     if (!modeButton) return;
-    const actionLabel = mode === "fit" ? "Ajuster à la largeur" : "Ajuster à la fenêtre";
+    const actionLabel = mode === "fit" ? "Ajuster à la largeur" : "Ajuster à la page";
     modeButton.setAttribute("aria-label", actionLabel);
     modeButton.title = actionLabel;
     modeButton.querySelector("use")?.setAttribute("href", mode === "fit" ? "#icon-fit-width" : "#icon-fit");

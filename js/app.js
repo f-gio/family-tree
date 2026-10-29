@@ -4117,6 +4117,51 @@ function genealogyActorLabel(uid) {
   return adminUsersCache.find(item => item.id === uid)?.displayName || "";
 }
 
+function dedicatedPageReturnDestination(context) {
+  const viewLabels = { genealogy: "aux Archives", documents: "aux Documents", directory: "à l’Annuaire", tree: "à l’Arbre", tasks: "aux Actions" };
+  const itemLabels = { source: "à la Source", proof: "à la Preuve", transcription: "à la Transcription", "legacy-source": "aux Archives", "legacy-documents": "aux Archives" };
+  if (context?.kind === "source" || context?.kind === "sourcePage") return "à la Source";
+  if (context?.kind === "proof") return "à la Preuve";
+  if (context?.kind === "document") return "au Document";
+  if (context?.kind === "person") return "à la Personne";
+  if (context?.kind === "fiche") return itemLabels[context.itemKind] || "à la fiche";
+  if (context?.kind === "item") return itemLabels[context.itemKind] || "à la fiche";
+  if (context?.view) return viewLabels[context.view] || "à la vue précédente";
+  return "au contexte précédent";
+}
+
+function setDedicatedPageBackLabel(buttonId, context) {
+  const button = $(buttonId);
+  if (!button) return;
+  const label = `Retour ${dedicatedPageReturnDestination(context)}`;
+  button.setAttribute("aria-label", label);
+  button.title = label;
+}
+
+/** Formate les horodatages des révisions Firestore et des archives historiques. */
+function formatGenealogyRevisionDate(value) {
+  let date = null;
+  try {
+    if (value instanceof Date) date = value;
+    else if (value && typeof value.toDate === "function") date = value.toDate();
+    else if (typeof value === "number" || typeof value === "string") date = new Date(value);
+    else if (value && Number.isFinite(value.seconds)) {
+      date = new Date(value.seconds * 1000 + (Number(value.nanoseconds) || 0) / 1e6);
+    }
+  } catch { /* Une date historique invalide reçoit un libellé explicite. */ }
+  if (!(date instanceof Date) || !Number.isFinite(date.getTime())) return { label: "Date non renseignée", iso: "" };
+  return { label: date.toLocaleDateString("fr-FR"), iso: date.toISOString() };
+}
+
+function genealogyRevisionHistoryRows(revisions) {
+  return revisions.map(revision => {
+    const date = formatGenealogyRevisionDate(revision.createdAt);
+    const kind = genealogyEventLabel(revision.eventType) || "Révision";
+    const author = genealogyActorLabel(revision.authorUid);
+    return `<li><span class="source-detail-history-kind">${esc(kind)}</span><time${date.iso ? ` datetime="${esc(date.iso)}"` : ""}>${esc(date.label)}</time>${author ? `<span class="source-detail-history-author">${esc(author)}</span>` : ""}</li>`;
+  }).join("");
+}
+
 function genealogyDocumentLabel(documentId) {
   if (!documentId) return "";
   const item = documents.find(value => value.id === documentId);
@@ -4441,10 +4486,7 @@ function proofSourceMarkup(proofItem) {
 function proofHistoryMarkup(proofRecord) {
   const revisions = genealogyRecords.genealogyProofRevisions.filter(revision => revision.objectId === proofRecord.id);
   if (!revisions.length) return `<section aria-labelledby="proofPageHistoryTitle"><h3 id="proofPageHistoryTitle">Historique des révisions</h3><p class="card-meta">Aucune révision historique disponible.</p></section>`;
-  const rows = revisions.map(revision => {
-    const date = revision.createdAt ? new Date(revision.createdAt).toLocaleDateString("fr-FR") : "date non renseignée";
-    return `<li>${esc(genealogyEventLabel(revision.eventType) || "Révision")} · ${esc(date)}${revision.authorUid ? ` · ${esc(revision.authorUid)}` : ""} · ${esc(revision.id)}</li>`;
-  }).join("");
+  const rows = genealogyRevisionHistoryRows(revisions);
   return `<section aria-labelledby="proofPageHistoryTitle"><h3 id="proofPageHistoryTitle">Historique des révisions (${revisions.length})</h3><ol class="source-detail-history">${rows}</ol></section>`;
 }
 
@@ -4513,10 +4555,13 @@ function renderProofPage(item, returnContext = null) {
   if ($("genealogyItemDialog").open) close("genealogyItemDialog");
   if ($("personDialog").open) close("personDialog");
   closeDocumentPage();
+  setDedicatedPageBackLabel("proofPageBackBtn", proofPageReturnContext);
   setView("proofDetail");
   const { record, data } = item;
   const title = PROOF_FACT_KIND_LABELS[data.factType] || data.factType || data.factId || "Preuve";
   $("proofPageTitle").textContent = title;
+  $("proofPageTitle").setAttribute("aria-label", title);
+  $("proofPageTitle").title = title;
   const relation = PROOF_RELATION_LABELS[data.relation] || data.relation || "";
   $("proofPageBadges").innerHTML = `${genealogyKindBadgeHtml("proof")}${genealogyStatusBadgeHtml(data.technicalStatus)}${relation ? `<span class="genealogy-status-badge">${esc(relation)}</span>` : ""}`;
   $("proofPageContent").innerHTML = `<section class="proof-detail-primary" aria-labelledby="proofPageFactsTitle"><h3 id="proofPageFactsTitle">Information attestée</h3>${proofDetailsMarkup(data, record)}</section>${proofSourceMarkup(item)}${proofRelatedMarkup(item)}${proofHistoryMarkup(record)}`;
@@ -4681,12 +4726,9 @@ function openGenealogyItem(kind, id, pageOverride = null, photoOverride = null, 
     return proofData.documentId === id || proofData.documentId === source?.id || proofData.documentId === relatedDocumentId || proofData.transcriptionRevisionId === record.id || proofData.transcriptionRevisionId === transcriptionRevision?.id;
   }).sort((left, right) => Number(genealogyRecordData(right).factId === data.factId) - Number(genealogyRecordData(left).factId === data.factId));
   const historyCollection = ({ source: "sourceRevisions", transcription: "transcriptionRevisions", proof: "genealogyProofRevisions", conclusion: "conclusionRevisions" })[kind];
-  const history = historyCollection ? genealogyRecords[historyCollection].filter(revision => revision.objectId === id).map(revision => {
-    const revisionDate = revision.createdAt ? new Date(revision.createdAt).toLocaleDateString("fr-FR") : "date non renseignée";
-    const revisionKind = genealogyEventLabel(revision.eventType) || "Révision";
-    return `<li>${esc(revisionKind)} · ${esc(revisionDate)}${revision.authorUid ? ` · ${esc(revision.authorUid)}` : ""} · ${esc(revision.id)}</li>`;
-  }).join("") : "";
-  const historyBlock = history ? `<details><summary>Révisions historiques</summary><ol>${history}</ol></details>` : "";
+  const history = historyCollection ? genealogyRecords[historyCollection].filter(revision => revision.objectId === id) : [];
+  const historyRows = genealogyRevisionHistoryRows(history);
+  const historyBlock = historyCollection && history.length ? `<details><summary>Révisions historiques (${history.length})</summary><ol class="source-detail-history">${historyRows}</ol></details>` : "";
   const linkedDocumentsBlock = kind === "source" ? linkedSourceDocumentsMarkup(data) : "";
   const proofKinds = new Set(linkedProofs.map(proof => genealogyRecordData(proof).relation));
   const contradictionNotice = proofKinds.has("supports") && proofKinds.has("contradicts") ? `<p class="genealogy-status-badge">Des affirmations contradictoires sont associées à cet élément.</p>` : "";
@@ -5197,6 +5239,7 @@ function captureTranscriptionWorkshopReturn() {
   } else {
     transcriptionWorkshopReturn = null;
   }
+  setDedicatedPageBackLabel("workshopBackBtn", transcriptionWorkshopReturn);
   if ($("genealogyItemDialog").open) $("genealogyItemDialog").close();
   closeDocumentPage();
 }
@@ -5298,6 +5341,8 @@ function renderTranscriptionWorkshop() {
   const page = context.pages.find(value => value.id === context.pageId) || context.pages[0];
   const pageLabel = page?.label ? ` · ${page.label}` : "";
   $("workshopDocumentTitle").textContent = context.title;
+  $("workshopDocumentTitle").setAttribute("aria-label", context.title);
+  $("workshopDocumentTitle").title = context.title;
   $("workshopPageLabel").textContent = `Page ${context.pages.indexOf(page) + 1}${pageLabel} · ${draft.passages.length} passage${draft.passages.length > 1 ? "s" : ""}`;
   const editorState = transcriptionWorkshopEditorState();
   const stateBox = $("workshopState");
@@ -5591,7 +5636,7 @@ function updateWorkshopNavigation() {
   $("workshopNextBtn").disabled = position.nextId == null;
   $("workshopResetBtn").disabled = !unsaved;
   $("workshopStatus").textContent = draft.passages.length
-    ? `${position.index >= 0 ? `Passage ${position.index + 1} sur ${position.total}` : ""}${unsaved ? " · Modifications non enregistrées" : ""}`.trim()
+    ? `${position.index >= 0 ? `Passage ${position.index + 1} sur ${position.total}` : ""}`.trim()
     : "";
 }
 
@@ -5616,7 +5661,8 @@ function updateWorkshopDraftIndicators() {
      l'utilisateur risque réellement de perdre ses modifications. */
   const dirty = transcriptionWorkshopHasUnsavedChanges();
   $("workshopDraftBadge").classList.toggle("is-dirty", dirty);
-  $("workshopLossWarning").hidden = !dirty;
+  $("workshopDraftBadge").setAttribute("aria-label", dirty ? "Modifications non enregistrées. Afficher l’aide du brouillon." : "Brouillon local. Afficher l’aide.");
+  $("workshopDraftBadge").title = dirty ? "Modifications non enregistrées" : "Brouillon local";
   syncWorkshopUnloadGuard();
   updateWorkshopNavigation();
 }
@@ -5658,7 +5704,6 @@ function resetTranscriptionWorkshopState() {
     $("workshopDraftBadge").setAttribute("aria-expanded", "false");
   }
   if ($("workshopDraftHelp")) $("workshopDraftHelp").hidden = true;
-  if ($("workshopLossWarning")) $("workshopLossWarning").hidden = true;
   if ($("workshopLayout")) { $("workshopLayout").dataset.activePanel = "original"; delete $("workshopLayout").dataset.compare; }
   if ($("workshopState")) $("workshopState").hidden = true;
   if ($("workshopPassageList")) $("workshopPassageList").innerHTML = "";
@@ -6040,10 +6085,7 @@ function sourceProofsMarkup(sourceRecord, sourceData) {
 function sourceHistoryMarkup(sourceRecord) {
   const revisions = genealogyRecords.sourceRevisions.filter(revision => revision.objectId === sourceRecord.id);
   if (!revisions.length) return `<section aria-labelledby="sourcePageHistoryTitle"><h3 id="sourcePageHistoryTitle">Historique des révisions</h3><p class="card-meta">Aucune révision historique disponible.</p></section>`;
-  const rows = revisions.map(revision => {
-    const date = revision.createdAt ? new Date(revision.createdAt).toLocaleDateString("fr-FR") : "date non renseignée";
-    return `<li>${esc(genealogyEventLabel(revision.eventType) || "Révision")} · ${esc(date)}${revision.authorUid ? ` · ${esc(revision.authorUid)}` : ""} · ${esc(revision.id)}</li>`;
-  }).join("");
+  const rows = genealogyRevisionHistoryRows(revisions);
   return `<section aria-labelledby="sourcePageHistoryTitle"><h3 id="sourcePageHistoryTitle">Historique des révisions (${revisions.length})</h3><ol class="source-detail-history">${rows}</ol></section>`;
 }
 
@@ -6066,11 +6108,16 @@ function renderSourcePage(item, returnContext = null) {
   setView("sourceDetail");
   const { record, data } = item;
   $("sourcePageTitle").textContent = data.title || "Source sans titre";
+  $("sourcePageTitle").setAttribute("aria-label", data.title || "Source sans titre");
+  $("sourcePageTitle").title = data.title || "Source sans titre";
+  setDedicatedPageBackLabel("sourcePageBackBtn", sourcePageReturnContext);
   $("sourcePageBadges").innerHTML = `${genealogyKindBadgeHtml("source")}${genealogyStatusBadgeHtml(data.status)}${data.category ? `<span class="genealogy-status-badge">${esc(data.category)}</span>` : ""}`;
   $("sourcePageContent").innerHTML = `${sourceDetailFactsMarkup(data)}${linkedSourceDocumentsMarkup(data)}${sourcePageImagesMarkup(item)}${sourceTranscriptionsMarkup(record, data)}${sourceProofsMarkup(record, data)}${sourceHistoryMarkup(record)}`;
   const controls = genealogyItemActionControls("source", data);
-  $("sourcePageActionsMenu").innerHTML = controls.map(control => `<button class="btn${control.danger ? " danger" : ""}" type="button" role="menuitem" data-genealogy-item-action="${control.key}">${icon(control.icon)}<span>${esc(control.label)}</span></button>`).join("");
-  $("sourcePageActions").hidden = !controls.length;
+  $("sourcePageReviseBtn").hidden = !controls.some(control => control.key === "revise");
+  const secondaryControls = controls.filter(control => control.key !== "revise");
+  $("sourcePageActionsMenu").innerHTML = secondaryControls.map(control => `<button class="btn${control.danger ? " danger" : ""}" type="button" role="menuitem" data-genealogy-item-action="${control.key}">${icon(control.icon)}<span>${esc(control.label)}</span></button>`).join("");
+  $("sourcePageActions").hidden = !secondaryControls.length;
   $("sourcePageActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
   if (!samePageVisible) requestAnimationFrame(() => $("sourcePageBackBtn").focus({ preventScroll: true }));
 }
@@ -7290,7 +7337,7 @@ function renderUnifiedDocumentDetails(item) {
   const personIds = Array.isArray(item.personIds) ? item.personIds : [];
   const relatedPeople = loadedPeople ? personIds.map(id => people.find(personItem => personItem.id === id)).filter(Boolean) : [];
   const peopleMarkup = !loadedPeople
-    ? `<p class="document-unified-notice">Chargement des personnes associées…</p>`
+    ? ""
     : relatedPeople.length
       ? `<ul class="document-unified-people">${relatedPeople.map(personItem => `<li><button class="person-chip person-chip-consult" type="button" data-unified-person="${esc(personItem.id)}">${icon("user")}<span>${esc(directoryPersonName(personItem))}</span></button></li>`).join("")}${relatedPeople.length < personIds.length ? `<li><span class="document-unified-notice">Certaines fiches associées sont indisponibles.</span></li>` : ""}</ul>`
       : `<p class="document-unified-notice">Aucune personne n’est associée directement à cette fiche documentaire.</p>`;
@@ -7299,7 +7346,7 @@ function renderUnifiedDocumentDetails(item) {
     : "loading";
   const linkedSources = sourceState === "ready" ? documentLinkedSources(item.id) : [];
   const sourceMarkup = sourceState === "loading"
-    ? `<p class="document-unified-notice">Chargement des sources associées…</p>`
+    ? ""
     : sourceState === "unavailable"
       ? `<p class="document-unified-notice">Les sources associées sont temporairement indisponibles.</p>`
       : linkedSources.length ? linkedSources.map(source => {
@@ -7321,7 +7368,7 @@ function renderUnifiedDocumentDetails(item) {
     ? genealogyRecords.genealogyProofs.filter(proof => genealogyRecordData(proof).documentId === item.id)
     : [];
   const proofMarkup = proofState === "loading"
-    ? `<p class="document-unified-notice">Chargement des preuves associées…</p>`
+    ? ""
     : proofState === "unavailable"
       ? `<p class="document-unified-notice">Les preuves associées sont temporairement indisponibles.</p>`
       : linkedProofs.length
@@ -7339,7 +7386,9 @@ function renderUnifiedDocumentDetails(item) {
   const workshopDocumentAction = isDocumentConsultable(item)
     ? `<button class="btn small" type="button" data-transcribe-document="${esc(item.id)}">Transcrire</button>`
     : "";
-  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations fichier</h4>${workshopDocumentAction}</div>${documentFacts}</section><section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section">${sourceHead}${sourceMarkup}</section><section class="document-unified-section">${proofActions}${proofMarkup}</section>`;
+  const associationsLoading = !loadedPeople || sourceState === "loading" || proofState === "loading";
+  const loadingNotice = associationsLoading ? `<p class="document-unified-notice document-associations-loading" role="status" aria-live="polite">Chargement des associations…</p>` : "";
+  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations fichier</h4>${workshopDocumentAction}</div>${documentFacts}</section>${loadingNotice}<section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section">${sourceHead}${sourceMarkup}</section><section class="document-unified-section">${proofActions}${proofMarkup}</section>`;
 }
 
 function refreshUnifiedDetailsIfOpen() {
@@ -7780,6 +7829,7 @@ async function openStoredDocument(item, returnContext = "previous") {
   documentPageReturnContext = structured
     ? (returnContext.pageContext ? { ...returnContext.pageContext } : documentPageFallbackContext(returnContext))
     : captureDocumentPageReturnContext();
+  setDedicatedPageBackLabel("documentPageBackBtn", documentPageReturnContext);
   /* Les couches modales sont refermées : la page Document devient l'unique
      affichage, leur contexte étant déjà capturé pour le retour. */
   if ($("genealogyItemDialog").open) close("genealogyItemDialog");
@@ -7795,8 +7845,9 @@ async function openStoredDocument(item, returnContext = "previous") {
     item.date ? formatGenealogyDate(null, item.date) : "",
     formatCompactPlace(item.place, item.placeInfo),
     item.fileName || ""
-  ].filter(Boolean);
+  ].filter(value => Boolean(value) && value !== "—");
   $("viewerSubtitle").textContent = headerMetadata.join(" · ") || "Aperçu dans Family Tree";
+  $("viewerSubtitle").title = $("viewerSubtitle").textContent;
   $("viewerImage").hidden = true;
   $("viewerImageControls").hidden = true;
   document.querySelectorAll("#documentDetailView .viewer-image-only").forEach(control => { control.hidden = true; });
@@ -9916,6 +9967,9 @@ $("sourcePageActionsMenu").addEventListener("click", event => {
   if (!action || !activeSourcePageItem) return;
   $("sourcePageActions").open = false;
   void performArchiveCardAction(activeSourcePageItem.record.id, action.dataset.genealogyItemAction);
+});
+$("sourcePageReviseBtn").addEventListener("click", () => {
+  if (activeSourcePageItem) void performArchiveCardAction(activeSourcePageItem.record.id, "revise");
 });
 $("proofPageBackBtn").addEventListener("click", returnFromProofPage);
 $("proofPageActions").addEventListener("toggle", () => {

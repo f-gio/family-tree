@@ -76,12 +76,28 @@ window.__documentPageTest = {
       personSection: activePersonSection,
       horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
       backHeight: $("documentPageBackBtn").getBoundingClientRect().height,
+      backLabel: $("documentPageBackBtn").getAttribute("aria-label"),
       imageVisible: !$("viewerImage").hidden,
+      pageWidth: $("documentDetailView").getBoundingClientRect().width,
+      pageMaxHeight: getComputedStyle($("documentDetailView")).maxHeight,
+      pageBorderRadius: getComputedStyle($("documentDetailView")).borderRadius,
       titleLabel: $("viewerTitle").getAttribute("aria-label"),
       titleLineClamp: getComputedStyle($("viewerTitle")).webkitLineClamp,
       tabsVisible: getComputedStyle(document.querySelector(".document-detail-tabs")).display !== "none",
       legacyInfoToggleVisible: getComputedStyle($("viewerDetailsBtn")).display !== "none",
-      infoVisible: getComputedStyle($("viewerDocumentDetails")).display !== "none"
+      infoVisible: getComputedStyle($("viewerDocumentDetails")).display !== "none",
+      headerClass: $("documentDetailView").querySelector("header").className,
+      detailsOverflowY: getComputedStyle($("viewerDocumentDetails")).overflowY,
+      readerOverflowY: getComputedStyle($("viewerImageViewport")).overflowY,
+      workshopBackHeight: $("workshopBackBtn").getBoundingClientRect().height,
+      workshopBackLabel: $("workshopBackBtn").getAttribute("aria-label"),
+      workshopMenuHeight: document.querySelector("#workshopActionsMenu > summary").getBoundingClientRect().height,
+      workshopTitle: $("workshopDocumentTitle").textContent,
+      workshopTitleLabel: $("workshopDocumentTitle").getAttribute("aria-label"),
+      workshopTitleLineClamp: getComputedStyle($("workshopDocumentTitle")).webkitLineClamp,
+      workshopHorizontalOverflow: document.documentElement.scrollWidth > innerWidth,
+      workshopHeaderClass: $("transcriptionWorkshopView").querySelector("header").className,
+      workshopLossBannerPresent: !!$("workshopLossWarning")
     };
   },
   settle() { return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))); }
@@ -124,6 +140,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     let state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, true, "page Document ouverte depuis Archives");
+    assert.equal(state.backLabel, "Retour aux Archives", "destination du Retour annoncée accessible");
+    assert.ok(state.headerClass.includes("dedicated-page-header"), "en-tête Document partagé");
     assert.equal(state.imageVisible, true, "aperçu du document chargé");
     await page.click("#documentPageBackBtn");
     await page.waitForFunction(() => document.getElementById("documentDetailView").hidden);
@@ -149,6 +167,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.returnContext.kind, "person", "contexte Personne capturé");
+    assert.equal(state.backLabel, "Retour à la Personne", "Retour du Document précise la fiche Personne");
     assert.equal(state.personOpen, false, "la fiche Personne est refermée pour la page");
     await page.click("#documentPageBackBtn");
     await page.waitForSelector("#personDialog[open]");
@@ -182,6 +201,12 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, false, "l'atelier remplace la page");
+    assert.equal(state.workshopBackLabel, "Retour au Document", "Retour de l’Atelier précise le Document appelant");
+    assert.equal(state.workshopBackLabel, "Retour au Document", "Retour Atelier nomme sa destination");
+    assert.ok(state.workshopBackHeight >= 44 && state.workshopMenuHeight >= 44, "Retour et menu Atelier ≥44px");
+    assert.ok(state.workshopHeaderClass.includes("dedicated-page-header"), "en-tête partagé de l’Atelier");
+    assert.equal(state.workshopTitleLabel, state.workshopTitle, "titre Atelier complet accessible");
+    assert.equal(state.workshopLossBannerPresent, false, "aucun bandeau rouge redondant dans l’Atelier");
     await page.click("#workshopBackBtn");
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     state = await page.evaluate(() => window.__documentPageTest.state());
@@ -201,6 +226,9 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.horizontalOverflow, false, "aucun débordement horizontal à 320px");
+    assert.equal(state.pageWidth, 320, "la page Document utilise toute la largeur à 320px");
+    assert.equal(state.pageMaxHeight, "none", "aucune hauteur maximale de modale à 320px");
+    assert.equal(state.pageBorderRadius, "0px", "pas de coins de modale sur la page mobile");
     assert.ok(state.backHeight >= 44, `Retour ≥ 44px (${state.backHeight})`);
     assert.equal(state.tabsVisible, true, "onglets Original et Informations visibles à 320px");
     assert.equal(state.legacyInfoToggleVisible, false, "ancien bouton Informations masqué à 320px");
@@ -213,6 +241,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.setViewportSize({ width: 390, height: 844 });
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.horizontalOverflow, false, "aucun débordement horizontal à 390px");
+    assert.equal(state.pageWidth, 390, "la page Document utilise toute la largeur à 390px");
+    assert.equal(state.pageMaxHeight, "none", "aucune hauteur maximale de modale à 390px");
     assert.equal(state.tabsVisible, true, "onglets visibles à 390px");
     assert.equal(state.legacyInfoToggleVisible, false, "ancien bouton Informations masqué à 390px");
     assert.equal(state.titleLineClamp, "2", "titre limité à deux lignes à 390px");
@@ -221,10 +251,22 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "onglet supérieur ouvre Informations à 390px");
     await page.click("#documentPageOriginalTab");
     assert.equal(await page.locator("#viewerImage").isVisible(), true, "onglet Original restaure le lecteur à 390px");
+    for (const [width, height] of [[320, 844], [390, 844], [1440, 900]]) {
+      await page.setViewportSize({ width, height });
+      await page.evaluate(() => window.__documentPageTest.transcribe());
+      await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+      state = await page.evaluate(() => window.__documentPageTest.state());
+      assert.equal(state.workshopHorizontalOverflow, false, `Atelier sans débordement à ${width}px`);
+      assert.ok(state.workshopBackHeight >= 44 && state.workshopMenuHeight >= 44, `Retour et menu Atelier ≥44px à ${width}px`);
+      assert.equal(state.workshopTitleLineClamp, "2", `titre Atelier limité à deux lignes à ${width}px`);
+      await page.click("#workshopBackBtn");
+      await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+    }
     await page.setViewportSize({ width: 1280, height: 900 });
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.tabsVisible, false, "onglets mobiles absents sur ordinateur");
     assert.equal(state.infoVisible, true, "panneau Informations desktop reste visible");
+    assert.equal(state.detailsOverflowY, "visible", "les Informations suivent le défilement naturel de la page");
     assert.deepEqual(errors, [], `erreurs JavaScript : ${errors.join(" | ")}`);
   } finally {
     await context.close();
