@@ -944,6 +944,7 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
             fallback: documentPage.classList.contains("is-viewer-fullscreen-fallback"),
             nativeFullscreen: document.fullscreenElement === imagePanel,
             headerHidden: getComputedStyle(documentPage.querySelector(".document-detail-header")).display === "none",
+            returnHidden: getComputedStyle(documentPage.querySelector(".document-detail-return")).display === "none",
             detailsHidden: getComputedStyle(document.getElementById("viewerDocumentDetails")).display === "none",
             viewport: [innerWidth, innerHeight],
             panel: [imagePanel.getBoundingClientRect().width, imagePanel.getBoundingClientRect().height],
@@ -956,6 +957,7 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
         if (forceFullscreenFallback) assert.equal(state.fallback, true, "le repli viewport est utilisé sans API native");
         else assert.ok(state.nativeFullscreen || state.fallback, "la Fullscreen API native ou son repli est utilisé");
         assert.equal(state.headerHidden, true, "l’en-tête non essentiel est masqué en plein écran");
+        assert.equal(state.returnHidden, true, "le lien Retour est masqué en plein écran");
         assert.equal(state.detailsHidden, true, "le panneau d’informations ne réduit pas la surface de lecture");
         assert.ok(state.panel[0] >= state.viewport[0] - 1 && state.panel[1] >= state.viewport[1] - 1, "le panneau lecteur occupe le viewport");
         assert.equal(state.exitLabel, "Quitter le plein écran", "la commande de sortie est annoncée");
@@ -1019,7 +1021,8 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
         assert.equal(state.titleStyle.webkitLineClamp, "2");
         assert.equal(await page.locator("#viewerTitle").getAttribute("aria-label"), title, "titre complet accessible malgré le clamp visuel");
         assert.ok(state.title.right <= state.actions.x + 1, "le titre ne chevauche pas les actions");
-        assert.ok(Math.abs(state.menu.y - state.close.y) <= 1, "menu et fermeture alignés");
+        assert.ok(state.close.bottom <= state.header.y + 1, "le Retour occupe sa ligne au-dessus de l’en-tête");
+        assert.ok(Math.abs(state.menu.y - state.actions.y) <= 2 || state.menu.y >= state.actions.y, "menu d’actions dans la grille d’en-tête");
         for (const action of [state.menu, state.close]) assert.ok(action.width >= 43.5 && action.height >= 43.5, "actions d’en-tête de 44 × 44 px");
         if (width === 320) {
           const titleClamp = await page.locator("#viewerTitle").evaluate(element => getComputedStyle(element).webkitLineClamp);

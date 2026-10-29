@@ -116,7 +116,9 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.locator('[data-genealogy-tile-id="source-page-fixture"]').evaluate(tile => tile.click());
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
     assert.match(await page.locator("#sourcePageTitle").textContent(), /Registre paroissial/);
-    assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux Archives");
+    assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux archives");
+    assert.equal(await page.locator("#sourcePageBackBtn .dedicated-page-back-label").textContent(), "Retour aux archives", "destination réelle affichée en clair");
+    assert.equal(await page.evaluate(() => !!document.querySelector("#sourceDetailView .dedicated-page-header #sourcePageBackBtn")), false, "le Retour n’est pas dans la grille de l’en-tête");
     const revisionHistory = await page.locator("#sourcePageContent .source-detail-history").innerText();
     assert.doesNotMatch(revisionHistory, /Invalid Date|fixture-author|source-revision-/);
     assert.match(revisionHistory, /Auteur de démonstration/);
@@ -140,7 +142,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     let state = await page.evaluate(() => window.__sourcePageTest.state());
     assert.equal(state.sourceVisible, true);
     assert.match(state.sourceTitle, /Registre paroissial/);
-    assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux Archives");
+    assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux archives");
     assert.equal(await page.locator("#sourcePageTitle").getAttribute("aria-label"), state.sourceTitle, "titre complet accessible");
     assert.ok(await page.locator("#sourceDetailView header.dedicated-page-header").count(), "en-tête partagé de page dédiée");
     assert.ok(await page.getByText("Institution de conservation", { exact: true }).count());
@@ -172,7 +174,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.evaluate(() => window.__sourcePageTest.openSource());
     await page.locator("#sourcePageContent [data-source-document-open]").click();
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
-    assert.equal(await page.locator("#documentPageBackBtn").getAttribute("aria-label"), "Retour à la Source");
+    assert.equal(await page.locator("#documentPageBackBtn").getAttribute("aria-label"), "Retour à la source");
     state = await page.evaluate(() => window.__sourcePageTest.state());
     assert.equal(state.sourceVisible, false, "la page Document remplace la page Source");
     assert.equal(state.viewerOpen, true, "lecteur de document affiché");
@@ -183,7 +185,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     /* Source → Preuve → Source : retour contextuel vers la page Source. */
     await page.locator('#sourcePageContent [data-open-genealogy="proof"]').click();
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
-    assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour à la Source");
+    assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour à la source");
     state = await page.evaluate(() => window.__sourcePageTest.state());
     assert.equal(state.proofPageVisible, true, "page Preuve affichée");
     assert.equal(state.sourceVisible, false, "la Source est remplacée par la page Preuve");

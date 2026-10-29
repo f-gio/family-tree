@@ -350,8 +350,10 @@
 </main>
   <main class="workspace-view page-content-lane source-detail-view" id="sourceDetailView" hidden aria-labelledby="sourcePageTitle">
     <div class="source-detail-page">
+      <div class="dedicated-page-return">
+        <button class="btn dedicated-page-back source-detail-back" id="sourcePageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
+      </div>
       <header class="dedicated-page-header source-detail-header">
-        <button class="btn icon-btn dedicated-page-back source-detail-back" id="sourcePageBackBtn" type="button" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
         <div class="dedicated-page-heading source-detail-heading"><p class="page-kicker">Source</p><h2 class="page-title" id="sourcePageTitle"></h2><div class="source-detail-header-badges" id="sourcePageBadges"></div></div>
         <div class="dedicated-page-actions source-detail-header-actions">
           <button class="btn primary proof-detail-revise" id="sourcePageReviseBtn" type="button" hidden>Réviser</button>
@@ -366,8 +368,10 @@
   </main>
   <main class="workspace-view page-content-lane source-detail-view proof-detail-view" id="proofDetailView" hidden aria-labelledby="proofPageTitle">
     <div class="source-detail-page proof-detail-page">
+      <div class="dedicated-page-return">
+        <button class="btn dedicated-page-back source-detail-back proof-detail-back" id="proofPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
+      </div>
       <header class="dedicated-page-header source-detail-header proof-detail-header">
-        <button class="btn icon-btn dedicated-page-back source-detail-back proof-detail-back" id="proofPageBackBtn" type="button" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
         <div class="dedicated-page-heading source-detail-heading proof-detail-heading"><p class="page-kicker">Preuve</p><h2 class="page-title" id="proofPageTitle"></h2><div class="source-detail-header-badges" id="proofPageBadges"></div></div>
         <div class="dedicated-page-actions proof-detail-header-actions">
           <button class="btn primary proof-detail-revise" id="proofPageReviseBtn" type="button" hidden>Réviser</button>
@@ -382,9 +386,11 @@
   </main>
   <main class="workspace-view page-content-lane document-detail-view" id="documentDetailView" hidden aria-labelledby="viewerTitle">
     <div class="document-detail-shell">
+      <div class="dedicated-page-return document-detail-return">
+        <button class="btn dedicated-page-back document-detail-back" id="documentPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
+      </div>
       <header class="dedicated-page-header document-detail-header">
-        <button class="btn icon-btn dedicated-page-back document-detail-back" id="documentPageBackBtn" type="button" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
-        <div class="dedicated-page-heading document-detail-heading"><p class="page-kicker">Document</p><h2 class="page-title" id="viewerTitle">Consulter le document</h2><p class="card-meta" id="viewerSubtitle">Aperçu dans Family Tree</p></div>
+        <div class="dedicated-page-heading document-detail-heading"><div class="document-detail-kicker"><p class="page-kicker">Document</p><span class="badge document-detail-category" id="viewerCategoryBadge" hidden></span></div><h2 class="page-title" id="viewerTitle">Consulter le document</h2><p class="card-meta" id="viewerSubtitle">Aperçu dans Family Tree</p></div>
         <details class="dedicated-page-actions document-detail-actions" id="documentPageActions">
           <summary class="btn icon-btn" id="viewerActionsBtn" aria-label="Actions du document" title="Actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
           <div class="document-detail-actions-menu" id="viewerActionsMenu" role="menu" aria-label="Actions du document">
@@ -809,8 +815,10 @@
 </dialog>
   <dialog id="genealogyItemDialog" class="modal-lg modal-mobile-sheet modal-mobile-sheet--long" aria-labelledby="genealogyItemTitle"><div class="modal-head"><div><h3 id="genealogyItemTitle">Dossier généalogique</h3><p id="genealogyItemSubtitle"></p></div><div class="modal-head-actions"><button class="btn icon-btn" type="button" id="genealogyItemBackBtn" hidden aria-label="Revenir à la fiche précédente" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button><button class="btn icon-btn" type="button" id="genealogyItemMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="genealogyItemActionsMenu" aria-label="Plus d’actions" title="Plus d’actions" hidden>⋯</button><button class="btn icon-btn" type="button" data-close="genealogyItemDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button><div class="modal-action-menu" id="genealogyItemActionsMenu" role="menu" aria-label="Actions de la fiche" hidden></div></div></div><div class="modal-body" id="genealogyItemContent"></div></dialog>
   <main class="workspace-view page-content-lane transcription-workshop-view" id="transcriptionWorkshopView" hidden>
+<div class="dedicated-page-return">
+<button class="btn dedicated-page-back" type="button" id="workshopBackBtn" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
+</div>
 <header class="dedicated-page-header transcription-workshop-header">
-<button class="btn icon-btn dedicated-page-back" type="button" id="workshopBackBtn" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button>
 <div class="dedicated-page-heading transcription-workshop-heading"><p class="page-kicker">Atelier de transcription</p><h2 id="workshopDocumentTitle"></h2><p class="card-meta" id="workshopPageLabel"></p></div>
 <div class="dedicated-page-actions transcription-workshop-head-status">
 <button class="transcription-workshop-draft" type="button" id="workshopDraftBadge" aria-expanded="false" aria-controls="workshopDraftHelp">Brouillon local</button>

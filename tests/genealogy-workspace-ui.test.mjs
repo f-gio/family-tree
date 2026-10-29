@@ -332,11 +332,14 @@ test("le sélecteur conserve et retire plusieurs documents dont le titre ou l'au
 
 test("la fiche détaillée d'une source présente des faits structurés sans JSON", () => {
   const facts = app.match(/function sourceDetailFactsMarkup\(data\)[\s\S]*?\n\}/)?.[0] || "";
+  const observations = app.match(/function sourceObservationsMarkup\(data\)[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(facts.length > 400, "la présentation détaillée des sources existe");
-  for (const label of ["Statut", "Type ou catégorie", "Date", "Lieu", "Institution de conservation", "Fonds ou série", "Cote", "Sous-cote", "Référence archivistique", "Personnes concernées", "Observations"]) {
+  for (const label of ["Statut", "Type ou catégorie", "Date", "Lieu", "Institution de conservation", "Fonds ou série", "Cote", "Sous-cote", "Référence archivistique", "Personnes concernées"]) {
     assert.ok(facts.includes(`"${label}"`) || facts.includes(`>${label}</strong>`), `libellé de fiche source absent : ${label}`);
   }
+  assert.ok(observations.includes(`>Observations</h3>`), "libellé Observations isolé dans la zone complémentaire");
   assert.doesNotMatch(facts, /JSON/);
+  assert.doesNotMatch(observations, /JSON/);
   assert.match(facts, /Les informations archivistiques de cette source ne sont pas encore renseignées/);
   assert.match(app, /function renderSourcePage\(item, returnContext = null\)/, "les faits structurés sont intégrés à la page dédiée");
   assert.match(app, /sourceDetailFactsMarkup\(data\).*linkedSourceDocumentsMarkup\(data\)/);
@@ -364,10 +367,11 @@ test("Source et Preuve ont des pages dédiées, les autres fiches conservent leu
   assert.match(app, /sourceTranscriptionsMarkup\(record, data\)/, "transcriptions associées présentées");
   assert.match(app, /sourceProofsMarkup\(record, data\)/, "preuves liées présentées");
   assert.match(app, /sourceHistoryMarkup\(record\)/, "historique des révisions présenté");
-  assert.match(css, /\.source-detail-page \{ width: min\(100%, 76rem\)/, "largeur de page desktop bornée");
+  assert.match(css, /\.source-detail-page \{ width: min\(100%, 84rem\)/, "largeur de page desktop bornée");
   assert.match(css, /\.source-detail-actions-menu \.btn \{[^}]*min-height: var\(--control-touch\)/, "actions secondaires tactiles");
   assert.match(css, /\.proof-detail-revise \{ min-height: var\(--control-touch\)/, "action principale révision visible");
-  assert.match(css, /\.dedicated-page-header \{ display: grid; grid-template-columns: var\(--control-touch\)/, "structure partagée et cibles tactiles");
+  assert.match(css, /\.dedicated-page-header \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto/, "structure partagée sans colonne Retour");
+  assert.match(css, /\.dedicated-page-back \{[^}]*min-height: var\(--control-touch\)/, "lien Retour ≥ 44 px hors de l’en-tête");
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.source-detail-transcription \{ align-items: stretch; flex-direction: column; \}/, "lecture verticale sur mobile");
 });
 
@@ -535,16 +539,23 @@ test("la fiche document unifiée raccorde l'ajout et la gestion de Source offici
 
 test("la fiche de consultation d'une preuve affiche des informations métier sans JSON brut", () => {
   const proofPanel = app.match(/function proofDetailsMarkup[\s\S]{0,6000}?\n\}/)?.[0] || "";
+  const proofDocument = app.match(/function proofDocumentSectionMarkup\(data\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const proofTechnical = app.match(/function proofTechnicalSectionMarkup\(data, record\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const proofPage = app.match(/function renderProofPage\(item, returnContext = null\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(proofPanel.length > 500, "panneau de consultation présent");
   assert.doesNotMatch(proofPanel, /JSON\.stringify/, "aucun JSON brut dans la vue principale");
   assert.match(app, /if \(data\.factType\) return proofFactLabel\(data\.factType\)/, "titre traduit");
   assert.match(proofPanel, /PROOF_RELATION_LABELS\[data\.relation\]/, "relation traduite");
   assert.match(proofPanel, /data-genealogy-person=/, "personnes consultables");
-  assert.match(proofPanel, /data-source-document-open=/, "document consultable");
-  assert.match(proofPanel, /Statut et détails techniques/, "panneau technique replié");
+  assert.match(proofDocument, /data-source-document-open=/, "document consultable en zone secondaire");
+  assert.match(proofDocument, /Aucun document associé à cette preuve/, "absence de document explicitée");
+  assert.match(proofTechnical, /Statut et détails techniques/, "panneau technique replié en informations complémentaires");
   assert.match(proofPanel, /person-chip person-chip-consult/, "pastille commune personne en consultation");
   assert.match(proofPanel, /<section class="document-unified-section"><h4>Personnes concernées/, "capsules placées dans le panneau beige partagé");
+  assert.match(proofPage, /<div class="detail-page-main">/, "colonne principale de la page Preuve");
+  assert.match(proofPage, /<div class="detail-page-aside">/, "colonne secondaire de la page Preuve");
   assert.match(css, /\.document-unified-section \.person-chip \{ background: var\(--color-surface\); border: var\(--border-default\); \}/);
+  assert.match(css, /\.source-detail-content \.detail-page-main > section,/, "sections des deux zones partagées Source/Preuve");
   assert.match(html, /id="genealogyItemBackBtn"[^>]*aria-label="Revenir à la fiche précédente"/, "bouton de retour entre fiches");
   assert.match(app, /genealogyItemReturn = \{ kind: activeGenealogyItem\.kind/, "pile de retour mémorisée");
   assert.match(app, /proofFactLabel\(proofData\.factType\)[\s\S]{0,400}PROOF_RELATION_LABELS\[proofData\.relation\]/, "preuves liées traduites");

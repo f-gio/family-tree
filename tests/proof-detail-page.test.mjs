@@ -149,7 +149,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     let state = await page.evaluate(() => window.__proofPageTest.state());
     assert.equal(state.title, "Naissance");
-    assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour aux Archives");
+    assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour aux archives");
     assert.equal(await page.locator("#proofPageTitle").getAttribute("aria-label"), state.title, "titre complet accessible");
     assert.ok(await page.locator("#proofDetailView header.dedicated-page-header").count(), "en-tête partagé de page dédiée");
     const revisionHistory = await page.locator("#proofPageContent .source-detail-history").innerText();
@@ -207,7 +207,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     state = await page.evaluate(() => window.__proofPageTest.state());
     assert.equal(state.returnContext.kind, "document");
-    assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour au Document");
+    assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour au document");
     await page.click("#proofPageBackBtn");
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     await page.click("#documentPageBackBtn");

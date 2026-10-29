@@ -4118,12 +4118,12 @@ function genealogyActorLabel(uid) {
 }
 
 function dedicatedPageReturnDestination(context) {
-  const viewLabels = { genealogy: "aux Archives", documents: "aux Documents", directory: "à l’Annuaire", tree: "à l’Arbre", tasks: "aux Actions" };
-  const itemLabels = { source: "à la Source", proof: "à la Preuve", transcription: "à la Transcription", "legacy-source": "aux Archives", "legacy-documents": "aux Archives" };
-  if (context?.kind === "source" || context?.kind === "sourcePage") return "à la Source";
-  if (context?.kind === "proof") return "à la Preuve";
-  if (context?.kind === "document") return "au Document";
-  if (context?.kind === "person") return "à la Personne";
+  const viewLabels = { genealogy: "aux archives", documents: "aux documents", directory: "à l’annuaire", tree: "à l’arbre", tasks: "aux actions", transcriptionWorkshop: "à l’atelier" };
+  const itemLabels = { source: "à la source", proof: "à la preuve", transcription: "à la transcription", "legacy-source": "aux archives", "legacy-documents": "aux archives" };
+  if (context?.kind === "source" || context?.kind === "sourcePage") return "à la source";
+  if (context?.kind === "proof") return "à la preuve";
+  if (context?.kind === "document") return "au document";
+  if (context?.kind === "person") return "à la personne";
   if (context?.kind === "fiche") return itemLabels[context.itemKind] || "à la fiche";
   if (context?.kind === "item") return itemLabels[context.itemKind] || "à la fiche";
   if (context?.view) return viewLabels[context.view] || "à la vue précédente";
@@ -4136,6 +4136,8 @@ function setDedicatedPageBackLabel(buttonId, context) {
   const label = `Retour ${dedicatedPageReturnDestination(context)}`;
   button.setAttribute("aria-label", label);
   button.title = label;
+  const labelNode = button.querySelector(".dedicated-page-back-label");
+  if (labelNode) labelNode.textContent = label;
 }
 
 /** Formate les horodatages des révisions Firestore et des archives historiques. */
@@ -4410,16 +4412,9 @@ function proofDetailsMarkup(data, record) {
   const personsSection = `<section class="document-unified-section"><h4>Personnes concernées</h4>${personEntries
     ? `<ul class="document-unified-people">${personEntries}</ul>`
     : `<p class="document-unified-notice">Aucune personne n’est associée à cette preuve.</p>`}</section>`;
-  const documentItem = documents.find(item => item.id === data.documentId);
-  const documentReference = documentItem
-    ? `<button class="btn small" type="button" data-source-document-open="${esc(data.documentId)}">Consulter le document</button>`
-    : data.documentId
-      ? loadedDocuments ? "Document référencé introuvable" : "Chargement du document référencé…"
-      : "Aucun document associé à cette preuve";
   const facts = [
     ["Relation à la conclusion", relationLabel ? esc(relationLabel) : "—"],
-    ["Valeur relevée dans le document", data.sourceValue === null || data.sourceValue === undefined ? "Non relevée (valeur inconnue)" : esc(String(data.sourceValue))],
-    ["Document d'origine", documentReference]
+    ["Valeur relevée dans le document", data.sourceValue === null || data.sourceValue === undefined ? "Non relevée (valeur inconnue)" : esc(String(data.sourceValue))]
   ];
   if (data.pageId) facts.push(["Page", esc(String(data.pageId))]);
   if (data.passageId) {
@@ -4442,16 +4437,33 @@ function proofDetailsMarkup(data, record) {
   const commentarySection = commentary.length
     ? `<section class="document-unified-section"><h4>Citation et interprétation</h4><div class="document-unified-facts">${commentary.join("")}</div></section>`
     : "";
-  const statusLabel = GENEALOGY_DATA_STATUS_LABELS[data.technicalStatus] || data.technicalStatus || "Non précisée";
   return personsSection
     + `<section class="document-unified-section"><div class="document-unified-facts">${factMarkup}</div></section>`
-    + commentarySection
+    + commentarySection;
+}
+
+/* Document d'origine : zone secondaire de la page Preuve, avec les mêmes
+   états que le fait historique (chargement, référence introuvable, absence). */
+function proofDocumentSectionMarkup(data) {
+  const documentItem = documents.find(item => item.id === data.documentId);
+  const body = documentItem
+    ? `<div class="proof-detail-document"><strong>${esc(documentDisplayLabel(documentItem))}</strong><button class="btn small" type="button" data-source-document-open="${esc(data.documentId)}">Consulter le document</button></div>`
+    : data.documentId
+      ? `<p class="card-meta">${loadedDocuments ? "Document référencé introuvable" : "Chargement du document référencé…"}</p>`
+      : `<p class="card-meta">Aucun document associé à cette preuve</p>`;
+  return `<section aria-labelledby="proofPageDocumentTitle"><h3 id="proofPageDocumentTitle">Document associé</h3>${body}</section>`;
+}
+
+/* Informations complémentaires : détails techniques repliés, seconde zone. */
+function proofTechnicalSectionMarkup(data, record) {
+  const statusLabel = GENEALOGY_DATA_STATUS_LABELS[data.technicalStatus] || data.technicalStatus || "Non précisée";
+  return `<section aria-labelledby="proofPageComplementaryTitle"><h3 id="proofPageComplementaryTitle">Informations complémentaires</h3>`
     + `<details class="genealogy-proof-technical"><summary>Statut et détails techniques</summary><div class="document-unified-facts">`
     + `<div class="document-unified-fact"><strong>Statut</strong><span>${esc(statusLabel)}</span></div>`
     + `<div class="document-unified-fact"><strong>Identifiant du fait</strong><span>${esc(String(data.factId || "—"))}</span></div>`
     + `<div class="document-unified-fact"><strong>Preuve</strong><span>${esc(record.id)}</span></div>`
     + (record.authorUid ? `<div class="document-unified-fact"><strong>Auteur historique</strong><span>${esc(record.authorUid)}</span></div>` : "")
-    + `</div></details>`;
+    + `</div></details></section>`;
 }
 
 function sourceRecordsForProof(proofData) {
@@ -4564,7 +4576,9 @@ function renderProofPage(item, returnContext = null) {
   $("proofPageTitle").title = title;
   const relation = PROOF_RELATION_LABELS[data.relation] || data.relation || "";
   $("proofPageBadges").innerHTML = `${genealogyKindBadgeHtml("proof")}${genealogyStatusBadgeHtml(data.technicalStatus)}${relation ? `<span class="genealogy-status-badge">${esc(relation)}</span>` : ""}`;
-  $("proofPageContent").innerHTML = `<section class="proof-detail-primary" aria-labelledby="proofPageFactsTitle"><h3 id="proofPageFactsTitle">Information attestée</h3>${proofDetailsMarkup(data, record)}</section>${proofSourceMarkup(item)}${proofRelatedMarkup(item)}${proofHistoryMarkup(record)}`;
+  /* Composition en deux zones sur desktop : le fait historique et ses sources
+     dans la principale, le document, les compléments et l'historique à côté. */
+  $("proofPageContent").innerHTML = `<div class="detail-page-main"><section class="proof-detail-primary" aria-labelledby="proofPageFactsTitle"><h3 id="proofPageFactsTitle">Information attestée</h3>${proofDetailsMarkup(data, record)}</section>${proofSourceMarkup(item)}</div><div class="detail-page-aside">${proofDocumentSectionMarkup(data)}${proofRelatedMarkup(item)}${proofTechnicalSectionMarkup(data, record)}${proofHistoryMarkup(record)}</div>`;
   const controls = genealogyItemActionControls("proof", data);
   $("proofPageReviseBtn").hidden = !controls.some(control => control.key === "revise");
   const secondaryControls = controls.filter(control => control.key !== "revise");
@@ -5982,10 +5996,16 @@ function sourceDetailFactsMarkup(data) {
   });
   const peopleNames = genealogyPersonNames(data.personIds);
   if (peopleNames.length) facts.push(`<div class="source-detail-fact"><strong>Personnes concernées</strong><span>${esc(peopleNames.join(", "))}</span></div>`);
-  const observations = data.researchNotes || data.notes || data.description;
-  if (observations) facts.push(`<div class="source-detail-fact source-detail-observations"><strong>Observations</strong><span>${esc(observations)}</span></div>`);
   if (!facts.length) return `<section class="genealogy-source-facts"><h4>Informations de la source</h4><p class="card-meta">Les informations archivistiques de cette source ne sont pas encore renseignées.</p></section>`;
   return `<section class="genealogy-source-facts"><h4>Informations de la source</h4><div class="source-detail-facts">${facts.join("")}</div></section>`;
+}
+
+/* Observations : informations complémentaires isolées dans la colonne
+   secondaire de la page Source, affichées uniquement lorsqu'elles existent. */
+function sourceObservationsMarkup(data) {
+  const observations = data.researchNotes || data.notes || data.description;
+  if (!observations) return "";
+  return `<section aria-labelledby="sourcePageObservationsTitle"><h3 id="sourcePageObservationsTitle">Observations</h3><p class="source-detail-observations-body">${esc(observations)}</p></section>`;
 }
 
 function sourceLinkedProofs(sourceRecord, sourceData) {
@@ -6112,7 +6132,9 @@ function renderSourcePage(item, returnContext = null) {
   $("sourcePageTitle").title = data.title || "Source sans titre";
   setDedicatedPageBackLabel("sourcePageBackBtn", sourcePageReturnContext);
   $("sourcePageBadges").innerHTML = `${genealogyKindBadgeHtml("source")}${genealogyStatusBadgeHtml(data.status)}${data.category ? `<span class="genealogy-status-badge">${esc(data.category)}</span>` : ""}`;
-  $("sourcePageContent").innerHTML = `${sourceDetailFactsMarkup(data)}${linkedSourceDocumentsMarkup(data)}${sourcePageImagesMarkup(item)}${sourceTranscriptionsMarkup(record, data)}${sourceProofsMarkup(record, data)}${sourceHistoryMarkup(record)}`;
+  /* Composition en deux zones sur desktop : la colonne principale porte la
+     consultation archivistique, la colonne secondaire les compléments. */
+  $("sourcePageContent").innerHTML = `<div class="detail-page-main">${sourceDetailFactsMarkup(data)}${linkedSourceDocumentsMarkup(data)}${sourcePageImagesMarkup(item)}${sourceTranscriptionsMarkup(record, data)}</div><div class="detail-page-aside">${sourceProofsMarkup(record, data)}${sourceObservationsMarkup(data)}${sourceHistoryMarkup(record)}</div>`;
   const controls = genealogyItemActionControls("source", data);
   $("sourcePageReviseBtn").hidden = !controls.some(control => control.key === "revise");
   const secondaryControls = controls.filter(control => control.key !== "revise");
@@ -7840,11 +7862,16 @@ async function openStoredDocument(item, returnContext = "previous") {
   $("viewerTitle").textContent = documentDisplayLabel(item);
   $("viewerTitle").setAttribute("aria-label", documentDisplayLabel(item));
   $("viewerTitle").title = documentDisplayLabel(item);
+  /* Badge catégorie à côté du libellé DOCUMENT : la valeur métier du document
+     (dont « Autre ») quand elle existe, aucun libellé fabriqué sinon. */
+  const categoryBadge = $("viewerCategoryBadge");
+  categoryBadge.textContent = item.type || "";
+  categoryBadge.hidden = !item.type;
+  /* Le nom de fichier et le type vivent déjà dans le panneau Informations :
+     le sous-titre se limite aux métadonnées de contexte. */
   const headerMetadata = [
-    item.type || "",
     item.date ? formatGenealogyDate(null, item.date) : "",
-    formatCompactPlace(item.place, item.placeInfo),
-    item.fileName || ""
+    formatCompactPlace(item.place, item.placeInfo)
   ].filter(value => Boolean(value) && value !== "—");
   $("viewerSubtitle").textContent = headerMetadata.join(" · ") || "Aperçu dans Family Tree";
   $("viewerSubtitle").title = $("viewerSubtitle").textContent;

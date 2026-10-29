@@ -11,7 +11,7 @@ window.__documentPageTest = {
   seed() {
     const documentItem = {
       id: "doc-page-fixture", title: "Registre de consultation paroissial de la commune de Palermo — année 1891",
-      type: "Registre", date: "1891",
+      type: "Registre", date: "1891-05-12",
       fileName: "registre.jpg", mimeType: "image/jpeg",
       fileData: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAGcP//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAQUCf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEQAD8kf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQIDAT8kf//Z",
       personIds: ["doc-person-fixture"],
@@ -77,6 +77,16 @@ window.__documentPageTest = {
       horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
       backHeight: $("documentPageBackBtn").getBoundingClientRect().height,
       backLabel: $("documentPageBackBtn").getAttribute("aria-label"),
+      backVisibleLabel: $("documentPageBackBtn").querySelector(".dedicated-page-back-label")?.textContent || "",
+      backInsideHeader: !!document.querySelector(".dedicated-page-header #documentPageBackBtn"),
+      backAboveHeader: (() => {
+        const back = $("documentPageBackBtn").getBoundingClientRect();
+        const header = document.querySelector("#documentDetailView .document-detail-header");
+        return !header || back.bottom <= header.getBoundingClientRect().top + 1;
+      })(),
+      categoryBadgeText: $("viewerCategoryBadge").textContent,
+      categoryBadgeHidden: $("viewerCategoryBadge").hidden,
+      subtitleText: $("viewerSubtitle").textContent,
       imageVisible: !$("viewerImage").hidden,
       pageWidth: $("documentDetailView").getBoundingClientRect().width,
       pageMaxHeight: getComputedStyle($("documentDetailView")).maxHeight,
@@ -140,7 +150,15 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     let state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, true, "page Document ouverte depuis Archives");
-    assert.equal(state.backLabel, "Retour aux Archives", "destination du Retour annoncée accessible");
+    assert.equal(state.backLabel, "Retour aux archives", "destination du Retour annoncée accessible");
+    assert.equal(state.backVisibleLabel, "Retour aux archives", "destination du Retour affichée en clair");
+    assert.equal(state.backInsideHeader, false, "le Retour n’est plus intégré à la grille de l’en-tête");
+    assert.equal(state.backAboveHeader, true, "le Retour occupe une ligne indépendante au-dessus de l’en-tête");
+    assert.equal(state.categoryBadgeText, "Registre", "badge de catégorie à côté de DOCUMENT");
+    assert.equal(state.categoryBadgeHidden, false, "badge visible quand la catégorie existe");
+    assert.equal(state.subtitleText.includes("registre.jpg"), false, "nom de fichier retiré du sous-titre (déjà dans Informations)");
+    assert.equal(state.subtitleText.includes("Registre"), false, "type non répété dans le sous-titre (badge catégorie)");
+    assert.equal(state.subtitleText.includes("1891"), true, "date de contexte conservée sous le titre");
     assert.ok(state.headerClass.includes("dedicated-page-header"), "en-tête Document partagé");
     assert.equal(state.imageVisible, true, "aperçu du document chargé");
     await page.click("#documentPageBackBtn");
@@ -167,7 +185,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.returnContext.kind, "person", "contexte Personne capturé");
-    assert.equal(state.backLabel, "Retour à la Personne", "Retour du Document précise la fiche Personne");
+    assert.equal(state.backLabel, "Retour à la personne", "Retour du Document précise la fiche Personne");
     assert.equal(state.personOpen, false, "la fiche Personne est refermée pour la page");
     await page.click("#documentPageBackBtn");
     await page.waitForSelector("#personDialog[open]");
@@ -201,8 +219,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, false, "l'atelier remplace la page");
-    assert.equal(state.workshopBackLabel, "Retour au Document", "Retour de l’Atelier précise le Document appelant");
-    assert.equal(state.workshopBackLabel, "Retour au Document", "Retour Atelier nomme sa destination");
+    assert.equal(state.workshopBackLabel, "Retour au document", "Retour de l’Atelier précise le Document appelant");
+    assert.equal(await page.locator("#workshopBackBtn .dedicated-page-back-label").textContent(), "Retour au document", "Retour Atelier nomme sa destination en clair");
     assert.ok(state.workshopBackHeight >= 44 && state.workshopMenuHeight >= 44, "Retour et menu Atelier ≥44px");
     assert.ok(state.workshopHeaderClass.includes("dedicated-page-header"), "en-tête partagé de l’Atelier");
     assert.equal(state.workshopTitleLabel, state.workshopTitle, "titre Atelier complet accessible");

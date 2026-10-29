@@ -5026,10 +5026,32 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 }
 
 /* Fiche Source dédiée — lecture pleine page, distincte des modales Preuve et Document. */
-.source-detail-page { width: min(100%, 76rem); margin-inline: auto; }
-.dedicated-page-header { display: grid; grid-template-columns: var(--control-touch) minmax(0, 1fr) auto; align-items: start; gap: var(--space-3); min-width: 0; padding-bottom: var(--space-4); border-bottom: var(--border-subtle); }
+.source-detail-page { width: min(100%, 84rem); margin-inline: auto; }
+/* Retour : lien de navigation autonome, aligné sur le bord gauche du contenu,
+   au-dessus de l'en-tête (position identique sur ordinateur et mobile). */
+.dedicated-page-return { display: flex; align-items: center; min-width: 0; margin-bottom: var(--space-2); }
+.document-detail-shell > .dedicated-page-return,
+.transcription-workshop-view > .dedicated-page-return { margin-bottom: 0; }
+.dedicated-page-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: var(--control-touch);
+  min-height: var(--control-touch);
+  padding: 0 var(--space-2);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-text-muted);
+  font-weight: var(--weight-semibold);
+  text-align: left;
+  text-decoration: none;
+}
+.dedicated-page-back:hover { border: 0; background: transparent; box-shadow: none; color: var(--color-text); text-decoration: underline; }
+.dedicated-page-back:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; border-radius: var(--radius-sm); }
+.dedicated-page-back-arrow { font-size: var(--text-lg); line-height: 1; }
+.dedicated-page-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--space-3); min-width: 0; padding-bottom: var(--space-4); border-bottom: var(--border-subtle); }
 .source-detail-header { margin-bottom: var(--space-5); }
-.dedicated-page-back { display: inline-grid; place-items: center; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); }
 .dedicated-page-heading { min-width: 0; }
 .workspace-view .dedicated-page-heading .page-kicker { margin: 0 0 2px; }
 .dedicated-page-heading .page-title { overflow-wrap: anywhere; }
@@ -5049,13 +5071,26 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .proof-detail-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
 .proof-detail-revise { min-height: var(--control-touch); white-space: nowrap; }
 .source-detail-content { display: grid; gap: var(--space-4); min-width: 0; }
-.source-detail-content > section { min-width: 0; padding: var(--space-4); border: var(--border-subtle); border-radius: var(--radius-lg); background: var(--color-surface); }
-.source-detail-content > section > h3,
-.source-detail-content > section > h4 { margin: 0 0 var(--space-3); color: var(--color-text); font: var(--weight-semibold) var(--text-lg)/var(--leading-tight) var(--font-display); }
-.source-detail-content .genealogy-source-facts,
-.source-detail-content .genealogy-linked-documents { padding: var(--space-4); }
+/* Colonnes partagées Source/Preuve : principale plus large, secondaire bornée
+   pour éviter colonnes déséquilibrées et cartes trop étirées — ordinateur seul,
+   une colonne en dessous de 961 px. */
+.detail-page-main,
+.detail-page-aside { display: grid; gap: var(--space-4); min-width: 0; align-content: start; }
+@media (min-width: 961px) {
+  .source-detail-content { grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem); gap: var(--space-5); align-items: start; }
+}
+.source-detail-content .detail-page-main > section,
+.source-detail-content .detail-page-aside > section { min-width: 0; padding: var(--space-4); border: var(--border-subtle); border-radius: var(--radius-lg); background: var(--color-surface); }
+.source-detail-content .detail-page-main > section > h3,
+.source-detail-content .detail-page-main > section > h4,
+.source-detail-content .detail-page-aside > section > h3,
+.source-detail-content .detail-page-aside > section > h4 { margin: 0 0 var(--space-3); color: var(--color-text); font: var(--weight-semibold) var(--text-lg)/var(--leading-tight) var(--font-display); }
 .source-detail-content .genealogy-linked-documents ul { margin-bottom: 0; }
 .source-detail-content .genealogy-linked-documents li button { min-height: var(--control-touch); }
+/* Textes longs : largeur de lecture bornée même dans la colonne large. */
+.source-detail-passage p,
+.source-detail-observations-body { max-width: 72ch; }
+.source-detail-observations-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .source-detail-transcriptions { display: grid; gap: var(--space-3); }
 .source-detail-transcription { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-width: 0; padding: var(--space-3); border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface-muted); }
 .source-detail-transcription > div { min-width: 0; overflow-wrap: anywhere; }
@@ -5074,6 +5109,14 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .source-detail-history-author { color: var(--color-text-muted); font-size: var(--text-sm); }
 .proof-detail-content .document-unified-fact .btn { min-height: var(--control-touch); }
 .proof-detail-content .document-unified-people .btn { min-height: var(--control-touch); }
+/* Étiquettes de personnes : neutre beige-gris du design system sur toute la
+   page Preuve, distinctes des badges de statut et sans apparence de bouton. */
+.proof-detail-content .document-unified-section .person-chip { background: var(--color-surface-muted); border: var(--border-default); }
+.proof-detail-content .person-chip-consult:hover { background: var(--color-surface-muted); }
+/* Document associé (zone secondaire) : même grammaire que les cartes Source. */
+.proof-detail-document { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.proof-detail-document strong { min-width: 0; overflow-wrap: anywhere; }
+.proof-detail-document .btn { flex: 0 0 auto; min-height: var(--control-touch); }
 .proof-detail-primary .document-unified-section { background: var(--color-surface); }
 /* Page Document dédiée (lot D) : en-tête compact, deux panneaux sur desktop,
    onglets Original/Informations sur mobile. Reprend le lecteur existant. */
@@ -5082,6 +5125,10 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .document-detail-header { margin-bottom: 0; }
 .document-detail-heading { min-width: 0; }
 .document-detail-heading .page-kicker { margin-top: 0; }
+/* Badge de catégorie à côté du libellé DOCUMENT : valeur métier existante du document. */
+.document-detail-kicker { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; margin: 0 0 4px; }
+.document-detail-heading .document-detail-kicker .page-kicker { margin: 0; }
+.document-detail-category { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .document-detail-heading #viewerSubtitle { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .document-detail-actions { position: relative; }
 .document-detail-actions > summary { display: inline-flex; align-items: center; justify-content: center; min-width: var(--control-touch); min-height: var(--control-touch); cursor: pointer; list-style: none; }
@@ -5094,6 +5141,7 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 #documentDetailView .document-original-panel { height: min(74dvh, 58rem); min-height: 22rem; overflow: visible; padding-inline-end: var(--space-1); }
 #documentDetailView .document-unified-details { min-height: 0; overflow: visible; }
 #documentDetailView .document-original-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+#documentDetailView.is-viewer-fullscreen .document-detail-return,
 #documentDetailView.is-viewer-fullscreen .document-detail-header,
 #documentDetailView.is-viewer-fullscreen .document-detail-tabs { display: none; }
 #documentDetailView.is-viewer-fullscreen { display: flex !important; flex-direction: column; }
@@ -5130,13 +5178,16 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
   .proof-detail-header-actions { align-items: center; flex-direction: row; gap: var(--space-1); }
   .proof-detail-revise { min-height: var(--control-touch); padding-inline: var(--space-2); }
   .source-detail-content { gap: var(--space-3); }
-  .source-detail-content > section,
-  .source-detail-content .genealogy-source-facts,
-  .source-detail-content .genealogy-linked-documents { padding: var(--space-3); }
+  .source-detail-content .detail-page-main,
+  .source-detail-content .detail-page-aside { gap: var(--space-3); }
+  .source-detail-content .detail-page-main > section,
+  .source-detail-content .detail-page-aside > section { padding: var(--space-3); }
   .source-detail-transcription { align-items: stretch; flex-direction: column; }
   .source-detail-transcription .btn { width: 100%; }
   .source-detail-proof { align-items: stretch; flex-direction: column; }
   .source-detail-proof .btn { width: 100%; min-height: var(--control-touch); }
+  .proof-detail-document { flex-direction: column; align-items: stretch; }
+  .proof-detail-document .btn { width: 100%; }
 }
 #appMain .page-kicker,
 .workspace-view .page-kicker {

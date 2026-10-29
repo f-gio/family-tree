@@ -543,9 +543,10 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
         assert.ok(mobileHeader.header.height <= 130, `en-tête mobile contenu avec métadonnées visibles (${mobileHeader.header.height}px)`);
         assert.equal(mobileHeader.titleStyle.lineClamp, "2", "titre tronqué au-delà de deux lignes");
         assert.ok(mobileHeader.title.right <= mobileHeader.actions.x + 1, "le titre ne chevauche pas les actions");
-        assert.ok(Math.abs(mobileHeader.menu.y - mobileHeader.close.y) <= 1, "menu et fermeture alignés sur la même ligne");
+        assert.ok(mobileHeader.close.bottom <= mobileHeader.header.y + 1, "le lien Retour est sur sa ligne indépendante au-dessus de l’en-tête");
+        assert.ok(mobileHeader.close.x <= mobileHeader.header.x + 1, "le Retour est aligné sur le bord gauche du contenu");
         assert.ok(mobileHeader.menu.height >= 43.5 && mobileHeader.menu.width >= 43.5, "menu général avec cible 44px");
-        assert.ok(mobileHeader.close.height >= 43.5 && mobileHeader.close.width >= 43.5, "fermeture avec cible 44px");
+        assert.ok(mobileHeader.close.height >= 43.5 && mobileHeader.close.width >= 43.5, "Retour avec cible 44px");
       }
       if (viewport.width === 320) {
         const truncation = await page.locator("#viewerTitle").evaluate(element => ({ lineClamp: getComputedStyle(element).webkitLineClamp, label: element.getAttribute("aria-label") }));
