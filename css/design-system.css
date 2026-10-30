@@ -2257,6 +2257,12 @@ label .field { margin-top: var(--space-2); }
 #documentDetailView.is-viewer-fullscreen .viewer-image-controls { position: relative; z-index: 2; flex: 0 0 auto; justify-content: center; }
 #documentDetailView.is-viewer-fullscreen .document-original-panel .viewer-body { flex: 1 1 auto !important; width: 100% !important; height: auto !important; min-height: 0 !important; }
 #documentDetailView.is-viewer-fullscreen .viewer-body iframe { height: 100%; }
+/* Repli plein écran (Safari iOS) : le topbar du site porte un backdrop-filter
+   qui crée sa propre couche composite. Sur iOS, cette couche peut être peinte
+   au-dessus d'un élément position:fixed, même avec un z-index supérieur. Les
+   contrôleurs plein écran masquent donc le topbar via style inline pendant le
+   repli et forcent une couche de composition sur la visionneuse. */
+#documentDetailView.is-viewer-fullscreen { transform: translateZ(0); }
 html.viewer-fullscreen-active,
 html.viewer-fullscreen-active body { overflow: hidden !important; }
 @media (prefers-reduced-motion: reduce) {

@@ -230,6 +230,23 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     fullscreenElement?.classList.toggle("is-viewer-fullscreen", active);
     fullscreenElement?.classList.toggle("is-viewer-fullscreen-fallback", active && fallback);
     fullscreenElement?.ownerDocument?.documentElement.classList.toggle("viewer-fullscreen-active", active && fallback);
+    /* Safari iOS : le topbar du site porte un backdrop-filter qui crée sa propre
+       couche composite, peinte au-dessus d'un position:fixed. On le masque
+       pendant le repli (et uniquement en repli) puis on restaure sa visibilité. */
+    const topbar = fullscreenDocument?.getElementById?.("topbar");
+    if (topbar) {
+      if (active && fallback) {
+        if (topbar.dataset.viewerFullscreenPrevVisibility === undefined) {
+          topbar.dataset.viewerFullscreenPrevVisibility = topbar.style.visibility || "";
+        }
+        topbar.style.visibility = "hidden";
+      } else if (!active || !fallback) {
+        if (topbar.dataset.viewerFullscreenPrevVisibility !== undefined) {
+          topbar.style.visibility = topbar.dataset.viewerFullscreenPrevVisibility;
+          delete topbar.dataset.viewerFullscreenPrevVisibility;
+        }
+      }
+    }
     if (fullscreenButton) {
       fullscreenButton.setAttribute("aria-label", active ? "Quitter le plein écran" : "Afficher en plein écran");
       fullscreenButton.title = active ? "Quitter le plein écran" : "Afficher en plein écran";

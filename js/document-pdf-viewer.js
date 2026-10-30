@@ -85,6 +85,23 @@ export async function createDocumentPdfViewer({
     fullscreenElement.classList.toggle("is-viewer-fullscreen", active);
     fullscreenElement.classList.toggle("is-viewer-fullscreen-fallback", active && fallback);
     doc.documentElement.classList.toggle("viewer-fullscreen-active", active && fallback);
+    /* Safari iOS : le topbar du site porte un backdrop-filter qui crée sa propre
+       couche composite, peinte au-dessus d'un position:fixed. On le masque
+       pendant le repli (et uniquement en repli) puis on restaure sa visibilité. */
+    const topbar = doc.getElementById("topbar");
+    if (topbar) {
+      if (active && fallback) {
+        if (topbar.dataset.viewerFullscreenPrevVisibility === undefined) {
+          topbar.dataset.viewerFullscreenPrevVisibility = topbar.style.visibility || "";
+        }
+        topbar.style.visibility = "hidden";
+      } else if (!active || !fallback) {
+        if (topbar.dataset.viewerFullscreenPrevVisibility !== undefined) {
+          topbar.style.visibility = topbar.dataset.viewerFullscreenPrevVisibility;
+          delete topbar.dataset.viewerFullscreenPrevVisibility;
+        }
+      }
+    }
     updateFullscreenButton(active);
   }
 

@@ -1281,10 +1281,16 @@ test("JPEG plein écran mobile en repli : commandes, zones sûres et cycles de f
             toolbarVisible: [...document.querySelectorAll("#viewerImageControls .viewer-image-only")].some(button => !button.hidden && button.id === "viewerFullscreenBtn"),
             exitLabel: document.getElementById("viewerFullscreenBtn").getAttribute("aria-label"),
             touchAction: getComputedStyle(document.getElementById("viewerImageViewport")).touchAction,
+            topbarInlineVisibility: document.getElementById("topbar").style.visibility,
             zoom: window.__viewerImageController.getState().zoom
           };
         });
         assert.equal(entered.zIndex, "130", `cycle ${cycle} : repli au-dessus du topbar`);
+        /* Le topbar porte l'attribut `hidden` dans ce harnais, ce qui fait
+           remonter `visibility: visible` via getComputedStyle malgré le style
+           inline. On vérifie donc le style inline posé par le contrôleur —
+           c'est ce qui s'applique sur un vrai iPhone où le topbar est affiché. */
+        assert.equal(entered.topbarInlineVisibility, "hidden", `cycle ${cycle} : topbar masqué pendant le repli (iOS ne doit plus peindre son backdrop-filter au-dessus)`);
         assert.ok(entered.bounds[0] <= 1 && entered.bounds[1] <= 1 && entered.bounds[2] >= entered.viewport[0] - 1 && entered.bounds[3] >= entered.viewport[1] - 1, `cycle ${cycle} : vue étendue au viewport (${entered.bounds.join("×")})`);
         assert.equal(entered.pageLocked, true, `cycle ${cycle} : défilement de fond verrouillé`);
         assert.ok(entered.safePadding.every(value => parseFloat(value) >= 12), `cycle ${cycle} : réserves safe-area actives (${entered.safePadding.join(",")})`);
@@ -1308,12 +1314,14 @@ test("JPEG plein écran mobile en repli : commandes, zones sûres et cycles de f
         const restored = await page.evaluate(() => ({
           fallback: document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen-fallback"),
           pageLocked: getComputedStyle(document.documentElement).overflow === "hidden" || getComputedStyle(document.body).overflow === "hidden",
+          topbarInlineVisibility: document.getElementById("topbar").style.visibility,
           zoom: window.__viewerImageController.getState().zoom,
           offsetY: window.__viewerImageController.getState().offsetY,
           source: document.getElementById("viewerImage").currentSrc
         }));
         assert.equal(restored.fallback, false, `cycle ${cycle} : mode repli quitté`);
         assert.equal(restored.pageLocked, false, `cycle ${cycle} : défilement de page restauré`);
+        assert.equal(restored.topbarInlineVisibility, "", `cycle ${cycle} : topbar restauré après la fermeture`);
         assert.equal(restored.zoom, zoomBefore, `cycle ${cycle} : zoom conservé à la sortie`);
         assert.ok(Math.abs(restored.offsetY - afterPan) <= 2, `cycle ${cycle} : cadrage conservé à la sortie (${JSON.stringify({ afterPan, ...restored })})`);
         assert.equal(restored.source, originalSource, `cycle ${cycle} : l'image n'est pas rechargée`);
