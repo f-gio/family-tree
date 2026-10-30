@@ -30,7 +30,7 @@ test("Le mode initial privilégie la largeur pour les photographies portrait tr�
 });
 
 test("Viewer : règles statiques mobile, commandes compactes, plein écran et safe-area", () => {
-  assert.match(css, /\.document-unified-section \.person-chip \{ background: var\(--color-surface\); border: var\(--border-default\); \}/);
+  assert.match(css, /\.document-unified-section \.person-chip \{ background: var\(--color-surface-muted\); border: var\(--border-default\); \}/);
   /* Fullscreen conservé */
   assert.match(html, /\.viewer-dialog\{width:min\(calc\(100vw - 3rem\),94vw\);height:min\(calc\(100dvh - 3rem\),92dvh\)\}/);
   assert.match(html, /\.viewer-dialog\{width:calc\(100% - 12px\);height:calc\(100dvh - 12px\)\}/);

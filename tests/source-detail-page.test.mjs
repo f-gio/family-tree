@@ -12,7 +12,7 @@ window.__sourcePageTest = {
       id: "source-page-fixture", title: "Registre paroissial — titre de démonstration très long pour vérifier le retour à la ligne",
       status: "active", category: "État civil", date: "1897", placeOrTerritory: "Palermo",
       holdingOrganization: "Archives communales", fondsSeries: "Registres paroissiaux", cote: "A-123", subCote: "B-4",
-      archivalReferences: [{ label: "Folio", value: "18 verso" }], personIds: [], documentIds: ["document-page-fixture"],
+      archivalReferences: [{ label: "Folio", value: "18 verso" }], personIds: ["person-source-fixture"], documentIds: ["document-page-fixture"],
       pages: [
         { id: "page-fixture", label: "Page 1", photographs: [
           { id: "photo-fixture", preview: { dataUrl: "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" } },
@@ -41,6 +41,8 @@ window.__sourcePageTest = {
     };
     documents = [documentItem];
     loadedDocuments = true;
+    people = [{ id: "person-source-fixture", firstName: "Marie", middleName: "", lastName: "Rossi", birthDate: "1880", deathDate: "", place: "", partnerIds: [], childIds: [] }];
+    loadedPeople = true;
     genealogyLoaded = true;
     genealogyCollectionsLoaded = new Set(["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyEvents", "genealogyNotifications"]);
     currentUserProfile = { role: "admin" };
@@ -117,6 +119,14 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.locator('[data-genealogy-tile-id="source-page-fixture"]').evaluate(tile => tile.click());
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
     assert.match(await page.locator("#sourcePageTitle").textContent(), /Registre paroissial/);
+    /* Personnes associées : pastille commune beige-gris, cliquable. */
+    const personChip = page.locator("#sourcePageContent .document-unified-people .person-chip-consult").first();
+    assert.equal(await personChip.count(), 1, "section personnes commune présente sur la Source");
+    assert.match(await personChip.textContent(), /Rossi Marie/);
+    assert.equal(await personChip.getAttribute("data-genealogy-person"), "person-source-fixture");
+    const chipStyle = await personChip.evaluate(element => getComputedStyle(element).backgroundColor);
+    assert.equal(chipStyle, "rgb(243, 238, 229)", "fond beige-gris du design system");
+    assert.equal(await page.locator("#sourcePageContent .source-detail-fact strong", { hasText: "Personnes concernées" }).count(), 0, "plus de fait texte brut pour les personnes");
     assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux archives");
     assert.equal(await page.locator("#sourcePageBackBtn .dedicated-page-back-label").textContent(), "Retour aux archives", "destination réelle affichée en clair (desktop)");
     /* Lot corrections : le Retour vit dans l'en-tête, sous le groupe d'actions, aligné à droite. */

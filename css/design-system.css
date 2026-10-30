@@ -2858,11 +2858,12 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .source-person-option strong, .source-person-option small { overflow-wrap: anywhere; }
 .source-person-option small { color: var(--color-text-muted); font-size: var(--text-xs); }
 .person-chip { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; padding: 3px 6px 3px 10px; border-radius: 999px; background: var(--color-surface-muted); color: var(--color-text); font-size: var(--text-sm); border: var(--border-default); }
-.document-unified-section .person-chip { background: var(--color-surface); border: var(--border-default); }
+.document-unified-section .person-chip { background: var(--color-surface-muted); border: var(--border-default); }
 .person-chip .ui-icon { flex: 0 0 auto; color: var(--color-text-muted); }
 .person-chip span { overflow-wrap: anywhere; min-width: 0; }
+.person-chip.is-missing { color: var(--color-text-muted); font-style: italic; border-style: dashed; }
 .person-chip-consult { cursor: pointer; min-height: var(--control-touch); font: inherit; text-align: left; }
-.person-chip-consult:hover { text-decoration: underline; }
+.person-chip-consult:hover { border-color: var(--color-text-muted); }
 .person-chip-consult:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
 .genealogy-source-guided-fields > section .person-multiselect-chip { background: var(--color-surface); border: var(--border-default); }
 .genealogy-source-facts h4 { margin: 0; }
@@ -5120,10 +5121,6 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .source-detail-history-author { color: var(--color-text-muted); font-size: var(--text-sm); }
 .proof-detail-content .document-unified-fact .btn { min-height: var(--control-touch); }
 .proof-detail-content .document-unified-people .btn { min-height: var(--control-touch); }
-/* Étiquettes de personnes : neutre beige-gris du design system sur toute la
-   page Preuve, distinctes des badges de statut et sans apparence de bouton. */
-.proof-detail-content .document-unified-section .person-chip { background: var(--color-surface-muted); border: var(--border-default); }
-.proof-detail-content .person-chip-consult:hover { background: var(--color-surface-muted); }
 /* Document associé (zone secondaire) : même grammaire que les cartes Source. */
 .proof-detail-document { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; }
 .proof-detail-document strong { min-width: 0; overflow-wrap: anywhere; }

@@ -5999,10 +5999,21 @@ function sourceDetailFactsMarkup(data) {
     const value = typeof reference?.value === "string" ? reference.value.trim() : "";
     if (value) facts.push(`<div class="source-detail-fact"><strong>${esc(reference.label || "Référence archivistique")}</strong><span>${esc(value)}</span></div>`);
   });
-  const peopleNames = genealogyPersonNames(data.personIds);
-  if (peopleNames.length) facts.push(`<div class="source-detail-fact"><strong>Personnes concernées</strong><span>${esc(peopleNames.join(", "))}</span></div>`);
   if (!facts.length) return `<section class="genealogy-source-facts"><h4>Informations de la source</h4><p class="card-meta">Les informations archivistiques de cette source ne sont pas encore renseignées.</p></section>`;
   return `<section class="genealogy-source-facts"><h4>Informations de la source</h4><div class="source-detail-facts">${facts.join("")}</div></section>`;
+}
+
+/* Personnes associées : même composant qu'ailleurs (pastille beige-gris,
+   sans apparence de bouton). Chaque pastille ouvre la fiche personne. */
+function sourcePeopleSectionMarkup(data) {
+  const personIds = Array.isArray(data.personIds) ? data.personIds : [];
+  if (!personIds.length) return "";
+  const entries = personIds.map(personId => {
+    const person = people.find(item => item.id === personId);
+    if (!person) return `<li><span class="person-chip is-missing">Personne référencée introuvable</span></li>`;
+    return `<li><button class="person-chip person-chip-consult" type="button" data-genealogy-person="${esc(personId)}">${icon("user")}<span>${esc(directoryPersonName(person))}</span></button></li>`;
+  }).join("");
+  return `<section class="document-unified-section"><h4>Personnes concernées</h4><ul class="document-unified-people">${entries}</ul></section>`;
 }
 
 /* Observations : informations complémentaires isolées dans la colonne
@@ -6160,7 +6171,7 @@ function renderSourcePage(item, returnContext = null, preserveScroll = false) {
   $("sourcePageBadges").innerHTML = `${genealogyKindBadgeHtml("source")}${genealogyStatusBadgeHtml(data.status)}${data.category ? `<span class="genealogy-status-badge">${esc(data.category)}</span>` : ""}`;
   /* Composition en deux zones sur desktop : la colonne principale porte la
      consultation archivistique, la colonne secondaire les compléments. */
-  $("sourcePageContent").innerHTML = `<div class="detail-page-main">${sourceDetailFactsMarkup(data)}${linkedSourceDocumentsMarkup(data)}${sourcePageImagesMarkup(item)}${sourceTranscriptionsMarkup(record, data)}</div><div class="detail-page-aside">${sourceProofsMarkup(record, data)}${sourceObservationsMarkup(data)}${sourceHistoryMarkup(record)}</div>`;
+  $("sourcePageContent").innerHTML = `<div class="detail-page-main">${sourcePeopleSectionMarkup(data)}${sourceDetailFactsMarkup(data)}${linkedSourceDocumentsMarkup(data)}${sourcePageImagesMarkup(item)}${sourceTranscriptionsMarkup(record, data)}</div><div class="detail-page-aside">${sourceProofsMarkup(record, data)}${sourceObservationsMarkup(data)}${sourceHistoryMarkup(record)}</div>`;
   const controls = genealogyItemActionControls("source", data);
   $("sourcePageReviseBtn").hidden = !controls.some(control => control.key === "revise");
   const secondaryControls = controls.filter(control => control.key !== "revise");
@@ -10052,6 +10063,12 @@ $("proofPageContent").addEventListener("click", event => {
   }
 });
 $("sourcePageContent").addEventListener("click", event => {
+  const personButton = event.target.closest("[data-genealogy-person]");
+  if (personButton) {
+    const item = person(personButton.dataset.genealogyPerson);
+    if (!item) return toast("Cette personne n’est plus disponible.", "error");
+    return openPerson(item, "directory");
+  }
   const button = event.target.closest("[data-source-document-open]");
   if (button) {
     const linkedDocument = documents.find(item => item.id === button.dataset.sourceDocumentOpen);

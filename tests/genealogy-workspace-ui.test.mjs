@@ -333,10 +333,16 @@ test("le sélecteur conserve et retire plusieurs documents dont le titre ou l'au
 test("la fiche détaillée d'une source présente des faits structurés sans JSON", () => {
   const facts = app.match(/function sourceDetailFactsMarkup\(data\)[\s\S]*?\n\}/)?.[0] || "";
   const observations = app.match(/function sourceObservationsMarkup\(data\)[\s\S]*?\n\}/)?.[0] || "";
+  const peopleSection = app.match(/function sourcePeopleSectionMarkup\(data\)[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(facts.length > 400, "la présentation détaillée des sources existe");
-  for (const label of ["Statut", "Type ou catégorie", "Date", "Lieu", "Institution de conservation", "Fonds ou série", "Cote", "Sous-cote", "Référence archivistique", "Personnes concernées"]) {
+  for (const label of ["Statut", "Type ou catégorie", "Date", "Lieu", "Institution de conservation", "Fonds ou série", "Cote", "Sous-cote", "Référence archivistique"]) {
     assert.ok(facts.includes(`"${label}"`) || facts.includes(`>${label}</strong>`), `libellé de fiche source absent : ${label}`);
   }
+  /* Personnes associées : composant commun (pastille beige-gris), pas un fait
+     archivistique en texte brut. */
+  assert.ok(peopleSection.length > 200, "section personnes commune présente pour la Source");
+  assert.match(peopleSection, /document-unified-section/, "même grammaire de section que Preuve et Document");
+  assert.match(peopleSection, /person-chip person-chip-consult/, "pastille commune personne en consultation");
   assert.ok(observations.includes(`>Observations</h3>`), "libellé Observations isolé dans la zone complémentaire");
   assert.doesNotMatch(facts, /JSON/);
   assert.doesNotMatch(observations, /JSON/);
@@ -554,7 +560,7 @@ test("la fiche de consultation d'une preuve affiche des informations métier san
   assert.match(proofPanel, /<section class="document-unified-section"><h4>Personnes concernées/, "capsules placées dans le panneau beige partagé");
   assert.match(proofPage, /<div class="detail-page-main">/, "colonne principale de la page Preuve");
   assert.match(proofPage, /<div class="detail-page-aside">/, "colonne secondaire de la page Preuve");
-  assert.match(css, /\.document-unified-section \.person-chip \{ background: var\(--color-surface\); border: var\(--border-default\); \}/);
+  assert.match(css, /\.document-unified-section \.person-chip \{ background: var\(--color-surface-muted\); border: var\(--border-default\); \}/, "pastilles personnes au fond beige-gris commun");
   assert.match(css, /\.source-detail-content \.detail-page-main > section,/, "sections des deux zones partagées Source/Preuve");
   assert.match(html, /id="genealogyItemBackBtn"[^>]*aria-label="Revenir à la fiche précédente"/, "bouton de retour entre fiches");
   assert.match(app, /genealogyItemReturn = \{ kind: activeGenealogyItem\.kind/, "pile de retour mémorisée");
@@ -592,7 +598,7 @@ test("le formulaire guidé de preuve remplace le JSON pour les créations offici
 });
 
 test("la fiche unifiée permet de modifier document, source et naviguer vers les personnes", () => {
-  assert.match(html, /id="viewerEditBtn"[^>]*>Modifier les informations/, "la modification reste accessible depuis le menu …");
+  assert.match(html, /id="viewerEditBtn"[^>]*>[^<]*<svg class="ui-icon"[^>]*><use href="#icon-edit"><\/use><\/svg><span>Modifier les informations<\/span>/, "la modification reste accessible depuis le menu, avec l'icône crayon commune");
   assert.match(app, /closest\("\[data-unified-document-edit\]"\)/, "ancien chemin conservé pour compatibilité");
   assert.match(app, /data-unified-person=/);
   assert.match(app, /function openUnifiedDocumentEditor\(documentId\)/);
