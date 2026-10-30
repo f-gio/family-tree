@@ -2691,7 +2691,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-help { margin: 0; padding: var(--space-2) var(--space-3); border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface-soft); color: var(--color-text-muted); font-size: var(--text-sm); }
 .transcription-workshop-state { margin: 0; padding: var(--space-3); border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface-soft); color: var(--color-text-muted); font-size: var(--text-sm); }
 .transcription-workshop-menu { position: relative; }
-.transcription-workshop-menu > summary { display: inline-flex; cursor: pointer; list-style: none; }
+.transcription-workshop-menu > summary { display: inline-flex; align-items: center; justify-content: center; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); cursor: pointer; list-style: none; }
 .transcription-workshop-menu > summary::-webkit-details-marker { display: none; }
 .transcription-workshop-menu-panel { position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 40; min-width: 15rem; padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-medium); }
 .transcription-workshop-menu-panel .btn { justify-content: flex-start; width: 100%; min-height: var(--control-touch); }
@@ -2760,6 +2760,10 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 }
 @media (max-width: 760px) {
   .transcription-workshop-header { gap: var(--space-2); }
+  /* En-tête compact : la colonne d'actions (état, Enregistrer, menu ⋯ puis
+     lien Retour) se replie sans jamais faire déborder la page à 320 px. */
+  .transcription-workshop-head-status { flex: 0 1 auto; max-width: 100%; }
+  .transcription-workshop-head-status .dedicated-page-actions-row { flex-wrap: wrap; justify-content: flex-end; }
   .transcription-workshop-tabs { display: flex; }
   .transcription-workshop-divider { display: none; }
   .transcription-workshop-layout { grid-template-columns: minmax(0, 1fr); height: clamp(300px, calc(100dvh - 16rem), calc(100dvh - 6rem)); }
@@ -5037,8 +5041,7 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 /* Retour : lien de navigation autonome, aligné sur le bord gauche du contenu,
    au-dessus de l'en-tête (position identique sur ordinateur et mobile). */
 .dedicated-page-return { display: flex; align-items: center; min-width: 0; margin-bottom: var(--space-2); }
-.document-detail-shell > .dedicated-page-return,
-.transcription-workshop-view > .dedicated-page-return { margin-bottom: 0; }
+.document-detail-shell > .dedicated-page-return { margin-bottom: 0; }
 .dedicated-page-back {
   display: inline-flex;
   align-items: center;

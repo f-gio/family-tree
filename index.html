@@ -817,14 +817,18 @@
 </dialog>
   <dialog id="genealogyItemDialog" class="modal-lg modal-mobile-sheet modal-mobile-sheet--long" aria-labelledby="genealogyItemTitle"><div class="modal-head"><div><h3 id="genealogyItemTitle">Dossier généalogique</h3><p id="genealogyItemSubtitle"></p></div><div class="modal-head-actions"><button class="btn icon-btn" type="button" id="genealogyItemBackBtn" hidden aria-label="Revenir à la fiche précédente" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button><button class="btn icon-btn" type="button" id="genealogyItemMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="genealogyItemActionsMenu" aria-label="Plus d’actions" title="Plus d’actions" hidden>⋯</button><button class="btn icon-btn" type="button" data-close="genealogyItemDialog" aria-label="Fermer" title="Fermer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-close"></use></svg></button><div class="modal-action-menu" id="genealogyItemActionsMenu" role="menu" aria-label="Actions de la fiche" hidden></div></div></div><div class="modal-body" id="genealogyItemContent"></div></dialog>
   <main class="workspace-view page-content-lane transcription-workshop-view" id="transcriptionWorkshopView" hidden>
-<div class="dedicated-page-return">
-<button class="btn dedicated-page-back" type="button" id="workshopBackBtn" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
-</div>
 <header class="dedicated-page-header transcription-workshop-header">
 <div class="dedicated-page-heading transcription-workshop-heading"><p class="page-kicker">Atelier de transcription</p><h2 id="workshopDocumentTitle"></h2><p class="card-meta" id="workshopPageLabel"></p></div>
-<div class="dedicated-page-actions transcription-workshop-head-status">
+<div class="dedicated-page-actions dedicated-page-side transcription-workshop-head-status">
+<!-- Emplacement de la validation officielle (incrément 2) : « Valider la transcription »
+     prendra place ici, en action primaire, avant « Enregistrer le brouillon ».
+     Aucun bouton de publication n'est affiché tant que ce mécanisme n'existe pas. -->
+<div class="dedicated-page-actions-row">
 <button class="transcription-workshop-draft" type="button" id="workshopDraftBadge" aria-expanded="false" aria-controls="workshopDraftHelp">Brouillon local</button>
+<button class="btn small" type="button" id="workshopSaveDraftBtn" title="Écrire le brouillon dans le stockage local de ce navigateur">Enregistrer le brouillon</button>
 <details class="transcription-workshop-menu" id="workshopActionsMenu"><summary class="btn icon-btn" aria-label="Plus d’actions de l’atelier" title="Plus d’actions">⋯</summary><div class="transcription-workshop-menu-panel"><button class="btn danger" type="button" id="workshopResetBtn">Annuler les changements</button></div></details>
+</div>
+<button class="btn dedicated-page-back" type="button" id="workshopBackBtn" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
 </div>
 </header>
 <p class="transcription-workshop-help" id="workshopDraftHelp" hidden>Les corrections sont enregistrées localement dans ce navigateur et reprises automatiquement à la prochaine ouverture. Elles ne sont pas encore enregistrées officiellement ni synchronisées entre appareils.</p>

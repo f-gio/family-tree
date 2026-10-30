@@ -52,6 +52,7 @@ import {
   canInitializeLegacyJpegPage,
   findSourcePageForDocument,
   prepareLegacyDocumentPage,
+  isLegacyDocumentPhotograph,
   LEGACY_DOCUMENT_IMAGE_PREFIX
 } from "./transcription-workshop.js";
 import {
@@ -4828,6 +4829,7 @@ let transcriptionDraftLastSnapshots = new Map();
 const TRANSCRIPTION_DRAFT_SAVE_DELAY_MS = 400;
 const TRANSCRIPTION_DRAFT_FAILURE_MESSAGE = "Sauvegarde locale impossible : le stockage du navigateur est indisponible ou complet. Vos modifications restent en mémoire dans l’atelier.";
 const TRANSCRIPTION_DRAFT_CONFLICT_MESSAGE = "Un brouillon plus récent existe déjà sur cet appareil : sauvegarde interrompue pour ne pas l’écraser.";
+const TRANSCRIPTION_DRAFT_UNREADABLE_MESSAGE = "Le brouillon local de cette page n’a pas pu être relu. Rien n’a été effacé : il reste conservé dans ce navigateur, et vos modifications actuelles restent en mémoire dans l’atelier.";
 let transcriptionWorkshopZoom = 1;
 let transcriptionWorkshopView = "original";
 let transcriptionWorkshopCompare = false;
@@ -4911,7 +4913,13 @@ function persistTranscriptionWorkshopDraft(draft) {
   }
   const blockReason = transcriptionDraftWriteBlockReason(storage, draft.documentId, draft.pageId, state?.savedAt || null);
   if (blockReason) {
-    markTranscriptionWorkshopDraftSaveFailure(key, "conflict", TRANSCRIPTION_DRAFT_CONFLICT_MESSAGE);
+    /* Un enregistrement illisible reste en local : jamais réécrit ni effacé,
+       l'utilisateur est averti une seule fois. */
+    markTranscriptionWorkshopDraftSaveFailure(
+      key,
+      blockReason === "unreadable" ? "failed" : "conflict",
+      blockReason === "unreadable" ? TRANSCRIPTION_DRAFT_UNREADABLE_MESSAGE : TRANSCRIPTION_DRAFT_CONFLICT_MESSAGE
+    );
     return false;
   }
   const record = buildTranscriptionDraftRecord(draft, new Date().toISOString());
@@ -4992,14 +5000,21 @@ function flushTranscriptionWorkshopDraftSaves() {
   }
 }
 
-/** Reprend le brouillon local d'une page, ou null. Un contenu propre ou
-    illisible est retiré ; un contenu incohérent n'est jamais importé. */
+/** Reprend le brouillon local d'une page, ou null. La lecture et la
+    restauration ne détruisent JAMAIS un enregistrement : un contenu propre
+    retiré reste un nettoyage nominal, un échec (illisible ou incohérent)
+    conserve la donnée en local et signale l'erreur une seule fois — le
+    brouillon en mémoire n'est alors jamais présenté comme enregistré. */
 function restoreTranscriptionWorkshopDraftFromStorage(documentId, pageId) {
   const storage = transcriptionWorkshopDraftStorage();
   if (!storage) return null;
+  const key = transcriptionWorkshopDraftKey(documentId, pageId);
   const stored = readTranscriptionDraft(storage, documentId, pageId);
   if (!stored) return null;
-  const key = transcriptionWorkshopDraftKey(documentId, pageId);
+  if (!stored.record) {
+    markTranscriptionWorkshopDraftSaveFailure(key, "failed", TRANSCRIPTION_DRAFT_UNREADABLE_MESSAGE);
+    return null;
+  }
   let draft = null;
   try {
     draft = restoreTranscriptionWorkshopDraft(stored.record.snapshot);
@@ -5007,11 +5022,7 @@ function restoreTranscriptionWorkshopDraftFromStorage(documentId, pageId) {
     draft = null;
   }
   if (!draft) {
-    try {
-      removeTranscriptionDraft(storage, documentId, pageId);
-    } catch {
-      /* Rien de fiable à retirer : la clé sera rejetée à chaque lecture. */
-    }
+    markTranscriptionWorkshopDraftSaveFailure(key, "failed", TRANSCRIPTION_DRAFT_UNREADABLE_MESSAGE);
     return null;
   }
   if (!draft.dirty) {
@@ -5059,6 +5070,23 @@ function transcriptionWorkshopContextFromItem(item) {
       if (Array.isArray(linkedDocument?.pages) && linkedDocument.pages.length) {
         pages = linkedDocument.pages;
         resolvedDocumentId = linkedId;
+        break;
+      }
+    }
+  }
+  /* Cohérence des clés de brouillon documentId|pageId : la page appartient au
+     document qui la porte réellement (photographie legacy-document:{id}).
+     Depuis la fiche Source ou une transcription sans documentId direct, la clé
+     tombait sur l'identifiant de la source — la même page ouverte depuis la
+     fiche Document utilisait une autre clé, et le brouillon écrit depuis une
+     entrée n'était jamais retrouvé depuis l'autre. */
+  if (resolvedDocumentId === record?.id || !resolvedDocumentId) {
+    for (const page of pages) {
+      const legacyPhoto = (Array.isArray(page.photographs) ? page.photographs : [])
+        .find(photo => isLegacyDocumentPhotograph(photo));
+      const legacyDocumentId = legacyPhoto?.original?.resourceRef?.slice(LEGACY_DOCUMENT_IMAGE_PREFIX.length);
+      if (legacyDocumentId && documents.some(value => value.id === legacyDocumentId)) {
+        resolvedDocumentId = legacyDocumentId;
         break;
       }
     }
@@ -5398,6 +5426,7 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
   renderTranscriptionWorkshop();
   if (!setView("transcriptionWorkshop")) return;
   markTranscriptionWorkshopHistory();
+  bindTranscriptionWorkshopMenu();
   createWorkshopImageViewer();
   syncWorkshopZone();
 }
@@ -5463,6 +5492,11 @@ function exitTranscriptionWorkshop() {
 
 function leaveTranscriptionWorkshop() {
   if (!isTranscriptionWorkshopActive()) return false;
+  /* Avant toute navigation : écriture immédiate des sauvegardes en attente —
+     quitter l'atelier (bouton Retour ou retour système) ne laisse jamais un
+     travail uniquement en mémoire, et un échec éventuel est alors signalé
+     par la confirmation de sortie. */
+  flushTranscriptionWorkshopDraftSaves();
   const target = transcriptionWorkshopReturn;
   if (!setView(activeView)) return false;
   restoreTranscriptionWorkshopOrigin(target);
@@ -5887,6 +5921,13 @@ function updateWorkshopDraftIndicators() {
   badge.classList.toggle("is-dirty", dirty);
   badge.setAttribute("aria-label", `${status}. Afficher l’aide du brouillon.`);
   badge.title = status;
+  /* Action de sauvegarde explicite : active dès qu'il existe du travail à
+     écrire immédiatement ; l'autosauvegarde différée continue de tourner. */
+  const saveButton = $("workshopSaveDraftBtn");
+  if (saveButton) {
+    saveButton.disabled = !draft.dirty;
+    saveButton.title = draft.dirty ? "Écrire le brouillon dans le stockage local de ce navigateur" : "Le brouillon n’a aucune modification à enregistrer";
+  }
   syncWorkshopUnloadGuard();
   updateWorkshopNavigation();
 }
@@ -5909,10 +5950,48 @@ function confirmTranscriptionWorkshopClose() {
   return confirm("Certaines modifications n’ont pas pu être enregistrées localement et seront perdues. Fermer quand même ?");
 }
 
+/* ---- Menu « … » de l'atelier (lot 2B.2 corrections) -----------------------
+   Fermeture attendue : clic ou toucher à l'extérieur, Échap, après sélection
+   d'une action et à la sortie de l'atelier. Les écouteurs ne vivent que
+   pendant l'atelier actif et ne ciblent que #workshopActionsMenu — aucun
+   gestionnaire global permanent, aucun autre menu de l'application touché. */
+function closeTranscriptionWorkshopMenu() {
+  const menu = $("workshopActionsMenu");
+  if (menu?.open) menu.open = false;
+}
+
+function onTranscriptionWorkshopMenuOutside(event) {
+  if (!isTranscriptionWorkshopActive()) return;
+  const menu = $("workshopActionsMenu");
+  if (!menu?.open || menu.contains(event.target)) return;
+  menu.open = false;
+}
+
+function onTranscriptionWorkshopMenuKeydown(event) {
+  if (event.key !== "Escape" || !isTranscriptionWorkshopActive()) return;
+  const menu = $("workshopActionsMenu");
+  if (!menu?.open) return;
+  event.preventDefault();
+  event.stopPropagation();
+  menu.open = false;
+}
+
+function bindTranscriptionWorkshopMenu() {
+  document.addEventListener("click", onTranscriptionWorkshopMenuOutside);
+  document.addEventListener("keydown", onTranscriptionWorkshopMenuKeydown);
+}
+
+function unbindTranscriptionWorkshopMenu() {
+  document.removeEventListener("click", onTranscriptionWorkshopMenuOutside);
+  document.removeEventListener("keydown", onTranscriptionWorkshopMenuKeydown);
+  closeTranscriptionWorkshopMenu();
+}
+
 function resetTranscriptionWorkshopState() {
   /* Dernière écriture avant effacement mémoire : la fermeture de l'atelier
      conserve les brouillons, elle ne les détruit pas. */
   flushTranscriptionWorkshopDraftSaves();
+  unbindTranscriptionWorkshopMenu();
   transcriptionWorkshopDraft = null;
   transcriptionWorkshopContext = null;
   transcriptionWorkshopDrafts.clear();
@@ -5936,7 +6015,10 @@ function resetTranscriptionWorkshopState() {
   if ($("workshopDraftBadge")) {
     $("workshopDraftBadge").classList.remove("is-dirty");
     $("workshopDraftBadge").setAttribute("aria-expanded", "false");
+    $("workshopDraftBadge").textContent = "Brouillon local";
+    $("workshopDraftBadge").title = "Brouillon local";
   }
+  if ($("workshopSaveDraftBtn")) $("workshopSaveDraftBtn").disabled = true;
   if ($("workshopDraftHelp")) $("workshopDraftHelp").hidden = true;
   if ($("workshopLayout")) { $("workshopLayout").dataset.activePanel = "original"; delete $("workshopLayout").dataset.compare; }
   if ($("workshopState")) $("workshopState").hidden = true;
@@ -5959,6 +6041,22 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     const expanded = badge.getAttribute("aria-expanded") === "true";
     badge.setAttribute("aria-expanded", String(!expanded));
     help.hidden = expanded;
+    return;
+  }
+  if (event.target.closest("#workshopSaveDraftBtn")) {
+    const draft = transcriptionWorkshopDraft;
+    if (!draft || !draft.dirty) return;
+    /* Écriture immédiate : le minuteur d'autosauvegarde différée est annulé
+       pour ne pas attendre les 400 ms — succès comme échec sont annoncés
+       (persistTranscriptionWorkshopDraft gère l'échec), sans jamais créer
+       de transcription officielle. */
+    const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
+    const pendingTimer = transcriptionDraftSaveTimers.get(key);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      transcriptionDraftSaveTimers.delete(key);
+    }
+    if (persistTranscriptionWorkshopDraft(draft)) toast("Brouillon enregistré localement.", "success");
     return;
   }
   const photoButton = event.target.closest("[data-workshop-photo]");
@@ -6018,6 +6116,9 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     return;
   }
   if (event.target.closest("#workshopResetBtn")) {
+    /* Action sélectionnée : le menu « … » se ferme, la confirmation reste
+       exigée et la logique d'abandon est inchangée. */
+    closeTranscriptionWorkshopMenu();
     if (!transcriptionWorkshopHasUnsavedChanges()) return;
     if (!confirm("Annuler toutes les modifications non enregistrées de cet atelier, sur toutes les pages ?")) return;
     for (const draft of transcriptionWorkshopDrafts.values()) resetTranscriptionWorkshopDraft(draft);

@@ -105,10 +105,37 @@ export function createTranscriptionWorkshopDraft({ documentId, pageId, passages 
 }
 
 /* Reprend un brouillon sauvegardé localement (lot 2B.2) : le snapshot est
-   revalidé et reconstruit, les indicateurs (dirty, traduction à revoir)
-   recalculés — l'état stocké n'est jamais tellement cru. Toute incohérence
-   (passage inconnu ou perdu, identifiants absents) lève une erreur et laisse
-   l'application écarter ce contenu sans toucher aux autres brouillons. */
+   reconstruit, revalidé et les indicateurs (dirty, traduction à revoir)
+   recalculés — l'état stocké n'est jamais tellement cru.
+
+   La restauration RÉPARE au lieu d'abandonner : un identifiant absent, vide ou
+   dupliqué (données officielles hétérogènes, anciennes sources ou imports)
+   reçoit un identifiant local stable, et un passage créé disparu des
+   déclarations est reclassé dans les passages créés. Aucun contenu n'est
+   jamais écarté : seule une structure de base absente (snapshot non objet,
+   identifiants de document ou de page manquants) lève une erreur —
+   l'application conserve alors le record en local sans l'effacer. */
+
+const RESTORED_PASSAGE_ID_PREFIX = "restored-passage-";
+
+function isUsablePassageId(value) {
+  return typeof value === "string" && Boolean(value.trim());
+}
+
+/** Conserve un identifiant sain non encore pris ; sinon attribue le suivant
+    libre du préfixe local, sans jamais rejeter l'entrée. */
+function reservePassageId(candidate, usedIds) {
+  if (isUsablePassageId(candidate) && !usedIds.has(candidate)) {
+    usedIds.add(candidate);
+    return candidate;
+  }
+  let index = 0;
+  let reserved = `${RESTORED_PASSAGE_ID_PREFIX}${++index}`;
+  while (usedIds.has(reserved)) reserved = `${RESTORED_PASSAGE_ID_PREFIX}${++index}`;
+  usedIds.add(reserved);
+  return reserved;
+}
+
 export function restoreTranscriptionWorkshopDraft(snapshot) {
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) throw new TypeError("workshop.snapshot doit être un objet");
   if (typeof snapshot.documentId !== "string" || !snapshot.documentId.trim()) throw new TypeError("workshop.snapshot.documentId doit être une chaîne non vide");
@@ -116,28 +143,44 @@ export function restoreTranscriptionWorkshopDraft(snapshot) {
   if (!Array.isArray(snapshot.original)) throw new TypeError("workshop.snapshot.original doit être un tableau");
   if (!Array.isArray(snapshot.passages)) throw new TypeError("workshop.snapshot.passages doit être un tableau");
   if (!Array.isArray(snapshot.createdIds)) throw new TypeError("workshop.snapshot.createdIds doit être un tableau");
-  const entries = [...snapshot.original, ...snapshot.passages];
-  if (entries.some(passage => !passage || typeof passage !== "object" || typeof passage.id !== "string" || !passage.id.trim())) {
-    throw new Error("workshop.snapshot contient un passage invalide");
-  }
-  const original = clonePassages(snapshot.original);
-  const passages = clonePassages(snapshot.passages);
-  if (new Set(original.map(passage => passage.id)).size !== original.length) throw new Error("workshop.snapshot.original contient des identifiants dupliqués");
-  if (new Set(passages.map(passage => passage.id)).size !== passages.length) throw new Error("workshop.snapshot.passages contient des identifiants dupliqués");
-  if (snapshot.createdIds.some(id => typeof id !== "string" || !id.trim() || !passages.some(passage => passage.id === id))) {
-    throw new Error("workshop.snapshot.createdIds est incohérent avec les passages");
-  }
-  const createdIds = [...snapshot.createdIds];
+
+  /* Réparation de l'original : chaque entrée devient un passage exploitable,
+     les identifiants invalides étant mappés (valeur brute → identifiant
+     réparé) pour être appliqués à l'identique côté passages. */
+  const originalEntries = snapshot.original.filter(passage => passage && typeof passage === "object");
+  const usedOriginalIds = new Set();
+  const repairedOriginalIds = new Map();
+  const original = originalEntries.map(passage => {
+    const rawKey = JSON.stringify(passage.id ?? null);
+    const id = reservePassageId(passage.id, usedOriginalIds);
+    if (!isUsablePassageId(passage.id)) repairedOriginalIds.set(rawKey, id);
+    return { ...clonePassage(passage), id };
+  });
   const originalIds = new Set(original.map(passage => passage.id));
-  const createdIdsSet = new Set(createdIds);
-  if (passages.some(passage => !originalIds.has(passage.id) && !createdIdsSet.has(passage.id))) {
-    throw new Error("workshop.snapshot.contient un passage inconnu");
-  }
-  if (original.some(passage => !passages.some(item => item.id === passage.id))) {
-    throw new Error("workshop.snapshot a perdu un passage original intangible");
-  }
+
+  /* Alignement des passages : sains conservés, réparations de l'original
+     appliquées à l'entrée correspondante, tout le reste reçoit un identifiant
+     local et se retrouve, par différence, dans les passages créés. */
+  const usedPassageIds = new Set();
+  const passages = snapshot.passages.filter(passage => passage && typeof passage === "object").map(passage => {
+    const rawKey = JSON.stringify(passage.id ?? null);
+    let id = null;
+    const repairedId = repairedOriginalIds.get(rawKey);
+    if (repairedId && !usedPassageIds.has(repairedId)) id = repairedId;
+    else if (isUsablePassageId(passage.id) && !usedPassageIds.has(passage.id)) id = passage.id;
+    if (id == null) id = reservePassageId(null, usedPassageIds);
+    else usedPassageIds.add(id);
+    return { ...clonePassage(passage), id };
+  });
+  const createdIds = passages.filter(passage => !originalIds.has(passage.id)).map(passage => passage.id);
+
   let selectedPassageId = snapshot.selectedPassageId ?? null;
-  if (selectedPassageId != null && !passages.some(passage => passage.id === selectedPassageId)) selectedPassageId = passages[0]?.id ?? null;
+  if (selectedPassageId != null && !passages.some(passage => passage.id === selectedPassageId)) {
+    const repairedSelection = repairedOriginalIds.get(JSON.stringify(selectedPassageId));
+    selectedPassageId = (repairedSelection && passages.some(passage => passage.id === repairedSelection))
+      ? repairedSelection
+      : passages[0]?.id ?? null;
+  }
   const draft = {
     documentId: snapshot.documentId,
     pageId: snapshot.pageId,

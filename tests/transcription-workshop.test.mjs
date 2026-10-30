@@ -21,6 +21,8 @@ import {
 } from "../js/transcription-workshop.js";
 import { createTranscriptionPassage } from "../js/document-transcription.js";
 import { createSourceDocument } from "../js/source-document-model.js";
+import { chromium } from "playwright";
+import { ROOT, startStaticServer } from "./helpers.mjs";
 
 const samplePassages = () => [
   createTranscriptionPassage({
@@ -324,7 +326,19 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour"/, "action Retour dans l’en-tête");
   assert.match(html, /class="dedicated-page-header transcription-workshop-header"/, "l’atelier réutilise l’en-tête commun");
   assert.match(html, /class="btn dedicated-page-back"[^>]*id="workshopBackBtn"/, "Retour Atelier utilise la cible tactile partagée");
-  assert.match(html, /class="dedicated-page-return"/, "Retour Atelier sur sa ligne indépendante hors en-tête");
+  /* Modèle de la fiche Document : le Retour vit dans la colonne d'actions de
+     l'en-tête, à droite, SOUS le menu « … » — plus de ligne indépendante. */
+  const headStatus = html.match(/<div class="dedicated-page-actions dedicated-page-side transcription-workshop-head-status">[\s\S]*?<\/header>/)?.[0] || "";
+  assert.ok(headStatus, "colonne d’actions de l’en-tête présente");
+  assert.ok(headStatus.includes('id="workshopBackBtn"'), "Retour placé dans la colonne d’actions de l’en-tête");
+  assert.ok(headStatus.indexOf('id="workshopBackBtn"') > headStatus.indexOf('id="workshopActionsMenu"'), "Retour positionné sous le menu « … »");
+  assert.ok(headStatus.indexOf('id="workshopSaveDraftBtn"') > headStatus.indexOf('id="workshopDraftBadge"'), "« Enregistrer le brouillon » rejoint la rangée d’actions de transcription");
+  assert.doesNotMatch(html, /class="dedicated-page-return"/, "aucune ligne Retour indépendante ne subsiste");
+  assert.match(html, />Enregistrer le brouillon</, "bouton « Enregistrer le brouillon » visible");
+  assert.match(html, /id="workshopSaveDraftBtn"[^>]*title="Écrire le brouillon dans le stockage local de ce navigateur"/, "but explicite : sauvegarde locale, pas de publication officielle");
+  assert.match(app, /event\.target\.closest\("#workshopSaveDraftBtn"\)/, "clic branché sur l’écriture immédiate");
+  assert.doesNotMatch(html, />Valider la transcription</, "aucun bouton de validation fictif avant l’incrément 2");
+  assert.match(html, /Emplacement de la validation officielle \(incrément 2\)/, "place réservée à la validation officielle dans la hiérarchie");
   assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour"[^>]*><span class="dedicated-page-back-arrow"/, "flèche décorative et libellé de destination");
   assert.match(app, /function teardownTranscriptionWorkshop\(\)/, "nettoyage du lecteur à la sortie");
   for (const tab of ["Original", "Italien", "Français"]) assert.ok(html.includes(`>${tab}</button>`), `onglet ${tab} présent`);
@@ -404,8 +418,31 @@ test("les brouillons sont persistés localement et repris sans toucher aux modul
   assert.match(app, /flushTranscriptionWorkshopDraftSaves\(\);\s*\n\s*if \(!transcriptionWorkshopHasUnsavedLocalChanges\(\)\) return true;/, "confirmation conditionnée aux écritures réellement échouées");
   assert.match(app, /function transcriptionWorkshopHasUnsavedLocalChanges\(\)/, "predicate dédié aux écritures non conservées");
   assert.match(app, /window\.addEventListener\("pagehide", flushTranscriptionWorkshopDraftSaves\)/, "écriture au rechargement ou à la fermeture de l'onglet");
-  assert.match(app, /flushTranscriptionWorkshopDraftSaves\(\);\s*\n\s*transcriptionWorkshopDraft = null;/, "dernière écriture avant l'effacement de la session");
+  assert.match(app, /flushTranscriptionWorkshopDraftSaves\(\);\s*\n\s*unbindTranscriptionWorkshopMenu\(\);\s*\n\s*transcriptionWorkshopDraft = null;/, "dernière écriture et fermeture du menu avant l'effacement de la session");
   assert.match(app, /addEventListener\("beforeunload"/, "garde conservée pour les écritures non conservées");
+  // Sortie : écriture immédiate avant toute navigation (bouton Retour, retour système).
+  assert.match(app, /flushTranscriptionWorkshopDraftSaves\(\);\s*\n\s*const target = transcriptionWorkshopReturn;/, "Retour de l'atelier écrit les sauvegardes avant navigation");
+  // Jamais de destruction sur un échec de lecture ou de restauration.
+  const restoreFn = app.match(/function restoreTranscriptionWorkshopDraftFromStorage[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(restoreFn, "restauration locale présente");
+  assert.equal(
+    (restoreFn.match(/removeTranscriptionDraft\(/g) || []).length,
+    1,
+    "la seule suppression de la restauration est le nettoyage nominal d'un brouillon propre"
+  );
+  assert.match(app, /blockReason === "unreadable" \? TRANSCRIPTION_DRAFT_UNREADABLE_MESSAGE/, "enregistrement illisible signalé, jamais réécrit");
+  assert.match(app, /Rien n’a été effacé : il reste conservé dans ce navigateur/, "restauration en échec annoncée sans perte");
+  assert.match(app, /\$\("workshopDraftBadge"\)\.textContent = "Brouillon local"/, "badge réinitialisé à la fermeture");
+  // Menu « … » : fermeture extérieure, Échap, action, sortie — périmètre strict.
+  assert.match(app, /function onTranscriptionWorkshopMenuOutside\(event\)/, "écouteur de clic extérieur dédié");
+  assert.match(app, /if \(!menu\?\.open \|\| menu\.contains\(event\.target\)\) return;/, "seul un clic hors du menu le ferme");
+  assert.match(app, /function onTranscriptionWorkshopMenuKeydown\(event\)[\s\S]{0,300}menu\.open = false;/, "Échap ferme le menu et rien d'autre");
+  assert.match(app, /bindTranscriptionWorkshopMenu\(\);/, "écouteurs vivant pendant l'atelier actif");
+  assert.match(app, /unbindTranscriptionWorkshopMenu\(\);\s*\n\s*transcriptionWorkshopDraft = null;/, "écouteurs détachés à la sortie de l'atelier");
+  assert.match(app, /closeTranscriptionWorkshopMenu\(\);\s*\n\s*if \(!transcriptionWorkshopHasUnsavedChanges\(\)\) return;/, "menu fermé après sélection d'une action");
+  // Cohérence des clés : la page est indexée par le document qui la porte réellement.
+  assert.match(app, /isLegacyDocumentPhotograph\(photo\)/, "résolution du document porteur de la page (clé documentId|pageId cohérente entre entrées)");
+  assert.match(app, /resolvedDocumentId === record\?\.id \|\| !resolvedDocumentId/, "harmonisation depuis la fiche Source ou une transcription orpheline");
   // Abandon explicite confirmé : retrait limité aux brouillons de cet atelier.
   assert.match(app, /removeTranscriptionWorkshopDraftRecord\(draft\)/, "retrait de la copie locale après abandon confirmé");
   assert.match(app, /removeTranscriptionWorkshopDraftRecordFor\(transcriptionWorkshopContext\.documentId, page\.id\)/, "retrait aussi pour les pages jamais ouvertes du document courant");
@@ -417,4 +454,169 @@ test("les brouillons sont persistés localement et repris sans toucher aux modul
   assert.doesNotMatch(storageAdapter, /\b(setDoc|addDoc|updateDoc|deleteDoc|runTransaction|writeBatch)\s*\(/, "aucune écriture Firestore dans l'adaptateur de persistance");
   assert.doesNotMatch(storageAdapter, /window\.|document\./, "l'adaptateur ne touche ni DOM ni fenêtre : stockage injecté");
   assert.match(html, /reprises automatiquement à la prochaine ouverture/, "aide utilisateur alignée sur la persistance");
+});
+
+/* Parcours réel en navigateur (régression des corrections) : saisie →
+   enregistré → Enregistrer immédiat → position du Retour → menu « … » →
+   Retour → réouverture → rechargement → abandon confirmé. */
+test("régression atelier : le brouillon survit à la fermeture, à la réouverture et au rechargement", { timeout: 120000 }, async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  const svg = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#b8c9be"/></svg>');
+  const hooks = `
+window.__repro = {
+  show() { $("authScreen").hidden = true; $("topbar").hidden = false; setView("directory"); },
+  seed() {
+    const documentItem = {
+      id: "doc-repro", title: "Registre Transactions Immobilières",
+      type: "Registre", date: "1891-05-12",
+      fileName: "registre.jpg", mimeType: "image/jpeg",
+      fileData: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAGcP//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAQUCf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEQAD8kf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQIDAT8kf//Z",
+      personIds: [],
+      pages: [{ id: "page-repro-1", label: "Folio 1", photographs: [{ id: "photo-repro-1", preview: { dataUrl: "${svg}" } }],
+        passages: [
+          { id: "p-1", order: 0, textIt: "Anno millenovecento", translationFr: "L’année mille neuf cent", separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 1", translationState: "current" },
+          { id: "p-2", order: 1, textIt: "indici di Orino", translationFr: null, separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 2", translationState: "not-started" }
+        ]
+      }]
+    };
+    documents = [documentItem];
+    people = [];
+    loadedPeople = loadedDocuments = true;
+    genealogyRecords = { sourceDocuments: [], sourceRevisions: [], transcriptionHeads: [], transcriptionRevisions: [], genealogyProofs: [], genealogyProofRevisions: [], factConclusions: [], conclusionRevisions: [], genealogyProposals: [], genealogyEvents: [], genealogyNotifications: [] };
+    genealogyLoaded = true;
+    genealogyCollectionsLoaded = new Set(["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyEvents", "genealogyNotifications"]);
+    currentUserProfile = { role: "admin" };
+    renderGenealogyWorkspace();
+  },
+  openDoc() { setView("directory"); openStoredDocument(documents[0], "directory"); },
+  transcribe() { const b = document.querySelector("#viewerDocumentDetails [data-transcribe-document]"); if (b) b.click(); },
+  badge() { return $("workshopDraftBadge").textContent; },
+  fields() { return [...document.querySelectorAll("[data-workshop-field]")].map(f => ({ p: f.dataset.workshopPassage, k: f.dataset.workshopField, v: f.value })); },
+  stored() { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith("familyTreeTranscriptionDraft:")) out.push([k, localStorage.getItem(k)]); } return out; }
+};`;
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "fr-FR" });
+  await context.route("**/*", async route => {
+    const url = route.request().url();
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
+      const response = await route.fetch();
+      return route.fulfill({ response, body: `${await response.text()}\n${hooks}` });
+    }
+    return url.startsWith(server.baseURL) || url.includes("gstatic.com") ? route.continue() : route.abort("blockedbyclient");
+  });
+  const dialogs = [];
+  const pageErrors = [];
+  const page = await context.newPage();
+  page.on("pageerror", error => pageErrors.push(error.message));
+  page.on("dialog", async dialog => { dialogs.push(dialog.message()); await dialog.accept(); });
+  try {
+    await page.goto(server.baseURL, { waitUntil: "load" });
+    await page.waitForFunction(() => typeof window.__repro === "object");
+    const boot = async () => page.evaluate(() => { window.__repro.show(); window.__repro.seed(); });
+    const openWorkshop = async () => {
+      await page.evaluate(() => { window.__repro.openDoc(); window.__repro.transcribe(); });
+      await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+    };
+    await boot();
+    await openWorkshop();
+    assert.equal(await page.evaluate(() => window.__repro.badge()), "Brouillon local", "badge initial au repos");
+
+    /* Saisie puis autosauvegarde : état écrit réellement. */
+    await page.fill('[data-workshop-field="textIt"]', "Anno millenovecentosedici");
+    await page.fill('[data-workshop-field="translationFr"]', "L’année mille neuf cent seize");
+    await page.waitForFunction(() => document.getElementById("workshopDraftBadge").textContent === "Enregistré localement", undefined, { timeout: 5000 });
+    let stored = await page.evaluate(() => window.__repro.stored());
+    assert.equal(stored.length, 1, "une copie locale écrite");
+    assert.equal(JSON.parse(stored[0][1]).snapshot.passages[0].textIt, "Anno millenovecentosedici", "texte présent en local");
+
+    /* Enregistrer le brouillon : écriture immédiate, sans attendre le différé. */
+    await page.fill('[data-workshop-field="textIt"]', "Anno senza attesa");
+    await page.click("#workshopSaveDraftBtn");
+    stored = await page.evaluate(() => window.__repro.stored());
+    assert.equal(JSON.parse(stored[0][1]).snapshot.passages[0].textIt, "Anno senza attesa", "écriture immédiate au clic, avant le délai d’autosauvegarde");
+    await page.waitForFunction(() => document.getElementById("workshopDraftBadge").textContent === "Enregistré localement", undefined, { timeout: 1500 });
+    assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), false, "bouton Enregistrer réutilisable après de nouvelles modifications");
+
+    /* Position du Retour : modèle de la fiche Document — à droite, sous le menu « … ». */
+    const layout = await page.evaluate(() => {
+      const back = document.getElementById("workshopBackBtn").getBoundingClientRect();
+      const menu = document.getElementById("workshopActionsMenu").getBoundingClientRect();
+      const header = document.querySelector(".transcription-workshop-header").getBoundingClientRect();
+      return { back: [back.top, back.right, back.width, back.height], menuBottom: menu.bottom, headerRight: header.right, duplicates: document.querySelectorAll("#workshopBackBtn").length };
+    });
+    assert.equal(layout.duplicates, 1, "un seul bouton Retour");
+    assert.ok(layout.back[0] >= layout.menuBottom - 1, `Retour positionné sous le menu « … » (${layout.back[0]} ≥ ${layout.menuBottom})`);
+    assert.ok(layout.back[1] <= layout.headerRight + 1, "Retour aligné à droite de l’en-tête");
+    assert.ok(layout.back[2] >= 44 && layout.back[3] >= 44, "Retour ≥ 44 px");
+
+    /* Mobile : aucune largeur débordante avec la colonne d’actions complète. */
+    await page.setViewportSize({ width: 320, height: 780 });
+    await page.waitForTimeout(120);
+    const mobile = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: innerWidth, back: document.querySelectorAll("#workshopBackBtn").length }));
+    assert.ok(mobile.scroll <= mobile.inner + 1, `en-tête atelier sans débordement à 320 px (${mobile.scroll}/${mobile.inner})`);
+    assert.equal(mobile.back, 1, "toujours un seul Retour sur mobile");
+    await page.setViewportSize({ width: 1280, height: 900 });
+
+    /* Menu « … » : ouverture normale, fermeture extérieure, Échap, sortie. */
+    await page.click("#workshopActionsMenu > summary");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "menu ouvert par « … »");
+    await page.click("#workshopDocumentTitle");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "clic extérieur ferme le menu");
+    await page.click("#workshopActionsMenu > summary");
+    await page.keyboard.press("Escape");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "Échap ferme le menu");
+    await page.click("#workshopActionsMenu > summary");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "« … » réouvre le menu");
+
+    /* Fermeture : aucune confirmation (tout est enregistré). Le menu ouvert
+       recouvre temporairement le lien Retour (même grammaire que l'en-tête de
+       la fiche Document) : une fermeture extérieure le libère. */
+    assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "menu ouvert avant la fermeture extérieure");
+    await page.click("#workshopDocumentTitle");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "fermeture extérieure avant navigation");
+    await page.click("#workshopBackBtn");
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+    assert.deepEqual(dialogs, [], "sortie sans confirmation quand le brouillon est enregistré");
+
+    /* Réouverture : restauration exacte des champs. */
+    await page.evaluate(() => window.__repro.transcribe());
+    await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+    let fields = await page.evaluate(() => window.__repro.fields());
+    assert.equal(fields.find(f => f.k === "textIt" && f.p === "p-1")?.v, "Anno senza attesa", "texte italien restauré à la réouverture");
+    assert.equal(fields.find(f => f.k === "translationFr" && f.p === "p-1")?.v, "L’année mille neuf cent seize", "traduction restaurée à la réouverture");
+    assert.equal(await page.evaluate(() => window.__repro.badge()), "Enregistré localement", "état enregistré restauré");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "menu fermé à la réouverture");
+
+    /* Rechargement complet : le brouillon survit. */
+    await page.reload({ waitUntil: "load" });
+    await page.waitForFunction(() => typeof window.__repro === "object");
+    await boot();
+    await openWorkshop();
+    fields = await page.evaluate(() => window.__repro.fields());
+    assert.equal(fields.find(f => f.k === "textIt" && f.p === "p-1")?.v, "Anno senza attesa", "texte italien restauré après rechargement");
+    assert.equal(fields.find(f => f.k === "translationFr" && f.p === "p-1")?.v, "L’année mille neuf cent seize", "traduction restaurée après rechargement");
+    assert.deepEqual(dialogs, [], "aucune confirmation inutile après rechargement");
+
+    /* Abandon explicite depuis le menu : confirmation exigée, menu fermé,
+       copie locale retirée — puis sortie sans nouvelle confirmation. */
+    await page.click("#workshopActionsMenu > summary");
+    await page.click("#workshopResetBtn");
+    await page.waitForTimeout(250);
+    assert.equal(dialogs.length, 1, "abandon explicite confirmé");
+    assert.match(dialogs[0], /Annuler toutes les modifications/, "confirmation d’abandon inchangée");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "menu fermé après sélection de l’action");
+    await page.waitForFunction(() => window.__repro.stored().length === 0, undefined, { timeout: 3000 });
+    assert.equal(await page.evaluate(() => window.__repro.badge()), "Brouillon local", "badge au repos après abandon");
+    await page.click("#workshopBackBtn");
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+    assert.equal(dialogs.length, 1, "aucune confirmation après un abandon déjà confirmé");
+
+    assert.deepEqual(pageErrors, [], `erreurs JavaScript : ${pageErrors.join(" | ")}`);
+  } finally {
+    await context.close();
+    await browser.close();
+    await server.close();
+  }
 });

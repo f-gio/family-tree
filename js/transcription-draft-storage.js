@@ -74,13 +74,22 @@ export function parseTranscriptionDraftRecord(raw, { documentId, pageId }) {
   if (snapshot.documentId !== documentId || snapshot.pageId !== pageId) return null;
   if (!Array.isArray(snapshot.original) || !Array.isArray(snapshot.passages)) return null;
   if (!Array.isArray(snapshot.createdIds)) return null;
-  if (snapshot.selectedPassageId != null && typeof snapshot.selectedPassageId !== "string") return null;
+  /* Champ d'interface non bloquant : un selectedPassageId hétérogène est
+     rabattu à null ici puis réconcilié par la restauration — il ne motive
+     jamais le rejet de tout l'enregistrement. */
+  if (snapshot.selectedPassageId != null && typeof snapshot.selectedPassageId !== "string") {
+    record = { ...record, snapshot: { ...snapshot, selectedPassageId: null } };
+  }
   return record;
 }
 
-/** Lit le brouillon local d'une page. Un contenu corrompu est retiré du
-    stockage (best effort) et rendu jamais lu ; une indisponibilité du
-    stockage rend simplement null, sans effet de bord. */
+/** Lit le brouillon local d'une page.
+    - `null` : aucune donnée (ou stockage indisponible) ;
+    - `{ record, raw }` : enregistrement valide ;
+    - `{ record: null, raw }` : enregistrement présent mais illisible.
+    LA LECTURE NE SUPPRIME JAMAIS rien : la destruction automatique d'un
+    brouillon sur un échec de lecture ou de restauration est interdite — seul
+    un abandon explicite de l'utilisateur retire une donnée. */
 export function readTranscriptionDraft(storage, documentId, pageId) {
   const key = transcriptionDraftStorageKey(documentId, pageId);
   let raw = null;
@@ -91,14 +100,7 @@ export function readTranscriptionDraft(storage, documentId, pageId) {
   }
   if (raw == null) return null;
   const record = parseTranscriptionDraftRecord(raw, { documentId, pageId });
-  if (!record) {
-    try {
-      storage.removeItem(key);
-    } catch {
-      /* Stockage indisponible : la donnée illisible n'est pas réessayée. */
-    }
-    return null;
-  }
+  if (!record) return { record: null, raw };
   return { record, raw };
 }
 
@@ -119,11 +121,14 @@ export function removeTranscriptionDraft(storage, documentId, pageId) {
     - "newer" : un enregistrement plus récent que la dernière version connue de
       cette session existe déjà (autre onglet) — ne jamais l'écraser ;
     - "unknown-baseline" : un enregistrement existe alors que cette session n'a
-      aucune référence d'horodatage — contenu d'origine inconnue, refusé aussi.
+      aucune référence d'horodatage — contenu d'origine inconnue, refusé aussi ;
+    - "unreadable" : un enregistrement présent est illisible — réécrire le
+      ferait disparaître son contenu : refusé aussi, il reste en local.
     null = écriture autorisée. */
 export function transcriptionDraftWriteBlockReason(storage, documentId, pageId, baselineSavedAt) {
   const stored = readTranscriptionDraft(storage, documentId, pageId);
   if (!stored) return null;
+  if (!stored.record) return "unreadable";
   if (typeof baselineSavedAt !== "string" || !baselineSavedAt) return "unknown-baseline";
   return stored.record.savedAt > baselineSavedAt ? "newer" : null;
 }

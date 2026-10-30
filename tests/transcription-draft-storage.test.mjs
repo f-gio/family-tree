@@ -146,12 +146,18 @@ test("deux documents ou deux pages ne partagent jamais leur brouillon", () => {
   assert.equal(second.passages[0].textIt, "Contenu de la page deux");
 });
 
-test("un enregistrement corrompu ou d'une autre fiche est écarté, jamais interprété", () => {
+test("un enregistrement corrompu n'est jamais lu ni détruit par la lecture", () => {
   const storage = createFakeStorage();
   const key = transcriptionDraftStorageKey("doc-1", "page-1");
   storage.setItem(key, "{ceci-n-est-pas-du-json");
-  assert.equal(readTranscriptionDraft(storage, "doc-1", "page-1"), null, "JSON invalide : rien n'est lu");
-  assert.equal(storage.entries.has(key), false, "donnée corrompue retirée du stockage");
+  const unreadable = readTranscriptionDraft(storage, "doc-1", "page-1");
+  assert.equal(unreadable.record, null, "JSON invalide : aucun enregistrement interprété");
+  assert.equal(storage.entries.has(key), true, "donnée conservée : la lecture ne supprime jamais");
+  assert.equal(
+    transcriptionDraftWriteBlockReason(storage, "doc-1", "page-1", "2026-10-30T13:00:00.000Z"),
+    "unreadable",
+    "un enregistrement illisible bloque toute réécriture silencieuse"
+  );
 
   const draft = createTranscriptionWorkshopDraft({ documentId: "doc-1", pageId: "page-1", passages: samplePassages() });
   editTranscriptionWorkshopPassage(draft, "p1", { textIt: "Anno verificato" });
@@ -160,6 +166,17 @@ test("un enregistrement corrompu ou d'une autre fiche est écarté, jamais inter
   assert.equal(parseTranscriptionDraftRecord(raw, { documentId: "doc-2", pageId: "page-1" }), null, "enregistrement d'un autre document rejeté");
   assert.equal(parseTranscriptionDraftRecord(raw, { documentId: "doc-1", pageId: "page-autre" }), null, "enregistrement d'une autre page rejeté");
   assert.equal(parseTranscriptionDraftRecord("42", { documentId: "doc-1", pageId: "page-1" }), null, "type non objet rejeté");
+
+  /* Champ d'interface hétérogène : l'enregistrement reste lisible, la
+     sélection inutilisable est rabattue et le contenu sauvegardé préservé. */
+  const record = JSON.parse(raw);
+  record.snapshot.selectedPassageId = 42;
+  const tolerated = parseTranscriptionDraftRecord(JSON.stringify(record), { documentId: "doc-1", pageId: "page-1" });
+  assert.ok(tolerated, "selectedPassageId hétérogène ne rejette plus l'enregistrement");
+  assert.equal(tolerated.snapshot.selectedPassageId, null, "sélection inutilisable rabattue à null");
+  storage.setItem(key, JSON.stringify(record));
+  const restoredFromHeterogeneous = restoreTranscriptionWorkshopDraft(readTranscriptionDraft(storage, "doc-1", "page-1").record.snapshot);
+  assert.equal(restoredFromHeterogeneous.passages[0].textIt, "Anno verificato", "contenu restauré malgré l'hétérogénéité");
 });
 
 test("une version plus récente déjà stockée bloque l'écriture", () => {
@@ -212,7 +229,7 @@ test("un échec du stockage ne remplace ni ne supprime la version précédente",
   assert.equal(storage.writes, 1, "aucune écriture n'a réussi pendant la panne");
 });
 
-test("la restauration refuse un snapshot incohérent au lieu d'importer des données douteuses", () => {
+test("la restauration répare les identifiants douteux au lieu d'abandonner le brouillon", () => {
   const valid = createTranscriptionWorkshopDraft({ documentId: "doc-1", pageId: "page-1", passages: samplePassages() });
   const base = {
     documentId: "doc-1",
@@ -223,11 +240,41 @@ test("la restauration refuse un snapshot incohérent au lieu d'importer des donn
     selectedPassageId: "p1"
   };
   assert.equal(restoreTranscriptionWorkshopDraft(base).passages.length, 2, "snapshot valide accepté");
+  /* Seule la structure de base absente reste refusée (rien à réparer). */
   assert.throws(() => restoreTranscriptionWorkshopDraft(null), /objet/);
   assert.throws(() => restoreTranscriptionWorkshopDraft({ ...base, documentId: "" }), /documentId/);
-  assert.throws(() => restoreTranscriptionWorkshopDraft({ ...base, passages: [...valid.passages, { id: "fantome", order: 2 }] }), /passage inconnu/, "passage hors original et hors créés");
-  assert.throws(() => restoreTranscriptionWorkshopDraft({ ...base, passages: [valid.passages[0]] }), /passage original/, "perte d'un passage original");
-  assert.throws(() => restoreTranscriptionWorkshopDraft({ ...base, createdIds: ["inexistant"] }), /createdIds/, "passage créé fantôme");
+
+  /* Aucun contenu n'est écarté : un passage hors déclarations devient un
+     passage créé, un identifiant hétérogène reçoit un identifiant local. */
+  const withGhost = restoreTranscriptionWorkshopDraft({ ...base, passages: [...valid.passages, { id: "fantome", order: 2 }] });
+  assert.equal(withGhost.passages.length, 3, "passage fantôme conservé, jamais écarté");
+  assert.deepEqual(withGhost.createdIds, ["fantome"], "passage non déclaré reclassé parmi les créés");
+
+  const missingOriginal = restoreTranscriptionWorkshopDraft({ ...base, passages: [valid.passages[0]] });
+  assert.equal(missingOriginal.passages.length, 1, "snapshot importé tel quel, sans refus");
+  assert.equal(missingOriginal.original.length, 2, "la référence d'origine est conservée");
+
+  const bogusCreated = restoreTranscriptionWorkshopDraft({ ...base, createdIds: ["inexistant"] });
+  assert.deepEqual(bogusCreated.createdIds, [], "liste des créés recalculée depuis les passages réels");
+
+  const heterogeneous = restoreTranscriptionWorkshopDraft({
+    ...base,
+    original: [{ ...valid.original[0], id: 7 }, valid.original[1]],
+    passages: [{ ...valid.passages[0], id: 7 }, valid.passages[1]]
+  });
+  assert.equal(heterogeneous.passages.length, 2, "aucun contenu écarté malgré l'id hétérogène");
+  assert.equal(heterogeneous.passages[0].textIt, valid.passages[0].textIt, "texte conservé");
+  assert.match(heterogeneous.passages[0].id, /^restored-passage-/, "identifiant local attribué");
+  assert.equal(heterogeneous.passages[0].id, heterogeneous.original[0].id, "réparation appliquée à l'identique des deux côtés");
+
+  const duplicated = restoreTranscriptionWorkshopDraft({
+    ...base,
+    original: [{ ...valid.original[0], id: "p1" }, { ...valid.original[1], id: "p1" }],
+    passages: [{ ...valid.passages[0], id: "p1" }, { ...valid.passages[1], id: "p1" }]
+  });
+  assert.equal(duplicated.passages.length, 2, "doublons acceptés");
+  assert.equal(new Set(duplicated.passages.map(passage => passage.id)).size, 2, "identifiants uniques après réparation");
+
   const withBadSelection = restoreTranscriptionWorkshopDraft({ ...base, selectedPassageId: "inconnu" });
   assert.equal(withBadSelection.selectedPassageId, "p1", "sélection inconnue rabattue sur un passage valide");
 });
