@@ -5429,6 +5429,29 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
   bindTranscriptionWorkshopMenu();
   createWorkshopImageViewer();
   syncWorkshopZone();
+  scheduleTranscriptionWorkshopScrollTop();
+}
+
+/* Ouverture en haut de page (correctif Safari iPhone) : à l'entrée dans
+   l'atelier, la position de défilement de la vue précédente peut être
+   conservée ou restaurée après coup, ouvrant l'atelier au milieu de la page.
+   Le début est rétabli sur plusieurs frames puis une dernière fois légèrement
+   différée, uniquement tant que l'atelier reste actif : la restauration du
+   défilement à la SORTIE reste du ressort de restoreTranscriptionWorkshopOrigin. */
+function scrollTranscriptionWorkshopToTop() {
+  if (!isTranscriptionWorkshopActive()) return;
+  /* behavior "instant" : le scroll-behavior global animerait la remise au
+     début et laisserait l'atelier visible au milieu de la page pendant
+     l'animation (constaté sur Safari iPhone). */
+  window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  const container = $("transcriptionWorkshopView");
+  if (container && container.scrollTop) container.scrollTop = 0;
+}
+
+function scheduleTranscriptionWorkshopScrollTop() {
+  scrollTranscriptionWorkshopToTop();
+  requestAnimationFrame(() => requestAnimationFrame(scrollTranscriptionWorkshopToTop));
+  setTimeout(() => scrollTranscriptionWorkshopToTop(), 150);
 }
 
 /* Entrée dans l'atelier : une seule entrée d'historique réelle, jamais de pile.
@@ -5904,9 +5927,9 @@ function syncWorkshopUnloadGuard() {
 function updateWorkshopDraftIndicators() {
   const draft = transcriptionWorkshopDraft;
   if (!draft) return;
-  /* État de sauvegarde locale, discrètement porté par le badge unique :
+  /* État de sauvegarde locale, porté par un statut compact et non intrusif :
      brouillon propre, écriture en attente, version conservée localement ou
-     échec — sans notification répétée (le toast n'est émis qu'une fois). */
+     échec — sans notification répétée (le toast n'est émis qu'une fois) et   toujours après un résultat d'écriture réel. */
   const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
   const state = transcriptionDraftSaveStates.get(key);
   const failed = state?.status === "failed" || state?.status === "conflict";
@@ -5916,13 +5939,12 @@ function updateWorkshopDraftIndicators() {
       : draft.dirty ? (state?.status === "saved" ? "Enregistré localement" : "Enregistrement…")
         : "Brouillon local";
   const dirty = failed || pending || (draft.dirty && state?.status !== "saved");
-  const badge = $("workshopDraftBadge");
-  badge.textContent = status;
-  badge.classList.toggle("is-dirty", dirty);
-  badge.setAttribute("aria-label", `${status}. Afficher l’aide du brouillon.`);
-  badge.title = status;
-  /* Action de sauvegarde explicite : active dès qu'il existe du travail à
-     écrire immédiatement ; l'autosauvegarde différée continue de tourner. */
+  const statusElement = $("workshopSaveStatus");
+  statusElement.textContent = status;
+  statusElement.classList.toggle("is-dirty", dirty);
+  statusElement.classList.toggle("is-failed", failed);
+  /* Action de sauvegarde manuelle (menu « … ») : active dès qu'il existe du
+     travail à écrire immédiatement ; l'autosauvegarde différée continue. */
   const saveButton = $("workshopSaveDraftBtn");
   if (saveButton) {
     saveButton.disabled = !draft.dirty;
@@ -6012,13 +6034,12 @@ function resetTranscriptionWorkshopState() {
   if ($("workshopImageEmpty")) $("workshopImageEmpty").hidden = true;
   if ($("workshopZone")) $("workshopZone").hidden = true;
   if ($("workshopImageTools")) $("workshopImageTools").hidden = true;
-  if ($("workshopDraftBadge")) {
-    $("workshopDraftBadge").classList.remove("is-dirty");
-    $("workshopDraftBadge").setAttribute("aria-expanded", "false");
-    $("workshopDraftBadge").textContent = "Brouillon local";
-    $("workshopDraftBadge").title = "Brouillon local";
+  if ($("workshopSaveStatus")) {
+    $("workshopSaveStatus").classList.remove("is-dirty", "is-failed");
+    $("workshopSaveStatus").textContent = "Brouillon local";
   }
   if ($("workshopSaveDraftBtn")) $("workshopSaveDraftBtn").disabled = true;
+  if ($("workshopHelpBtn")) $("workshopHelpBtn").setAttribute("aria-expanded", "false");
   if ($("workshopDraftHelp")) $("workshopDraftHelp").hidden = true;
   if ($("workshopLayout")) { $("workshopLayout").dataset.activePanel = "original"; delete $("workshopLayout").dataset.compare; }
   if ($("workshopState")) $("workshopState").hidden = true;
@@ -6035,12 +6056,15 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
   }
   if (event.target.closest("#workshopCompareCloseBtn")) return setWorkshopCompare(false);
   if (event.target.closest("#workshopBackBtn")) return exitTranscriptionWorkshop();
-  if (event.target.closest("#workshopDraftBadge")) {
-    const badge = $("workshopDraftBadge");
+  if (event.target.closest("#workshopHelpBtn")) {
+    const button = $("workshopHelpBtn");
     const help = $("workshopDraftHelp");
-    const expanded = badge.getAttribute("aria-expanded") === "true";
-    badge.setAttribute("aria-expanded", String(!expanded));
+    const expanded = button.getAttribute("aria-expanded") === "true";
+    button.setAttribute("aria-expanded", String(!expanded));
     help.hidden = expanded;
+    /* Action sélectionnée dans le menu « … » : le menu se ferme, l'aide
+       reste affichée. */
+    closeTranscriptionWorkshopMenu();
     return;
   }
   if (event.target.closest("#workshopSaveDraftBtn")) {
@@ -6057,6 +6081,7 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
       transcriptionDraftSaveTimers.delete(key);
     }
     if (persistTranscriptionWorkshopDraft(draft)) toast("Brouillon enregistré localement.", "success");
+    closeTranscriptionWorkshopMenu();
     return;
   }
   const photoButton = event.target.closest("[data-workshop-photo]");

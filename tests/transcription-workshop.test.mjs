@@ -21,7 +21,7 @@ import {
 } from "../js/transcription-workshop.js";
 import { createTranscriptionPassage } from "../js/document-transcription.js";
 import { createSourceDocument } from "../js/source-document-model.js";
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
 import { ROOT, startStaticServer } from "./helpers.mjs";
 
 const samplePassages = () => [
@@ -332,11 +332,17 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.ok(headStatus, "colonne d’actions de l’en-tête présente");
   assert.ok(headStatus.includes('id="workshopBackBtn"'), "Retour placé dans la colonne d’actions de l’en-tête");
   assert.ok(headStatus.indexOf('id="workshopBackBtn"') > headStatus.indexOf('id="workshopActionsMenu"'), "Retour positionné sous le menu « … »");
-  assert.ok(headStatus.indexOf('id="workshopSaveDraftBtn"') > headStatus.indexOf('id="workshopDraftBadge"'), "« Enregistrer le brouillon » rejoint la rangée d’actions de transcription");
+  assert.ok(headStatus.indexOf('id="workshopSaveStatus"') < headStatus.indexOf('id="workshopActionsMenu"'), "statut compact dans la rangée, avant le menu");
   assert.doesNotMatch(html, /class="dedicated-page-return"/, "aucune ligne Retour indépendante ne subsiste");
-  assert.match(html, />Enregistrer le brouillon</, "bouton « Enregistrer le brouillon » visible");
+  /* Sauvegarde manuelle : action secondaire du menu « … », jamais un gros
+     bouton dans l'en-tête — l'autosauvegarde reste le fonctionnement principal. */
+  assert.match(html, /id="workshopActionsMenu"[\s\S]{0,800}id="workshopSaveDraftBtn"/, "« Enregistrer maintenant » vit dans le panneau du menu");
+  assert.match(html, />Enregistrer maintenant</, "action de sauvegarde manuelle libellée « Enregistrer maintenant »");
   assert.match(html, /id="workshopSaveDraftBtn"[^>]*title="Écrire le brouillon dans le stockage local de ce navigateur"/, "but explicite : sauvegarde locale, pas de publication officielle");
+  assert.doesNotMatch(html, /class="btn small" type="button" id="workshopSaveDraftBtn"/, "plus de gros bouton Enregistrer dans l’en-tête");
+  assert.match(html, />Afficher l’aide</, "accès à l’aide du brouillon conservé dans le menu");
   assert.match(app, /event\.target\.closest\("#workshopSaveDraftBtn"\)/, "clic branché sur l’écriture immédiate");
+  assert.match(app, /event\.target\.closest\("#workshopHelpBtn"\)/, "divulgateur de l’aide rebranché sur le menu");
   assert.doesNotMatch(html, />Valider la transcription</, "aucun bouton de validation fictif avant l’incrément 2");
   assert.match(html, /Emplacement de la validation officielle \(incrément 2\)/, "place réservée à la validation officielle dans la hiérarchie");
   assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour"[^>]*><span class="dedicated-page-back-arrow"/, "flèche décorative et libellé de destination");
@@ -344,7 +350,10 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   for (const tab of ["Original", "Italien", "Français"]) assert.ok(html.includes(`>${tab}</button>`), `onglet ${tab} présent`);
   assert.ok(html.includes('id="workshopPrevBtn"') && html.includes('id="workshopNextBtn"'), "navigation Précédent / Suivant");
   assert.ok(html.includes("Comparer"), "mode Comparer accessible depuis les passages");
-  assert.match(html, /id="workshopDraftBadge"[^>]*>Brouillon local</, "indicateur compact « Brouillon local »");
+  assert.match(html, /id="workshopSaveStatus"[^>]*role="status"[^>]*>Brouillon local</, "statut compact « Brouillon local » annoncé comme statut");
+  assert.doesNotMatch(html, /id="workshopDraftBadge"/, "l’ancienne pastille de remplacement a disparu");
+  assert.match(css, /\.transcription-workshop-save-status \{[^}]*font-size: var\(--text-xs\)/, "statut compact en texte discret");
+  assert.doesNotMatch(css, /\.transcription-workshop-draft \{/, "l’ancienne grande pastille n’existe plus");
   assert.match(html, /Les corrections sont enregistrées localement dans ce navigateur et reprises automatiquement à la prochaine ouverture\./, "aide mise à jour : les brouillons sont conservés, plus perdus");
   assert.match(html, /Elles ne sont pas encore enregistrées officiellement ni synchronisées entre appareils\./, "précision explicite : local seulement, pas de synchronisation entre appareils");
   assert.doesNotMatch(html, /seront perdues à la fermeture ou au rechargement/, "l'ancien avertissement de perte est retiré");
@@ -380,7 +389,12 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /isTranscriptionWorkshopPassageCreated\(draft, passage\.id\)/, "suppression réservée aux passages créés");
   assert.match(app, /Ajoutez un passage pour commencer/, "état vide orienté action");
   assert.match(css, /#workshopPageNav \.btn, #workshopPhotoNav \.btn \{ min-width: var\(--control-touch\)/, "cibles tactiles ≥ 44 px");
-  assert.match(css, /@media \(max-width: 760px\)[\s\S]{0,500}\.transcription-workshop-tabs \{ display: flex; \}/, "onglets mobiles");
+  /* Bloc mobile atelier : en-tête empilé + onglets dépliés. Extrait tel quel
+     pour rester insensible aux longueurs de commentaires de style. */
+  const workshopMobileBlock = css.match(/@media \(max-width: 760px\) \{\s*\/\* En-tête atelier[\s\S]*?\.transcription-workshop-tabs \{ display: flex; \}/)?.[0] || "";
+  assert.ok(workshopMobileBlock, "bloc mobile de l’atelier présent");
+  assert.match(workshopMobileBlock, /grid-template-columns: minmax\(0, 1fr\)/, "en-tête atelier empilé sur mobile");
+  assert.match(workshopMobileBlock, /\.transcription-workshop-tabs \{ display: flex; \}/, "onglets mobiles");
   assert.match(css, /\.transcription-workshop-passage\.is-selected/, "sélection de passage visible");
   assert.match(css, /--control-touch/, "cibles tactiles via le token existant");
 });
@@ -432,7 +446,7 @@ test("les brouillons sont persistés localement et repris sans toucher aux modul
   );
   assert.match(app, /blockReason === "unreadable" \? TRANSCRIPTION_DRAFT_UNREADABLE_MESSAGE/, "enregistrement illisible signalé, jamais réécrit");
   assert.match(app, /Rien n’a été effacé : il reste conservé dans ce navigateur/, "restauration en échec annoncée sans perte");
-  assert.match(app, /\$\("workshopDraftBadge"\)\.textContent = "Brouillon local"/, "badge réinitialisé à la fermeture");
+  assert.match(app, /\$\("workshopSaveStatus"\)\.textContent = "Brouillon local"/, "statut réinitialisé à la fermeture");
   // Menu « … » : fermeture extérieure, Échap, action, sortie — périmètre strict.
   assert.match(app, /function onTranscriptionWorkshopMenuOutside\(event\)/, "écouteur de clic extérieur dédié");
   assert.match(app, /if \(!menu\?\.open \|\| menu\.contains\(event\.target\)\) return;/, "seul un clic hors du menu le ferme");
@@ -456,16 +470,11 @@ test("les brouillons sont persistés localement et repris sans toucher aux modul
   assert.match(html, /reprises automatiquement à la prochaine ouverture/, "aide utilisateur alignée sur la persistance");
 });
 
-/* Parcours réel en navigateur (régression des corrections) : saisie →
-   enregistré → Enregistrer immédiat → position du Retour → menu « … » →
-   Retour → réouverture → rechargement → abandon confirmé. */
-test("régression atelier : le brouillon survit à la fermeture, à la réouverture et au rechargement", { timeout: 120000 }, async t => {
-  let browser;
-  try { browser = await chromium.launch({ headless: true }); }
-  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
-  const server = await startStaticServer(ROOT);
-  const svg = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#b8c9be"/></svg>');
-  const hooks = `
+/* Harnais navigateur partagé : fixture JPEG avec passages officiels, hooks
+   injectés dans le scope module de js/app.js (même technique que les tests
+   de pages dédiées). */
+const WORKSHOP_TEST_SVG = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#b8c9be"/></svg>');
+const WORKSHOP_TEST_HOOKS = `
 window.__repro = {
   show() { $("authScreen").hidden = true; $("topbar").hidden = false; setView("directory"); },
   seed() {
@@ -475,7 +484,7 @@ window.__repro = {
       fileName: "registre.jpg", mimeType: "image/jpeg",
       fileData: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAGcP//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAQUCf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEQAD8kf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQIDAT8kf//Z",
       personIds: [],
-      pages: [{ id: "page-repro-1", label: "Folio 1", photographs: [{ id: "photo-repro-1", preview: { dataUrl: "${svg}" } }],
+      pages: [{ id: "page-repro-1", label: "Folio 1", photographs: [{ id: "photo-repro-1", preview: { dataUrl: "${WORKSHOP_TEST_SVG}" } }],
         passages: [
           { id: "p-1", order: 0, textIt: "Anno millenovecento", translationFr: "L’année mille neuf cent", separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 1", translationState: "current" },
           { id: "p-2", order: 1, textIt: "indici di Orino", translationFr: null, separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 2", translationState: "not-started" }
@@ -493,10 +502,38 @@ window.__repro = {
   },
   openDoc() { setView("directory"); openStoredDocument(documents[0], "directory"); },
   transcribe() { const b = document.querySelector("#viewerDocumentDetails [data-transcribe-document]"); if (b) b.click(); },
-  badge() { return $("workshopDraftBadge").textContent; },
+  badge() { return $("workshopSaveStatus").textContent; },
   fields() { return [...document.querySelectorAll("[data-workshop-field]")].map(f => ({ p: f.dataset.workshopPassage, k: f.dataset.workshopField, v: f.value })); },
   stored() { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith("familyTreeTranscriptionDraft:")) out.push([k, localStorage.getItem(k)]); } return out; }
 };`;
+
+/* Harnais d'auth du test mobile : sans utilisateur connecté, le callback
+   onAuthStateChanged (différé, souvent plus tardif en WebKit qu'en Chromium)
+   déclenche stopPrivateData/showAuthPanel et ferme la page via
+   closeDocumentPage — un bootstrap sans rapport avec le comportement UX
+   mesuré. Neutralisé ici uniquement, jamais dans l'application. */
+const WORKSHOP_AUTH_PATCH = `
+window.__ignoreAuthBootstrap = true;
+const originalStopPrivateData = stopPrivateData;
+stopPrivateData = (...args) => { if (window.__ignoreAuthBootstrap) return; return originalStopPrivateData(...args); };
+const originalShowAuthPanel = showAuthPanel;
+showAuthPanel = (...args) => { if (window.__ignoreAuthBootstrap) return; return originalShowAuthPanel(...args); };
+const originalCloseDocumentPage = closeDocumentPage;
+closeDocumentPage = (...args) => {
+  if (window.__ignoreAuthBootstrap && String(new Error().stack || "").includes("firebase-auth")) return;
+  return originalCloseDocumentPage(...args);
+};
+`;
+
+/* Parcours réel en navigateur (régression des corrections) : saisie →
+   enregistré → Enregistrer immédiat → position du Retour → menu « … » →
+   Retour → réouverture → rechargement → abandon confirmé. */
+test("régression atelier : le brouillon survit à la fermeture, à la réouverture et au rechargement", { timeout: 120000 }, async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  const hooks = WORKSHOP_TEST_HOOKS;
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "fr-FR" });
   await context.route("**/*", async route => {
     const url = route.request().url();
@@ -526,18 +563,23 @@ window.__repro = {
     /* Saisie puis autosauvegarde : état écrit réellement. */
     await page.fill('[data-workshop-field="textIt"]', "Anno millenovecentosedici");
     await page.fill('[data-workshop-field="translationFr"]', "L’année mille neuf cent seize");
-    await page.waitForFunction(() => document.getElementById("workshopDraftBadge").textContent === "Enregistré localement", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré localement", undefined, { timeout: 5000 });
     let stored = await page.evaluate(() => window.__repro.stored());
     assert.equal(stored.length, 1, "une copie locale écrite");
     assert.equal(JSON.parse(stored[0][1]).snapshot.passages[0].textIt, "Anno millenovecentosedici", "texte présent en local");
 
-    /* Enregistrer le brouillon : écriture immédiate, sans attendre le différé. */
+    /* Enregistrer maintenant : action du menu « … », écriture immédiate sans
+       attendre le délai d'autosauvegarde. */
     await page.fill('[data-workshop-field="textIt"]', "Anno senza attesa");
+    await page.click("#workshopActionsMenu > summary");
     await page.click("#workshopSaveDraftBtn");
     stored = await page.evaluate(() => window.__repro.stored());
     assert.equal(JSON.parse(stored[0][1]).snapshot.passages[0].textIt, "Anno senza attesa", "écriture immédiate au clic, avant le délai d’autosauvegarde");
-    await page.waitForFunction(() => document.getElementById("workshopDraftBadge").textContent === "Enregistré localement", undefined, { timeout: 1500 });
-    assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), false, "bouton Enregistrer réutilisable après de nouvelles modifications");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "le menu se ferme après l’action d’enregistrement");
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré localement", undefined, { timeout: 1500 });
+    await page.click("#workshopActionsMenu > summary");
+    assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), false, "action Enregistrer réutilisable après de nouvelles modifications");
+    await page.keyboard.press("Escape");
 
     /* Position du Retour : modèle de la fiche Document — à droite, sous le menu « … ». */
     const layout = await page.evaluate(() => {
@@ -617,6 +659,144 @@ window.__repro = {
   } finally {
     await context.close();
     await browser.close();
+    await server.close();
+  }
+});
+
+/* En-tête mobile et ouverture en haut (correctif Safari iPhone) : Chromium
+   puis WebKit à 320, 390 et 760 px — titre lisible, libellé de page compact,
+   actions et Retour empilés à droite sans chevauchement ni débordement,
+   cibles ≥ 44 px, menu complet, ouverture systématiquement en haut. */
+test("atelier mobile : en-tête lisible sans débordement et ouverture en haut", { timeout: 240000 }, async t => {
+  const server = await startStaticServer(ROOT);
+  let ranAny = false;
+  try {
+    for (const [engineName, engine] of [["Chromium", chromium], ["WebKit", webkit]]) {
+      let browser;
+      try { browser = await engine.launch({ headless: true }); }
+      catch (error) { t.diagnostic(`${engineName} indisponible : ${error.message}`); continue; }
+      ranAny = true;
+      try {
+        for (const [width, height] of [[320, 780], [390, 844], [760, 900]]) {
+          await t.test(`${engineName} ${width}×${height}`, async () => {
+            const context = await browser.newContext({ viewport: { width, height }, locale: "fr-FR" });
+            await context.route("**/*", async route => {
+              const url = route.request().url();
+              if (new URL(url).pathname.endsWith("/js/app.js")) {
+                const response = await route.fetch();
+                return route.fulfill({ response, body: `${await response.text()}\n${WORKSHOP_TEST_HOOKS}\n${WORKSHOP_AUTH_PATCH}` });
+              }
+              return url.startsWith(server.baseURL) || url.includes("gstatic.com") ? route.continue() : route.abort("blockedbyclient");
+            });
+            const page = await context.newPage();
+            const pageErrors = [];
+            const dialogs = [];
+            page.on("pageerror", error => pageErrors.push(error.message));
+            page.on("dialog", async dialog => { dialogs.push(dialog.message()); await dialog.accept(); });
+            try {
+              await page.goto(server.baseURL, { waitUntil: "load" });
+              await page.waitForFunction(() => typeof window.__repro === "object");
+              /* Page volontairement longue : la position de défilement de la
+                 vue d'origine peut rendre l'atelier au milieu de la page. */
+              await page.evaluate(() => {
+                window.__repro.show();
+                window.__repro.seed();
+                const probe = document.createElement("div");
+                probe.id = "__scrollProbe";
+                probe.style.height = "4000px";
+                document.body.append(probe);
+              });
+              await page.evaluate(() => window.__repro.openDoc());
+              await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+              await page.evaluate(() => window.scrollTo({ top: 600, left: 0, behavior: "instant" }));
+              await page.waitForTimeout(80);
+              const scrolled = await page.evaluate(() => window.scrollY);
+              assert.ok(scrolled > 0, `page scrollable avant ouverture (${scrolled})`);
+              await page.evaluate(() => window.__repro.transcribe());
+              await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+              await page.waitForTimeout(300);
+              const scrollState = await page.evaluate(() => ({ y: window.scrollY, container: document.getElementById("transcriptionWorkshopView").scrollTop }));
+              assert.equal(scrollState.y, 0, "fenêtre au début de l’atelier");
+              assert.equal(scrollState.container, 0, "conteneur de défilement au début");
+
+              const layout = await page.evaluate(() => {
+                const header = document.querySelector(".transcription-workshop-header").getBoundingClientRect();
+                const kicker = document.querySelector(".transcription-workshop-heading .page-kicker");
+                const heading = document.querySelector(".transcription-workshop-heading").getBoundingClientRect();
+                const label = document.getElementById("workshopPageLabel");
+                const labelRect = label.getBoundingClientRect();
+                const status = document.getElementById("workshopSaveStatus").getBoundingClientRect();
+                const menu = document.getElementById("workshopActionsMenu").getBoundingClientRect();
+                const back = document.getElementById("workshopBackBtn").getBoundingClientRect();
+                const tabs = [...document.querySelectorAll(".transcription-workshop-tab")].map(tab => { const r = tab.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
+                const tools = [...document.querySelectorAll("#workshopImageTools button")].map(button => { const r = button.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
+                return {
+                  kickerText: kicker.textContent.trim(),
+                  kickerScroll: kicker.scrollWidth,
+                  headingWidth: Math.round(heading.width),
+                  headingBottom: heading.bottom,
+                  labelWhiteSpace: getComputedStyle(label).whiteSpace,
+                  labelHeight: Math.round(labelRect.height),
+                  statusTop: status.top,
+                  menuTop: menu.top, menuRight: menu.right, menuHeight: Math.round(menu.height),
+                  backTop: back.top, backRight: back.right, backWidth: Math.round(back.width), backHeight: Math.round(back.height),
+                  headerRight: header.right,
+                  tabs, tools,
+                  pageScroll: document.documentElement.scrollWidth,
+                  viewport: innerWidth
+                };
+              });
+              /* Titre « Atelier de transcription » entièrement lisible. */
+              assert.equal(layout.kickerText, "Atelier de transcription", "titre du métier intact");
+              assert.ok(layout.kickerScroll <= layout.headingWidth + 1, `titre sans troncature (${layout.kickerScroll} ≤ ${layout.headingWidth})`);
+              /* « Page X · Y passages » compact : une seule ligne. */
+              assert.equal(layout.labelWhiteSpace, "nowrap", "libellé de page sur une seule ligne");
+              assert.ok(layout.labelHeight <= 26, `libellé de page compact sans retour à la ligne (${layout.labelHeight}px)`);
+              /* Empilement : actions sous le titre, sans chevauchement. */
+              assert.ok(layout.headingBottom <= layout.statusTop + 1, `actions sous le titre sans chevauchement (${layout.headingBottom} ≤ ${layout.statusTop})`);
+              /* Menu à droite ; Retour à droite, sous le menu ; cibles ≥ 44 px. */
+              assert.ok(layout.menuRight <= layout.headerRight + 1, "menu « … » à droite de l’en-tête");
+              assert.ok(layout.backRight <= layout.headerRight + 1, "Retour à droite de l’en-tête");
+              assert.ok(layout.backTop >= layout.menuTop + layout.menuHeight - 1, `Retour sous le menu « … » (${layout.backTop} ≥ ${layout.menuTop + layout.menuHeight - 1})`);
+              assert.ok(layout.backWidth >= 44 && layout.backHeight >= 44, `Retour ≥ 44 px (${layout.backWidth}×${layout.backHeight})`);
+              assert.ok(layout.menuHeight >= 44, `menu « … » ≥ 44 px (${layout.menuHeight})`);
+              /* Aucun débordement horizontal. */
+              assert.ok(layout.pageScroll <= layout.viewport + 1, `sans débordement horizontal à ${width}px (${layout.pageScroll}/${layout.viewport})`);
+              /* Onglets et barre d'outils de la photographie. */
+              assert.equal(layout.tabs.length, 3, "trois onglets Original / Italien / Français");
+              for (const [tabWidth, tabHeight] of layout.tabs) {
+                assert.ok(tabWidth >= 44 && tabHeight >= 44, `onglet ≥ 44 px (${tabWidth}×${tabHeight})`);
+              }
+              assert.ok(layout.tools.length >= 4, "barre d’outils de la photographie présente");
+              for (const [toolWidth, toolHeight] of layout.tools) {
+                assert.ok(toolWidth >= 44 && toolHeight >= 44, `outil photo ≥ 44 px (${toolWidth}×${toolHeight})`);
+              }
+
+              /* Menu contextuel complet en mobile : ouverture, clic extérieur, Échap. */
+              await page.click("#workshopActionsMenu > summary");
+              assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "menu ouvert");
+              await page.click("#workshopDocumentTitle");
+              assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "clic extérieur ferme le menu");
+              await page.click("#workshopActionsMenu > summary");
+              await page.keyboard.press("Escape");
+              assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "Échap ferme le menu");
+
+              /* Sortie sans friction (aucun brouillon modifié), retours nets. */
+              await page.click("#workshopBackBtn");
+              await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+              assert.deepEqual(dialogs, [], "sortie sans confirmation");
+              assert.deepEqual(pageErrors, [], `erreurs JavaScript : ${pageErrors.join(" | ")}`);
+            } finally {
+              await context.close();
+            }
+          });
+        }
+      } finally {
+        await browser.close();
+      }
+    }
+  } finally {
+    if (!ranAny) t.skip("aucun moteur Playwright disponible");
     await server.close();
   }
 });
