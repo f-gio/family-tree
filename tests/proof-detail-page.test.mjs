@@ -149,6 +149,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     let state = await page.evaluate(() => window.__proofPageTest.state());
     assert.equal(state.title, "Naissance");
+    assert.ok(state.archiveScroll <= 40, `fiche Preuve ouverte depuis son haut malgré Archives défilée (scrollY=${state.archiveScroll}, départ ${archiveScroll})`);
     assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour aux archives");
     assert.equal(await page.locator("#proofPageTitle").getAttribute("aria-label"), state.title, "titre complet accessible");
     assert.ok(await page.locator("#proofDetailView header.dedicated-page-header").count(), "en-tête partagé de page dédiée");

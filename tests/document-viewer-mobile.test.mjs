@@ -406,7 +406,9 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                   assert.ok(m.head.h <= 160, `${key} : header long borné sur deux lignes (${m.head.h}px)`);
                 }
                 if (key === "short") {
-                  assert.ok(m.head.h <= 120, `${key} : header court borné (${m.head.h}px)`);
+                  /* Le Retour vit désormais dans l'en-tête : la rangée supplémentaire
+                     fait passer le plafond de 120 à 128 px (mesuré 122.9 à 760). */
+                  assert.ok(m.head.h <= 128, `${key} : header court borné (${m.head.h}px)`);
                 }
               }
               t.diagnostic(`${engineName} ${width}×${height}: header short=${headers.short.head.h} medium=${headers.medium.head.h} long=${headers.long.head.h} ; doc long=${headers.long.viewer.h} ; dialog=${headers.long.dialog.h}`);
@@ -930,7 +932,7 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
             fallback: documentPage.classList.contains("is-viewer-fullscreen-fallback"),
             nativeFullscreen: document.fullscreenElement === imagePanel,
             headerHidden: getComputedStyle(documentPage.querySelector(".document-detail-header")).display === "none",
-            returnHidden: getComputedStyle(documentPage.querySelector(".document-detail-return")).display === "none",
+            returnHidden: getComputedStyle(documentPage.querySelector("#documentPageBackBtn")).display === "none" || documentPage.querySelector("#documentPageBackBtn").offsetParent === null,
             detailsHidden: getComputedStyle(document.getElementById("viewerDocumentDetails")).display === "none",
             viewport: [innerWidth, innerHeight],
             panel: [imagePanel.getBoundingClientRect().width, imagePanel.getBoundingClientRect().height],
@@ -1002,11 +1004,13 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
             documentWidth: document.documentElement.scrollWidth, viewportWidth: innerWidth
           };
         });
-        assert.ok(state.header.height <= 126, `${width}px : en-tête compact avec titre limité à deux lignes (${state.header.height}px)`);
+        assert.ok(state.header.height <= 145, `${width}px : en-tête compact avec titre limité à deux lignes (${state.header.height}px)`);
         assert.equal(state.titleStyle.webkitLineClamp, "2");
         assert.equal(await page.locator("#viewerTitle").getAttribute("aria-label"), title, "titre complet accessible malgré le clamp visuel");
         assert.ok(state.title.right <= state.actions.x + 1, "le titre ne chevauche pas les actions");
-        assert.ok(state.close.bottom <= state.header.y + 1, "le Retour occupe sa ligne au-dessus de l’en-tête");
+        assert.ok(state.close.y >= state.header.y - 1, "le Retour est dans l'en-tête");
+        assert.ok(state.close.right <= state.header.right + 1, "le Retour est aligné à droite de l'en-tête");
+        assert.ok(state.close.y >= state.actions.bottom - 1, "le Retour est directement sous le groupe d'actions");
         assert.ok(Math.abs(state.menu.y - state.actions.y) <= 2 || state.menu.y >= state.actions.y, "menu d’actions dans la grille d’en-tête");
         for (const action of [state.menu, state.close]) assert.ok(action.width >= 43.5 && action.height >= 43.5, "actions d’en-tête de 44 × 44 px");
         if (width === 320) {
@@ -1060,4 +1064,162 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
       } finally { await context.close(); }
     }
   } finally { await browser.close(); await server.close(); }
+});
+
+test("JPEG plein écran : après zoom, les quatre bords de l'image sont réellement atteignables", async t => {
+  const server = await startStaticServer(ROOT);
+  const engines = [["Chromium", chromium], ["WebKit", webkit]];
+  let ranAny = false;
+  for (const [engineName, engine] of engines) {
+    let browser;
+    try { browser = await engine.launch({ headless: true }); }
+    catch (error) { t.diagnostic(`${engineName} indisponible : ${error.message}`); continue; }
+    ranAny = true;
+    try {
+      for (const [width, height] of [[1440, 900], [390, 844]]) {
+        await t.test(`${engineName} ${width}×${height}`, async () => {
+          const { context, page } = await createViewerPage(browser, server, width, height);
+          try {
+            await openViewer(page, { title: "Registre pleine page", fileName: "registre.jpg", src: portraitSvg });
+            await page.locator("#viewerFullscreenBtn").click();
+            await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
+            await page.waitForTimeout(120);
+            for (let step = 0; step < 3; step++) {
+              await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
+            }
+            const zoomed = await page.evaluate(() => window.__viewerImageController.getState());
+            assert.ok(zoomed.zoom > 1.5, `zoom agrandi avant le déplacement (${zoomed.zoom})`);
+            assert.equal(await page.locator("#viewerImageViewport").evaluate(viewport => viewport.style.touchAction), "none", "les gestes verticaux sont repris par le lecteur quand l'image est agrandie");
+            /* Bug corrigé : la molette sans Ctrl déplace l'image agrandie
+               (elle était auparavant totalement ignorée sans le modificateur). */
+            if (width > 760) {
+              const viewportBox = await page.locator("#viewerImageViewport").boundingBox();
+              await page.mouse.move(viewportBox.x + viewportBox.width / 2, viewportBox.y + viewportBox.height / 2);
+              const offsetYBeforeWheel = await page.evaluate(() => window.__viewerImageController.getState().offsetY);
+              await page.mouse.wheel(0, -260);
+              await page.waitForTimeout(80);
+              const offsetYAfterWheel = await page.evaluate(() => window.__viewerImageController.getState().offsetY);
+              assert.notEqual(offsetYAfterWheel, offsetYBeforeWheel, "la molette sans Ctrl déplace désormais l'image agrandie");
+            }
+            /* Saturation par glisser : les quatre bords sont réellement
+               atteignables, pas seulement les commandes qui répondent. Un
+               utilisateur répète le geste jusqu'au bord — le test aussi. */
+            const saturateByDrag = async (dx, dy) => {
+              const box = await page.locator("#viewerImageViewport").boundingBox();
+              const startX = box.x + box.width / 2;
+              const startY = box.y + box.height / 2;
+              let previous = null;
+              for (let attempt = 0; attempt < 12; attempt++) {
+                await page.mouse.move(startX, startY);
+                await page.mouse.down();
+                for (let step = 1; step <= 10; step++) {
+                  await page.mouse.move(startX + dx * step / 10, startY + dy * step / 10, { steps: 2 });
+                }
+                await page.mouse.up();
+                await page.waitForTimeout(30);
+                const state = await page.evaluate(() => window.__viewerImageController.getState());
+                const key = `${state.offsetX}:${state.offsetY}`;
+                if (key === previous) return;
+                previous = key;
+              }
+            };
+            const imageEdges = () => page.evaluate(() => {
+              const image = document.getElementById("viewerImage").getBoundingClientRect();
+              const viewport = document.getElementById("viewerImageViewport").getBoundingClientRect();
+              return {
+                top: image.y - viewport.y,
+                bottom: image.bottom - viewport.bottom,
+                left: image.x - viewport.x,
+                right: image.right - viewport.right
+              };
+            });
+            await saturateByDrag(0, 6000);
+            let edges = await imageEdges();
+            assert.ok(Math.abs(edges.top) <= 1, `bord supérieur atteignable (top=${edges.top})`);
+            await saturateByDrag(0, -6000);
+            edges = await imageEdges();
+            assert.ok(Math.abs(edges.bottom) <= 1, `bord inférieur atteignable (bottom=${edges.bottom})`);
+            await saturateByDrag(6000, 0);
+            edges = await imageEdges();
+            assert.ok(Math.abs(edges.left) <= 1, `bord gauche atteignable (left=${edges.left})`);
+            await saturateByDrag(-6000, 0);
+            edges = await imageEdges();
+            assert.ok(Math.abs(edges.right) <= 1, `bord droit atteignable (right=${edges.right})`);
+            /* Geste tactile vertical complet (Chromium mobile) : la séquence
+               n'est plus interrompue par le pan natif du navigateur. On
+               recentre d'abord (reset + zoom) car les saturations laissent
+               les décalages au maximum — un geste de plus serait étouffé. */
+            if (engineName === "Chromium" && width <= 760) {
+              await page.evaluate(() => window.__viewerImageController.reset());
+              for (let step = 0; step < 3; step++) {
+                await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
+              }
+              const cdp = await context.newCDPSession(page);
+              const box = await page.locator("#viewerImageViewport").boundingBox();
+              const touchX = box.x + box.width / 2;
+              const touchY = box.y + box.height / 2;
+              const offsetYBeforeTouch = await page.evaluate(() => window.__viewerImageController.getState().offsetY);
+              await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: touchX, y: touchY }] });
+              for (let step = 1; step <= 6; step++) {
+                await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: touchX, y: touchY - step * 20 }] });
+              }
+              await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+              await page.waitForTimeout(80);
+              const offsetYAfterTouch = await page.evaluate(() => window.__viewerImageController.getState().offsetY);
+              assert.ok(Math.abs(offsetYAfterTouch - offsetYBeforeTouch) >= 60, `geste tactile vertical complet appliqué (Δ=${offsetYAfterTouch - offsetYBeforeTouch}px)`);
+            } else if (engineName === "WebKit" && width <= 760) {
+              /* WebKit Playwright n'expose pas de session CDP : on recentre
+                 puis on émet la séquence tactile synthétique si le
+                 constructeur Touch est instanciable (il peut exister sans
+                 l'être en headless). Le pan tactile natif réel reste à
+                 vérifier sur Safari iPhone en recette. */
+              await page.evaluate(() => window.__viewerImageController.reset());
+              for (let step = 0; step < 3; step++) {
+                await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
+              }
+              const touchPan = await page.evaluate(() => {
+                const viewport = document.getElementById("viewerImageViewport");
+                const before = window.__viewerImageController.getState().offsetY;
+                try {
+                  const touch = new Touch({ identifier: 1, target: viewport, clientX: viewport.clientWidth / 2, clientY: viewport.clientHeight / 2 });
+                  const move = new Touch({ identifier: 1, target: viewport, clientX: viewport.clientWidth / 2, clientY: viewport.clientHeight / 2 - 120 });
+                  viewport.dispatchEvent(new TouchEvent("touchstart", { touches: [touch], bubbles: true, cancelable: true }));
+                  viewport.dispatchEvent(new TouchEvent("touchmove", { touches: [move], bubbles: true, cancelable: true }));
+                  viewport.dispatchEvent(new TouchEvent("touchend", { touches: [], bubbles: true, cancelable: true }));
+                  return { before, after: window.__viewerImageController.getState().offsetY, unsupported: false };
+                } catch {
+                  return { before, after: before, unsupported: true };
+                }
+              });
+              if (touchPan.unsupported) {
+                t.diagnostic("WebKit : constructeur Touch non instanciable — pan tactile natif à vérifier sur appareil réel");
+              } else {
+                assert.ok(Math.abs(touchPan.after - touchPan.before) >= 60, `pan tactile WebKit appliqué via TouchEvent (${touchPan.after - touchPan.before}px)`);
+              }
+            }
+            /* Retour au zoom naturel : le défilement natif reprend la main. */
+            await page.evaluate(() => window.__viewerImageController.reset());
+            const resetState = await page.evaluate(() => window.__viewerImageController.getState());
+            assert.equal(resetState.zoom, 1, "retour au zoom naturel");
+            assert.equal(resetState.offsetX, 0, "décalage horizontal remis à zéro");
+            assert.equal(resetState.offsetY, 0, "décalage vertical remis à zéro");
+            assert.equal(await page.locator("#viewerImageViewport").evaluate(viewport => viewport.style.touchAction), "", "touch-action natif restauré au zoom naturel");
+            if (width > 760) {
+              /* Image débordante en mode Largeur : la molette sans Ctrl fait
+                 défiler le lecteur nativement (aspect préservé). */
+              const box = await page.locator("#viewerImageViewport").boundingBox();
+              await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+              const scrollTopBefore = await page.locator("#viewerImageViewport").evaluate(viewport => viewport.scrollTop);
+              await page.mouse.wheel(0, 320);
+              await page.waitForTimeout(80);
+              const scrollTopAfter = await page.locator("#viewerImageViewport").evaluate(viewport => viewport.scrollTop);
+              assert.ok(scrollTopAfter > scrollTopBefore, `la molette défile nativement l'image débordante (${scrollTopBefore} → ${scrollTopAfter})`);
+            }
+          } finally { await context.close(); }
+        });
+      }
+    } finally { await browser.close(); }
+  }
+  if (!ranAny) t.skip("aucun moteur Playwright disponible");
+  await server.close();
 });

@@ -79,11 +79,17 @@ window.__documentPageTest = {
       backLabel: $("documentPageBackBtn").getAttribute("aria-label"),
       backVisibleLabel: $("documentPageBackBtn").querySelector(".dedicated-page-back-label")?.textContent || "",
       backInsideHeader: !!document.querySelector(".dedicated-page-header #documentPageBackBtn"),
-      backAboveHeader: (() => {
+      backUnderActions: (() => {
+        const back = $("documentPageBackBtn").getBoundingClientRect();
+        const actions = document.querySelector("#documentDetailView .document-detail-actions");
+        return !actions || back.y >= actions.getBoundingClientRect().bottom - 1;
+      })(),
+      backRightAligned: (() => {
         const back = $("documentPageBackBtn").getBoundingClientRect();
         const header = document.querySelector("#documentDetailView .document-detail-header");
-        return !header || back.bottom <= header.getBoundingClientRect().top + 1;
+        return !!header && back.right <= header.getBoundingClientRect().right + 1;
       })(),
+      returnRowAbsent: !document.querySelector("#documentDetailView .dedicated-page-return"),
       categoryBadgeText: $("viewerCategoryBadge").textContent,
       categoryBadgeHidden: $("viewerCategoryBadge").hidden,
       subtitleAbsent: !document.getElementById("viewerSubtitle"),
@@ -153,8 +159,10 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.pageVisible, true, "page Document ouverte depuis Archives");
     assert.equal(state.backLabel, "Retour aux archives", "destination du Retour annoncée accessible");
     assert.equal(state.backVisibleLabel, "Retour aux archives", "destination du Retour affichée en clair");
-    assert.equal(state.backInsideHeader, false, "le Retour n’est plus intégré à la grille de l’en-tête");
-    assert.equal(state.backAboveHeader, true, "le Retour occupe une ligne indépendante au-dessus de l’en-tête");
+    assert.equal(state.backInsideHeader, true, "le Retour est intégré à l’en-tête (sous les actions)");
+    assert.ok(state.backUnderActions, "le Retour est directement sous le groupe d’actions");
+    assert.ok(state.backRightAligned, "le Retour est aligné à droite de l’en-tête");
+    assert.equal(state.returnRowAbsent, true, "aucune ligne Retour résiduelle au-dessus de l’en-tête");
     assert.equal(state.categoryBadgeText, "Registre", "badge de catégorie à côté de DOCUMENT");
     assert.equal(state.categoryBadgeHidden, false, "badge visible quand la catégorie existe");
     assert.equal(state.subtitleAbsent, true, "aucun sous-titre sous le titre Document (lot G)");
@@ -247,6 +255,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.pageMaxHeight, "none", "aucune hauteur maximale de modale à 320px");
     assert.equal(state.pageBorderRadius, "0px", "pas de coins de modale sur la page mobile");
     assert.ok(state.backHeight >= 44, `Retour ≥ 44px (${state.backHeight})`);
+    assert.equal(state.backVisibleLabel, "Retour", "libellé mobile « Retour » seul, sans destination (lot corrections)");
+    assert.equal(state.backInsideHeader, true, "le Retour reste dans l’en-tête sur mobile");
     /* Lot G : plus d'onglets — volet Informations fermé par défaut sur mobile,
        ouvert par la bascule sous la visionneuse. */
     assert.equal(state.tabsAbsent, true, "aucun onglet Original/Informations à 320px");
@@ -254,6 +264,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.infoVisible, false, "informations fermées par défaut à 320px");
     assert.equal(state.infoHidden, true, "volet replié à l'ouverture à 320px");
     assert.equal(await page.locator("#viewerImage").isVisible(), true, "le lecteur reste affiché à 320px");
+    assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "libellé « Original » masqué sur mobile (lot corrections)");
     await page.click("#viewerDetailsBtn");
     assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "la bascule ouvre le volet Informations à 320px");
     await page.click("#viewerDetailsBtn");
@@ -270,6 +281,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.infoToggleVisible, true, "bascule Informations visible à 390px");
     assert.equal(state.infoHidden, true, "informations fermées par défaut à 390px");
     assert.equal(await page.locator("#viewerImage").isVisible(), true, "le lecteur reste affiché à 390px");
+    assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "libellé « Original » masqué jusqu'à 760px");
     assert.equal(state.titleLineClamp, "2", "titre limité à deux lignes à 390px");
     assert.equal(state.titleLabel, state.title, "titre complet accessible à 390px");
     for (const [width, height] of [[320, 844], [390, 844], [1440, 900]]) {
@@ -286,6 +298,9 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.setViewportSize({ width: 1280, height: 900 });
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.tabsAbsent, true, "aucun onglet Original/Informations sur ordinateur");
+    /* Image affichée : le head Original était déjà masqué sur desktop (règle
+       antérieure) — le lot corrections n'a rien changé de ce côté. */
+    assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "head « Original » masqué pour une image, desktop inchangé");
     assert.equal(state.infoVisible, true, "panneau Informations desktop reste visible");
     assert.equal(state.detailsOverflowY, "visible", "les Informations suivent le défilement naturel de la page");
     assert.deepEqual(errors, [], `erreurs JavaScript : ${errors.join(" | ")}`);

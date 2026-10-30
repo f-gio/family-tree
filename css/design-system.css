@@ -2247,7 +2247,7 @@ label .field { margin-top: var(--space-2); }
 @media (prefers-reduced-motion: reduce) {
   .pdf-panels-chevron, .pdf-zoom-indicator { transition-duration: 0.01ms; }
 }
-#documentDetailView.is-viewer-fullscreen { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100dvh !important; max-width: none !important; max-height: none !important; margin: 0 !important; padding: 0 !important; overflow: hidden; border: 0; border-radius: 0; }
+#documentDetailView.is-viewer-fullscreen { position: fixed !important; inset: 0 !important; z-index: 130; width: 100vw !important; height: 100dvh !important; max-width: none !important; max-height: none !important; margin: 0 !important; padding: 0 !important; overflow: hidden; border: 0; border-radius: 0; }
 #documentDetailView.is-viewer-fullscreen .modal-head { display: none; }
 #documentDetailView.is-viewer-fullscreen .modal-body { display: flex !important; flex: 1 1 auto !important; min-height: 0 !important; padding: 0 !important; overflow: hidden !important; }
 #documentDetailView.is-viewer-fullscreen .document-unified-layout { display: grid !important; grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: minmax(0, 1fr) !important; flex: 1 1 auto !important; width: 100% !important; height: 100% !important; min-height: 0 !important; gap: 0 !important; }
@@ -5050,13 +5050,18 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .dedicated-page-back:hover { border: 0; background: transparent; box-shadow: none; color: var(--color-text); text-decoration: underline; }
 .dedicated-page-back:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; border-radius: var(--radius-sm); }
 .dedicated-page-back-arrow { font-size: var(--text-lg); line-height: 1; }
-.dedicated-page-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--space-3); min-width: 0; padding-bottom: var(--space-4); border-bottom: var(--border-subtle); }
+.dedicated-page-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; row-gap: var(--space-1); column-gap: var(--space-3); min-width: 0; padding-bottom: var(--space-4); border-bottom: var(--border-subtle); }
 .source-detail-header { margin-bottom: var(--space-5); }
 .dedicated-page-heading { min-width: 0; }
 .workspace-view .dedicated-page-heading .page-kicker { margin: 0 0 2px; }
 .dedicated-page-heading .page-title { overflow-wrap: anywhere; }
 .dedicated-page-heading > h2 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .dedicated-page-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); min-width: 0; }
+/* Retour sous le groupe d'actions, aligné à droite (lot corrections) : la
+   colonne d'actions empile la rangée de commandes puis le lien Retour. */
+.dedicated-page-actions.dedicated-page-side { flex-direction: column; align-items: flex-end; justify-content: flex-start; gap: var(--space-1); }
+.dedicated-page-actions-row { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); min-width: 0; }
+.dedicated-page-header > .dedicated-page-back { grid-column: 2; grid-row: 2; justify-self: end; }
 .dedicated-page-actions > summary { display: inline-flex; align-items: center; justify-content: center; width: var(--control-touch); min-width: var(--control-touch); min-height: var(--control-touch); cursor: pointer; list-style: none; }
 .dedicated-page-actions > summary::-webkit-details-marker { display: none; }
 .dedicated-page-actions > details > summary { display: inline-flex; align-items: center; justify-content: center; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); list-style: none; }
@@ -5140,7 +5145,6 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 #documentDetailView .document-original-panel { height: min(74dvh, 58rem); min-height: 22rem; overflow: visible; padding-inline-end: var(--space-1); }
 #documentDetailView .document-unified-details { min-height: 0; overflow: visible; }
 #documentDetailView .document-original-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
-#documentDetailView.is-viewer-fullscreen .document-detail-return,
 #documentDetailView.is-viewer-fullscreen .document-detail-header { display: none; }
 #documentDetailView.is-viewer-fullscreen { display: flex !important; flex-direction: column; }
 #documentDetailView.is-viewer-fullscreen .document-detail-shell { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; gap: 0; }
@@ -5150,6 +5154,10 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
   .workspace-view .dedicated-page-heading > h2 { font-size: clamp(1.35rem, 6vw, 1.9rem); line-height: 1.1; }
   .source-detail-header { margin-bottom: var(--space-4); }
   .document-detail-header { margin-bottom: var(--space-2); }
+  /* Lot corrections : le libellé « Original » de l'en-tête de panneau n'apparaît
+     plus sous le titre sur mobile (la visionneuse suit directement l'en-tête ;
+     les commandes de ce panneau sont déjà masquées à cette largeur). */
+  #documentDetailView .document-original-head { display: none; }
   /* Lot G : plus d'onglets mobiles — les deux panneaux se suivent dans le
      flux vertical (Ordre : visionneuse, puis [miniatures], puis Informations). */
   #documentDetailView .document-detail-layout { grid-template-columns: minmax(0, 1fr); height: auto; gap: var(--space-3); }
@@ -5162,7 +5170,6 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 }
 @media (max-width: 760px) {
   .source-detail-header { margin-bottom: var(--space-4); }
-  .proof-detail-header-actions { align-items: center; flex-direction: row; gap: var(--space-1); }
   .proof-detail-revise { min-height: var(--control-touch); padding-inline: var(--space-2); }
   .source-detail-content { gap: var(--space-3); }
   .source-detail-content .detail-page-main,

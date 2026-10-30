@@ -524,11 +524,13 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
         };
       });
       if (viewport.width <= 390) {
-        assert.ok(mobileHeader.header.height <= 130, `en-tête mobile contenu avec métadonnées visibles (${mobileHeader.header.height}px)`);
+        /* Le Retour vit désormais dans l'en-tête : plafond recalibré (mesuré 141 px). */
+        assert.ok(mobileHeader.header.height <= 148, `en-tête mobile contenu avec métadonnées visibles (${mobileHeader.header.height}px)`);
         assert.equal(mobileHeader.titleStyle.lineClamp, "2", "titre tronqué au-delà de deux lignes");
         assert.ok(mobileHeader.title.right <= mobileHeader.actions.x + 1, "le titre ne chevauche pas les actions");
-        assert.ok(mobileHeader.close.bottom <= mobileHeader.header.y + 1, "le lien Retour est sur sa ligne indépendante au-dessus de l’en-tête");
-        assert.ok(mobileHeader.close.x <= mobileHeader.header.x + 1, "le Retour est aligné sur le bord gauche du contenu");
+        assert.ok(mobileHeader.close.y >= mobileHeader.header.y - 1, "le lien Retour est dans l'en-tête");
+        assert.ok(mobileHeader.close.right <= mobileHeader.header.right + 1, "le Retour est aligné à droite de l'en-tête");
+        assert.ok(mobileHeader.close.y >= mobileHeader.actions.bottom - 1, "le Retour est directement sous le groupe d'actions");
         assert.ok(mobileHeader.menu.height >= 43.5 && mobileHeader.menu.width >= 43.5, "menu général avec cible 44px");
         assert.ok(mobileHeader.close.height >= 43.5 && mobileHeader.close.width >= 43.5, "Retour avec cible 44px");
       }

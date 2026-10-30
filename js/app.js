@@ -4137,7 +4137,9 @@ function setDedicatedPageBackLabel(buttonId, context) {
   button.setAttribute("aria-label", label);
   button.title = label;
   const labelNode = button.querySelector(".dedicated-page-back-label");
-  if (labelNode) labelNode.textContent = label;
+  /* Lot corrections : mobile = « Retour » seul ; desktop = destination réelle
+     (l'aria-label reste contextualisé dans les deux cas). */
+  if (labelNode) labelNode.textContent = window.matchMedia("(max-width: 760px)").matches ? "Retour" : label;
 }
 
 /** Formate les horodatages des révisions Firestore et des archives historiques. */
@@ -4559,7 +4561,7 @@ function proofPageReturnContextFor(item) {
   return { kind: "view", view: activeView, focusId: item.record.id };
 }
 
-function renderProofPage(item, returnContext = null) {
+function renderProofPage(item, returnContext = null, preserveScroll = false) {
   const samePageVisible = !$('proofDetailView').hidden && activeProofPageItem?.record.id === item.record.id;
   if (!samePageVisible) proofPageReturnContext = returnContext || proofPageReturnContextFor(item);
   activeProofPageItem = item;
@@ -4585,6 +4587,9 @@ function renderProofPage(item, returnContext = null) {
   $("proofPageActionsMenu").innerHTML = secondaryControls.map(control => `<button class="btn${control.danger ? " danger" : ""}" type="button" role="menuitem" data-genealogy-item-action="${control.key}">${icon(control.icon)}<span>${esc(control.label)}</span></button>`).join("");
   $("proofPageActions").hidden = !secondaryControls.length;
   $("proofPageActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
+  /* Ouverture d'une nouvelle Preuve : haut de page affiché systématiquement ;
+     les retours préservent leur contexte de défilement. */
+  if (!samePageVisible && !preserveScroll) scrollFicheToTop("proofDetailView");
   if (!samePageVisible) requestAnimationFrame(() => $("proofPageBackBtn").focus({ preventScroll: true }));
 }
 
@@ -4601,11 +4606,11 @@ function returnFromProofPage() {
   activeProofPageItem = null;
   if (target.kind === "source") {
     const source = genealogyWorkspaceItems().find(value => value.kind === "source" && value.record.id === target.id);
-    if (source) renderSourcePage(source, target.sourceReturnContext || null);
+    if (source) renderSourcePage(source, target.sourceReturnContext || null, true);
     else setView(target.view || "genealogy");
   } else if (target.kind === "proof" && target.id) {
     const proof = genealogyWorkspaceItems().find(value => value.kind === "proof" && value.record.id === target.id);
-    if (proof) renderProofPage(proof, target.returnContext || null);
+    if (proof) renderProofPage(proof, target.returnContext || null, true);
     else setView(target.view || "genealogy");
   } else if (target.kind === "document") {
     setView(target.view === "documentDetail" ? "documentDetail" : target.view || "documents");
@@ -5280,7 +5285,7 @@ function restoreTranscriptionWorkshopOrigin(target) {
   if (target?.kind === "sourcePage") {
     sourcePageReturnContext = target.sourcePageReturn ? { ...target.sourcePageReturn } : null;
     const item = genealogyWorkspaceItems().find(value => value.kind === "source" && value.record.id === target.id);
-    if (item) renderSourcePage(item);
+    if (item) renderSourcePage(item, null, true);
   } else if (target?.kind === "fiche") {
     openGenealogyItem(target.itemKind, target.id, target.pageId, target.photoId);
     if (target.ficheReturn) {
@@ -6109,7 +6114,28 @@ function sourceHistoryMarkup(sourceRecord) {
   return `<section aria-labelledby="sourcePageHistoryTitle"><h3 id="sourcePageHistoryTitle">Historique des révisions (${revisions.length})</h3><ol class="source-detail-history">${rows}</ol></section>`;
 }
 
-function renderSourcePage(item, returnContext = null) {
+/** Remonte la fiche affichée en haut à son ouverture : le changement de vue
+    peut conserver le défilement de la page précédente. Le conteneur réellement
+    défilant est identifié (ancêtre scrollable, sinon la page) puis remis à
+    zéro ; une seconde passe au rendu suivant couvre le cadrage asynchrone. */
+function scrollFicheToTop(viewId) {
+  const reset = () => {
+    const view = $(viewId);
+    let node = view?.parentElement || null;
+    while (node && node !== document.documentElement) {
+      const overflowY = getComputedStyle(node).overflowY;
+      if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight) break;
+      node = node.parentElement;
+    }
+    if (node && node !== document.documentElement) node.scrollTop = 0;
+    const scroller = document.scrollingElement || document.documentElement;
+    if (scroller.scrollTop > 0) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  };
+  reset();
+  requestAnimationFrame(reset);
+}
+
+function renderSourcePage(item, returnContext = null, preserveScroll = false) {
   const samePageVisible = !$('sourceDetailView').hidden && activeSourcePageItem?.record.id === item.record.id;
   const sameSource = activeSourcePageItem?.record.id === item.record.id;
   if (!samePageVisible) sourcePageReturnContext = returnContext || {
@@ -6141,6 +6167,9 @@ function renderSourcePage(item, returnContext = null) {
   $("sourcePageActionsMenu").innerHTML = secondaryControls.map(control => `<button class="btn${control.danger ? " danger" : ""}" type="button" role="menuitem" data-genealogy-item-action="${control.key}">${icon(control.icon)}<span>${esc(control.label)}</span></button>`).join("");
   $("sourcePageActions").hidden = !secondaryControls.length;
   $("sourcePageActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
+  /* Ouverture d'une nouvelle fiche : haut de page affiché systématiquement ;
+     les retours préservent leur contexte de défilement. */
+  if (!samePageVisible && !preserveScroll) scrollFicheToTop("sourceDetailView");
   if (!samePageVisible) requestAnimationFrame(() => $("sourcePageBackBtn").focus({ preventScroll: true }));
 }
 
@@ -6165,10 +6194,10 @@ function returnFromSourcePage() {
     });
   } else if (target.kind === "source" && target.id) {
     const source = genealogyWorkspaceItems().find(item => item.kind === "source" && item.record.id === target.id);
-    if (source) renderSourcePage(source, target.returnContext || null);
+    if (source) renderSourcePage(source, target.returnContext || null, true);
   } else if (target.kind === "proof" && target.id) {
     const proof = genealogyWorkspaceItems().find(item => item.kind === "proof" && item.record.id === target.id);
-    if (proof) renderProofPage(proof, target.returnContext || null);
+    if (proof) renderProofPage(proof, target.returnContext || null, true);
     else setView(target.view || "genealogy");
   } else {
     setView(target.view || "genealogy");
@@ -7782,11 +7811,11 @@ function returnFromDocumentPage() {
 function restoreDocumentPageOrigin(target) {
   if (target.kind === "source") {
     const source = genealogyWorkspaceItems().find(item => item.kind === "source" && item.record.id === target.id);
-    if (source) renderSourcePage(source, target.sourceReturnContext || null);
+    if (source) renderSourcePage(source, target.sourceReturnContext || null, true);
     else setView(target.view || "genealogy");
   } else if (target.kind === "proof") {
     const proof = genealogyWorkspaceItems().find(item => item.kind === "proof" && item.record.id === target.id);
-    if (proof) renderProofPage(proof, target.returnContext || null);
+    if (proof) renderProofPage(proof, target.returnContext || null, true);
     else setView(target.view || "genealogy");
   } else if (target.kind === "item") {
     setView(target.view || "genealogy");

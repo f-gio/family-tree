@@ -37,6 +37,11 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     clampOffsets();
     const nativeWidthScroll = mode === "width" && zoom === minZoom;
     viewport.dataset.viewerFitMode = mode;
+    /* Lot corrections : l'image agrandie reprend la main sur les gestes
+       verticaux (sinon touch-action: pan-y laisse le pan au navigateur et la
+       séquence tactile personnelle est interrompue). À sa taille, le défilement
+       natif reste inchangé. */
+    viewport.style.touchAction = zoom > minZoom ? "none" : "";
     image.style.position = nativeWidthScroll ? "relative" : "absolute";
     image.style.width = `${fitWidth}px`;
     image.style.height = `${fitHeight}px`;
@@ -229,10 +234,20 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   }
 
   function onWheel(event) {
-    if (!event.ctrlKey) return;
+    if (event.ctrlKey) {
+      event.preventDefault();
+      const rect = viewport.getBoundingClientRect();
+      setZoom(zoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15), { x: event.clientX - rect.left, y: event.clientY - rect.top });
+      return;
+    }
+    /* Lot corrections : quand l'image est agrandie, la molette/trackpad doit
+       déplacer l'image (les quatre bords restent atteignables) ; à sa taille,
+       le défilement natif du conteneur reste inchangé. */
+    if (!canCustomPan()) return;
     event.preventDefault();
-    const rect = viewport.getBoundingClientRect();
-    setZoom(zoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15), { x: event.clientX - rect.left, y: event.clientY - rect.top });
+    offsetX -= event.deltaX;
+    offsetY -= event.deltaY;
+    render();
   }
 
   function onPointerDown(event) {
@@ -342,6 +357,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
       if (zoomIndicatorTimer !== null) globalThis.clearTimeout(zoomIndicatorTimer);
       zoomIndicatorTimer = null;
       zoomIndicator?.classList.remove("is-visible");
+      viewport.style.touchAction = "";
       if (nativeFullscreenActive()) {
         const exit = fullscreenDocument.exitFullscreen || fullscreenDocument.webkitExitFullscreen;
         if (typeof exit === "function") Promise.resolve(exit.call(fullscreenDocument)).catch(() => {});

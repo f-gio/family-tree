@@ -341,7 +341,7 @@ test("la fiche détaillée d'une source présente des faits structurés sans JSO
   assert.doesNotMatch(facts, /JSON/);
   assert.doesNotMatch(observations, /JSON/);
   assert.match(facts, /Les informations archivistiques de cette source ne sont pas encore renseignées/);
-  assert.match(app, /function renderSourcePage\(item, returnContext = null\)/, "les faits structurés sont intégrés à la page dédiée");
+  assert.match(app, /function renderSourcePage\(item, returnContext = null, preserveScroll = false\)/, "les faits structurés sont intégrés à la page dédiée");
   assert.match(app, /sourceDetailFactsMarkup\(data\).*linkedSourceDocumentsMarkup\(data\)/);
 });
 
@@ -361,7 +361,7 @@ test("Source et Preuve ont des pages dédiées, les autres fiches conservent leu
   assert.match(html, /id="genealogyItemDialog"[^>]*class="modal-lg/);
   assert.match(app, /if \(kind === "source"\) return renderSourcePage\(item, itemReturnContext\)/, "Source routée vers la page");
   assert.match(app, /if \(kind === "proof"\) return renderProofPage\(item, itemReturnContext\)/, "Preuve routée vers la page");
-  assert.match(app, /function renderProofPage\(item, returnContext = null\)/);
+  assert.match(app, /function renderProofPage\(item, returnContext = null, preserveScroll = false\)/);
   assert.match(app, /proofDetailsMarkup\(data, record\)/, "détails métier de Preuve réutilisés");
   assert.match(app, /proofPageReturnContextFor\(item\)/, "contexte de retour partagé");
   assert.match(app, /sourceTranscriptionsMarkup\(record, data\)/, "transcriptions associées présentées");
@@ -381,7 +381,7 @@ test("le panneau Informations du Document regroupe les états de chargement des 
 });
 
 test("la page Preuve conserve les détails métier, les Sources et l'historique sans relations inventées", () => {
-  const proofPage = app.match(/function renderProofPage\(item, returnContext = null\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const proofPage = app.match(/function renderProofPage\(item, returnContext = null, preserveScroll = false\) \{[\s\S]*?\n\}/)?.[0] || "";
   const sourceMarkup = app.match(/function proofSourceMarkup\(proofItem\) \{[\s\S]*?\n\}/)?.[0] || "";
   const sourceFinder = app.match(/function sourceRecordsForProof\(proofData\) \{[\s\S]*?\n\}/)?.[0] || "";
   const historyMarkup = app.match(/function proofHistoryMarkup\(proofRecord\) \{[\s\S]*?\n\}/)?.[0] || "";
@@ -397,7 +397,7 @@ test("la page Preuve conserve les détails métier, les Sources et l'historique 
 });
 
 test("la présentation Source reste structurée, sans JSON brut et avec un état média explicite", () => {
-  const sourcePage = app.match(/function renderSourcePage\(item, returnContext = null\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const sourcePage = app.match(/function renderSourcePage\(item, returnContext = null, preserveScroll = false\) \{[\s\S]*?\n\}/)?.[0] || "";
   const images = app.match(/function sourcePageImagesMarkup\(item\) \{[\s\S]*?\n\}/)?.[0] || "";
   const transcriptions = app.match(/function sourceTranscriptionsMarkup\(sourceRecord, sourceData\) \{[\s\S]*?\n\}/)?.[0] || "";
   const proofs = app.match(/function sourceProofsMarkup\(sourceRecord, sourceData\) \{[\s\S]*?\n\}/)?.[0] || "";
@@ -541,7 +541,7 @@ test("la fiche de consultation d'une preuve affiche des informations métier san
   const proofPanel = app.match(/function proofDetailsMarkup[\s\S]{0,6000}?\n\}/)?.[0] || "";
   const proofDocument = app.match(/function proofDocumentSectionMarkup\(data\) \{[\s\S]*?\n\}/)?.[0] || "";
   const proofTechnical = app.match(/function proofTechnicalSectionMarkup\(data, record\) \{[\s\S]*?\n\}/)?.[0] || "";
-  const proofPage = app.match(/function renderProofPage\(item, returnContext = null\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const proofPage = app.match(/function renderProofPage\(item, returnContext = null, preserveScroll = false\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(proofPanel.length > 500, "panneau de consultation présent");
   assert.doesNotMatch(proofPanel, /JSON\.stringify/, "aucun JSON brut dans la vue principale");
   assert.match(app, /if \(data\.factType\) return proofFactLabel\(data\.factType\)/, "titre traduit");

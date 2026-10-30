@@ -350,17 +350,17 @@
 </main>
   <main class="workspace-view page-content-lane source-detail-view" id="sourceDetailView" hidden aria-labelledby="sourcePageTitle">
     <div class="source-detail-page">
-      <div class="dedicated-page-return">
-        <button class="btn dedicated-page-back source-detail-back" id="sourcePageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
-      </div>
       <header class="dedicated-page-header source-detail-header">
         <div class="dedicated-page-heading source-detail-heading"><p class="page-kicker">Source</p><h2 class="page-title" id="sourcePageTitle"></h2><div class="source-detail-header-badges" id="sourcePageBadges"></div></div>
-        <div class="dedicated-page-actions source-detail-header-actions">
-          <button class="btn primary proof-detail-revise" id="sourcePageReviseBtn" type="button" hidden>Réviser</button>
-          <details class="dedicated-page-actions source-detail-actions" id="sourcePageActions">
-            <summary class="btn icon-btn" aria-label="Plus d’actions" title="Plus d’actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
-            <div class="source-detail-actions-menu" id="sourcePageActionsMenu" role="menu" aria-label="Actions secondaires de la source"></div>
-          </details>
+        <div class="dedicated-page-actions dedicated-page-side source-detail-header-actions">
+          <div class="dedicated-page-actions-row">
+            <button class="btn primary proof-detail-revise" id="sourcePageReviseBtn" type="button" hidden>Réviser</button>
+            <details class="dedicated-page-actions source-detail-actions" id="sourcePageActions">
+              <summary class="btn icon-btn" aria-label="Plus d’actions" title="Plus d’actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
+              <div class="source-detail-actions-menu" id="sourcePageActionsMenu" role="menu" aria-label="Actions secondaires de la source"></div>
+            </details>
+          </div>
+          <button class="btn dedicated-page-back source-detail-back" id="sourcePageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
         </div>
       </header>
       <div class="source-detail-content" id="sourcePageContent"></div>
@@ -368,17 +368,17 @@
   </main>
   <main class="workspace-view page-content-lane source-detail-view proof-detail-view" id="proofDetailView" hidden aria-labelledby="proofPageTitle">
     <div class="source-detail-page proof-detail-page">
-      <div class="dedicated-page-return">
-        <button class="btn dedicated-page-back source-detail-back proof-detail-back" id="proofPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
-      </div>
       <header class="dedicated-page-header source-detail-header proof-detail-header">
         <div class="dedicated-page-heading source-detail-heading proof-detail-heading"><p class="page-kicker">Preuve</p><h2 class="page-title" id="proofPageTitle"></h2><div class="source-detail-header-badges" id="proofPageBadges"></div></div>
-        <div class="dedicated-page-actions proof-detail-header-actions">
-          <button class="btn primary proof-detail-revise" id="proofPageReviseBtn" type="button" hidden>Réviser</button>
-          <details class="dedicated-page-actions source-detail-actions proof-detail-actions" id="proofPageActions">
-            <summary class="btn icon-btn" aria-label="Plus d’actions" title="Plus d’actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
-            <div class="source-detail-actions-menu proof-detail-actions-menu" id="proofPageActionsMenu" role="menu" aria-label="Actions secondaires de la preuve"></div>
-          </details>
+        <div class="dedicated-page-actions dedicated-page-side proof-detail-header-actions">
+          <div class="dedicated-page-actions-row">
+            <button class="btn primary proof-detail-revise" id="proofPageReviseBtn" type="button" hidden>Réviser</button>
+            <details class="dedicated-page-actions source-detail-actions proof-detail-actions" id="proofPageActions">
+              <summary class="btn icon-btn" aria-label="Plus d’actions" title="Plus d’actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
+              <div class="source-detail-actions-menu proof-detail-actions-menu" id="proofPageActionsMenu" role="menu" aria-label="Actions secondaires de la preuve"></div>
+            </details>
+          </div>
+          <button class="btn dedicated-page-back source-detail-back proof-detail-back" id="proofPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
         </div>
       </header>
       <div class="source-detail-content proof-detail-content" id="proofPageContent"></div>
@@ -386,9 +386,6 @@
   </main>
   <main class="workspace-view page-content-lane document-detail-view" id="documentDetailView" hidden aria-labelledby="viewerTitle">
     <div class="document-detail-shell">
-      <div class="dedicated-page-return document-detail-return">
-        <button class="btn dedicated-page-back document-detail-back" id="documentPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
-      </div>
       <header class="dedicated-page-header document-detail-header">
         <div class="dedicated-page-heading document-detail-heading"><div class="document-detail-kicker"><p class="page-kicker">Document</p><span class="badge document-detail-category" id="viewerCategoryBadge" hidden></span></div><h2 class="page-title" id="viewerTitle">Consulter le document</h2></div>
         <details class="dedicated-page-actions document-detail-actions" id="documentPageActions">
@@ -397,6 +394,7 @@
             <button class="btn" id="viewerEditBtn" type="button" role="menuitem">Modifier les informations</button>
           </div>
         </details>
+        <button class="btn dedicated-page-back document-detail-back" id="documentPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
       </header>
       <div class="document-detail-layout document-unified-layout" id="documentUnifiedLayout">
         <section class="document-original-panel" aria-label="Document original">

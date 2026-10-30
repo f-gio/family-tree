@@ -79,6 +79,7 @@ window.__sourcePageTest = {
       reviseY: $("sourcePageReviseBtn").getBoundingClientRect().y,
       menuY: document.querySelector('#sourcePageActions > summary').getBoundingClientRect().y,
       backHeight: $('sourcePageBackBtn').getBoundingClientRect().height,
+      backVisibleLabel: document.querySelector('#sourcePageBackBtn .dedicated-page-back-label')?.textContent || "",
       documentActionHeight: document.querySelector('[data-source-document-open]')?.getBoundingClientRect().height || 0,
       proofActionHeight: document.querySelector('#sourcePageContent [data-open-genealogy="proof"]')?.getBoundingClientRect().height || 0,
       transcriptionActionHeight: document.querySelector('#sourcePageContent [data-open-genealogy="transcription"]')?.getBoundingClientRect().height || 0,
@@ -117,8 +118,24 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
     assert.match(await page.locator("#sourcePageTitle").textContent(), /Registre paroissial/);
     assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux archives");
-    assert.equal(await page.locator("#sourcePageBackBtn .dedicated-page-back-label").textContent(), "Retour aux archives", "destination réelle affichée en clair");
-    assert.equal(await page.evaluate(() => !!document.querySelector("#sourceDetailView .dedicated-page-header #sourcePageBackBtn")), false, "le Retour n’est pas dans la grille de l’en-tête");
+    assert.equal(await page.locator("#sourcePageBackBtn .dedicated-page-back-label").textContent(), "Retour aux archives", "destination réelle affichée en clair (desktop)");
+    /* Lot corrections : le Retour vit dans l'en-tête, sous le groupe d'actions, aligné à droite. */
+    const backGeometry = await page.evaluate(() => {
+      const back = document.getElementById("sourcePageBackBtn").getBoundingClientRect();
+      const header = document.querySelector("#sourceDetailView .dedicated-page-header");
+      const headerRect = header.getBoundingClientRect();
+      const actions = header.querySelector(".dedicated-page-actions-row").getBoundingClientRect();
+      return {
+        inside: !!header.querySelector("#sourcePageBackBtn"),
+        belowActions: back.y >= actions.bottom - 1,
+        rightAligned: back.right <= headerRect.right + 1,
+        returnRowAbsent: !document.querySelector("#sourceDetailView .dedicated-page-return")
+      };
+    });
+    assert.equal(backGeometry.inside, true, "le Retour est dans l'en-tête");
+    assert.ok(backGeometry.belowActions, "le Retour est directement sous le groupe d'actions");
+    assert.ok(backGeometry.rightAligned, "le Retour est aligné à droite de l'en-tête");
+    assert.equal(backGeometry.returnRowAbsent, true, "aucune ligne Retour résiduelle au-dessus de l'en-tête");
     const revisionHistory = await page.locator("#sourcePageContent .source-detail-history").innerText();
     assert.doesNotMatch(revisionHistory, /Invalid Date|fixture-author|source-revision-/);
     assert.match(revisionHistory, /Auteur de démonstration/);
@@ -142,6 +159,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     let state = await page.evaluate(() => window.__sourcePageTest.state());
     assert.equal(state.sourceVisible, true);
     assert.match(state.sourceTitle, /Registre paroissial/);
+    assert.ok(state.scrollY <= 40, `fiche Source ouverte depuis son haut malgré Archives défilée (scrollY=${state.scrollY}, départ ${initialScroll})`);
     assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux archives");
     assert.equal(await page.locator("#sourcePageTitle").getAttribute("aria-label"), state.sourceTitle, "titre complet accessible");
     assert.ok(await page.locator("#sourceDetailView header.dedicated-page-header").count(), "en-tête partagé de page dédiée");
@@ -238,6 +256,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
       assert.equal(state.horizontalOverflow, false, `aucun défilement horizontal à ${width}px`);
        assert.ok(state.actionHeight >= 44, `cible tactile menu à ${width}px (${state.actionHeight}px)`);
        assert.ok(state.backHeight >= 44, `cible tactile Retour à ${width}px (${state.backHeight}px)`);
+       assert.equal(state.backVisibleLabel, "Retour", `libellé mobile « Retour » seul à ${width}px`);
        assert.ok(state.reviseHeight >= 44, `action Réviser visible à ${width}px (${state.reviseHeight}px)`);
        assert.ok(Math.abs(state.reviseY - state.menuY) <= 1, `Réviser et menu sur la même rangée à ${width}px`);
       assert.ok(state.documentActionHeight >= 44, `cible tactile document à ${width}px (${state.documentActionHeight}px)`);
