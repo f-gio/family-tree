@@ -38,6 +38,20 @@ window.__documentPageTest = {
     setView("directory");
     openStoredDocument(documents[0], "directory");
   },
+  async openHeaderDocument(type = "Registre") {
+    documents[0].type = type;
+    await openStoredDocument(documents[0], "directory");
+  },
+  openHeaderSource() {
+    closeDocumentPage();
+    const item = genealogyWorkspaceItems().find(value => value.kind === "source" && value.record.id === "doc-source-fixture");
+    if (item) renderSourcePage(item, { kind: "view", view: "documents" });
+  },
+  openHeaderProof() {
+    closeDocumentPage();
+    const item = genealogyWorkspaceItems().find(value => value.kind === "proof" && value.record.id === "doc-proof-fixture");
+    if (item) renderProofPage(item, { kind: "view", view: "documents" });
+  },
   async openFromPerson() {
     /* Chemin réel : fiche Personne → document mini-carte → visionneuse. */
     setView("directory");
@@ -81,7 +95,7 @@ window.__documentPageTest = {
       backInsideHeader: !!document.querySelector(".dedicated-page-header #documentPageBackBtn"),
       backUnderActions: (() => {
         const back = $("documentPageBackBtn").getBoundingClientRect();
-        const actions = document.querySelector("#documentDetailView .document-detail-actions");
+        const actions = document.querySelector("#documentDetailView .dedicated-page-actions-row");
         return !actions || back.y >= actions.getBoundingClientRect().bottom - 1;
       })(),
       backRightAligned: (() => {
@@ -92,6 +106,9 @@ window.__documentPageTest = {
       returnRowAbsent: !document.querySelector("#documentDetailView .dedicated-page-return"),
       categoryBadgeText: $("viewerCategoryBadge").textContent,
       categoryBadgeHidden: $("viewerCategoryBadge").hidden,
+      categoryBadgeRowHidden: $("viewerCategoryBadgeRow").hidden,
+      categoryBadgeRowRect: (() => { const rect = $("viewerCategoryBadgeRow").getBoundingClientRect(); return { y: rect.y, height: rect.height }; })(),
+      titleRect: (() => { const rect = $("viewerTitle").getBoundingClientRect(); return { y: rect.y, bottom: rect.bottom }; })(),
       subtitleAbsent: !document.getElementById("viewerSubtitle"),
       imageVisible: !$("viewerImage").hidden,
       pageWidth: $("documentDetailView").getBoundingClientRect().width,
@@ -163,8 +180,10 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.ok(state.backUnderActions, "le Retour est directement sous le groupe d’actions");
     assert.ok(state.backRightAligned, "le Retour est aligné à droite de l’en-tête");
     assert.equal(state.returnRowAbsent, true, "aucune ligne Retour résiduelle au-dessus de l’en-tête");
-    assert.equal(state.categoryBadgeText, "Registre", "badge de catégorie à côté de DOCUMENT");
+    assert.equal(state.categoryBadgeText, "Registre", "badge de catégorie renseigné");
     assert.equal(state.categoryBadgeHidden, false, "badge visible quand la catégorie existe");
+    assert.equal(state.categoryBadgeRowHidden, false, "rangée de catégorie visible sous le titre");
+    assert.ok(state.categoryBadgeRowRect.y >= state.titleRect.bottom, "badge placé sous le titre principal");
     assert.equal(state.subtitleAbsent, true, "aucun sous-titre sous le titre Document (lot G)");
     assert.ok(state.headerClass.includes("dedicated-page-header"), "en-tête Document partagé");
     assert.equal(state.imageVisible, true, "aperçu du document chargé");
@@ -303,6 +322,54 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "head « Original » masqué pour une image, desktop inchangé");
     assert.equal(state.infoVisible, true, "panneau Informations desktop reste visible");
     assert.equal(state.detailsOverflowY, "visible", "les Informations suivent le défilement naturel de la page");
+
+    /* Comparaison géométrique des trois en-têtes aux largeurs mobile et desktop. */
+    const headerMeasure = viewId => page.evaluate(id => {
+      const view = document.getElementById(id);
+      const header = view.querySelector(".dedicated-page-header");
+      const actions = header.querySelector(".dedicated-page-actions-row").getBoundingClientRect();
+      const back = header.querySelector(".dedicated-page-back").getBoundingClientRect();
+      const rect = header.getBoundingClientRect();
+      return { actionBackGap: back.y - actions.bottom, rightInset: rect.right - back.right, height: rect.height };
+    }, viewId);
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate(() => window.__documentPageTest.openHeaderSource());
+      await page.evaluate(() => window.__documentPageTest.settle());
+      const sourceGeometry = await headerMeasure("sourceDetailView");
+      await page.evaluate(() => window.__documentPageTest.openHeaderProof());
+      await page.evaluate(() => window.__documentPageTest.settle());
+      const proofGeometry = await headerMeasure("proofDetailView");
+      await page.evaluate(() => window.__documentPageTest.openHeaderDocument("Autre"));
+      await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+      await page.evaluate(() => window.__documentPageTest.settle());
+      const documentGeometry = await headerMeasure("documentDetailView");
+      for (const [name, geometry] of [["Source", sourceGeometry], ["Preuve", proofGeometry]]) {
+        assert.ok(Math.abs(documentGeometry.actionBackGap - geometry.actionBackGap) <= 1, `${width}px : espacement Retour/actions identique à ${name}`);
+        assert.ok(Math.abs(documentGeometry.rightInset - geometry.rightInset) <= 1, `${width}px : alignement droit identique à ${name}`);
+      }
+      const categoryState = await page.evaluate(() => ({
+        kicker: document.querySelector("#documentDetailView .document-detail-kicker").textContent.trim(),
+        title: document.getElementById("viewerTitle").getBoundingClientRect(),
+        badge: document.getElementById("viewerCategoryBadge").getBoundingClientRect(),
+        header: document.querySelector("#documentDetailView .document-detail-header").getBoundingClientRect()
+      }));
+      assert.equal(categoryState.kicker, "Document", `${width}px : « DOCUMENT » seul au-dessus du titre`);
+      assert.ok(categoryState.badge.y >= categoryState.title.bottom, `${width}px : « Autre » sous le titre`);
+      assert.ok(categoryState.badge.bottom <= categoryState.header.bottom, `${width}px : badge contenu dans l'en-tête`);
+      assert.ok(documentGeometry.height <= (width <= 390 ? 175 : 180), `${width}px : en-tête Document reste compact (${documentGeometry.height}px)`);
+      const returnLabels = await page.evaluate(() => ({ visible: document.querySelector("#documentPageBackBtn .dedicated-page-back-label").textContent, aria: document.getElementById("documentPageBackBtn").getAttribute("aria-label") }));
+      assert.equal(returnLabels.visible, width <= 760 ? "Retour" : returnLabels.aria, `${width}px : texte visible contextualisé uniquement sur desktop`);
+      assert.notEqual(returnLabels.aria, "Retour", `${width}px : nom accessible contextualisé conservé`);
+
+      await page.evaluate(() => window.__documentPageTest.openHeaderDocument(""));
+      await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+      await page.evaluate(() => window.__documentPageTest.settle());
+      state = await page.evaluate(() => window.__documentPageTest.state());
+      assert.equal(state.categoryBadgeHidden, true, `${width}px : badge absent sans catégorie`);
+      assert.equal(state.categoryBadgeRowHidden, true, `${width}px : rangée masquée sans catégorie`);
+      assert.equal(state.categoryBadgeRowRect.height, 0, `${width}px : aucun espace réservé sans catégorie`);
+    }
     assert.deepEqual(errors, [], `erreurs JavaScript : ${errors.join(" | ")}`);
   } finally {
     await context.close();

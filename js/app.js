@@ -7874,13 +7874,14 @@ async function openStoredDocument(item, returnContext = "previous") {
   $("viewerTitle").textContent = documentDisplayLabel(item);
   $("viewerTitle").setAttribute("aria-label", documentDisplayLabel(item));
   $("viewerTitle").title = documentDisplayLabel(item);
-  /* Badge catégorie à côté du libellé DOCUMENT : la valeur métier du document
+  /* Badge catégorie sous le titre : la valeur métier du document
      (dont « Autre ») quand elle existe, aucun libellé fabriqué sinon.
      Lot G : aucun sous-titre sous le titre — les métadonnées vivent dans le
      panneau Informations, la visionneuse remonte sous l'en-tête. */
   const categoryBadge = $("viewerCategoryBadge");
   categoryBadge.textContent = item.type || "";
   categoryBadge.hidden = !item.type;
+  $("viewerCategoryBadgeRow").hidden = !item.type;
   $("viewerImage").hidden = true;
   $("viewerImageControls").hidden = true;
   document.querySelectorAll("#documentDetailView .viewer-image-only").forEach(control => { control.hidden = true; });

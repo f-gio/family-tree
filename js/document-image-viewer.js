@@ -17,6 +17,11 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   let fallbackResize = null;
   let zoomIndicatorTimer = null;
   let fullscreenStyleSnapshots = null;
+  let zoomedScrollLayout = false;
+  let fitOverflowHidden = false;
+  let scrollLayoutFrame = null;
+  const viewportScrollStyle = ["display", "height", "min-height", "overflow-x", "overflow-y", "padding-top"]
+    .map(property => [property, viewport.style.getPropertyValue(property), viewport.style.getPropertyPriority(property)]);
   let mode = initialMode === "width" ? "width" : "fit";
 
   const fullscreenDocument = fullscreenHost?.ownerDocument || null;
@@ -33,29 +38,128 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     offsetY = Math.max(-maxY, Math.min(maxY, offsetY));
   }
 
+  function restoreViewportScrollStyle() {
+    if (!zoomedScrollLayout && !fitOverflowHidden) return;
+    for (const [property, value, priority] of viewportScrollStyle) {
+      if (fitOverflowHidden && property !== "overflow-x" && property !== "overflow-y" && !zoomedScrollLayout) continue;
+      if (value) viewport.style.setProperty(property, value, priority);
+      else viewport.style.removeProperty(property);
+    }
+    zoomedScrollLayout = false;
+    fitOverflowHidden = false;
+  }
+
+  function syncVerticalOffsetFromScroll() {
+    if (zoom <= minZoom || !zoomedScrollLayout) return;
+    const maxY = Math.max(0, viewport.scrollHeight - viewport.clientHeight) / 2;
+    offsetY = Math.max(-maxY, Math.min(maxY, maxY - viewport.scrollTop));
+  }
+
+  function reconcileVerticalScrollbar() {
+    if (zoom <= minZoom || !zoomedScrollLayout) return;
+    const range = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    const maxY = range / 2;
+    offsetY = Math.max(-maxY, Math.min(maxY, offsetY));
+    const target = Math.max(0, Math.min(range, maxY - offsetY));
+    if (Math.abs(viewport.scrollTop - target) > 0.5) viewport.scrollTop = target;
+  }
+
+  function scheduleVerticalScrollbarReconciliation() {
+    const requestFrame = globalThis.requestAnimationFrame;
+    if (typeof requestFrame !== "function") return;
+    if (scrollLayoutFrame !== null) globalThis.cancelAnimationFrame?.(scrollLayoutFrame);
+    let frames = 0;
+    const reconcile = () => {
+      scrollLayoutFrame = null;
+      reconcileVerticalScrollbar();
+      /* WebKit may update the scrollable overflow after its image layout and
+         ResizeObserver delivery; reconcile a short bounded number of frames. */
+      if (++frames < 5) scrollLayoutFrame = requestFrame(reconcile);
+    };
+    scrollLayoutFrame = requestFrame(reconcile);
+  }
+
   function render() {
-    clampOffsets();
     const nativeWidthScroll = mode === "width" && zoom === minZoom;
+    const customZoomLayout = zoom > minZoom;
+    if (!customZoomLayout || !zoomedScrollLayout) clampOffsets();
     viewport.dataset.viewerFitMode = mode;
     /* Lot corrections : l'image agrandie reprend la main sur les gestes
        verticaux (sinon touch-action: pan-y laisse le pan au navigateur et la
        séquence tactile personnelle est interrompue). À sa taille, le défilement
        natif reste inchangé. */
     viewport.style.touchAction = zoom > minZoom ? "none" : "";
-    image.style.position = nativeWidthScroll ? "relative" : "absolute";
-    image.style.width = `${fitWidth}px`;
-    image.style.height = `${fitHeight}px`;
-    image.style.maxWidth = "none";
-    image.style.maxHeight = "none";
-    if (!nativeWidthScroll) {
+    if (customZoomLayout) {
+      if (fitOverflowHidden) restoreViewportScrollStyle();
+      /* En zoom, l'image redevient un contenu vertical défilable. La position
+         du scrollbar natif représente ainsi directement la fenêtre visible ;
+         offsetY reste la coordonnée de pan canonique pour la molette, le
+         pointeur et le tactile. L'axe horizontal reste géré par offsetX. */
+      zoomedScrollLayout = true;
+      const imageHeight = fitHeight * zoom;
+      viewport.style.display = "block";
+      viewport.style.overflowX = "hidden";
+      viewport.style.overflowY = "auto";
+      viewport.style.paddingTop = "0px";
+      if (mode === "width" && globalThis.matchMedia?.("(max-width: 760px)").matches) {
+        viewport.style.height = "min(68dvh, calc(100dvh - 13rem))";
+        viewport.style.minHeight = "12rem";
+      }
+      image.style.position = "relative";
+      image.style.display = "block";
       image.style.width = `${fitWidth * zoom}px`;
-      image.style.height = `${fitHeight * zoom}px`;
+      image.style.height = `${imageHeight}px`;
+      image.style.left = `${offsetX}px`;
+      image.style.top = "0px";
+      image.style.margin = "0 auto";
+      image.style.transform = "none";
+      image.style.maxWidth = "none";
+      image.style.maxHeight = "none";
+      const renderedImage = image.getBoundingClientRect();
+      const verticalInset = Math.max(0, (viewport.clientHeight - renderedImage.height) / 2);
+      viewport.style.paddingTop = `${verticalInset}px`;
+      const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      const maxY = maxScroll / 2;
+      const maxX = Math.max(0, (renderedImage.width - viewport.clientWidth) / 2);
+      offsetX = Math.max(-maxX, Math.min(maxX, offsetX));
+      offsetY = Math.max(-maxY, Math.min(maxY, offsetY));
+      image.style.left = `${offsetX - maxX}px`;
+      const nextScrollTop = Math.max(0, Math.min(maxScroll, maxY - offsetY));
+      if (Math.abs(viewport.scrollTop - nextScrollTop) > 0.5) viewport.scrollTop = nextScrollTop;
+      scheduleVerticalScrollbarReconciliation();
+    } else {
+      if (zoomedScrollLayout) viewport.scrollTop = 0;
+      restoreViewportScrollStyle();
+      if (!nativeWidthScroll) {
+        /* En mode Ajuster, l'image entière tient dans le lecteur. Des limites
+           d'overflow résiduelles des offsets absolus ne doivent pas laisser
+           apparaître une barre de défilement fantôme. */
+        viewport.style.overflowX = "hidden";
+        viewport.style.overflowY = "hidden";
+        fitOverflowHidden = true;
+      }
+      image.style.position = nativeWidthScroll ? "relative" : "absolute";
+      image.style.width = `${fitWidth}px`;
+      image.style.height = `${fitHeight}px`;
+      image.style.maxWidth = "none";
+      image.style.maxHeight = "none";
+      if (!nativeWidthScroll) {
+        image.style.width = `${fitWidth * zoom}px`;
+        image.style.height = `${fitHeight * zoom}px`;
+      }
+      image.style.left = nativeWidthScroll ? "auto" : `calc(50% + ${offsetX}px)`;
+      image.style.top = nativeWidthScroll ? "auto" : `calc(50% + ${offsetY}px)`;
+      image.style.margin = nativeWidthScroll ? "0 auto" : "0";
+      image.style.transform = nativeWidthScroll ? "none" : "translate(-50%, -50%)";
     }
-    image.style.left = nativeWidthScroll ? "auto" : `calc(50% + ${offsetX}px)`;
-    image.style.top = nativeWidthScroll ? "auto" : `calc(50% + ${offsetY}px)`;
-    image.style.margin = nativeWidthScroll ? "0 auto" : "0";
-    image.style.transform = nativeWidthScroll ? "none" : "translate(-50%, -50%)";
     if (zoomLabel) zoomLabel.textContent = zoom <= minZoom ? (mode === "width" ? "Largeur" : "Ajusté") : `${Math.round(zoom * 100)} %`;
+  }
+
+  function onViewportScroll() {
+    if (zoom <= minZoom || !zoomedScrollLayout) return;
+    const previousOffsetY = offsetY;
+    syncVerticalOffsetFromScroll();
+    if (Math.abs(previousOffsetY - offsetY) > 0.25) render();
   }
 
   function showZoomIndicator() {
@@ -75,14 +179,15 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
 
   function setFullscreenLayout(active) {
     const nodes = [fullscreenElement, fullscreenElement?.querySelector(".modal-body"), fullscreenElement?.querySelector(".document-unified-layout"), fullscreenElement?.querySelector(".document-original-panel"), viewport];
-    const properties = ["position", "inset", "width", "height", "max-width", "max-height", "margin", "padding", "overflow", "display", "flex", "flex-direction", "min-height", "grid-template-columns", "grid-template-rows", "gap"];
+    const properties = ["position", "inset", "width", "height", "max-width", "max-height", "margin", "padding", "padding-top", "padding-right", "padding-bottom", "padding-left", "overflow", "display", "flex", "flex-direction", "min-height", "grid-template-columns", "grid-template-rows", "gap"];
     if (active) {
       if (!fullscreenStyleSnapshots) fullscreenStyleSnapshots = nodes.map(node => node ? [node, properties.map(property => [property, node.style.getPropertyValue(property), node.style.getPropertyPriority(property)])] : null);
       const set = (node, values) => {
         if (!node) return;
         for (const [property, value] of Object.entries(values)) node.style.setProperty(property, value, "important");
       };
-      set(nodes[0], { position: "fixed", inset: "0", width: "100vw", height: "100dvh", "max-width": "none", "max-height": "none", margin: "0", padding: "0", overflow: "hidden" });
+      const safeAreaPadding = readFullscreenSafeAreaPadding();
+      set(nodes[0], { position: "fixed", inset: "0", width: "100vw", height: "100dvh", "max-width": "none", "max-height": "none", margin: "0", padding: "0", ...safeAreaPadding, overflow: "hidden" });
       set(nodes[1], { display: "flex", flex: "1 1 auto", "flex-direction": "column", "min-height": "0", padding: "0", overflow: "hidden" });
       set(nodes[2], { display: "grid", "grid-template-columns": "minmax(0, 1fr)", "grid-template-rows": "minmax(0, 1fr)", flex: "1 1 auto", width: "100%", height: "100%", "min-height": "0", gap: "0" });
       set(nodes[3], { display: "flex", flex: "1 1 auto", height: "100%", "min-height": "0" });
@@ -101,6 +206,25 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     fullscreenStyleSnapshots = null;
   }
 
+  function readFullscreenSafeAreaPadding() {
+    const documentElement = fullscreenDocument?.documentElement;
+    if (!documentElement) return { padding: "12px" };
+    const probe = fullscreenDocument.createElement("div");
+    probe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;padding:var(--space-3)";
+    documentElement.append(probe);
+    const base = Number.parseFloat(getComputedStyle(probe).paddingTop) || 12;
+    const padding = { padding: `${base}px` };
+    for (const side of ["top", "right", "bottom", "left"]) {
+      probe.style.padding = "0px";
+      probe.style.setProperty(`padding-${side}`, `env(safe-area-inset-${side}, 0px)`);
+      const inset = Number.parseFloat(getComputedStyle(probe).getPropertyValue(`padding-${side}`)) || 0;
+      padding[`padding-${side}`] = `${Math.max(base, inset)}px`;
+      probe.style.removeProperty(`padding-${side}`);
+    }
+    probe.remove();
+    return padding;
+  }
+
   function setFullscreenState(active, fallback = false) {
     setFullscreenLayout(active);
     fullscreenElement?.classList.toggle("is-viewer-fullscreen", active);
@@ -111,6 +235,13 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
       fullscreenButton.title = active ? "Quitter le plein écran" : "Afficher en plein écran";
       fullscreenButton.querySelector("use")?.setAttribute("href", active ? "#icon-minimize" : "#icon-maximize");
     }
+    /* La surface change de dimensions à l'entrée/sortie du repli. Recalcule
+       l'ajustement avant de resynchroniser le scrollbar et conserve le pan
+       dans les nouvelles limites du viewport. */
+    if (image.complete && image.naturalWidth) fit();
+    /* En sortie de repli, la page mobile reprend sa hauteur d'origine. Le
+       recalcul réapplique le viewport zoomé borné sans réinitialiser le pan. */
+    if (!active && zoom > minZoom) render();
   }
 
   async function exitFullscreen() {
@@ -179,6 +310,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     } else if (next === minZoom) {
       offsetX = 0;
       offsetY = 0;
+      viewport.scrollTop = 0;
     }
     zoom = next;
     render();
@@ -189,6 +321,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   const center = touches => ({ x: (touches[0].clientX + touches[1].clientX) / 2, y: (touches[0].clientY + touches[1].clientY) / 2 });
 
   function onTouchStart(event) {
+    if (event.touches.length === 1) syncVerticalOffsetFromScroll();
     if (event.touches.length >= 2) {
       event.preventDefault();
       const midpoint = center(event.touches);
@@ -244,6 +377,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
        déplacer l'image (les quatre bords restent atteignables) ; à sa taille,
        le défilement natif du conteneur reste inchangé. */
     if (!canCustomPan()) return;
+    syncVerticalOffsetFromScroll();
     event.preventDefault();
     offsetX -= event.deltaX;
     offsetY -= event.deltaY;
@@ -252,6 +386,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
 
   function onPointerDown(event) {
     if (event.pointerType !== "mouse" || !canCustomPan()) return;
+    syncVerticalOffsetFromScroll();
     mousePan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, offsetX, offsetY };
     viewport.setPointerCapture(event.pointerId);
   }
@@ -319,6 +454,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   viewport.addEventListener("pointermove", onPointerMove);
   viewport.addEventListener("pointerup", onPointerEnd);
   viewport.addEventListener("pointercancel", onPointerEnd);
+  viewport.addEventListener("scroll", onViewportScroll, { passive: true });
   controls.addEventListener("click", onControlsClick);
   controls.addEventListener("keydown", onControlsKeydown);
   fullscreenButton?.addEventListener("click", onFullscreenButtonClick);
@@ -329,6 +465,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   if (typeof ResizeObserver === "function") {
     observer = new ResizeObserver(fit);
     observer.observe(viewport);
+    observer.observe(image);
   } else {
     fallbackResize = fit;
     globalThis.addEventListener?.("resize", fallbackResize);
@@ -356,6 +493,8 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     destroy() {
       if (zoomIndicatorTimer !== null) globalThis.clearTimeout(zoomIndicatorTimer);
       zoomIndicatorTimer = null;
+      if (scrollLayoutFrame !== null) globalThis.cancelAnimationFrame?.(scrollLayoutFrame);
+      scrollLayoutFrame = null;
       zoomIndicator?.classList.remove("is-visible");
       viewport.style.touchAction = "";
       if (nativeFullscreenActive()) {
@@ -363,6 +502,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
         if (typeof exit === "function") Promise.resolve(exit.call(fullscreenDocument)).catch(() => {});
       }
       setFullscreenState(false);
+      restoreViewportScrollStyle();
       observer?.disconnect();
       if (fallbackResize) globalThis.removeEventListener?.("resize", fallbackResize);
       viewport.removeEventListener("touchstart", onTouchStart);
@@ -374,6 +514,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
       viewport.removeEventListener("pointermove", onPointerMove);
       viewport.removeEventListener("pointerup", onPointerEnd);
       viewport.removeEventListener("pointercancel", onPointerEnd);
+      viewport.removeEventListener("scroll", onViewportScroll);
       controls.removeEventListener("click", onControlsClick);
       controls.removeEventListener("keydown", onControlsKeydown);
       fullscreenButton?.removeEventListener("click", onFullscreenButtonClick);

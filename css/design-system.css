@@ -2253,7 +2253,7 @@ label .field { margin-top: var(--space-2); }
 #documentDetailView.is-viewer-fullscreen .document-unified-layout { display: grid !important; grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: minmax(0, 1fr) !important; flex: 1 1 auto !important; width: 100% !important; height: 100% !important; min-height: 0 !important; gap: 0 !important; }
 #documentDetailView.is-viewer-fullscreen .document-unified-details,
 #documentDetailView.is-viewer-fullscreen .document-original-head { display: none; }
-#documentDetailView.is-viewer-fullscreen .document-original-panel { grid-column: 1 !important; flex: 1 1 auto !important; height: 100% !important; min-height: 0 !important; gap: var(--space-2); padding: max(var(--space-3), env(safe-area-inset-top)) max(var(--space-3), env(safe-area-inset-right)) max(var(--space-3), env(safe-area-inset-bottom)) max(var(--space-3), env(safe-area-inset-left)); }
+#documentDetailView.is-viewer-fullscreen .document-original-panel { grid-column: 1 !important; flex: 1 1 auto !important; height: 100% !important; min-height: 0 !important; gap: var(--space-2); padding: var(--space-3); padding-top: calc(var(--space-3) + env(safe-area-inset-top, 0px)); padding-right: calc(var(--space-3) + env(safe-area-inset-right, 0px)); padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); padding-left: calc(var(--space-3) + env(safe-area-inset-left, 0px)); }
 #documentDetailView.is-viewer-fullscreen .viewer-image-controls { position: relative; z-index: 2; flex: 0 0 auto; justify-content: center; }
 #documentDetailView.is-viewer-fullscreen .document-original-panel .viewer-body { flex: 1 1 auto !important; width: 100% !important; height: auto !important; min-height: 0 !important; }
 #documentDetailView.is-viewer-fullscreen .viewer-body iframe { height: 100%; }
@@ -5130,7 +5130,7 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .document-detail-header { margin-bottom: 0; }
 .document-detail-heading { min-width: 0; }
 .document-detail-heading .page-kicker { margin-top: 0; }
-/* Badge de catégorie à côté du libellé DOCUMENT : valeur métier existante du document. */
+/* Badge de catégorie sous le titre Document : valeur métier existante du document. */
 .document-detail-kicker { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; margin: 0 0 4px; }
 .document-detail-heading .document-detail-kicker .page-kicker { margin: 0; }
 .document-detail-category { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -79,6 +79,103 @@ await new Promise((resolveListen, reject) => {
 });
 const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
+/* Harnais partagé : markup réel de la page Document (dist-recette) + ouverture
+   du lecteur PDF. Utilisé par le test d'organisation et par le test de repli
+   plein écran (cas iPhone sans API native). */
+async function buildPageDocument() {
+  const source = await readFile(new URL("../dist-recette/index.html", import.meta.url), "utf8");
+  const inlineStyles = [...source.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join("\n");
+  const pageStart = source.lastIndexOf("<main", source.indexOf('id="documentDetailView"'));
+  const pageEnd = source.indexOf("</main>", pageStart) + "</main>".length;
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><link rel="stylesheet" href="${baseUrl}/css/design-system.css"><style>${inlineStyles}</style></head><body>${source.slice(pageStart, pageEnd)}</body></html>`;
+}
+
+async function openViewerPage(page) { return page.evaluate(async url => {
+    const { createDocumentPdfViewer } = await import(`${url}/js/document-pdf-viewer.js`);
+    const get = id => document.getElementById(id);
+    const dialog = get("documentDetailView");
+    dialog.hidden = false;
+    get("viewerTitle").setAttribute("aria-label", get("viewerTitle").textContent);
+    get("viewerTitle").title = get("viewerTitle").textContent;
+    /* Lot G : plus d'onglets — les volets mobiles (Miniatures, Informations)
+       sont fermés par défaut et ouverts par les bascules sous la pagination ;
+       le repli desktop passe par le bouton unique de la barre. */
+    const toggleDetails = collapsed => {
+      const layout = get("documentUnifiedLayout");
+      layout.classList.toggle("is-details-collapsed", collapsed);
+      get("viewerDocumentDetails").hidden = collapsed;
+      get("viewerDetailsCollapseBtn").hidden = true;
+      get("viewerDetailsExpandBtn").hidden = false;
+      get("viewerDetailsExpandBtn").setAttribute("aria-expanded", String(!collapsed));
+      const expandLabel = collapsed ? "Afficher les informations" : "Masquer les informations";
+      get("viewerDetailsExpandBtn").setAttribute("aria-label", expandLabel);
+      get("viewerDetailsExpandBtn").title = expandLabel;
+      get("viewerDetailsExpandBtn").querySelector("use")?.setAttribute("href", collapsed ? "#icon-panel-expand" : "#icon-panel-collapse");
+      const detailsToggle = get("viewerDetailsBtn");
+      detailsToggle.setAttribute("aria-expanded", String(!collapsed));
+      detailsToggle.setAttribute("aria-label", expandLabel);
+      detailsToggle.title = expandLabel;
+    };
+    get("viewerDetailsExpandBtn").addEventListener("click", () => toggleDetails(!get("documentUnifiedLayout").classList.contains("is-details-collapsed")));
+    get("viewerDetailsBtn").addEventListener("click", () => toggleDetails(get("viewerDetailsBtn").getAttribute("aria-expanded") === "true"));
+    toggleDetails(true);
+    const infoContent = get("viewerDocumentDetailsContent");
+    for (let index = 1; index <= 3; index++) {
+      const card = document.createElement("section");
+      card.className = "document-unified-section";
+      if (index === 3) card.classList.add("pdf-test-last-detail");
+      const heading = document.createElement("h4");
+      heading.textContent = `Information de test ${index}`;
+      const detail = document.createElement("p");
+      detail.textContent = "Texte documentaire de test, sans donnée privée. ".repeat(10);
+      card.append(heading, detail);
+      infoContent.append(card);
+    }
+    const isNarrow = window.matchMedia("(max-width: 760px)").matches;
+    const toolbar = get("viewerPdfToolbar");
+    const pagination = get("pdfPageNav");
+    const toggles = get("pdfPanelToggles");
+    const viewerBody = get("viewerImageViewport");
+    const rail = get("viewerPdfThumbnails");
+    const moveTo = (id, container) => { const element = get(id); if (element && container && element.parentElement !== container) container.append(element); };
+    if (isNarrow) {
+      moveTo("pdfPreviousPageBtn", pagination);
+      moveTo("pdfPageStatus", pagination);
+      moveTo("pdfNextPageBtn", pagination);
+      toggles.prepend(get("pdfThumbnailsBtn"));
+      toolbar.after(viewerBody);
+      viewerBody.after(pagination);
+      pagination.after(toggles);
+      toggles.after(rail);
+    } else {
+      for (const id of ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn"]) toolbar.append(get(id));
+    }
+    toolbar.append(get("viewerExternalBtn"));
+    if (!isNarrow) toolbar.append(get("viewerDetailsExpandBtn"));
+    viewerBody.classList.add("viewer-pdf-active");
+    get("viewerImageControls").hidden = true;
+    document.querySelectorAll("#documentDetailView .viewer-image-only").forEach(control => { control.hidden = true; });
+    get("viewerPdfSurface").hidden = false;
+    get("viewerFrame").hidden = true;
+    get("viewerImage").hidden = true;
+    get("viewerMessage").hidden = true;
+    toolbar.hidden = false;
+    pagination.hidden = !isNarrow;
+    toggles.hidden = !isNarrow;
+    get("viewerPdfThumbnails").hidden = isNarrow;
+    const external = get("viewerExternalBtn");
+    external.hidden = false;
+    window.pdfViewerTestState = await createDocumentPdfViewer({
+      source: `${url}/fixture.pdf`, viewer: get("viewerPdfSurface"), loadingMessage: get("viewerMessage"),
+      thumbnailRail: get("viewerPdfThumbnails"), thumbnailList: get("viewerPdfThumbnailList"),
+      pageViewport: get("viewerPdfPageViewport"), pageCanvas: get("viewerPdfPageCanvas"), pageStatus: get("pdfPageStatus"),
+      previousButton: get("pdfPreviousPageBtn"), nextButton: get("pdfNextPageBtn"), zoomOutButton: get("pdfZoomOutBtn"), zoomInButton: get("pdfZoomInBtn"),
+      fitModeButton: get("pdfFitModeBtn"), thumbnailsButton: get("pdfThumbnailsBtn"), fullscreenButton: get("pdfFullscreenBtn"),
+      fullscreenHost: dialog.querySelector(".document-original-panel"), fullscreenRoot: dialog, zoomIndicator: get("pdfZoomIndicator"),
+      bindingRoot: dialog
+    });
+}, baseUrl); }
+
 const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
 :root{--control-touch:44px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--radius-sm:4px;--color-surface:#fff;--color-text:#222;--color-brand:#285a43;--color-surface-muted:#ddd;--border-default:1px solid #aaa;--shadow-low:0 1px 3px #777}
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}body{font:14px sans-serif}.document-original-panel{height:100%;min-width:0;min-height:0}[hidden]{display:none!important}
@@ -235,16 +332,11 @@ test("PDF.js : PDF invalide et échec HTTP déclenchent le repli sans boucle", a
 });
 
 test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async () => {
-  const source = await readFile(new URL("../dist-recette/index.html", import.meta.url), "utf8");
   const appSource = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
   const arrangePdfChromeSource = appSource.match(/function arrangePdfChrome\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
   assert.match(arrangePdfChromeSource, /toolbar\.after\(viewerBody\);\s*viewerBody\.after\(pagination\);\s*pagination\.after\(toggles\);\s*toggles\.after\(rail\);/, "le code de production fixe l’ordre mobile document → pagination → bascules → miniatures");
-  const inlineStyles = [...source.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join("\n");
   /* Lot D : la visionneuse vit dans la page dédiée, plus dans une modale. */
-  const pageStart = source.lastIndexOf("<main", source.indexOf('id="documentDetailView"'));
-  const pageEnd = source.indexOf("</main>", pageStart) + "</main>".length;
-  const dialogMarkup = source.slice(pageStart, pageEnd);
-  const pageDocument = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><link rel="stylesheet" href="${baseUrl}/css/design-system.css"><style>${inlineStyles}</style></head><body>${dialogMarkup}</body></html>`;
+  const pageDocument = await buildPageDocument();
 
   const measureAll = page => page.evaluate(select => Object.fromEntries(select.map(id => {
     const element = document.getElementById(id);
@@ -280,91 +372,6 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     };
   });
 
-  const openViewer = async page => page.evaluate(async url => {
-    const { createDocumentPdfViewer } = await import(`${url}/js/document-pdf-viewer.js`);
-    const get = id => document.getElementById(id);
-    const dialog = get("documentDetailView");
-    dialog.hidden = false;
-    get("viewerTitle").setAttribute("aria-label", get("viewerTitle").textContent);
-    get("viewerTitle").title = get("viewerTitle").textContent;
-    /* Lot G : plus d'onglets — les volets mobiles (Miniatures, Informations)
-       sont fermés par défaut et ouverts par les bascules sous la pagination ;
-       le repli desktop passe par le bouton unique de la barre. */
-    const toggleDetails = collapsed => {
-      const layout = get("documentUnifiedLayout");
-      layout.classList.toggle("is-details-collapsed", collapsed);
-      get("viewerDocumentDetails").hidden = collapsed;
-      get("viewerDetailsCollapseBtn").hidden = true;
-      get("viewerDetailsExpandBtn").hidden = false;
-      get("viewerDetailsExpandBtn").setAttribute("aria-expanded", String(!collapsed));
-      const expandLabel = collapsed ? "Afficher les informations" : "Masquer les informations";
-      get("viewerDetailsExpandBtn").setAttribute("aria-label", expandLabel);
-      get("viewerDetailsExpandBtn").title = expandLabel;
-      get("viewerDetailsExpandBtn").querySelector("use")?.setAttribute("href", collapsed ? "#icon-panel-expand" : "#icon-panel-collapse");
-      const detailsToggle = get("viewerDetailsBtn");
-      detailsToggle.setAttribute("aria-expanded", String(!collapsed));
-      detailsToggle.setAttribute("aria-label", expandLabel);
-      detailsToggle.title = expandLabel;
-    };
-    get("viewerDetailsExpandBtn").addEventListener("click", () => toggleDetails(!get("documentUnifiedLayout").classList.contains("is-details-collapsed")));
-    get("viewerDetailsBtn").addEventListener("click", () => toggleDetails(get("viewerDetailsBtn").getAttribute("aria-expanded") === "true"));
-    toggleDetails(true);
-    const infoContent = get("viewerDocumentDetailsContent");
-    for (let index = 1; index <= 3; index++) {
-      const card = document.createElement("section");
-      card.className = "document-unified-section";
-      if (index === 3) card.classList.add("pdf-test-last-detail");
-      const heading = document.createElement("h4");
-      heading.textContent = `Information de test ${index}`;
-      const detail = document.createElement("p");
-      detail.textContent = "Texte documentaire de test, sans donnée privée. ".repeat(10);
-      card.append(heading, detail);
-      infoContent.append(card);
-    }
-    const isNarrow = window.matchMedia("(max-width: 760px)").matches;
-    const toolbar = get("viewerPdfToolbar");
-    const pagination = get("pdfPageNav");
-    const toggles = get("pdfPanelToggles");
-    const viewerBody = get("viewerImageViewport");
-    const rail = get("viewerPdfThumbnails");
-    const moveTo = (id, container) => { const element = get(id); if (element && container && element.parentElement !== container) container.append(element); };
-    if (isNarrow) {
-      moveTo("pdfPreviousPageBtn", pagination);
-      moveTo("pdfPageStatus", pagination);
-      moveTo("pdfNextPageBtn", pagination);
-      toggles.prepend(get("pdfThumbnailsBtn"));
-      toolbar.after(viewerBody);
-      viewerBody.after(pagination);
-      pagination.after(toggles);
-      toggles.after(rail);
-    } else {
-      for (const id of ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn"]) toolbar.append(get(id));
-    }
-    toolbar.append(get("viewerExternalBtn"));
-    if (!isNarrow) toolbar.append(get("viewerDetailsExpandBtn"));
-    viewerBody.classList.add("viewer-pdf-active");
-    get("viewerImageControls").hidden = true;
-    document.querySelectorAll("#documentDetailView .viewer-image-only").forEach(control => { control.hidden = true; });
-    get("viewerPdfSurface").hidden = false;
-    get("viewerFrame").hidden = true;
-    get("viewerImage").hidden = true;
-    get("viewerMessage").hidden = true;
-    toolbar.hidden = false;
-    pagination.hidden = !isNarrow;
-    toggles.hidden = !isNarrow;
-    get("viewerPdfThumbnails").hidden = isNarrow;
-    const external = get("viewerExternalBtn");
-    external.hidden = false;
-    window.pdfViewerTestState = await createDocumentPdfViewer({
-      source: `${url}/fixture.pdf`, viewer: get("viewerPdfSurface"), loadingMessage: get("viewerMessage"),
-      thumbnailRail: get("viewerPdfThumbnails"), thumbnailList: get("viewerPdfThumbnailList"),
-      pageViewport: get("viewerPdfPageViewport"), pageCanvas: get("viewerPdfPageCanvas"), pageStatus: get("pdfPageStatus"),
-      previousButton: get("pdfPreviousPageBtn"), nextButton: get("pdfNextPageBtn"), zoomOutButton: get("pdfZoomOutBtn"), zoomInButton: get("pdfZoomInBtn"),
-      fitModeButton: get("pdfFitModeBtn"), thumbnailsButton: get("pdfThumbnailsBtn"), fullscreenButton: get("pdfFullscreenBtn"),
-      fullscreenHost: dialog.querySelector(".document-original-panel"), fullscreenRoot: dialog, zoomIndicator: get("pdfZoomIndicator"),
-      bindingRoot: dialog
-    });
-  }, baseUrl);
 
   let page;
   const browser = await chromium.launch({ headless: true });
@@ -372,7 +379,7 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
     await page.setContent(pageDocument, { waitUntil: "load" });
-    await openViewer(page);
+    await openViewerPage(page);
     await page.waitForFunction(() => document.getElementById("viewerPdfPageCanvas").width > 0, undefined, { timeout: 15000 });
     assert.equal(await page.locator(".pdf-thumbnail").count(), 24);
     const desktop = await measureAll(page);
@@ -500,7 +507,7 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
       const page = await mobileBrowser.newPage({ viewport });
       await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
       await page.setContent(pageDocument, { waitUntil: "load" });
-      await openViewer(page);
+      await openViewerPage(page);
       await page.waitForFunction(() => document.getElementById("viewerPdfPageCanvas").width > 0, undefined, { timeout: 15000 });
       if (viewport.width === 320) {
           await page.locator("#viewerTitle").evaluate(element => { element.textContent = "Dossier Militaire Giovannoni — Archive historique complète"; element.setAttribute("aria-label", element.textContent); element.title = element.textContent; });
@@ -661,6 +668,94 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     }
   } finally {
     await mobileBrowser.close();
+  }
+});
+
+test("PDF plein écran repli (iPhone) : viewport complet, commandes actives, sortie par le bouton", async () => {
+  const pageDocument = await buildPageDocument();
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+    await page.setContent(pageDocument, { waitUntil: "load" });
+    await openViewerPage(page);
+    await page.waitForFunction(() => document.getElementById("viewerPdfPageCanvas").width > 0, undefined, { timeout: 15000 });
+
+    /* Cas iPhone : l'API Fullscreen native n'existe pas sur les éléments
+       arbitraires — on force le repli viewport comme le fait Safari iOS. */
+    await page.evaluate(() => {
+      const panel = document.querySelector(".document-original-panel");
+      Object.defineProperty(panel, "requestFullscreen", { configurable: true, value: undefined });
+      Object.defineProperty(panel, "webkitRequestFullscreen", { configurable: true, value: undefined });
+    });
+
+    await page.locator("#pdfZoomInBtn").click();
+    await page.waitForFunction(() => window.pdfViewerTestState.getState().zoom > 1);
+    const zoomBeforeFullscreen = await page.evaluate(() => window.pdfViewerTestState.getState().zoom);
+
+    await page.locator("#pdfFullscreenBtn").click();
+    await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
+    const fullscreenState = await page.evaluate(() => {
+      const pageView = document.getElementById("documentDetailView");
+      const rect = pageView.getBoundingClientRect();
+      return {
+        fallback: pageView.classList.contains("is-viewer-fullscreen-fallback"),
+        bodyLocked: getComputedStyle(document.documentElement).overflow === "hidden",
+        zIndex: getComputedStyle(pageView).zIndex,
+        width: rect.width,
+        height: rect.height,
+        exitLabel: document.getElementById("pdfFullscreenBtn").getAttribute("aria-label"),
+        nativeFullscreen: Boolean(document.fullscreenElement),
+        viewport: [innerWidth, innerHeight],
+        safePadding: (() => { const style = getComputedStyle(pageView.querySelector(".document-original-panel")); return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft]; })(),
+        zoom: window.pdfViewerTestState.getState().zoom
+      };
+    });
+    assert.equal(fullscreenState.fallback, true, "repli viewport utilisé sans API native");
+    assert.equal(fullscreenState.nativeFullscreen, false, "aucune Fullscreen API native engagée");
+    assert.equal(fullscreenState.bodyLocked, true, "défilement de la page figé pendant le plein écran");
+    assert.equal(fullscreenState.zIndex, "130", "le plein écran passe au-dessus du reste de l'interface");
+    assert.ok(fullscreenState.width >= fullscreenState.viewport[0] - 1 && fullscreenState.height >= fullscreenState.viewport[1] - 1, `la page occupe tout le viewport (${fullscreenState.width}×${fullscreenState.height} / ${fullscreenState.viewport.join("×")})`);
+    assert.ok(fullscreenState.safePadding.every(value => parseFloat(value) >= 12), `safe areas réservées en plein écran (${fullscreenState.safePadding.join(",")})`);
+    assert.equal(fullscreenState.exitLabel, "Quitter le plein écran", "commande de sortie explicite");
+    assert.ok(Math.abs(fullscreenState.zoom - zoomBeforeFullscreen) <= 0.0001, "zoom conservé à l'entrée du plein écran");
+
+    /* Commandes essentielles actives en plein écran : navigation et zoom. */
+    await page.locator("#pdfNextPageBtn").click();
+    await page.waitForFunction(() => document.getElementById("pdfPageStatus").textContent.includes("2 / 24"));
+    await page.locator("#pdfZoomOutBtn").click();
+    await page.waitForFunction(previous => window.pdfViewerTestState.getState().zoom < previous, zoomBeforeFullscreen);
+    assert.equal(await page.locator("#pdfPageNav").isVisible(), true, "pagination visible en plein écran");
+    assert.equal(await page.locator("#pdfFullscreenBtn").isVisible(), true, "barre d'outils visible en plein écran");
+
+    /* Sortie par le bouton : iPhone n'a pas de touche Échap physique. */
+    await page.locator("#pdfFullscreenBtn").click();
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
+    const restored = await page.evaluate(() => ({
+      fallback: document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen-fallback"),
+      bodyLocked: getComputedStyle(document.documentElement).overflow === "hidden",
+      pageStatus: document.getElementById("pdfPageStatus").textContent,
+      toolbarVisible: !document.getElementById("viewerPdfToolbar").hidden,
+      pageNavVisible: !document.getElementById("pdfPageNav").hidden && getComputedStyle(document.getElementById("pdfPageNav")).display !== "none"
+    }));
+    assert.equal(restored.fallback, false, "classe de repli retirée à la fermeture");
+    assert.equal(restored.bodyLocked, false, "défilement de la page restauré");
+    assert.match(restored.pageStatus, /2 \/ 24/, "position de lecture conservée à la fermeture");
+    assert.equal(restored.toolbarVisible, true, "barre d'outils restaurée");
+    assert.equal(restored.pageNavVisible, true, "pagination restaurée");
+
+    /* Deuxième cycle sur la même page : évite un fallback qui ne serait
+       réversible qu'une seule fois. */
+    await page.locator("#pdfFullscreenBtn").click();
+    await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen-fallback"));
+    await page.locator("#pdfNextPageBtn").click();
+    await page.waitForFunction(() => document.getElementById("pdfPageStatus").textContent.includes("3 / 24"));
+    await page.locator("#pdfFullscreenBtn").click();
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
+    assert.match(await page.locator("#pdfPageStatus").textContent(), /3 \/ 24/, "pagination conservée après deux entrées-sorties");
+    assert.equal(await page.evaluate(() => document.documentElement.classList.contains("viewer-fullscreen-active")), false, "le verrou de repli ne fuit pas après plusieurs cycles");
+  } finally {
+    await browser.close();
   }
 });
 

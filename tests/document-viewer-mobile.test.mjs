@@ -511,10 +511,10 @@ test("Zoom tactile image : affichage ajusté, pincement, déplacement, reset et 
     const { context, page } = await createViewerPage(browser, server, 390, 844);
     try {
       const result = await page.evaluate(async () => {
-        document.body.insertAdjacentHTML("beforeend", `<div id="gestureViewport" style="position:relative;width:360px;height:280px;overflow:hidden;touch-action:pan-y"><img id="gestureImage" alt="Registre de test"></div><div id="gestureControls"><button type="button" data-viewer-image-zoom="out">−</button><span id="gestureZoomLabel"></span><button type="button" data-viewer-image-zoom="reset">Ajuster</button><button type="button" data-viewer-image-zoom="in">+</button></div>`);
+        document.body.insertAdjacentHTML("beforeend", `<div id="gestureViewport" class="viewer-body" style="position:relative;width:360px;height:280px;overflow:hidden;touch-action:pan-y"><img id="gestureImage" alt="Registre de test"></div><div id="gestureControls"><button type="button" data-viewer-image-zoom="out">−</button><span id="gestureZoomLabel"></span><button type="button" data-viewer-image-zoom="reset">Ajuster</button><button type="button" data-viewer-image-zoom="in">+</button></div>`);
         const { createDocumentImageViewer, selectInitialDocumentImageMode } = await import("./js/document-image-viewer.js");
         const image = document.getElementById("gestureImage");
-        image.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200"><rect width="800" height="200" fill="#b8c9be"/></svg>');
+        image.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="800"><rect width="200" height="800" fill="#b8c9be"/></svg>');
         await image.decode();
         const controller = createDocumentImageViewer({ viewport: document.getElementById("gestureViewport"), image, controls: document.getElementById("gestureControls"), zoomLabel: document.getElementById("gestureZoomLabel") });
         const initial = controller.getState();
@@ -527,18 +527,19 @@ test("Zoom tactile image : affichage ajusté, pincement, déplacement, reset et 
         const zoomed = controller.getState();
         viewport.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [] }));
         viewport.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch(3, 180, 120)] }));
-        viewport.dispatchEvent(new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [touch(3, 220, 140)] }));
+        viewport.dispatchEvent(new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [touch(3, 180, 160)] }));
         const panned = controller.getState();
         viewport.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [] }));
         controller.reset();
         const reset = controller.getState();
         viewport.style.width = "300px";
+        viewport.style.height = "600px";
         await new Promise(resolve => setTimeout(resolve, 80));
         const resized = controller.getState();
         controller.destroy();
         return { initial, zoomed, panned, reset, resized, prevented: move.defaultPrevented, natural: [image.naturalWidth, image.naturalHeight] };
       });
-      assert.deepEqual(result.natural, [800, 200]);
+      assert.deepEqual(result.natural, [200, 800]);
       assert.equal(result.initial.zoom, 1);
       assert.ok(result.initial.fitWidth <= 360 && result.initial.fitHeight <= 280, "l’image entière tient dans le viewport au départ");
       assert.ok(result.zoomed.zoom > 1.9, "le pincement à deux doigts zoome l’image");
@@ -547,7 +548,7 @@ test("Zoom tactile image : affichage ajusté, pincement, déplacement, reset et 
       assert.equal(result.reset.zoom, 1);
       assert.equal(result.reset.offsetX, 0);
       assert.equal(result.reset.offsetY, 0);
-      assert.equal(result.resized.fitWidth, 300, "ResizeObserver réajuste l’image à la nouvelle largeur disponible");
+      assert.equal(result.resized.fitWidth, 150, "ResizeObserver réajuste l’image après changement de taille du viewport");
     } finally { await context.close(); }
   } finally { await browser.close(); await server.close(); }
 });
@@ -603,7 +604,12 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
         const zoomRender = { layoutWidth: Number.parseFloat(image.style.width), layoutHeight: Number.parseFloat(image.style.height), cssWidth: image.style.width, cssHeight: image.style.height, cssTransform: image.style.transform };
         viewport.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [] }));
         viewport.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch(3, 150, 120)] }));
-        viewport.dispatchEvent(new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [touch(3, 185, 140)] }));
+        const beforePan = controller.getState();
+        /* Le zoom focal peut placer l'image contre le bord haut ; glisser
+           vers le haut vérifie le pan vers l'intérieur, non un geste bloqué. */
+        const singlePanMove = new TouchEvent("touchmove", { bubbles: true, cancelable: true, touches: [touch(3, 185, 80)] });
+        viewport.dispatchEvent(singlePanMove);
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const panned = controller.getState();
         viewport.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, touches: [] }));
         controller.reset();
@@ -618,7 +624,7 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
         const windowModeActionLabel = modeButton.getAttribute("aria-label");
         const windowModeIcon = modeButton.querySelector("use").getAttribute("href");
         controller.destroy();
-        return { natural: [image.naturalWidth, image.naturalHeight], initial, initialMode, windowFit, widthMode, widthModeActionLabel, widthModeIcon, widthScrollRange, widthScrollPosition, zoomed, zoomRender, pinchIndicator, panned, reset, resetIndicator, resized, windowMode, modeIndicator, windowModeActionLabel, windowModeIcon, indicatorHiddenAfterDestroy: !indicator.classList.contains("is-visible"), pinchPrevented: pinchMove.defaultPrevented };
+        return { natural: [image.naturalWidth, image.naturalHeight], initial, initialMode, windowFit, widthMode, widthModeActionLabel, widthModeIcon, widthScrollRange, widthScrollPosition, zoomed, zoomRender, pinchIndicator, beforePan, panned, singlePanPrevented: singlePanMove.defaultPrevented, reset, resetIndicator, resized, windowMode, modeIndicator, windowModeActionLabel, windowModeIcon, indicatorHiddenAfterDestroy: !indicator.classList.contains("is-visible"), pinchPrevented: pinchMove.defaultPrevented };
       });
       assert.deepEqual(states.natural, [200, 800]);
       assert.equal(states.initialMode, "width", "le portrait long démarre en mode largeur");
@@ -639,7 +645,7 @@ test("Zoom image : pincement tactile synthétique, panoramique, reset et adaptat
       assert.ok(states.zoomRender.layoutWidth >= states.widthMode.fitWidth * states.zoomed.zoom - 1, `la boîte de layout est rasterisée à sa dimension zoomée à partir de l’image source (${JSON.stringify(states.zoomRender)}; zoom=${states.zoomed.zoom}; fit=${states.widthMode.fitWidth})`);
       assert.ok(states.zoomRender.layoutHeight >= states.widthMode.fitHeight * states.zoomed.zoom - 1, "la hauteur de layout suit aussi la résolution d’affichage zoomée");
       assert.doesNotMatch(states.zoomRender.cssTransform, /scale\(/, "aucun agrandissement de texture CSS par scale() au zoom");
-      assert.ok(Math.abs(states.panned.offsetX) > 0, "panoramique actif après agrandissement");
+      assert.ok(states.singlePanPrevented && (Math.abs(states.panned.offsetX - states.beforePan.offsetX) > 0 || Math.abs(states.panned.offsetY - states.beforePan.offsetY) > 0), "panoramique tactile actif après agrandissement");
       assert.equal(states.reset.zoom, 1);
       assert.equal(states.resetIndicator, "100 %", "la réinitialisation affiche l’échelle de base relative");
       assert.equal(states.reset.offsetX, 0);
@@ -928,6 +934,7 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
           const documentPage = document.getElementById("documentDetailView");
           const imagePanel = document.querySelector(".document-original-panel");
           const reader = document.getElementById("viewerImageViewport");
+          const pageRect = documentPage.getBoundingClientRect();
           return {
             fallback: documentPage.classList.contains("is-viewer-fullscreen-fallback"),
             nativeFullscreen: document.fullscreenElement === imagePanel,
@@ -935,6 +942,7 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
             returnHidden: getComputedStyle(documentPage.querySelector("#documentPageBackBtn")).display === "none" || documentPage.querySelector("#documentPageBackBtn").offsetParent === null,
             detailsHidden: getComputedStyle(document.getElementById("viewerDocumentDetails")).display === "none",
             viewport: [innerWidth, innerHeight],
+            page: [pageRect.x, pageRect.y, pageRect.width, pageRect.height],
             panel: [imagePanel.getBoundingClientRect().width, imagePanel.getBoundingClientRect().height],
             reader: [reader.getBoundingClientRect().width, reader.getBoundingClientRect().height],
             exitLabel: document.getElementById("viewerFullscreenBtn").getAttribute("aria-label"),
@@ -947,7 +955,8 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
         assert.equal(state.headerHidden, true, "l’en-tête non essentiel est masqué en plein écran");
         assert.equal(state.returnHidden, true, "le lien Retour est masqué en plein écran");
         assert.equal(state.detailsHidden, true, "le panneau d’informations ne réduit pas la surface de lecture");
-        assert.ok(state.panel[0] >= state.viewport[0] - 1 && state.panel[1] >= state.viewport[1] - 1, "le panneau lecteur occupe le viewport");
+        assert.ok(state.page[0] <= 1 && state.page[1] <= 1 && state.page[2] >= state.viewport[0] - 1 && state.page[3] >= state.viewport[1] - 1, "la page fullscreen occupe le viewport");
+        assert.ok(state.panel[0] >= state.page[2] - 32 && state.panel[1] >= state.page[3] - 32, "le lecteur utilise la surface restante après safe areas");
         assert.equal(state.exitLabel, "Quitter le plein écran", "la commande de sortie est annoncée");
         assert.equal(state.zoom, zoom, "le niveau de zoom est conservé à l’entrée");
         await page.keyboard.press("Escape");
@@ -1090,6 +1099,17 @@ test("JPEG plein écran : après zoom, les quatre bords de l'image sont réellem
             const zoomed = await page.evaluate(() => window.__viewerImageController.getState());
             assert.ok(zoomed.zoom > 1.5, `zoom agrandi avant le déplacement (${zoomed.zoom})`);
             assert.equal(await page.locator("#viewerImageViewport").evaluate(viewport => viewport.style.touchAction), "none", "les gestes verticaux sont repris par le lecteur quand l'image est agrandie");
+            const readScrollbar = () => page.evaluate(() => {
+              const viewport = document.getElementById("viewerImageViewport");
+              const state = window.__viewerImageController.getState();
+              const range = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+              const maxY = range / 2;
+              return { top: viewport.scrollTop, range, ratio: range ? viewport.scrollTop / range : 0, expected: Math.max(0, Math.min(range, maxY - state.offsetY)), offsetY: state.offsetY };
+            });
+            const centeredScrollbar = await readScrollbar();
+            assert.ok(centeredScrollbar.range > 0, "une barre verticale existe quand l'image agrandie déborde");
+            assert.ok(Math.abs(centeredScrollbar.top - centeredScrollbar.expected) <= 2, `scrollbar centré synchronisé avec offsetY (${centeredScrollbar.top}/${centeredScrollbar.expected})`);
+            assert.ok(Math.abs(centeredScrollbar.ratio - 0.5) <= 0.04, `zoom centré place la poignée au milieu du parcours (${JSON.stringify(centeredScrollbar)})`);
             /* Bug corrigé : la molette sans Ctrl déplace l'image agrandie
                (elle était auparavant totalement ignorée sans le modificateur). */
             if (width > 760) {
@@ -1100,6 +1120,8 @@ test("JPEG plein écran : après zoom, les quatre bords de l'image sont réellem
               await page.waitForTimeout(80);
               const offsetYAfterWheel = await page.evaluate(() => window.__viewerImageController.getState().offsetY);
               assert.notEqual(offsetYAfterWheel, offsetYBeforeWheel, "la molette sans Ctrl déplace désormais l'image agrandie");
+              const wheelScrollbar = await readScrollbar();
+              assert.ok(Math.abs(wheelScrollbar.top - wheelScrollbar.expected) <= 2, `molette et poignée synchronisées (${wheelScrollbar.top}/${wheelScrollbar.expected})`);
             }
             /* Saturation par glisser : les quatre bords sont réellement
                atteignables, pas seulement les commandes qui répondent. Un
@@ -1136,9 +1158,13 @@ test("JPEG plein écran : après zoom, les quatre bords de l'image sont réellem
             await saturateByDrag(0, 6000);
             let edges = await imageEdges();
             assert.ok(Math.abs(edges.top) <= 1, `bord supérieur atteignable (top=${edges.top})`);
+            let scrollbar = await readScrollbar();
+            assert.ok(scrollbar.top <= 1, `bord supérieur atteint en haut de l'ascenseur (${scrollbar.top}/${scrollbar.range})`);
             await saturateByDrag(0, -6000);
             edges = await imageEdges();
             assert.ok(Math.abs(edges.bottom) <= 1, `bord inférieur atteignable (bottom=${edges.bottom})`);
+            scrollbar = await readScrollbar();
+            assert.ok(scrollbar.range > 0 && scrollbar.top >= scrollbar.range - 1, `bord inférieur atteint en bas de l'ascenseur (${scrollbar.top}/${scrollbar.range})`);
             await saturateByDrag(6000, 0);
             edges = await imageEdges();
             assert.ok(Math.abs(edges.left) <= 1, `bord gauche atteignable (left=${edges.left})`);
@@ -1215,6 +1241,9 @@ test("JPEG plein écran : après zoom, les quatre bords de l'image sont réellem
               const scrollTopAfter = await page.locator("#viewerImageViewport").evaluate(viewport => viewport.scrollTop);
               assert.ok(scrollTopAfter > scrollTopBefore, `la molette défile nativement l'image débordante (${scrollTopBefore} → ${scrollTopAfter})`);
             }
+            await page.evaluate(() => window.__viewerImageController.toggleFitMode());
+            const fittedScroll = await page.locator("#viewerImageViewport").evaluate(viewport => ({ height: viewport.scrollHeight, client: viewport.clientHeight, overflowY: getComputedStyle(viewport).overflowY, mode: viewport.dataset.viewerFitMode, imageHeight: document.getElementById("viewerImage").style.height, imagePosition: document.getElementById("viewerImage").style.position, inlineHeight: viewport.style.height, padding: viewport.style.paddingTop }));
+            assert.ok(fittedScroll.overflowY === "hidden" || fittedScroll.height <= fittedScroll.client + 1, `aucun ascenseur visible inutile quand l'image tient en mode Ajuster à la page (${JSON.stringify(fittedScroll)})`);
           } finally { await context.close(); }
         });
       }
@@ -1222,4 +1251,167 @@ test("JPEG plein écran : après zoom, les quatre bords de l'image sont réellem
   }
   if (!ranAny) t.skip("aucun moteur Playwright disponible");
   await server.close();
+});
+
+test("JPEG plein écran mobile en repli : commandes, zones sûres et cycles de fermeture restaurés", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    const { context, page } = await createViewerPage(browser, server, 390, 844);
+    try {
+      await openViewer(page, { title: "JPEG plein écran mobile", fileName: "registre.jpg", src: portraitSvg, forceFullscreenFallback: true });
+      await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
+      const originalSource = await page.locator("#viewerImage").evaluate(image => image.currentSrc);
+      for (let cycle = 1; cycle <= 2; cycle++) {
+        const zoomBefore = await page.evaluate(() => window.__viewerImageController.getState().zoom);
+        await page.locator("#viewerFullscreenBtn").click();
+        await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen-fallback"));
+        const entered = await page.evaluate(() => {
+          const root = document.getElementById("documentDetailView");
+          const rect = root.getBoundingClientRect();
+          const padding = getComputedStyle(root);
+          return {
+            bounds: [rect.x, rect.y, rect.width, rect.height],
+            viewport: [innerWidth, innerHeight],
+            zIndex: getComputedStyle(root).zIndex,
+            pageLocked: getComputedStyle(document.documentElement).overflow === "hidden" && getComputedStyle(document.body).overflow === "hidden",
+            safePadding: [padding.paddingTop, padding.paddingRight, padding.paddingBottom, padding.paddingLeft],
+            toolbarVisible: [...document.querySelectorAll("#viewerImageControls .viewer-image-only")].some(button => !button.hidden && button.id === "viewerFullscreenBtn"),
+            exitLabel: document.getElementById("viewerFullscreenBtn").getAttribute("aria-label"),
+            touchAction: getComputedStyle(document.getElementById("viewerImageViewport")).touchAction,
+            zoom: window.__viewerImageController.getState().zoom
+          };
+        });
+        assert.equal(entered.zIndex, "130", `cycle ${cycle} : repli au-dessus du topbar`);
+        assert.ok(entered.bounds[0] <= 1 && entered.bounds[1] <= 1 && entered.bounds[2] >= entered.viewport[0] - 1 && entered.bounds[3] >= entered.viewport[1] - 1, `cycle ${cycle} : vue étendue au viewport (${entered.bounds.join("×")})`);
+        assert.equal(entered.pageLocked, true, `cycle ${cycle} : défilement de fond verrouillé`);
+        assert.ok(entered.safePadding.every(value => parseFloat(value) >= 12), `cycle ${cycle} : réserves safe-area actives (${entered.safePadding.join(",")})`);
+        assert.equal(entered.toolbarVisible, true, `cycle ${cycle} : commande de sortie visible`);
+        assert.equal(entered.exitLabel, "Quitter le plein écran", `cycle ${cycle} : sortie annoncée`);
+        assert.equal(entered.touchAction, "none", `cycle ${cycle} : pan tactile conservé après zoom`);
+        assert.equal(entered.zoom, zoomBefore, `cycle ${cycle} : zoom préservé à l'entrée`);
+
+        /* Pan souris dans le repli mobile : le cadrage évolue sans recharger l'image. */
+        const beforePan = await page.evaluate(() => window.__viewerImageController.getState().offsetY);
+        const box = await page.locator("#viewerImageViewport").boundingBox();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 70, { steps: 4 });
+        await page.mouse.up();
+        const afterPan = await page.evaluate(() => window.__viewerImageController.getState().offsetY);
+        assert.notEqual(afterPan, beforePan, `cycle ${cycle} : déplacement image actif`);
+
+        await page.locator("#viewerFullscreenBtn").click();
+        await page.waitForFunction(() => !document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
+        const restored = await page.evaluate(() => ({
+          fallback: document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen-fallback"),
+          pageLocked: getComputedStyle(document.documentElement).overflow === "hidden" || getComputedStyle(document.body).overflow === "hidden",
+          zoom: window.__viewerImageController.getState().zoom,
+          offsetY: window.__viewerImageController.getState().offsetY,
+          source: document.getElementById("viewerImage").currentSrc
+        }));
+        assert.equal(restored.fallback, false, `cycle ${cycle} : mode repli quitté`);
+        assert.equal(restored.pageLocked, false, `cycle ${cycle} : défilement de page restauré`);
+        assert.equal(restored.zoom, zoomBefore, `cycle ${cycle} : zoom conservé à la sortie`);
+        assert.ok(Math.abs(restored.offsetY - afterPan) <= 2, `cycle ${cycle} : cadrage conservé à la sortie (${JSON.stringify({ afterPan, ...restored })})`);
+        assert.equal(restored.source, originalSource, `cycle ${cycle} : l'image n'est pas rechargée`);
+      }
+    } finally { await context.close(); }
+  } finally { await browser.close(); await server.close(); }
+});
+
+test("Ascenseur JPEG : la poignée suit le zoom centré, le pan et les bords", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    for (const [width, height, fallback] of [[390, 844, true], [1440, 900, false]]) {
+      const { context, page } = await createViewerPage(browser, server, width, height);
+      try {
+        await openViewer(page, { title: "Ascenseur du registre", fileName: "ascenseur.jpg", src: portraitSvg, forceFullscreenFallback: fallback });
+        if (fallback) {
+          await page.locator("#viewerFullscreenBtn").click();
+          await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen-fallback"));
+        }
+        for (let step = 0; step < 3; step++) await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const read = () => page.evaluate(() => {
+          const viewport = document.getElementById("viewerImageViewport");
+          const image = document.getElementById("viewerImage").getBoundingClientRect();
+          const viewportRect = viewport.getBoundingClientRect();
+          const range = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+          return {
+            top: viewport.scrollTop,
+            range,
+            fraction: range ? viewport.scrollTop / range : 0,
+            imageTop: image.top - viewportRect.top,
+            imageBottom: viewportRect.bottom - image.bottom,
+            offsetY: window.__viewerImageController.getState().offsetY
+          };
+        });
+        let state = await read();
+        assert.ok(state.range > 0, `${width}px : débordement vertical réel et scrollbar unique`);
+        assert.ok(Math.abs(state.fraction - 0.5) < 0.05, `${width}px : zoom centré, poignée au milieu (${JSON.stringify(state)})`);
+        assert.ok(Math.abs(state.offsetY) <= 2, `${width}px : le zoom par boutons reste centré (${state.offsetY})`);
+        assert.ok(Math.abs(state.top + state.imageTop) < 2, `${width}px : scrollTop reflète le haut masqué de l'image (${state.top}/${state.imageTop})`);
+        await page.locator("#viewerImageViewport").evaluate(viewport => { viewport.scrollTop = (viewport.scrollHeight - viewport.clientHeight) * 0.75; });
+        await page.waitForTimeout(60);
+        state = await read();
+        assert.ok(Math.abs(state.fraction - 0.75) < 0.05, `${width}px : déplacement de la poignée native repris (${state.fraction})`);
+        assert.ok(Math.abs(state.top + state.imageTop) < 2, `${width}px : déplacement de poignée et zone visible synchronisés`);
+
+        const viewportBox = await page.locator("#viewerImageViewport").boundingBox();
+        if (width > 760) {
+          await page.mouse.move(viewportBox.x + viewportBox.width / 2, viewportBox.y + viewportBox.height / 2);
+          await page.mouse.wheel(0, 140);
+          await page.waitForTimeout(60);
+          state = await read();
+          assert.ok(Math.abs(state.fraction - 0.75) > 0.02, `${width}px : molette déplace réellement la poignée (${JSON.stringify(state)})`);
+          assert.ok(Math.abs(state.top + state.imageTop) < 2, `${width}px : poignée/zone visible synchronisées après molette`);
+        }
+
+        /* Le cliquer-glisser de l'image déplace également le scrollbar natif. */
+        const x = viewportBox.x + viewportBox.width / 2;
+        const y = viewportBox.y + viewportBox.height / 2;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x, y - 100, { steps: 5 });
+        await page.mouse.up();
+        await page.waitForTimeout(40);
+        const afterDrag = await read();
+        assert.ok(afterDrag.top > state.top, `${width}px : glisser l'image vers le haut déplace la poignée vers le bas`);
+        assert.ok(Math.abs(afterDrag.top + afterDrag.imageTop) < 2, `${width}px : poignée/zone visible synchronisées après glisser`);
+
+        const saturate = async dy => {
+          let previous = null;
+          for (let count = 0; count < 12; count++) {
+            const box = await page.locator("#viewerImageViewport").boundingBox();
+            const sx = box.x + box.width / 2, sy = box.y + box.height / 2;
+            await page.mouse.move(sx, sy);
+            await page.mouse.down();
+            for (let step = 1; step <= 10; step++) await page.mouse.move(sx, sy + dy * step / 10, { steps: 2 });
+            await page.mouse.up();
+            await page.waitForTimeout(25);
+            const current = await read();
+            const signature = `${current.top}:${current.offsetY}`;
+            if (signature === previous) return current;
+            previous = signature;
+          }
+          return read();
+        };
+        const topEdge = await saturate(6000);
+        assert.ok(topEdge.top <= 1 && topEdge.fraction <= 0.01, `${width}px : bord haut et poignée en haut (${topEdge.top}/${topEdge.range})`);
+        const bottomEdge = await saturate(-6000);
+        assert.ok(bottomEdge.top >= bottomEdge.range - 1 && bottomEdge.fraction >= 0.99, `${width}px : bord bas et poignée en bas (${bottomEdge.top}/${bottomEdge.range})`);
+
+        await page.evaluate(() => window.__viewerImageController.reset());
+        await page.locator("#viewerImageModeBtn").click();
+        await page.waitForTimeout(50);
+        assert.equal(await page.locator("#viewerImageViewport").evaluate(viewport => viewport.scrollHeight <= viewport.clientHeight + 1), true, `${width}px : aucun ascenseur quand l'image tient en mode Ajuster à la page`);
+      } finally { await context.close(); }
+    }
+  } finally { await browser.close(); await server.close(); }
 });

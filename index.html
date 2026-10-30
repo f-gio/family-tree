@@ -387,14 +387,22 @@
   <main class="workspace-view page-content-lane document-detail-view" id="documentDetailView" hidden aria-labelledby="viewerTitle">
     <div class="document-detail-shell">
       <header class="dedicated-page-header document-detail-header">
-        <div class="dedicated-page-heading document-detail-heading"><div class="document-detail-kicker"><p class="page-kicker">Document</p><span class="badge document-detail-category" id="viewerCategoryBadge" hidden></span></div><h2 class="page-title" id="viewerTitle">Consulter le document</h2></div>
-        <details class="dedicated-page-actions document-detail-actions" id="documentPageActions">
-          <summary class="btn icon-btn" id="viewerActionsBtn" aria-label="Actions du document" title="Actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
-          <div class="document-detail-actions-menu" id="viewerActionsMenu" role="menu" aria-label="Actions du document">
-            <button class="btn" id="viewerEditBtn" type="button" role="menuitem">Modifier les informations</button>
+        <div class="dedicated-page-heading document-detail-heading">
+          <div class="document-detail-kicker"><p class="page-kicker">Document</p></div>
+          <h2 class="page-title" id="viewerTitle">Consulter le document</h2>
+          <div class="source-detail-header-badges document-detail-category-row" id="viewerCategoryBadgeRow" hidden><span class="badge document-detail-category" id="viewerCategoryBadge" hidden></span></div>
+        </div>
+        <div class="dedicated-page-actions dedicated-page-side document-detail-header-actions">
+          <div class="dedicated-page-actions-row">
+            <details class="dedicated-page-actions document-detail-actions" id="documentPageActions">
+              <summary class="btn icon-btn" id="viewerActionsBtn" aria-label="Actions du document" title="Actions" aria-haspopup="menu" aria-expanded="false">⋯</summary>
+              <div class="document-detail-actions-menu" id="viewerActionsMenu" role="menu" aria-label="Actions du document">
+                <button class="btn" id="viewerEditBtn" type="button" role="menuitem">Modifier les informations</button>
+              </div>
+            </details>
           </div>
-        </details>
-        <button class="btn dedicated-page-back document-detail-back" id="documentPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
+          <button class="btn dedicated-page-back document-detail-back" id="documentPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
+        </div>
       </header>
       <div class="document-detail-layout document-unified-layout" id="documentUnifiedLayout">
         <section class="document-original-panel" aria-label="Document original">
