@@ -1,7 +1,10 @@
-/* Atelier de transcription (lot 2B.1) — logique pure des brouillons locaux.
-   Aucun accès DOM, Firebase, réseau ou stockage. Les corrections produites ici
-   restent des brouillons de session : ce module n'écrit dans aucune collection
-   officielle (transcriptionHeads, transcriptionRevisions, genealogyProofs,
+/* Atelier de transcription (lots 2B.1 / 2B.2) — logique pure des brouillons
+   locaux. Aucun accès DOM, Firebase, réseau ou stockage : la persistance
+   locale d'un brouillon est portée par l'application, qui fournit ici un
+   snapshot à revalider (restoreTranscriptionWorkshopDraft). Les corrections
+   produites dans ce module ne constituent pas une sauvegarde synchronisée ni
+   une publication : ce module n'écrit dans aucune collection officielle
+   (transcriptionHeads, transcriptionRevisions, genealogyProofs,
    factConclusions) et ne crée aucune révision.
 
    Exception encadrée : la préparation d'une initialisation de page JPEG
@@ -94,6 +97,54 @@ export function createTranscriptionWorkshopDraft({ documentId, pageId, passages 
     passages: clonePassages(original),
     createdIds: [],
     selectedPassageId: original[0]?.id || null,
+    dirty: false,
+    translationReview: []
+  };
+  recomputeDraftState(draft);
+  return draft;
+}
+
+/* Reprend un brouillon sauvegardé localement (lot 2B.2) : le snapshot est
+   revalidé et reconstruit, les indicateurs (dirty, traduction à revoir)
+   recalculés — l'état stocké n'est jamais tellement cru. Toute incohérence
+   (passage inconnu ou perdu, identifiants absents) lève une erreur et laisse
+   l'application écarter ce contenu sans toucher aux autres brouillons. */
+export function restoreTranscriptionWorkshopDraft(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) throw new TypeError("workshop.snapshot doit être un objet");
+  if (typeof snapshot.documentId !== "string" || !snapshot.documentId.trim()) throw new TypeError("workshop.snapshot.documentId doit être une chaîne non vide");
+  if (typeof snapshot.pageId !== "string" || !snapshot.pageId.trim()) throw new TypeError("workshop.snapshot.pageId doit être une chaîne non vide");
+  if (!Array.isArray(snapshot.original)) throw new TypeError("workshop.snapshot.original doit être un tableau");
+  if (!Array.isArray(snapshot.passages)) throw new TypeError("workshop.snapshot.passages doit être un tableau");
+  if (!Array.isArray(snapshot.createdIds)) throw new TypeError("workshop.snapshot.createdIds doit être un tableau");
+  const entries = [...snapshot.original, ...snapshot.passages];
+  if (entries.some(passage => !passage || typeof passage !== "object" || typeof passage.id !== "string" || !passage.id.trim())) {
+    throw new Error("workshop.snapshot contient un passage invalide");
+  }
+  const original = clonePassages(snapshot.original);
+  const passages = clonePassages(snapshot.passages);
+  if (new Set(original.map(passage => passage.id)).size !== original.length) throw new Error("workshop.snapshot.original contient des identifiants dupliqués");
+  if (new Set(passages.map(passage => passage.id)).size !== passages.length) throw new Error("workshop.snapshot.passages contient des identifiants dupliqués");
+  if (snapshot.createdIds.some(id => typeof id !== "string" || !id.trim() || !passages.some(passage => passage.id === id))) {
+    throw new Error("workshop.snapshot.createdIds est incohérent avec les passages");
+  }
+  const createdIds = [...snapshot.createdIds];
+  const originalIds = new Set(original.map(passage => passage.id));
+  const createdIdsSet = new Set(createdIds);
+  if (passages.some(passage => !originalIds.has(passage.id) && !createdIdsSet.has(passage.id))) {
+    throw new Error("workshop.snapshot.contient un passage inconnu");
+  }
+  if (original.some(passage => !passages.some(item => item.id === passage.id))) {
+    throw new Error("workshop.snapshot a perdu un passage original intangible");
+  }
+  let selectedPassageId = snapshot.selectedPassageId ?? null;
+  if (selectedPassageId != null && !passages.some(passage => passage.id === selectedPassageId)) selectedPassageId = passages[0]?.id ?? null;
+  const draft = {
+    documentId: snapshot.documentId,
+    pageId: snapshot.pageId,
+    original,
+    passages,
+    createdIds,
+    selectedPassageId,
     dirty: false,
     translationReview: []
   };

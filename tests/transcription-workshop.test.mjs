@@ -331,7 +331,9 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.ok(html.includes('id="workshopPrevBtn"') && html.includes('id="workshopNextBtn"'), "navigation Précédent / Suivant");
   assert.ok(html.includes("Comparer"), "mode Comparer accessible depuis les passages");
   assert.match(html, /id="workshopDraftBadge"[^>]*>Brouillon local</, "indicateur compact « Brouillon local »");
-  assert.match(html, /Les corrections ne sont pas encore enregistrées officiellement et seront perdues à la fermeture ou au rechargement\./, "explication détaillée consultable");
+  assert.match(html, /Les corrections sont enregistrées localement dans ce navigateur et reprises automatiquement à la prochaine ouverture\./, "aide mise à jour : les brouillons sont conservés, plus perdus");
+  assert.match(html, /Elles ne sont pas encore enregistrées officiellement ni synchronisées entre appareils\./, "précision explicite : local seulement, pas de synchronisation entre appareils");
+  assert.doesNotMatch(html, /seront perdues à la fermeture ou au rechargement/, "l'ancien avertissement de perte est retiré");
   assert.doesNotMatch(html, /id="workshopLossWarning"/, "aucun bandeau de perte permanent ne double le badge brouillon");
   assert.match(app, /classList\.toggle\("is-dirty", dirty\)/, "le badge unique signale les modifications non enregistrées");
   assert.match(app, /confirmTranscriptionWorkshopClose/, "une confirmation explicite protège toujours les brouillons à la sortie");
@@ -367,4 +369,52 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(css, /@media \(max-width: 760px\)[\s\S]{0,500}\.transcription-workshop-tabs \{ display: flex; \}/, "onglets mobiles");
   assert.match(css, /\.transcription-workshop-passage\.is-selected/, "sélection de passage visible");
   assert.match(css, /--control-touch/, "cibles tactiles via le token existant");
+});
+
+test("les brouillons sont persistés localement et repris sans toucher aux modules purs", async () => {
+  const [app, html, workshop, documentTranscription, storageAdapter] = await Promise.all([
+    readFile(new URL("../js/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../js/transcription-workshop.js", import.meta.url), "utf8"),
+    readFile(new URL("../js/document-transcription.js", import.meta.url), "utf8"),
+    readFile(new URL("../js/transcription-draft-storage.js", import.meta.url), "utf8")
+  ]);
+  // Reprendre automatiquement à l'ouverture (mémoire d'abord, sinon localStorage).
+  assert.match(app, /transcriptionWorkshopDrafts\.get\(key\) \|\| restoreTranscriptionWorkshopDraftFromStorage\(context\.documentId, page\.id\)/, "reprise du brouillon local à l'ouverture");
+  assert.match(app, /restoreTranscriptionWorkshopDraft\(stored\.record\.snapshot\)/, "snapshot revalidé par le module pur avant import");
+  // Sauvegarde automatique, différée et sans écriture inutile.
+  assert.match(app, /scheduleTranscriptionWorkshopDraftSave\(transcriptionWorkshopDraft\)/, "programmation à chaque édition");
+  assert.match(app, /const TRANSCRIPTION_DRAFT_SAVE_DELAY_MS = 400;/, "regroupement des frappes avant écriture");
+  assert.match(app, /transcriptionDraftLastSnapshots\.get\(key\) === snapshotPayload/, "dernier contenu écrit dédupliqué");
+  // Horodatage et refus d'écraser une version plus récente.
+  assert.match(app, /buildTranscriptionDraftRecord\(draft, new Date\(\)\.toISOString\(\)\)/, "horodatage de dernière sauvegarde");
+  assert.match(app, /transcriptionDraftWriteBlockReason\(storage, draft\.documentId, draft\.pageId, state\?\.savedAt \|\| null\)/, "comparaison avec la dernière version connue avant écriture");
+  assert.match(app, /TRANSCRIPTION_DRAFT_CONFLICT_MESSAGE/, "avertissement explicite d'une version plus récente");
+  // Échec de stockage : avertissement, mémoire conservée, aucune suppression.
+  assert.match(app, /Sauvegarde locale impossible : le stockage du navigateur est indisponible ou complet\./, "échec annoncé en clair");
+  assert.match(app, /Vos modifications restent en mémoire dans l’atelier\./, "conservation en mémoire en cas d'échec");
+  assert.match(app, /function markTranscriptionWorkshopDraftSaveFailure\(key, status, message\)/, "état d'échec marqué par brouillon");
+  assert.equal((app.match(/transcriptionWorkshopDrafts\.clear\(\)/g) || []).length, 1, "la mémoire des brouillons n'est vidée qu'à la fermeture de l'atelier");
+  assert.match(app, /function resetTranscriptionWorkshopState[\s\S]{0,400}transcriptionWorkshopDrafts\.clear\(\)/, "effacement réservé à la fermeture de l'atelier, jamais après un échec");
+  // États affichés discrètement sur le badge.
+  for (const label of ["Enregistrement…", "Enregistré localement", "Échec de sauvegarde"]) {
+    assert.ok(app.includes(`"${label}"`), `état de sauvegarde affiché : ${label}`);
+  }
+  // Fermeture / rechargement : écriture avant jugement, confirmation seulement si non conservé.
+  assert.match(app, /flushTranscriptionWorkshopDraftSaves\(\);\s*\n\s*if \(!transcriptionWorkshopHasUnsavedLocalChanges\(\)\) return true;/, "confirmation conditionnée aux écritures réellement échouées");
+  assert.match(app, /function transcriptionWorkshopHasUnsavedLocalChanges\(\)/, "predicate dédié aux écritures non conservées");
+  assert.match(app, /window\.addEventListener\("pagehide", flushTranscriptionWorkshopDraftSaves\)/, "écriture au rechargement ou à la fermeture de l'onglet");
+  assert.match(app, /flushTranscriptionWorkshopDraftSaves\(\);\s*\n\s*transcriptionWorkshopDraft = null;/, "dernière écriture avant l'effacement de la session");
+  assert.match(app, /addEventListener\("beforeunload"/, "garde conservée pour les écritures non conservées");
+  // Abandon explicite confirmé : retrait limité aux brouillons de cet atelier.
+  assert.match(app, /removeTranscriptionWorkshopDraftRecord\(draft\)/, "retrait de la copie locale après abandon confirmé");
+  assert.match(app, /removeTranscriptionWorkshopDraftRecordFor\(transcriptionWorkshopContext\.documentId, page\.id\)/, "retrait aussi pour les pages jamais ouvertes du document courant");
+  assert.doesNotMatch(app, /localStorage\.clear\(\)/, "aucun effacement global du stockage");
+  // Périmètre : les modules purs restent exempts de stockage et de Firebase.
+  assert.doesNotMatch(workshop, /localStorage/, "aucun localStorage dans le module pur d'atelier");
+  assert.doesNotMatch(documentTranscription, /localStorage/, "aucun localStorage dans le module pur de transcription");
+  assert.doesNotMatch(storageAdapter, /from\s+["'][^"']*firebase/i, "aucun import Firebase dans l'adaptateur de persistance");
+  assert.doesNotMatch(storageAdapter, /\b(setDoc|addDoc|updateDoc|deleteDoc|runTransaction|writeBatch)\s*\(/, "aucune écriture Firestore dans l'adaptateur de persistance");
+  assert.doesNotMatch(storageAdapter, /window\.|document\./, "l'adaptateur ne touche ni DOM ni fenêtre : stockage injecté");
+  assert.match(html, /reprises automatiquement à la prochaine ouverture/, "aide utilisateur alignée sur la persistance");
 });

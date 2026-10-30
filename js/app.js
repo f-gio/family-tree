@@ -43,6 +43,7 @@ import {
   resetTranscriptionWorkshopDraft,
   selectTranscriptionWorkshopPassage,
   isTranscriptionWorkshopPassageChanged,
+  restoreTranscriptionWorkshopDraft,
   transcriptionWorkshopPassagePosition,
   transcriptionWorkshopPassageLabel,
   transcriptionWorkshopTranslationBadge,
@@ -53,6 +54,14 @@ import {
   prepareLegacyDocumentPage,
   LEGACY_DOCUMENT_IMAGE_PREFIX
 } from "./transcription-workshop.js";
+import {
+  buildTranscriptionDraftRecord,
+  serializeTranscriptionDraftRecord,
+  readTranscriptionDraft,
+  writeTranscriptionDraft,
+  removeTranscriptionDraft,
+  transcriptionDraftWriteBlockReason
+} from "./transcription-draft-storage.js";
 import { PROOF_FACT_KINDS, PROOF_FACT_KIND_LABELS, PROOF_RELATION_LABELS, showProofFamilyRelation, validateProofGuidedFields, buildProofGuidedInput } from "./genealogy-proof-form.js";
 import { BACKUP_ARCHIVE_VERSION, createBackupArchiveManifest, compareBackupCaptureMarkers, generateBackupZip, readBackupZip, prepareBackupRestorePlan } from "./backup-archive.js";
 
@@ -4794,18 +4803,31 @@ function createGenealogyId(collectionRef) {
   return doc(collectionRef).id;
 }
 
-/* ---- Atelier de transcription (lot 2B.1) ---------------------------------
+/* ---- Atelier de transcription (lots 2B.1 / 2B.2) -------------------------
    Les corrections restent des brouillons locaux : aucune écriture dans
    transcriptionHeads, transcriptionRevisions, genealogyProofs ou
-   factConclusions. L'atelier se ferme avec une confirmation si des
-   modifications non enregistrées existent. */
+   factConclusions. Depuis le lot 2B.2, chaque brouillon est enregistré
+   automatiquement dans localStorage (clé document + page, horodaté) et repris
+   à la réouverture ; la fermeture ne demande confirmation que si des
+   modifications n'ont pas pu être conservées localement. localStorage n'est
+   pas une sauvegarde synchronisée entre appareils : la publication officielle
+   interviendra dans un incrément ultérieur. */
 
 let transcriptionWorkshopDraft = null;
 let transcriptionWorkshopContext = null;
 /* Brouillons conservés en mémoire pour toute la session de l'atelier, y compris
-   pendant les changements de page. Aucune persistance : la carte est vidée à la
-   fermeture de l'atelier. */
+   pendant les changements de page, en parallèle de leur copie locale. La carte
+   est vidée à la fermeture de l'atelier : la copie localStorage survit seule. */
 let transcriptionWorkshopDrafts = new Map();
+/* État de la sauvegarde locale par brouillon (écriture en attente, enregistré,
+   échec), minuteurs différés anti-frappe et dernier contenu réellement écrit
+   — indexés par la même clé documentId|pageId que la carte des brouillons. */
+let transcriptionDraftSaveStates = new Map();
+let transcriptionDraftSaveTimers = new Map();
+let transcriptionDraftLastSnapshots = new Map();
+const TRANSCRIPTION_DRAFT_SAVE_DELAY_MS = 400;
+const TRANSCRIPTION_DRAFT_FAILURE_MESSAGE = "Sauvegarde locale impossible : le stockage du navigateur est indisponible ou complet. Vos modifications restent en mémoire dans l’atelier.";
+const TRANSCRIPTION_DRAFT_CONFLICT_MESSAGE = "Un brouillon plus récent existe déjà sur cet appareil : sauvegarde interrompue pour ne pas l’écraser.";
 let transcriptionWorkshopZoom = 1;
 let transcriptionWorkshopView = "original";
 let transcriptionWorkshopCompare = false;
@@ -4837,6 +4859,172 @@ function transcriptionWorkshopHasUnsavedChanges() {
     if (draft.dirty) return true;
   }
   return false;
+}
+
+/** Vrai si au moins une page porte des corrections pas encore conservées en
+    local (écriture en attente, échec ou conflit) : c'est le seul cas qui
+    mérite une confirmation de fermeture ou une garde de rechargement. Un
+    brouillon correctement enregistré est repris automatiquement. */
+function transcriptionWorkshopHasUnsavedLocalChanges() {
+  for (const [key, draft] of transcriptionWorkshopDrafts) {
+    if (!draft.dirty) continue;
+    const state = transcriptionDraftSaveStates.get(key);
+    if (!state || state.status !== "saved") return true;
+  }
+  return false;
+}
+
+/** localStorage peut être refusé (mode privé, politique de stockage) : l'absence
+    de stockage rend une sauvegarde impossible sans jamais planter l'atelier. */
+function transcriptionWorkshopDraftStorage() {
+  try {
+    return window.localStorage || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Signale un échec de sauvegarde (ou de retrait) une seule fois par brouillon :
+    l'état reste visible sur le badge et les données restent en mémoire. */
+function markTranscriptionWorkshopDraftSaveFailure(key, status, message) {
+  const previous = transcriptionDraftSaveStates.get(key);
+  const state = { ...(previous || {}), status };
+  const notify = !previous?.notifiedFailure;
+  if (notify) state.notifiedFailure = true;
+  transcriptionDraftSaveStates.set(key, state);
+  updateWorkshopDraftIndicators();
+  if (notify) toast(message, "error");
+}
+
+/** Écriture effective d'un brouillon modifié : baseline horodatée, refus d'un
+    contenu plus récent déjà stocké, déduplication du dernier contenu écrit,
+    puis horodatage de la sauvegarde. */
+function persistTranscriptionWorkshopDraft(draft) {
+  if (!draft) return false;
+  const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
+  if (!draft.dirty) return removeTranscriptionWorkshopDraftRecord(draft);
+  const state = transcriptionDraftSaveStates.get(key);
+  const storage = transcriptionWorkshopDraftStorage();
+  if (!storage) {
+    markTranscriptionWorkshopDraftSaveFailure(key, "failed", TRANSCRIPTION_DRAFT_FAILURE_MESSAGE);
+    return false;
+  }
+  const blockReason = transcriptionDraftWriteBlockReason(storage, draft.documentId, draft.pageId, state?.savedAt || null);
+  if (blockReason) {
+    markTranscriptionWorkshopDraftSaveFailure(key, "conflict", TRANSCRIPTION_DRAFT_CONFLICT_MESSAGE);
+    return false;
+  }
+  const record = buildTranscriptionDraftRecord(draft, new Date().toISOString());
+  const snapshotPayload = JSON.stringify(record.snapshot);
+  if (state?.status === "saved" && transcriptionDraftLastSnapshots.get(key) === snapshotPayload) return true;
+  try {
+    writeTranscriptionDraft(storage, draft.documentId, draft.pageId, record);
+  } catch {
+    markTranscriptionWorkshopDraftSaveFailure(key, "failed", TRANSCRIPTION_DRAFT_FAILURE_MESSAGE);
+    return false;
+  }
+  transcriptionDraftLastSnapshots.set(key, snapshotPayload);
+  transcriptionDraftSaveStates.set(key, { status: "saved", savedAt: record.savedAt, notifiedFailure: false });
+  updateWorkshopDraftIndicators();
+  return true;
+}
+
+/** Retire la copie locale d'un brouillon (abandon explicite ou retour à l'état
+    initial). Un retrait impossible est signalé, jamais supprimé en silence : le
+    contenu local reste alors en place. Ne touche jamais aux autres clés. */
+function removeTranscriptionWorkshopDraftRecordFor(documentId, pageId) {
+  const key = transcriptionWorkshopDraftKey(documentId, pageId);
+  const storage = transcriptionWorkshopDraftStorage();
+  if (storage) {
+    try {
+      if (readTranscriptionDraft(storage, documentId, pageId)) removeTranscriptionDraft(storage, documentId, pageId);
+    } catch {
+      markTranscriptionWorkshopDraftSaveFailure(key, "failed", TRANSCRIPTION_DRAFT_FAILURE_MESSAGE);
+      return false;
+    }
+  }
+  transcriptionDraftLastSnapshots.delete(key);
+  transcriptionDraftSaveStates.delete(key);
+  return true;
+}
+
+function removeTranscriptionWorkshopDraftRecord(draft) {
+  if (!draft) return false;
+  const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
+  const timer = transcriptionDraftSaveTimers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    transcriptionDraftSaveTimers.delete(key);
+  }
+  return removeTranscriptionWorkshopDraftRecordFor(draft.documentId, draft.pageId);
+}
+
+/** Sauvegarde locale différée : regroupe les frappes (écritures inutiles
+    évitées) et rend l'état « Enregistrement… » immédiatement visible. Un
+    brouillon redevenu identique à l'original retire sa copie locale. */
+function scheduleTranscriptionWorkshopDraftSave(draft) {
+  if (!draft) return;
+  const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
+  if (!draft.dirty) {
+    removeTranscriptionWorkshopDraftRecord(draft);
+    updateWorkshopDraftIndicators();
+    return;
+  }
+  const previous = transcriptionDraftSaveStates.get(key);
+  transcriptionDraftSaveStates.set(key, { ...(previous || {}), status: "pending" });
+  const pendingTimer = transcriptionDraftSaveTimers.get(key);
+  if (pendingTimer) clearTimeout(pendingTimer);
+  transcriptionDraftSaveTimers.set(key, setTimeout(() => {
+    transcriptionDraftSaveTimers.delete(key);
+    persistTranscriptionWorkshopDraft(draft);
+  }, TRANSCRIPTION_DRAFT_SAVE_DELAY_MS));
+  updateWorkshopDraftIndicators();
+}
+
+/** Écriture immédiate de toutes les sauvegardes en attente (fermeture,
+    rechargement, confirmation de sortie) : après cet appel, un brouillon non
+    conservé est réellement en échec, pas simplement en attente. */
+function flushTranscriptionWorkshopDraftSaves() {
+  for (const [key, timer] of transcriptionDraftSaveTimers) {
+    clearTimeout(timer);
+    transcriptionDraftSaveTimers.delete(key);
+    persistTranscriptionWorkshopDraft(transcriptionWorkshopDrafts.get(key));
+  }
+}
+
+/** Reprend le brouillon local d'une page, ou null. Un contenu propre ou
+    illisible est retiré ; un contenu incohérent n'est jamais importé. */
+function restoreTranscriptionWorkshopDraftFromStorage(documentId, pageId) {
+  const storage = transcriptionWorkshopDraftStorage();
+  if (!storage) return null;
+  const stored = readTranscriptionDraft(storage, documentId, pageId);
+  if (!stored) return null;
+  const key = transcriptionWorkshopDraftKey(documentId, pageId);
+  let draft = null;
+  try {
+    draft = restoreTranscriptionWorkshopDraft(stored.record.snapshot);
+  } catch {
+    draft = null;
+  }
+  if (!draft) {
+    try {
+      removeTranscriptionDraft(storage, documentId, pageId);
+    } catch {
+      /* Rien de fiable à retirer : la clé sera rejetée à chaque lecture. */
+    }
+    return null;
+  }
+  if (!draft.dirty) {
+    try {
+      removeTranscriptionDraft(storage, documentId, pageId);
+    } catch {
+      /* Brouillon propre : retrait best effort, sans conséquence fonctionnelle. */
+    }
+    return null;
+  }
+  transcriptionDraftLastSnapshots.set(key, JSON.stringify(stored.record.snapshot));
+  transcriptionDraftSaveStates.set(key, { status: "saved", savedAt: stored.record.savedAt, notifiedFailure: false });
+  return draft;
 }
 
 function transcriptionWorkshopCollectionsState() {
@@ -5184,13 +5372,15 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
     photos,
     imageSrc: transcriptionWorkshopImageSource(photo)
   };
-  /* Restaure le brouillon de la page si des corrections existent déjà pour elle ;
-     un brouillon sans correction est recréé pour refléter les données à jour
-     (chargement terminé, révision reçue pendant la session). */
+  /* Restaure le brouillon de la page : d'abord celui de la session, sinon sa
+     copie locale (localStorage) — reprise après fermeture, changement de page
+     ou rechargement. Un brouillon sans correction est recréé pour refléter les
+     données à jour (chargement terminé, révision reçue pendant la session). */
   const key = transcriptionWorkshopDraftKey(context.documentId, page.id);
-  const existing = transcriptionWorkshopDrafts.get(key);
+  const existing = transcriptionWorkshopDrafts.get(key) || restoreTranscriptionWorkshopDraftFromStorage(context.documentId, page.id);
   if (existing?.dirty) {
     transcriptionWorkshopDraft = existing;
+    transcriptionWorkshopDrafts.set(key, existing);
   } else {
     const { passages } = proofPassagesForPage(context.documentId, page.id);
     transcriptionWorkshopDraft = createTranscriptionWorkshopDraft({
@@ -5660,9 +5850,13 @@ function updateWorkshopNavigation() {
 }
 
 function syncWorkshopUnloadGuard() {
-  const needsGuard = transcriptionWorkshopHasUnsavedChanges();
+  const needsGuard = transcriptionWorkshopHasUnsavedLocalChanges();
   if (needsGuard && !transcriptionWorkshopUnloadHandler) {
     transcriptionWorkshopUnloadHandler = event => {
+      /* Écrit les sauvegardes en attente avant jugement : un brouillon qui
+         vient d'être conservé ne déclenche aucun avertissement. */
+      flushTranscriptionWorkshopDraftSaves();
+      if (!transcriptionWorkshopHasUnsavedLocalChanges()) return;
       event.preventDefault();
       event.returnValue = "";
     };
@@ -5676,12 +5870,23 @@ function syncWorkshopUnloadGuard() {
 function updateWorkshopDraftIndicators() {
   const draft = transcriptionWorkshopDraft;
   if (!draft) return;
-  /* Indicateur compact permanent + avertissement de perte seulement quand
-     l'utilisateur risque réellement de perdre ses modifications. */
-  const dirty = transcriptionWorkshopHasUnsavedChanges();
-  $("workshopDraftBadge").classList.toggle("is-dirty", dirty);
-  $("workshopDraftBadge").setAttribute("aria-label", dirty ? "Modifications non enregistrées. Afficher l’aide du brouillon." : "Brouillon local. Afficher l’aide.");
-  $("workshopDraftBadge").title = dirty ? "Modifications non enregistrées" : "Brouillon local";
+  /* État de sauvegarde locale, discrètement porté par le badge unique :
+     brouillon propre, écriture en attente, version conservée localement ou
+     échec — sans notification répétée (le toast n'est émis qu'une fois). */
+  const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
+  const state = transcriptionDraftSaveStates.get(key);
+  const failed = state?.status === "failed" || state?.status === "conflict";
+  const pending = state?.status === "pending";
+  const status = failed ? "Échec de sauvegarde"
+    : pending ? "Enregistrement…"
+      : draft.dirty ? (state?.status === "saved" ? "Enregistré localement" : "Enregistrement…")
+        : "Brouillon local";
+  const dirty = failed || pending || (draft.dirty && state?.status !== "saved");
+  const badge = $("workshopDraftBadge");
+  badge.textContent = status;
+  badge.classList.toggle("is-dirty", dirty);
+  badge.setAttribute("aria-label", `${status}. Afficher l’aide du brouillon.`);
+  badge.title = status;
   syncWorkshopUnloadGuard();
   updateWorkshopNavigation();
 }
@@ -5689,22 +5894,32 @@ function updateWorkshopDraftIndicators() {
 function setWorkshopPage(pageId) {
   const context = transcriptionWorkshopContext;
   if (!context || pageId === context.pageId) return;
-  /* Aucune confirmation : les corrections des autres pages restent en mémoire et
-     sont restaurées au retour. La confirmation a lieu à la fermeture ou lors de
-     l'abandon global. */
+  /* Aucune confirmation : les corrections des autres pages restent en mémoire,
+     sont écrites en local au fil de l'eau et restaurées au retour. La
+     confirmation a lieu à la fermeture ou lors de l'abandon global. */
   openTranscriptionWorkshopFor(context, pageId, "");
 }
 
 function confirmTranscriptionWorkshopClose() {
-  if (!transcriptionWorkshopHasUnsavedChanges()) return true;
-  return confirm("Des modifications non enregistrées dans l’atelier seront perdues. Fermer quand même ?");
+  /* Les écritures en attente sont d'abord exécutées : la confirmation ne
+     sert que si un contenu n'a pas pu être conservé localement. Un brouillon
+     enregistré ferme sans friction et sera repris à la prochaine ouverture. */
+  flushTranscriptionWorkshopDraftSaves();
+  if (!transcriptionWorkshopHasUnsavedLocalChanges()) return true;
+  return confirm("Certaines modifications n’ont pas pu être enregistrées localement et seront perdues. Fermer quand même ?");
 }
 
 function resetTranscriptionWorkshopState() {
-  syncWorkshopUnloadGuard();
+  /* Dernière écriture avant effacement mémoire : la fermeture de l'atelier
+     conserve les brouillons, elle ne les détruit pas. */
+  flushTranscriptionWorkshopDraftSaves();
   transcriptionWorkshopDraft = null;
   transcriptionWorkshopContext = null;
   transcriptionWorkshopDrafts.clear();
+  transcriptionDraftSaveTimers.clear();
+  transcriptionDraftSaveStates.clear();
+  transcriptionDraftLastSnapshots.clear();
+  syncWorkshopUnloadGuard();
   transcriptionWorkshopCompare = false;
   transcriptionWorkshopView = "original";
   releaseWorkshopObjectUrl();
@@ -5770,6 +5985,7 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     } catch (error) { return toast(error.message || "Ajout du passage impossible.", "error"); }
     if (transcriptionWorkshopView === "original") transcriptionWorkshopView = "italian";
     transcriptionWorkshopCompare = false;
+    scheduleTranscriptionWorkshopDraftSave(draft);
     renderTranscriptionWorkshop();
     selectWorkshopPassage(id, { scroll: true });
     focusWorkshopPassageField(id);
@@ -5785,6 +6001,7 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     if (!confirm("Supprimer ce passage du brouillon ?")) return;
     try { removeTranscriptionWorkshopPassage(draft, passageId); }
     catch (error) { return toast(error.message || "Suppression impossible.", "error"); }
+    scheduleTranscriptionWorkshopDraftSave(draft);
     renderTranscriptionWorkshop();
     if (draft.selectedPassageId) selectWorkshopPassage(draft.selectedPassageId, { scroll: false });
     toast("Passage supprimé du brouillon.");
@@ -5804,6 +6021,14 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     if (!transcriptionWorkshopHasUnsavedChanges()) return;
     if (!confirm("Annuler toutes les modifications non enregistrées de cet atelier, sur toutes les pages ?")) return;
     for (const draft of transcriptionWorkshopDrafts.values()) resetTranscriptionWorkshopDraft(draft);
+    /* Abandon explicite confirmé : retire les copies locales des brouillons de
+       cet atelier seulement (pages ouvertes annulées ci-dessus, puis pages du
+       document courant éventuellement jamais ouvertes). Les autres documents
+       et le reste du stockage ne sont jamais touchés. */
+    for (const draft of transcriptionWorkshopDrafts.values()) removeTranscriptionWorkshopDraftRecord(draft);
+    for (const page of transcriptionWorkshopContext?.pages || []) {
+      removeTranscriptionWorkshopDraftRecordFor(transcriptionWorkshopContext.documentId, page.id);
+    }
     renderTranscriptionWorkshop();
     if (transcriptionWorkshopDraft?.selectedPassageId) selectWorkshopPassage(transcriptionWorkshopDraft.selectedPassageId, { scroll: false });
     toast("Toutes les modifications de la session ont été annulées.");
@@ -5829,10 +6054,15 @@ $("transcriptionWorkshopView").addEventListener("input", event => {
       [field.dataset.workshopField]: field.value
     });
   } catch (error) { toast(error.message || "Modification impossible.", "error"); return; }
+  scheduleTranscriptionWorkshopDraftSave(transcriptionWorkshopDraft);
   refreshWorkshopPassageBadges(field.dataset.workshopPassage);
   updateWorkshopDraftIndicators();
   if (transcriptionWorkshopCompare) renderWorkshopCompareContent();
 });
+
+/* Rechargement ou fermeture de l'onglet : écriture immédiate des sauvegardes
+   en attente, pour que le brouillon soit repris au prochain chargement. */
+window.addEventListener("pagehide", flushTranscriptionWorkshopDraftSaves);
 
 /* Retour système du navigateur : l'entrée d'historique réelle de l'atelier est
    consommée par Retour — même sortie confirmée que le bouton Retour, jamais de
