@@ -821,10 +821,8 @@
 <div class="dedicated-page-heading transcription-workshop-heading"><p class="page-kicker">Atelier de transcription</p><h2 id="workshopDocumentTitle"></h2><p class="card-meta" id="workshopPageLabel"></p></div>
 <div class="dedicated-page-actions dedicated-page-side transcription-workshop-head-status">
 <!-- Emplacement de la validation officielle (incrément 2) : « Valider la transcription »
-     prendra place ici, en action primaire, avant le statut de sauvegarde.
-     Aucun bouton de publication n'est affiché tant que ce mécanisme n'existe pas. -->
+     prendra place ici, en action primaire, avant le menu des actions secondaires. -->
 <div class="dedicated-page-actions-row">
-<span class="transcription-workshop-save-status" id="workshopSaveStatus" role="status">Brouillon local</span>
 <details class="transcription-workshop-menu" id="workshopActionsMenu"><summary class="btn icon-btn" aria-label="Plus d’actions de l’atelier" title="Plus d’actions">⋯</summary><div class="transcription-workshop-menu-panel"><button class="btn" type="button" id="workshopSaveDraftBtn" title="Écrire le brouillon dans le stockage local de ce navigateur">Enregistrer maintenant</button><button class="btn" type="button" id="workshopHelpBtn" aria-expanded="false" aria-controls="workshopDraftHelp">Afficher l’aide</button><button class="btn danger" type="button" id="workshopResetBtn">Annuler les changements</button></div></details>
 </div>
 <button class="btn dedicated-page-back" type="button" id="workshopBackBtn" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
@@ -849,6 +847,7 @@
 <div class="transcription-workshop-panel-head"><div class="transcription-workshop-passage-nav"><button class="btn icon-btn" type="button" id="workshopPrevBtn" aria-label="Passage précédent" title="Passage précédent"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button><span class="card-meta" id="workshopStatus" role="status"></span><button class="btn icon-btn" type="button" id="workshopNextBtn" aria-label="Passage suivant" title="Passage suivant"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-right"></use></svg></button></div><button class="btn small" type="button" id="workshopAddPassageBtn">+ Ajouter un passage</button></div>
 <div class="transcription-workshop-list" id="workshopPassageList"></div>
 <section class="transcription-workshop-compare" id="workshopComparePanel" aria-label="Mode comparer"><div class="transcription-workshop-panel-head"><h4>Comparer le passage</h4><button class="btn small" type="button" id="workshopCompareCloseBtn">Fermer</button></div><div id="workshopCompareContent"></div></section>
+<div class="transcription-workshop-footer"><span class="transcription-workshop-save-status" id="workshopSaveStatus" role="status">Brouillon local</span></div>
 </section>
 </div>
 </main>

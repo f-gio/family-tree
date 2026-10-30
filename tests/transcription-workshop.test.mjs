@@ -332,8 +332,14 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.ok(headStatus, "colonne d’actions de l’en-tête présente");
   assert.ok(headStatus.includes('id="workshopBackBtn"'), "Retour placé dans la colonne d’actions de l’en-tête");
   assert.ok(headStatus.indexOf('id="workshopBackBtn"') > headStatus.indexOf('id="workshopActionsMenu"'), "Retour positionné sous le menu « … »");
-  assert.ok(headStatus.indexOf('id="workshopSaveStatus"') < headStatus.indexOf('id="workshopActionsMenu"'), "statut compact dans la rangée, avant le menu");
+  assert.ok(!headStatus.includes('id="workshopSaveStatus"'), "statut de sauvegarde retiré de l’en-tête");
   assert.doesNotMatch(html, /class="dedicated-page-return"/, "aucune ligne Retour indépendante ne subsiste");
+  /* Statut de sauvegarde : pied d'atelier, en bas du panneau de transcription
+     (après le contenu éditable), jamais au-dessus du document. */
+  assert.match(html, /class="transcription-workshop-footer"/, "pied d’atelier présent");
+  assert.ok(html.indexOf('id="workshopSaveStatus"') > html.indexOf('id="workshopPassageList"'), "statut après la liste de transcription");
+  assert.ok(html.indexOf('id="workshopSaveStatus"') > html.indexOf('id="workshopComparePanel"'), "statut en fin du panneau de transcription");
+  assert.ok(html.indexOf('id="workshopSaveStatus"') > html.indexOf('id="transcriptionWorkshopView"'), "statut contenu dans la vue atelier");
   /* Sauvegarde manuelle : action secondaire du menu « … », jamais un gros
      bouton dans l'en-tête — l'autosauvegarde reste le fonctionnement principal. */
   assert.match(html, /id="workshopActionsMenu"[\s\S]{0,800}id="workshopSaveDraftBtn"/, "« Enregistrer maintenant » vit dans le panneau du menu");
@@ -560,6 +566,40 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     await openWorkshop();
     assert.equal(await page.evaluate(() => window.__repro.badge()), "Brouillon local", "badge initial au repos");
 
+    /* En-tête desktop compact (modèle fiche Document) et statut de sauvegarde
+       en pied du panneau de transcription — jamais dans l'en-tête, jamais côté
+       photographie. */
+    const desktopLayout = await page.evaluate(() => {
+      const header = document.querySelector(".transcription-workshop-header").getBoundingClientRect();
+      const status = document.getElementById("workshopSaveStatus").getBoundingClientRect();
+      const list = document.getElementById("workshopPassageList").getBoundingClientRect();
+      const divider = document.getElementById("workshopDivider").getBoundingClientRect();
+      const panelRight = document.getElementById("workshopPanelRight").getBoundingClientRect();
+      return {
+        headerHeight: Math.round(header.height),
+        statusTop: Math.round(status.top),
+        statusLeft: Math.round(status.left),
+        statusHeight: Math.round(status.height),
+        headerBottom: Math.round(header.bottom),
+        listBottom: Math.round(list.bottom),
+        dividerRight: Math.round(divider.right),
+        panelRightTop: Math.round(panelRight.top),
+        panelRightBottom: Math.round(panelRight.bottom),
+        inHeader: !!document.getElementById("workshopSaveStatus").closest(".transcription-workshop-header"),
+        inRightPanel: !!document.getElementById("workshopSaveStatus").closest("#workshopPanelRight"),
+        inFooter: !!document.getElementById("workshopSaveStatus").closest(".transcription-workshop-footer")
+      };
+    });
+    assert.ok(desktopLayout.headerHeight <= 105, `en-tête desktop compact (${desktopLayout.headerHeight}px ≤ 105px, 109px avant)`);
+    assert.equal(desktopLayout.inHeader, false, "statut hors de l’en-tête sur desktop");
+    assert.equal(desktopLayout.inRightPanel, true, "statut dans le panneau de transcription");
+    assert.equal(desktopLayout.inFooter, true, "statut dans le pied d’atelier");
+    assert.ok(desktopLayout.statusTop >= desktopLayout.headerBottom - 1, "statut sous l’en-tête");
+    assert.ok(desktopLayout.statusTop >= desktopLayout.listBottom - 1, "statut après le contenu éditable");
+    assert.ok(desktopLayout.statusLeft >= desktopLayout.dividerRight - 1, "statut à droite du séparateur, associé à la transcription");
+    assert.ok(desktopLayout.statusTop >= desktopLayout.panelRightTop && desktopLayout.statusTop <= desktopLayout.panelRightBottom, "statut contenu dans le panneau de transcription");
+    assert.ok(desktopLayout.statusHeight > 0, "statut visible sur desktop");
+
     /* Saisie puis autosauvegarde : état écrit réellement. */
     await page.fill('[data-workshop-field="textIt"]', "Anno millenovecentosedici");
     await page.fill('[data-workshop-field="translationFr"]', "L’année mille neuf cent seize");
@@ -725,7 +765,6 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 const heading = document.querySelector(".transcription-workshop-heading").getBoundingClientRect();
                 const label = document.getElementById("workshopPageLabel");
                 const labelRect = label.getBoundingClientRect();
-                const status = document.getElementById("workshopSaveStatus").getBoundingClientRect();
                 const menu = document.getElementById("workshopActionsMenu").getBoundingClientRect();
                 const back = document.getElementById("workshopBackBtn").getBoundingClientRect();
                 const tabs = [...document.querySelectorAll(".transcription-workshop-tab")].map(tab => { const r = tab.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
@@ -735,9 +774,9 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                   kickerScroll: kicker.scrollWidth,
                   headingWidth: Math.round(heading.width),
                   headingBottom: heading.bottom,
+                  headerHeight: header.height,
                   labelWhiteSpace: getComputedStyle(label).whiteSpace,
                   labelHeight: Math.round(labelRect.height),
-                  statusTop: status.top,
                   menuTop: menu.top, menuRight: menu.right, menuHeight: Math.round(menu.height),
                   backTop: back.top, backRight: back.right, backWidth: Math.round(back.width), backHeight: Math.round(back.height),
                   headerRight: header.right,
@@ -752,8 +791,12 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               /* « Page X · Y passages » compact : une seule ligne. */
               assert.equal(layout.labelWhiteSpace, "nowrap", "libellé de page sur une seule ligne");
               assert.ok(layout.labelHeight <= 26, `libellé de page compact sans retour à la ligne (${layout.labelHeight}px)`);
-              /* Empilement : actions sous le titre, sans chevauchement. */
-              assert.ok(layout.headingBottom <= layout.statusTop + 1, `actions sous le titre sans chevauchement (${layout.headingBottom} ≤ ${layout.statusTop})`);
+              /* En-tête compact : moins haut qu'auparavant (211 px max à 390,
+                 208 px à 320 dans la version précédente). */
+              assert.ok(layout.headerHeight <= 205, `en-tête mobile compact (${layout.headerHeight}px ≤ 205px)`);
+              /* Empilement : actions (menu) sous le titre, sans chevauchement —
+                 le statut de sauvegarde n'est plus dans l'en-tête. */
+              assert.ok(layout.headingBottom <= layout.menuTop + 1, `menu sous le titre sans chevauchement (${layout.headingBottom} ≤ ${layout.menuTop})`);
               /* Menu à droite ; Retour à droite, sous le menu ; cibles ≥ 44 px. */
               assert.ok(layout.menuRight <= layout.headerRight + 1, "menu « … » à droite de l’en-tête");
               assert.ok(layout.backRight <= layout.headerRight + 1, "Retour à droite de l’en-tête");
@@ -772,6 +815,32 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 assert.ok(toolWidth >= 44 && toolHeight >= 44, `outil photo ≥ 44 px (${toolWidth}×${toolHeight})`);
               }
 
+              /* Statut de sauvegarde : pied d'atelier du panneau de
+                 transcription, visible après la zone de saisie — jamais dans
+                 l'en-tête, jamais au-dessus de l'image. */
+              const inHeader = await page.evaluate(() => !!document.getElementById("workshopSaveStatus").closest(".transcription-workshop-header"));
+              assert.equal(inHeader, false, "statut absent de l’en-tête");
+              await page.click("#workshopTabItalian");
+              await page.waitForTimeout(150);
+              const footerState = await page.evaluate(() => {
+                const status = document.getElementById("workshopSaveStatus").getBoundingClientRect();
+                const list = document.getElementById("workshopPassageList").getBoundingClientRect();
+                const header = document.querySelector(".transcription-workshop-header").getBoundingClientRect();
+                return {
+                  statusTop: Math.round(status.top),
+                  statusHeight: Math.round(status.height),
+                  listBottom: Math.round(list.bottom),
+                  headerBottom: Math.round(header.bottom),
+                  inFooter: !!document.getElementById("workshopSaveStatus").closest(".transcription-workshop-footer"),
+                  inRightPanel: !!document.getElementById("workshopSaveStatus").closest("#workshopPanelRight")
+                };
+              });
+              assert.equal(footerState.inFooter, true, "statut dans le pied d’atelier");
+              assert.equal(footerState.inRightPanel, true, "statut dans le panneau de transcription");
+              assert.ok(footerState.statusHeight > 0, "statut visible sur l’onglet de saisie");
+              assert.ok(footerState.statusTop >= footerState.headerBottom - 1, `statut hors de l’en-tête (${footerState.statusTop} ≥ ${footerState.headerBottom})`);
+              assert.ok(footerState.statusTop >= footerState.listBottom - 1, `statut après la zone de saisie (${footerState.statusTop} ≥ ${footerState.listBottom})`);
+
               /* Menu contextuel complet en mobile : ouverture, clic extérieur, Échap. */
               await page.click("#workshopActionsMenu > summary");
               assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "menu ouvert");
@@ -781,7 +850,38 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               await page.keyboard.press("Escape");
               assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "Échap ferme le menu");
 
-              /* Sortie sans friction (aucun brouillon modifié), retours nets. */
+              /* Échec de stockage : avertissement immédiat même si le statut
+                 est en bas, brouillon conservé en mémoire, aucun succès
+                 trompeur — puis récupération par « Enregistrer maintenant ». */
+              await page.fill('[data-workshop-field="textIt"]', "Anno sotto errore");
+              await page.evaluate(() => {
+                window.__nativeSetItem = Storage.prototype.setItem;
+                Storage.prototype.setItem = function() {
+                  const error = new Error("QuotaExceededError");
+                  error.name = "QuotaExceededError";
+                  throw error;
+                };
+              });
+              await page.waitForTimeout(700);
+              const failure = await page.evaluate(() => ({
+                status: document.getElementById("workshopSaveStatus").textContent,
+                failedClass: document.getElementById("workshopSaveStatus").classList.contains("is-failed"),
+                warningVisible: [...document.querySelectorAll(".toast")].some(toast => toast.textContent.includes("Sauvegarde locale impossible") && toast.classList.contains("show")),
+                firstField: document.querySelector('[data-workshop-field="textIt"]')?.value
+              }));
+              assert.equal(failure.status, "Échec de sauvegarde", "état d’échec affiché dans le pied");
+              assert.equal(failure.failedClass, true, "état d’échec coloré");
+              assert.equal(failure.warningVisible, true, "avertissement immédiat visible via le toast");
+              assert.equal(failure.firstField, "Anno sotto errore", "brouillon conservé en mémoire malgré l’échec");
+              await page.evaluate(() => { Storage.prototype.setItem = window.__nativeSetItem; });
+              await page.click("#workshopActionsMenu > summary");
+              await page.click("#workshopSaveDraftBtn");
+              await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré localement", undefined, { timeout: 3000 });
+              const recovered = await page.evaluate(() => ({ stored: window.__repro.stored().length, status: document.getElementById("workshopSaveStatus").textContent }));
+              assert.ok(recovered.stored >= 1, "récupération écrite après rétablissement du stockage");
+              assert.equal(recovered.status, "Enregistré localement", "retour à un état de succès réel");
+
+              /* Sortie sans friction (brouillon enregistré), retours nets. */
               await page.click("#workshopBackBtn");
               await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
               assert.deepEqual(dialogs, [], "sortie sans confirmation");
