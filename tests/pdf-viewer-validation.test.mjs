@@ -47,6 +47,14 @@ const server = createServer(async (request, response) => {
       response.end(fixture);
       return;
     }
+    if (pathname.startsWith("/source/")) {
+      const target = resolve(pathname.slice("/source/".length));
+      assert.ok(target.startsWith(`${resolve(".")}\\`), "source de test limité au workspace");
+      const bytes = await readFile(target);
+      response.writeHead(200, { "content-type": contentTypes[extname(target).toLowerCase()] || "application/octet-stream" });
+      response.end(bytes);
+      return;
+    }
     if (pathname === "/invalid.pdf") {
       response.writeHead(200, { "content-type": "application/pdf" });
       response.end("not a PDF");
@@ -90,8 +98,9 @@ async function buildPageDocument() {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><link rel="stylesheet" href="${baseUrl}/css/design-system.css"><style>${inlineStyles}</style></head><body>${source.slice(pageStart, pageEnd)}</body></html>`;
 }
 
-async function openViewerPage(page) { return page.evaluate(async url => {
-    const { createDocumentPdfViewer } = await import(`${url}/js/document-pdf-viewer.js`);
+async function openViewerPage(page, useCurrentSource = false) { return page.evaluate(async ({ url, useCurrentSource }) => {
+    const modulePath = useCurrentSource ? `${url}/source/js/document-pdf-viewer.js` : `${url}/js/document-pdf-viewer.js`;
+    const { createDocumentPdfViewer } = await import(modulePath);
     const get = id => document.getElementById(id);
     const dialog = get("documentDetailView");
     dialog.hidden = false;
@@ -174,7 +183,7 @@ async function openViewerPage(page) { return page.evaluate(async url => {
       fullscreenHost: dialog.querySelector(".document-original-panel"), fullscreenRoot: dialog, zoomIndicator: get("pdfZoomIndicator"),
       bindingRoot: dialog
     });
-}, baseUrl); }
+}, { url: baseUrl, useCurrentSource }); }
 
 const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
 :root{--control-touch:44px;--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--radius-sm:4px;--color-surface:#fff;--color-text:#222;--color-brand:#285a43;--color-surface-muted:#ddd;--border-default:1px solid #aaa;--shadow-low:0 1px 3px #777}
@@ -671,14 +680,15 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
   }
 });
 
-test("PDF plein écran repli (iPhone) : viewport complet, commandes actives, sortie par le bouton", async () => {
+test("PDF plein écran mobile : viewport complet, commande X unique, gestes et cycles restaurés", async () => {
   const pageDocument = await buildPageDocument();
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
     await page.setContent(pageDocument, { waitUntil: "load" });
-    await openViewerPage(page);
+    await page.addStyleTag({ url: `${baseUrl}/source/css/design-system.css` });
+    await openViewerPage(page, true);
     await page.waitForFunction(() => document.getElementById("viewerPdfPageCanvas").width > 0, undefined, { timeout: 15000 });
 
     /* Cas iPhone : l'API Fullscreen native n'existe pas sur les éléments
@@ -705,9 +715,15 @@ test("PDF plein écran repli (iPhone) : viewport complet, commandes actives, sor
         width: rect.width,
         height: rect.height,
         exitLabel: document.getElementById("pdfFullscreenBtn").getAttribute("aria-label"),
+        immersive: pageView.classList.contains("is-viewer-fullscreen-mobile"),
+        mediaMobile: matchMedia("(max-width: 760px)").matches,
+        immersiveTargets: [...document.querySelectorAll(".is-viewer-fullscreen-mobile")].map(element => `${element.tagName}#${element.id}`),
+        icon: document.getElementById("pdfFullscreenBtn").querySelector("use")?.getAttribute("href"),
+        visibleCommands: [...pageView.querySelectorAll("button, a")].filter(button => getComputedStyle(button).display !== "none" && button.getClientRects().length).map(button => button.id),
+        fullscreenButtonRect: (() => { const button = document.getElementById("pdfFullscreenBtn").getBoundingClientRect(); return [button.x, button.y, button.right, button.bottom]; })(),
+        headerRect: (() => { const header = pageView.querySelector(".document-detail-header").getBoundingClientRect(); return [header.x, header.y, header.right, header.bottom]; })(),
         nativeFullscreen: Boolean(document.fullscreenElement),
         viewport: [innerWidth, innerHeight],
-        safePadding: (() => { const style = getComputedStyle(pageView.querySelector(".document-original-panel")); return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft]; })(),
         zoom: window.pdfViewerTestState.getState().zoom
       };
     });
@@ -716,17 +732,58 @@ test("PDF plein écran repli (iPhone) : viewport complet, commandes actives, sor
     assert.equal(fullscreenState.bodyLocked, true, "défilement de la page figé pendant le plein écran");
     assert.equal(fullscreenState.zIndex, "130", "le plein écran passe au-dessus du reste de l'interface");
     assert.ok(fullscreenState.width >= fullscreenState.viewport[0] - 1 && fullscreenState.height >= fullscreenState.viewport[1] - 1, `la page occupe tout le viewport (${fullscreenState.width}×${fullscreenState.height} / ${fullscreenState.viewport.join("×")})`);
-    assert.ok(fullscreenState.safePadding.every(value => parseFloat(value) >= 12), `safe areas réservées en plein écran (${fullscreenState.safePadding.join(",")})`);
+    assert.ok(fullscreenState.fullscreenButtonRect[0] >= 12 && fullscreenState.fullscreenButtonRect[1] >= 12 && fullscreenState.fullscreenButtonRect[2] <= fullscreenState.viewport[0] - 12, "la croix respecte les safe areas");
     assert.equal(fullscreenState.exitLabel, "Quitter le plein écran", "commande de sortie explicite");
-    assert.ok(Math.abs(fullscreenState.zoom - zoomBeforeFullscreen) <= 0.0001, "zoom conservé à l'entrée du plein écran");
+    assert.equal(fullscreenState.immersive, true, `état immersif mobile actif (matchMedia=${fullscreenState.mediaMobile}, cibles=${fullscreenState.immersiveTargets.join(",")})`);
+    assert.equal(fullscreenState.icon, "#icon-close", "la commande fullscreen devient une croix");
+    assert.deepEqual(fullscreenState.visibleCommands, ["pdfFullscreenBtn"], "la croix est la seule commande visible");
+    assert.ok(fullscreenState.fullscreenButtonRect[0] >= fullscreenState.headerRect[2] || fullscreenState.fullscreenButtonRect[1] + 44 <= fullscreenState.headerRect[1], "la croix ne chevauche pas l'en-tête");
+    assert.equal(fullscreenState.zoom, 1, "la page commence ajustée au viewport");
 
-    /* Commandes essentielles actives en plein écran : navigation et zoom. */
-    await page.locator("#pdfNextPageBtn").click();
+    const swipeToNextPage = () => page.evaluate(() => {
+      const viewport = document.getElementById("viewerPdfPageViewport");
+      const dispatch = (type, points, changed = points) => {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "touches", { value: points.map(([clientX, clientY], identifier) => ({ clientX, clientY, identifier })) });
+        Object.defineProperty(event, "changedTouches", { value: changed.map(([clientX, clientY], identifier) => ({ clientX, clientY, identifier })) });
+        viewport.dispatchEvent(event);
+      };
+      dispatch("touchstart", [[190, 650]]);
+      dispatch("touchend", [], [[190, 500]]);
+    });
+    await page.evaluate(() => {
+      const viewport = document.getElementById("viewerPdfPageViewport");
+      const dispatch = (type, points, changed = points) => {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "touches", { value: points.map(([clientX, clientY], identifier) => ({ clientX, clientY, identifier })) });
+        Object.defineProperty(event, "changedTouches", { value: changed.map(([clientX, clientY], identifier) => ({ clientX, clientY, identifier })) });
+        viewport.dispatchEvent(event);
+      };
+      dispatch("touchstart", [[140, 360], [250, 360]]);
+      dispatch("touchmove", [[20, 360], [360, 360]]);
+      dispatch("touchend", []);
+    });
+    await page.waitForFunction(() => window.pdfViewerTestState.getState().zoom > 1.2);
+    await page.waitForFunction(() => document.getElementById("viewerPdfPageCanvas").getBoundingClientRect().width > 400);
+    assert.ok(await page.locator("#viewerPdfPageCanvas").evaluate(canvas => canvas.getBoundingClientRect().width > 400), "le pincement agrandit le rendu PDF");
+    const zoomedViewport = await page.locator("#viewerPdfPageViewport").boundingBox();
+    await page.mouse.move(zoomedViewport.x + zoomedViewport.width / 2, zoomedViewport.y + zoomedViewport.height / 2);
+    const scrollBeforePan = await page.locator("#viewerPdfPageViewport").evaluate(viewport => viewport.scrollTop);
+    await page.mouse.wheel(0, 120);
+    await page.waitForTimeout(80);
+    const scrollAfterPan = await page.locator("#viewerPdfPageViewport").evaluate(viewport => viewport.scrollTop);
+    const panGeometry = await page.locator("#viewerPdfPageViewport").evaluate(viewport => ({ scrollTop: viewport.scrollTop, scrollHeight: viewport.scrollHeight, clientHeight: viewport.clientHeight, canvas: viewport.firstElementChild.getBoundingClientRect().toJSON() }));
+    assert.notEqual(scrollAfterPan, scrollBeforePan, `le lecteur PDF agrandi se déplace dans son viewport défilable (${JSON.stringify({ scrollBeforePan, scrollAfterPan, ...panGeometry })})`);
+    await page.evaluate(() => window.pdfViewerTestState.reset());
+    await page.waitForFunction(() => window.pdfViewerTestState.getState().zoom === 1);
+    const pageViewportBox = await page.locator("#viewerPdfPageViewport").boundingBox();
+    await page.mouse.move(pageViewportBox.x + pageViewportBox.width / 2, pageViewportBox.y + pageViewportBox.height / 2);
+    await page.mouse.wheel(0, 140);
     await page.waitForFunction(() => document.getElementById("pdfPageStatus").textContent.includes("2 / 24"));
-    await page.locator("#pdfZoomOutBtn").click();
-    await page.waitForFunction(previous => window.pdfViewerTestState.getState().zoom < previous, zoomBeforeFullscreen);
-    assert.equal(await page.locator("#pdfPageNav").isVisible(), true, "pagination visible en plein écran");
-    assert.equal(await page.locator("#pdfFullscreenBtn").isVisible(), true, "barre d'outils visible en plein écran");
+    await page.mouse.wheel(0, -140);
+    await page.waitForFunction(() => document.getElementById("pdfPageStatus").textContent.includes("1 / 24"));
+    await swipeToNextPage();
+    await page.waitForFunction(() => document.getElementById("pdfPageStatus").textContent.includes("2 / 24"));
 
     /* Sortie par le bouton : iPhone n'a pas de touche Échap physique. */
     await page.locator("#pdfFullscreenBtn").click();
@@ -736,19 +793,21 @@ test("PDF plein écran repli (iPhone) : viewport complet, commandes actives, sor
       bodyLocked: getComputedStyle(document.documentElement).overflow === "hidden",
       pageStatus: document.getElementById("pdfPageStatus").textContent,
       toolbarVisible: !document.getElementById("viewerPdfToolbar").hidden,
-      pageNavVisible: !document.getElementById("pdfPageNav").hidden && getComputedStyle(document.getElementById("pdfPageNav")).display !== "none"
+      pageNavVisible: !document.getElementById("pdfPageNav").hidden && getComputedStyle(document.getElementById("pdfPageNav")).display !== "none",
+      zoom: window.pdfViewerTestState.getState().zoom
     }));
     assert.equal(restored.fallback, false, "classe de repli retirée à la fermeture");
     assert.equal(restored.bodyLocked, false, "défilement de la page restauré");
     assert.match(restored.pageStatus, /2 \/ 24/, "position de lecture conservée à la fermeture");
     assert.equal(restored.toolbarVisible, true, "barre d'outils restaurée");
     assert.equal(restored.pageNavVisible, true, "pagination restaurée");
+    assert.equal(restored.zoom, zoomBeforeFullscreen, "zoom normal restauré après le plein écran");
 
     /* Deuxième cycle sur la même page : évite un fallback qui ne serait
        réversible qu'une seule fois. */
     await page.locator("#pdfFullscreenBtn").click();
     await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen-fallback"));
-    await page.locator("#pdfNextPageBtn").click();
+    await swipeToNextPage();
     await page.waitForFunction(() => document.getElementById("pdfPageStatus").textContent.includes("3 / 24"));
     await page.locator("#pdfFullscreenBtn").click();
     await page.waitForFunction(() => !document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
@@ -756,6 +815,43 @@ test("PDF plein écran repli (iPhone) : viewport complet, commandes actives, sor
     assert.equal(await page.evaluate(() => document.documentElement.classList.contains("viewer-fullscreen-active")), false, "le verrou de repli ne fuit pas après plusieurs cycles");
   } finally {
     await browser.close();
+  }
+});
+
+test("PDF plein écran desktop à 1440 px : commandes et réglages normaux conservés", async () => {
+  const pageDocument = await buildPageDocument();
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+    await page.setContent(pageDocument, { waitUntil: "load" });
+    await page.addStyleTag({ url: `${baseUrl}/source/css/design-system.css` });
+    await openViewerPage(page, true);
+    await page.waitForFunction(() => document.getElementById("viewerPdfPageCanvas").width > 0);
+    await page.evaluate(() => {
+      const panel = document.querySelector(".document-original-panel");
+      Object.defineProperty(panel, "requestFullscreen", { configurable: true, value: undefined });
+      Object.defineProperty(panel, "webkitRequestFullscreen", { configurable: true, value: undefined });
+    });
+    await page.locator("#pdfZoomInBtn").click();
+    await page.waitForFunction(() => window.pdfViewerTestState.getState().zoom > 1);
+    const zoomBefore = await page.evaluate(() => window.pdfViewerTestState.getState().zoom);
+    await page.locator("#pdfFullscreenBtn").click();
+    await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
+    assert.equal(await page.locator("#documentDetailView").evaluate(element => element.classList.contains("is-viewer-fullscreen-mobile")), false, "aucun mode immersif mobile sur desktop");
+    assert.equal(await page.locator("#pdfNextPageBtn").isVisible(), true, "navigation visible en plein écran desktop");
+    assert.equal(await page.locator("#pdfZoomInBtn").isVisible(), true, "zoom visible en plein écran desktop");
+    assert.equal(await page.locator("#pdfFullscreenBtn").locator("use").getAttribute("href"), "#icon-minimize", "commande desktop inchangée");
+    assert.equal(await page.evaluate(() => window.pdfViewerTestState.getState().zoom), zoomBefore, "zoom conservé sur desktop");
+    await page.locator("#pdfNextPageBtn").click();
+    await page.waitForFunction(() => document.getElementById("pdfPageStatus").textContent.includes("2 / 24"));
+    await page.locator("#pdfFullscreenBtn").click();
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
+    assert.equal(await page.evaluate(() => window.pdfViewerTestState.getState().zoom), zoomBefore, "zoom desktop conservé après fermeture");
+    assert.match(await page.locator("#pdfPageStatus").textContent(), /2 \/ 24/, "page actuelle conservée après fermeture");
+    await browser.close();
+  } finally {
+    if (browser.isConnected()) await browser.close();
   }
 });
 

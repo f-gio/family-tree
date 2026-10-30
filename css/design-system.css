@@ -5258,3 +5258,102 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 @media (max-width: 760px) and (max-height: 620px) {
   #appMain > .tree-filter-toolbar { margin-bottom: var(--space-2); }
 }
+/* Plein écran immersif réservé aux petits écrans : une seule commande (X),
+   le document occupe la surface utile et le mode normal garde ses contrôles. */
+@media (max-width: 760px) {
+  #documentDetailView.is-viewer-fullscreen-mobile {
+    background: var(--color-page);
+    color: var(--color-text);
+  }
+  #documentDetailView.is-viewer-fullscreen-mobile .document-detail-header,
+  #documentDetailView.is-viewer-fullscreen-mobile .document-unified-details,
+  #documentDetailView.is-viewer-fullscreen-mobile .document-original-head,
+  #documentDetailView.is-viewer-fullscreen-mobile .viewer-image-controls > :not(#viewerFullscreenBtn),
+  #documentDetailView.is-viewer-fullscreen-mobile .pdf-viewer-toolbar > :not(#pdfFullscreenBtn),
+  #documentDetailView.is-viewer-fullscreen-mobile .pdf-pagination,
+  #documentDetailView.is-viewer-fullscreen-mobile .pdf-panel-toggles,
+  #documentDetailView.is-viewer-fullscreen-mobile .pdf-thumbnail-rail,
+  #documentDetailView.is-viewer-fullscreen-mobile .viewer-zoom-indicator,
+  #documentDetailView.is-viewer-fullscreen-mobile .pdf-zoom-indicator {
+    display: none !important;
+  }
+  #documentDetailView.is-viewer-fullscreen-mobile .document-detail-shell,
+  #documentDetailView.is-viewer-fullscreen-mobile .document-detail-layout,
+  #documentDetailView.is-viewer-fullscreen-mobile .document-original-panel,
+  #documentDetailView.is-viewer-fullscreen-mobile .document-original-panel .viewer-body {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: var(--color-page) !important;
+  }
+  #documentDetailView.is-viewer-fullscreen-mobile .document-detail-layout {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    overflow: hidden;
+  }
+  #documentDetailView.is-viewer-fullscreen-mobile .document-original-panel {
+    position: relative;
+    display: flex !important;
+    flex: 1 1 auto !important;
+    overflow: hidden;
+  }
+  #documentDetailView.is-viewer-fullscreen-mobile .viewer-image-controls,
+  #documentDetailView.is-viewer-fullscreen-mobile .pdf-viewer-toolbar {
+    display: contents !important;
+  }
+  #documentDetailView.is-viewer-fullscreen-mobile #viewerFullscreenBtn,
+  #documentDetailView.is-viewer-fullscreen-mobile #pdfFullscreenBtn {
+    position: fixed !important;
+    z-index: 150 !important;
+    inset: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) auto auto !important;
+    display: grid !important;
+    place-items: center;
+    width: var(--control-touch) !important;
+    min-width: var(--control-touch) !important;
+    height: var(--control-touch) !important;
+    min-height: var(--control-touch) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: var(--border-default);
+    border-radius: 50%;
+    background: var(--color-surface);
+    color: var(--color-text);
+    box-shadow: var(--shadow-low);
+  }
+  #documentDetailView.is-viewer-fullscreen-mobile:not(:has(.viewer-body.viewer-pdf-active)) #pdfFullscreenBtn,
+  #documentDetailView.is-viewer-fullscreen-mobile:has(.viewer-body.viewer-pdf-active) #viewerFullscreenBtn {
+    display: none !important;
+  }
+  #documentDetailView.is-viewer-fullscreen-mobile .viewer-body.viewer-pdf-active {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    overflow: hidden !important;
+  }
+  #documentDetailView.is-viewer-fullscreen-mobile .viewer-body.viewer-pdf-active .pdf-page-region {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: hidden !important;
+    background: var(--color-page) !important;
+  }
+  #documentDetailView.is-viewer-fullscreen-mobile .pdf-page-viewport {
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-page);
+    touch-action: pan-x pan-y;
+    overscroll-behavior: contain;
+  }
+  #documentDetailView.is-viewer-fullscreen-mobile .pdf-page-canvas {
+    background: white;
+    box-shadow: none;
+  }
+}

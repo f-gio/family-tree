@@ -926,7 +926,6 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
            écran le masque par le CSS et la sortie restaure son état replié. */
         const detailsExpandedBefore = false;
         await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
-        const zoom = await page.evaluate(() => window.__viewerImageController.getState().zoom);
         await page.locator("#viewerFullscreenBtn").click();
         await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
         await page.waitForTimeout(80);
@@ -938,6 +937,7 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
           return {
             fallback: documentPage.classList.contains("is-viewer-fullscreen-fallback"),
             nativeFullscreen: document.fullscreenElement === imagePanel,
+            immersive: documentPage.classList.contains("is-viewer-fullscreen-mobile"),
             headerHidden: getComputedStyle(documentPage.querySelector(".document-detail-header")).display === "none",
             returnHidden: getComputedStyle(documentPage.querySelector("#documentPageBackBtn")).display === "none" || documentPage.querySelector("#documentPageBackBtn").offsetParent === null,
             detailsHidden: getComputedStyle(document.getElementById("viewerDocumentDetails")).display === "none",
@@ -946,24 +946,29 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
             panel: [imagePanel.getBoundingClientRect().width, imagePanel.getBoundingClientRect().height],
             reader: [reader.getBoundingClientRect().width, reader.getBoundingClientRect().height],
             exitLabel: document.getElementById("viewerFullscreenBtn").getAttribute("aria-label"),
+            icon: document.getElementById("viewerFullscreenBtn").querySelector("use")?.getAttribute("href"),
+            visibleCommands: [...document.querySelectorAll("#documentDetailView.is-viewer-fullscreen-mobile button, #documentDetailView.is-viewer-fullscreen-mobile a")].filter(button => getComputedStyle(button).display !== "none" && button.getClientRects().length).map(button => button.id),
             zoom: window.__viewerImageController.getState().zoom
           };
         });
         t.diagnostic(`plein écran fallback forcé=${forceFullscreenFallback} ; état=${JSON.stringify(state)}`);
-        if (forceFullscreenFallback) assert.equal(state.fallback, true, "le repli viewport est utilisé sans API native");
-        else assert.ok(state.nativeFullscreen || state.fallback, "la Fullscreen API native ou son repli est utilisé");
+        assert.equal(state.fallback, true, "le repli viewport englobe toute la page sur mobile");
+        assert.equal(state.nativeFullscreen, false, "la Fullscreen API de panneau n'est pas utilisée sur mobile");
+        assert.equal(state.immersive, true, "l'état immersif mobile est actif");
         assert.equal(state.headerHidden, true, "l’en-tête non essentiel est masqué en plein écran");
         assert.equal(state.returnHidden, true, "le lien Retour est masqué en plein écran");
         assert.equal(state.detailsHidden, true, "le panneau d’informations ne réduit pas la surface de lecture");
         assert.ok(state.page[0] <= 1 && state.page[1] <= 1 && state.page[2] >= state.viewport[0] - 1 && state.page[3] >= state.viewport[1] - 1, "la page fullscreen occupe le viewport");
         assert.ok(state.panel[0] >= state.page[2] - 32 && state.panel[1] >= state.page[3] - 32, "le lecteur utilise la surface restante après safe areas");
         assert.equal(state.exitLabel, "Quitter le plein écran", "la commande de sortie est annoncée");
-        assert.equal(state.zoom, zoom, "le niveau de zoom est conservé à l’entrée");
+        assert.equal(state.zoom, 1, "l'image est ajustée initialement au viewport");
+        assert.equal(state.icon, "#icon-close", "la commande fullscreen devient une croix");
+        assert.deepEqual(state.visibleCommands, ["viewerFullscreenBtn"], "la croix est la seule commande visible");
         await page.keyboard.press("Escape");
         await page.waitForFunction(() => !document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
         assert.equal(await page.locator("#documentDetailView").evaluate(view => !view.hidden), true, "Échap quitte seulement le plein écran");
         assert.equal(await page.locator("#viewerImage").evaluate(image => image.currentSrc), source, "la sortie ne recharge pas l’image");
-        assert.equal(await page.evaluate(() => window.__viewerImageController.getState().zoom), zoom, "le niveau de zoom reste identique après la sortie");
+        assert.equal(await page.evaluate(() => window.__viewerImageController.getState().zoom), 1, "le zoom et le cadrage sont réinitialisés après la sortie");
         assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), !detailsExpandedBefore, "l’état choisi pour Informations est restauré après le plein écran");
       } finally { await context.close(); }
     }
@@ -1090,8 +1095,10 @@ test("JPEG plein écran : après zoom, les quatre bords de l'image sont réellem
           const { context, page } = await createViewerPage(browser, server, width, height);
           try {
             await openViewer(page, { title: "Registre pleine page", fileName: "registre.jpg", src: portraitSvg });
-            await page.locator("#viewerFullscreenBtn").click();
-            await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
+            if (width > 760) {
+              await page.locator("#viewerFullscreenBtn").click();
+              await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
+            }
             await page.waitForTimeout(120);
             for (let step = 0; step < 3; step++) {
               await page.locator('#viewerImageControls [data-viewer-image-zoom="in"]').click();
@@ -1266,54 +1273,76 @@ test("JPEG plein écran mobile en repli : commandes, zones sûres et cycles de f
       const originalSource = await page.locator("#viewerImage").evaluate(image => image.currentSrc);
       for (let cycle = 1; cycle <= 2; cycle++) {
         const zoomBefore = await page.evaluate(() => window.__viewerImageController.getState().zoom);
+        await page.evaluate(() => { document.getElementById("topbar").hidden = false; });
         await page.locator("#viewerFullscreenBtn").click();
         await page.waitForFunction(() => document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen-fallback"));
         const entered = await page.evaluate(() => {
           const root = document.getElementById("documentDetailView");
           const rect = root.getBoundingClientRect();
-          const padding = getComputedStyle(root);
           return {
             bounds: [rect.x, rect.y, rect.width, rect.height],
             viewport: [innerWidth, innerHeight],
             zIndex: getComputedStyle(root).zIndex,
             pageLocked: getComputedStyle(document.documentElement).overflow === "hidden" && getComputedStyle(document.body).overflow === "hidden",
-            safePadding: [padding.paddingTop, padding.paddingRight, padding.paddingBottom, padding.paddingLeft],
+            exitBounds: (() => { const r = document.getElementById("viewerFullscreenBtn").getBoundingClientRect(); return [r.x, r.y, r.right, r.bottom]; })(),
             toolbarVisible: [...document.querySelectorAll("#viewerImageControls .viewer-image-only")].some(button => !button.hidden && button.id === "viewerFullscreenBtn"),
             exitLabel: document.getElementById("viewerFullscreenBtn").getAttribute("aria-label"),
             touchAction: getComputedStyle(document.getElementById("viewerImageViewport")).touchAction,
+            topbarHidden: document.getElementById("topbar").hidden,
             topbarInlineVisibility: document.getElementById("topbar").style.visibility,
             zoom: window.__viewerImageController.getState().zoom
           };
         });
         assert.equal(entered.zIndex, "130", `cycle ${cycle} : repli au-dessus du topbar`);
-        /* Le topbar porte l'attribut `hidden` dans ce harnais, ce qui fait
-           remonter `visibility: visible` via getComputedStyle malgré le style
-           inline. On vérifie donc le style inline posé par le contrôleur —
-           c'est ce qui s'applique sur un vrai iPhone où le topbar est affiché. */
+        /* Le topbar est rendu visible avant l'entrée pour vérifier que le
+           contrôleur le retire bien du rendu et restaure son état ensuite. */
         assert.equal(entered.topbarInlineVisibility, "hidden", `cycle ${cycle} : topbar masqué pendant le repli (iOS ne doit plus peindre son backdrop-filter au-dessus)`);
+        assert.equal(entered.topbarHidden, true, `cycle ${cycle} : topbar retiré du rendu pendant le repli`);
         assert.ok(entered.bounds[0] <= 1 && entered.bounds[1] <= 1 && entered.bounds[2] >= entered.viewport[0] - 1 && entered.bounds[3] >= entered.viewport[1] - 1, `cycle ${cycle} : vue étendue au viewport (${entered.bounds.join("×")})`);
         assert.equal(entered.pageLocked, true, `cycle ${cycle} : défilement de fond verrouillé`);
-        assert.ok(entered.safePadding.every(value => parseFloat(value) >= 12), `cycle ${cycle} : réserves safe-area actives (${entered.safePadding.join(",")})`);
+        assert.ok(entered.exitBounds[0] >= 12 && entered.exitBounds[1] >= 12 && entered.exitBounds[2] <= entered.viewport[0] - 12, `cycle ${cycle} : croix dans les safe areas (${entered.exitBounds.join(",")})`);
         assert.equal(entered.toolbarVisible, true, `cycle ${cycle} : commande de sortie visible`);
         assert.equal(entered.exitLabel, "Quitter le plein écran", `cycle ${cycle} : sortie annoncée`);
-        assert.equal(entered.touchAction, "none", `cycle ${cycle} : pan tactile conservé après zoom`);
-        assert.equal(entered.zoom, zoomBefore, `cycle ${cycle} : zoom préservé à l'entrée`);
+        assert.equal(entered.touchAction, "pan-y", `cycle ${cycle} : défilement tactile du mode normal conservé à l'entrée`);
+        assert.equal(entered.zoom, 1, `cycle ${cycle} : image ajustée au viewport à l'entrée`);
 
-        /* Pan souris dans le repli mobile : le cadrage évolue sans recharger l'image. */
+        /* Pincement et glissement tactiles synthétiques dans le mode immersif. */
+        await page.evaluate(() => {
+          const viewport = document.getElementById("viewerImageViewport");
+          const dispatch = (type, points, changed = points) => {
+            const event = new Event(type, { bubbles: true, cancelable: true });
+            Object.defineProperty(event, "touches", { value: points.map(([clientX, clientY], identifier) => ({ clientX, clientY, identifier })) });
+            Object.defineProperty(event, "changedTouches", { value: changed.map(([clientX, clientY], identifier) => ({ clientX, clientY, identifier })) });
+            viewport.dispatchEvent(event);
+          };
+          dispatch("touchstart", [[140, 360], [250, 360]]);
+          dispatch("touchmove", [[100, 360], [290, 360]]);
+          dispatch("touchend", []);
+        });
+        const afterTouch = await page.evaluate(() => window.__viewerImageController.getState());
+        assert.ok(afterTouch.zoom > 1, `cycle ${cycle} : pincement agrandit l'image (${afterTouch.zoom})`);
         const beforePan = await page.evaluate(() => window.__viewerImageController.getState().offsetY);
-        const box = await page.locator("#viewerImageViewport").boundingBox();
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await page.mouse.down();
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 70, { steps: 4 });
-        await page.mouse.up();
+        await page.evaluate(() => {
+          const viewport = document.getElementById("viewerImageViewport");
+          const dispatch = (type, points, changed = points) => {
+            const event = new Event(type, { bubbles: true, cancelable: true });
+            Object.defineProperty(event, "touches", { value: points.map(([clientX, clientY], identifier) => ({ clientX, clientY, identifier })) });
+            Object.defineProperty(event, "changedTouches", { value: changed.map(([clientX, clientY], identifier) => ({ clientX, clientY, identifier })) });
+            viewport.dispatchEvent(event);
+          };
+          dispatch("touchstart", [[190, 420]]);
+          dispatch("touchmove", [[190, 320]]);
+          dispatch("touchend", [], [[190, 320]]);
+        });
         const afterPan = await page.evaluate(() => window.__viewerImageController.getState().offsetY);
-        assert.notEqual(afterPan, beforePan, `cycle ${cycle} : déplacement image actif`);
+        assert.notEqual(afterPan, beforePan, `cycle ${cycle} : glissement tactile déplace l'image`);
 
         await page.locator("#viewerFullscreenBtn").click();
         await page.waitForFunction(() => !document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
         const restored = await page.evaluate(() => ({
           fallback: document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen-fallback"),
           pageLocked: getComputedStyle(document.documentElement).overflow === "hidden" || getComputedStyle(document.body).overflow === "hidden",
+          topbarHidden: document.getElementById("topbar").hidden,
           topbarInlineVisibility: document.getElementById("topbar").style.visibility,
           zoom: window.__viewerImageController.getState().zoom,
           offsetY: window.__viewerImageController.getState().offsetY,
@@ -1321,9 +1350,10 @@ test("JPEG plein écran mobile en repli : commandes, zones sûres et cycles de f
         }));
         assert.equal(restored.fallback, false, `cycle ${cycle} : mode repli quitté`);
         assert.equal(restored.pageLocked, false, `cycle ${cycle} : défilement de page restauré`);
+        assert.equal(restored.topbarHidden, false, `cycle ${cycle} : état visible initial du topbar restauré après la fermeture`);
         assert.equal(restored.topbarInlineVisibility, "", `cycle ${cycle} : topbar restauré après la fermeture`);
-        assert.equal(restored.zoom, zoomBefore, `cycle ${cycle} : zoom conservé à la sortie`);
-        assert.ok(Math.abs(restored.offsetY - afterPan) <= 2, `cycle ${cycle} : cadrage conservé à la sortie (${JSON.stringify({ afterPan, ...restored })})`);
+        assert.equal(restored.zoom, 1, `cycle ${cycle} : zoom réinitialisé à la sortie`);
+        assert.equal(restored.offsetY, 0, `cycle ${cycle} : cadrage réinitialisé à la sortie`);
         assert.equal(restored.source, originalSource, `cycle ${cycle} : l'image n'est pas rechargée`);
       }
     } finally { await context.close(); }
@@ -1336,7 +1366,7 @@ test("Ascenseur JPEG : la poignée suit le zoom centré, le pan et les bords", a
   catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
   const server = await startStaticServer(ROOT);
   try {
-    for (const [width, height, fallback] of [[390, 844, true], [1440, 900, false]]) {
+    for (const [width, height, fallback] of [[390, 844, false], [1440, 900, false]]) {
       const { context, page } = await createViewerPage(browser, server, width, height);
       try {
         await openViewer(page, { title: "Ascenseur du registre", fileName: "ascenseur.jpg", src: portraitSvg, forceFullscreenFallback: fallback });

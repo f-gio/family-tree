@@ -57,6 +57,8 @@ export async function createDocumentPdfViewer({
   let mainPageProxy = null;
   let pinch = null;
   let fallbackReason = "";
+  let fullscreenPreviousView = null;
+  let mobileSwipeStart = null;
 
   function displayZoom() {
     if (!zoomIndicator) return;
@@ -82,8 +84,19 @@ export async function createDocumentPdfViewer({
   }
 
   function setFullscreen(active, fallback = false) {
+    const mobileImmersive = active && !!win.matchMedia?.("(max-width: 760px)").matches;
+    const restoreMobileView = !active && !!fullscreenPreviousView;
+    if (mobileImmersive && !fullscreenPreviousView) fullscreenPreviousView = { zoom, fitMode };
+    if (mobileImmersive) {
+      zoom = 1;
+      fitMode = "page";
+    } else if (!active && fullscreenPreviousView) {
+      ({ zoom, fitMode } = fullscreenPreviousView);
+      fullscreenPreviousView = null;
+    }
     fullscreenElement.classList.toggle("is-viewer-fullscreen", active);
     fullscreenElement.classList.toggle("is-viewer-fullscreen-fallback", active && fallback);
+    fullscreenElement.classList.toggle("is-viewer-fullscreen-mobile", mobileImmersive);
     doc.documentElement.classList.toggle("viewer-fullscreen-active", active && fallback);
     /* Safari iOS : le topbar du site porte un backdrop-filter qui crée sa propre
        couche composite, peinte au-dessus d'un position:fixed. On le masque
@@ -93,16 +106,25 @@ export async function createDocumentPdfViewer({
       if (active && fallback) {
         if (topbar.dataset.viewerFullscreenPrevVisibility === undefined) {
           topbar.dataset.viewerFullscreenPrevVisibility = topbar.style.visibility || "";
+          topbar.dataset.viewerFullscreenPrevHidden = String(topbar.hidden);
         }
+        topbar.hidden = true;
         topbar.style.visibility = "hidden";
       } else if (!active || !fallback) {
         if (topbar.dataset.viewerFullscreenPrevVisibility !== undefined) {
           topbar.style.visibility = topbar.dataset.viewerFullscreenPrevVisibility;
+          topbar.hidden = topbar.dataset.viewerFullscreenPrevHidden === "true";
           delete topbar.dataset.viewerFullscreenPrevVisibility;
+          delete topbar.dataset.viewerFullscreenPrevHidden;
         }
       }
     }
     updateFullscreenButton(active);
+    if (fullscreenButton) fullscreenButton.querySelector("use")?.setAttribute("href", active && mobileImmersive ? "#icon-close" : active ? "#icon-minimize" : "#icon-maximize");
+    if (mobileImmersive || restoreMobileView) {
+      setFitModeButton();
+      startRender();
+    }
   }
 
   async function exitFullscreen() {
@@ -119,6 +141,10 @@ export async function createDocumentPdfViewer({
 
   async function toggleFullscreen() {
     if (fullscreenElement.classList.contains("is-viewer-fullscreen")) return exitFullscreen();
+    if (win.matchMedia?.("(max-width: 760px)").matches) {
+      setFullscreen(true, true);
+      return true;
+    }
     const request = fullscreenHost?.requestFullscreen || fullscreenHost?.webkitRequestFullscreen;
     if (typeof request === "function") {
       try {
@@ -405,6 +431,9 @@ export async function createDocumentPdfViewer({
   }
 
   function onTouchStart(event) {
+    if (event.touches.length === 1 && fullscreenElement.classList.contains("is-viewer-fullscreen-mobile")) {
+      mobileSwipeStart = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+    } else if (event.touches.length > 1) mobileSwipeStart = null;
     if (event.touches.length !== 2) return;
     event.preventDefault();
     const midpoint = { x: (event.touches[0].clientX + event.touches[1].clientX) / 2, y: (event.touches[0].clientY + event.touches[1].clientY) / 2 };
@@ -423,17 +452,33 @@ export async function createDocumentPdfViewer({
     zoom = Math.max(1, Math.min(maxZoom, pinch.zoom * distance(event.touches) / pinch.distance));
     displayZoom();
     if (thumbnailTimer !== null) win.cancelAnimationFrame(thumbnailTimer);
+    const preservePoint = { x: pinch.point.x, y: pinch.point.y, ratioX: pinch.ratioX, ratioY: pinch.ratioY };
     thumbnailTimer = win.requestAnimationFrame(() => {
       thumbnailTimer = null;
-      startRender({ preservePoint: { x: pinch.point.x, y: pinch.point.y, ratioX: pinch.ratioX, ratioY: pinch.ratioY } });
+      startRender({ preservePoint });
     });
   }
 
   function onTouchEnd(event) {
     if (event.touches.length < 2) pinch = null;
+    if (event.touches.length === 0 && mobileSwipeStart) {
+      const start = mobileSwipeStart;
+      mobileSwipeStart = null;
+      const changed = event.changedTouches?.[0];
+      const deltaY = changed ? changed.clientY - start.y : 0;
+      const deltaX = changed ? changed.clientX - start.x : 0;
+      if (fullscreenElement.classList.contains("is-viewer-fullscreen-mobile") && zoom <= 1.01 && Math.abs(deltaY) > Math.max(55, pageViewport.clientHeight * 0.12) && Math.abs(deltaY) > Math.abs(deltaX) * 1.2) {
+        void selectPage(currentPage + (deltaY < 0 ? 1 : -1));
+      }
+    }
   }
 
   function onWheel(event) {
+    if (fullscreenElement.classList.contains("is-viewer-fullscreen-mobile") && zoom <= 1.01 && !event.ctrlKey && Math.abs(event.deltaY) > 10) {
+      event.preventDefault();
+      void selectPage(currentPage + (event.deltaY > 0 ? 1 : -1));
+      return;
+    }
     if (!event.ctrlKey) return;
     event.preventDefault();
     const rect = pageViewport.getBoundingClientRect();

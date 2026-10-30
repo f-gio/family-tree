@@ -17,6 +17,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   let fallbackResize = null;
   let zoomIndicatorTimer = null;
   let fullscreenStyleSnapshots = null;
+  let fullscreenPreviousMode = null;
   let zoomedScrollLayout = false;
   let fitOverflowHidden = false;
   let scrollLayoutFrame = null;
@@ -186,8 +187,9 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
         if (!node) return;
         for (const [property, value] of Object.entries(values)) node.style.setProperty(property, value, "important");
       };
-      const safeAreaPadding = readFullscreenSafeAreaPadding();
-      set(nodes[0], { position: "fixed", inset: "0", width: "100vw", height: "100dvh", "max-width": "none", "max-height": "none", margin: "0", padding: "0", ...safeAreaPadding, overflow: "hidden" });
+      const mobileImmersive = !!fullscreenDocument?.defaultView?.matchMedia?.("(max-width: 760px)").matches;
+      const safeAreaPadding = mobileImmersive ? { padding: "0" } : readFullscreenSafeAreaPadding();
+      set(nodes[0], { position: "fixed", inset: "0", width: "100vw", height: "100dvh", "max-width": "none", "max-height": "none", margin: "0", ...safeAreaPadding, overflow: "hidden" });
       set(nodes[1], { display: "flex", flex: "1 1 auto", "flex-direction": "column", "min-height": "0", padding: "0", overflow: "hidden" });
       set(nodes[2], { display: "grid", "grid-template-columns": "minmax(0, 1fr)", "grid-template-rows": "minmax(0, 1fr)", flex: "1 1 auto", width: "100%", height: "100%", "min-height": "0", gap: "0" });
       set(nodes[3], { display: "flex", flex: "1 1 auto", height: "100%", "min-height": "0" });
@@ -226,9 +228,27 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   }
 
   function setFullscreenState(active, fallback = false) {
+    const mobileImmersive = !!active && !!fullscreenDocument?.defaultView?.matchMedia?.("(max-width: 760px)").matches;
+    const restoreMobileView = !active && fullscreenPreviousMode !== null;
+    if (mobileImmersive && fullscreenPreviousMode === null) fullscreenPreviousMode = mode;
+    if (mobileImmersive) {
+      mode = "fit";
+      zoom = minZoom;
+      offsetX = 0;
+      offsetY = 0;
+      viewport.scrollTop = 0;
+    } else if (!active && fullscreenPreviousMode !== null) {
+      mode = fullscreenPreviousMode;
+      fullscreenPreviousMode = null;
+      zoom = minZoom;
+      offsetX = 0;
+      offsetY = 0;
+      viewport.scrollTop = 0;
+    }
     setFullscreenLayout(active);
     fullscreenElement?.classList.toggle("is-viewer-fullscreen", active);
     fullscreenElement?.classList.toggle("is-viewer-fullscreen-fallback", active && fallback);
+    fullscreenElement?.classList.toggle("is-viewer-fullscreen-mobile", mobileImmersive);
     fullscreenElement?.ownerDocument?.documentElement.classList.toggle("viewer-fullscreen-active", active && fallback);
     /* Safari iOS : le topbar du site porte un backdrop-filter qui crée sa propre
        couche composite, peinte au-dessus d'un position:fixed. On le masque
@@ -238,20 +258,25 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
       if (active && fallback) {
         if (topbar.dataset.viewerFullscreenPrevVisibility === undefined) {
           topbar.dataset.viewerFullscreenPrevVisibility = topbar.style.visibility || "";
+          topbar.dataset.viewerFullscreenPrevHidden = String(topbar.hidden);
         }
+        topbar.hidden = true;
         topbar.style.visibility = "hidden";
       } else if (!active || !fallback) {
         if (topbar.dataset.viewerFullscreenPrevVisibility !== undefined) {
           topbar.style.visibility = topbar.dataset.viewerFullscreenPrevVisibility;
+          topbar.hidden = topbar.dataset.viewerFullscreenPrevHidden === "true";
           delete topbar.dataset.viewerFullscreenPrevVisibility;
+          delete topbar.dataset.viewerFullscreenPrevHidden;
         }
       }
     }
     if (fullscreenButton) {
       fullscreenButton.setAttribute("aria-label", active ? "Quitter le plein écran" : "Afficher en plein écran");
       fullscreenButton.title = active ? "Quitter le plein écran" : "Afficher en plein écran";
-      fullscreenButton.querySelector("use")?.setAttribute("href", active ? "#icon-minimize" : "#icon-maximize");
+      fullscreenButton.querySelector("use")?.setAttribute("href", active && mobileImmersive ? "#icon-close" : active ? "#icon-minimize" : "#icon-maximize");
     }
+    if (mobileImmersive || restoreMobileView) updateModeButton();
     /* La surface change de dimensions à l'entrée/sortie du repli. Recalcule
        l'ajustement avant de resynchroniser le scrollbar et conserve le pan
        dans les nouvelles limites du viewport. */
@@ -276,6 +301,10 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
   async function toggleFullscreen() {
     if (!fullscreenElement) return false;
     if (fullscreenElement.classList.contains("is-viewer-fullscreen")) return exitFullscreen();
+    if (fullscreenDocument?.defaultView?.matchMedia?.("(max-width: 760px)").matches) {
+      setFullscreenState(true, true);
+      return true;
+    }
     const request = fullscreenHost?.requestFullscreen || fullscreenHost?.webkitRequestFullscreen;
     if (typeof request === "function") {
       try {
