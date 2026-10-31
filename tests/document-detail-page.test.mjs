@@ -286,42 +286,70 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "libellé « Original » masqué sur mobile (lot corrections)");
     await page.click("#viewerDetailsBtn");
     assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "la bascule ouvre le volet Informations à 320px");
-    /* Carte « Informations fichier » compacte : métadonnées sur deux colonnes
-       (Type/Format, Taille/Date d'ajout), libellé et valeur sur une ligne,
-       nom du fichier sur toute la largeur sous les métadonnées, bouton
-       Transcrire compact avec cible ≥ 44 px. */
-    const fileCard = await page.evaluate(() => {
+    /* Carte « Informations fichier » : positions réelles — chaque métadonnée
+       est un groupe vertical (libellé au-dessus de sa valeur, alignés à
+       gauche) sur deux colonnes, la date n'est jamais tronquée, « Fichier »
+       occupe toute la largeur, bouton Transcrire ≥ 44 px. */
+    const measureFileCard = () => page.evaluate(() => {
       const section = [...document.querySelectorAll("#viewerDocumentDetailsContent .document-unified-section")].find(item => item.querySelector("h4")?.textContent === "Informations fichier");
       const facts = section.querySelector(".document-unified-facts--file");
-      const cols = getComputedStyle(facts).gridTemplateColumns.split(" ").filter(value => value && value !== "none").length;
-      const metadataFacts = [...facts.querySelectorAll(".document-unified-fact")].filter(item => !item.classList.contains("document-unified-fact--file-name"));
-      const firstFact = metadataFacts[0];
-      const lastFact = metadataFacts[metadataFacts.length - 1];
-      const name = facts.querySelector(".document-unified-filename");
+      const rect = element => element.getBoundingClientRect();
+      const metadata = [...facts.querySelectorAll(".document-unified-fact")].filter(item => !item.classList.contains("document-unified-fact--file-name"));
+      const groups = metadata.map(item => {
+        const label = item.querySelector("strong");
+        const value = item.querySelector("span");
+        const labelRect = rect(label);
+        const valueRect = rect(value);
+        return {
+          label: label.textContent.trim(),
+          labelValueGap: Math.round(valueRect.top - labelRect.bottom),
+          alignedLeft: Math.abs(labelRect.left - valueRect.left) <= 1,
+          textAlign: getComputedStyle(value).textAlign,
+          truncated: value.scrollWidth > value.clientWidth + 1,
+          top: Math.round(valueRect.top),
+          bottom: Math.round(valueRect.bottom)
+        };
+      });
+      const nameItem = facts.querySelector(".document-unified-fact--file-name");
       const transcribe = section.querySelector("[data-transcribe-document]");
-      const transcribeRect = transcribe.getBoundingClientRect();
-      const factsRect = facts.getBoundingClientRect();
+      const factsRect = rect(facts);
+      const nameItemRect = rect(nameItem);
+      const metadataBottom = Math.max(...groups.map(group => group.bottom));
       return {
-        cols,
-        factDisplay: getComputedStyle(firstFact).display,
-        factHeight: Math.round(firstFact.getBoundingClientRect().height),
-        cardHeight: Math.round(section.getBoundingClientRect().height),
-        nameAfterMetadata: Math.round(name.getBoundingClientRect().top - lastFact.getBoundingClientRect().bottom),
-        nameOverflow: name.scrollWidth > name.clientWidth + 1,
-        trWidth: Math.round(transcribeRect.width),
-        trHeight: Math.round(transcribeRect.height),
-        overflow: document.documentElement.scrollWidth > innerWidth,
-        factsWidth: Math.round(factsRect.width)
+        cols: getComputedStyle(facts).gridTemplateColumns.split(" ").filter(Boolean).length,
+        columnGap: Math.round(parseFloat(getComputedStyle(facts).columnGap)),
+        groups,
+        metaToNameGap: Math.round(rect(nameItem.querySelector("strong")).top - metadataBottom),
+        nameFullWidth: Math.abs(nameItemRect.width - factsRect.width) <= 2,
+        cardHeight: Math.round(rect(section).height),
+        headHeight: Math.round(rect(section.querySelector(".document-unified-section-head")).height),
+        trWidth: Math.round(rect(transcribe).width),
+        trHeight: Math.round(rect(transcribe).height),
+        overflow: document.documentElement.scrollWidth > innerWidth
       };
     });
-    assert.equal(fileCard.cols, 2, "métadonnées sur deux colonnes (Type/Format, Taille/Date d’ajout)");
-    assert.equal(fileCard.factDisplay, "flex", "libellé et valeur sur une ligne");
-    assert.ok(fileCard.factHeight <= 24, `fait compact sur une ligne (${fileCard.factHeight}px)`);
-    assert.ok(fileCard.cardHeight <= 280, `carte « Informations fichier » compacte (${fileCard.cardHeight}px, 388px avant)`);
-    assert.ok(fileCard.nameAfterMetadata >= -1, `nom du fichier sous les métadonnées (${fileCard.nameAfterMetadata}px)`);
-    assert.ok(fileCard.trHeight >= 44, `bouton Transcrire ≥ 44 px (${fileCard.trHeight}px)`);
-    assert.ok(fileCard.trWidth < 81, `bouton Transcrire plus compact (${fileCard.trWidth}px, 81px avant)`);
-    assert.equal(fileCard.overflow, false, "aucun débordement horizontal avec la carte compacte");
+    const assertFileCardLayout = (fileCard, width) => {
+      assert.equal(fileCard.cols, 2, `${width}px : métadonnées sur deux colonnes (Type/Format, Taille/Date d’ajout)`);
+      assert.ok(fileCard.columnGap >= 8 && fileCard.columnGap <= 16, `${width}px : colonnes équilibrées (${fileCard.columnGap}px)`);
+      for (const group of fileCard.groups) {
+        assert.ok(group.labelValueGap >= 0 && group.labelValueGap <= 4, `${width}px : « ${group.label} » directement au-dessus de sa valeur (${group.labelValueGap}px)`);
+        assert.equal(group.alignedLeft, true, `${width}px : « ${group.label} » aligné à gauche avec sa valeur`);
+        assert.equal(group.textAlign, "left", `${width}px : valeur de « ${group.label} » alignée à gauche`);
+        assert.equal(group.truncated, false, `${width}px : valeur de « ${group.label} » entière, sans troncature`);
+      }
+      const [typeTop, formatTop, tailleTop, dateTop] = fileCard.groups.map(group => group.top);
+      assert.equal(typeTop, formatTop, `${width}px : Type et Format sur la même ligne`);
+      assert.equal(tailleTop, dateTop, `${width}px : Taille et Date d’ajout sur la même ligne`);
+      assert.ok(tailleTop > typeTop, `${width}px : deux lignes de métadonnées distinctes`);
+      assert.ok(fileCard.metaToNameGap >= 0 && fileCard.metaToNameGap <= 8, `${width}px : « Fichier » rapproché des métadonnées (${fileCard.metaToNameGap}px)`);
+      assert.equal(fileCard.nameFullWidth, true, `${width}px : nom du fichier sur toute la largeur`);
+      assert.ok(fileCard.cardHeight <= 280, `${width}px : carte « Informations fichier » compacte (${fileCard.cardHeight}px)`);
+      assert.ok(fileCard.headHeight >= 44, `${width}px : ligne « Informations fichier » + Transcrire ≥ 44 px (${fileCard.headHeight}px)`);
+      assert.ok(fileCard.trHeight >= 44, `${width}px : bouton Transcrire ≥ 44 px (${fileCard.trHeight}px)`);
+      assert.ok(fileCard.trWidth < 81, `${width}px : bouton Transcrire plus compact (${fileCard.trWidth}px, 81px avant)`);
+      assert.equal(fileCard.overflow, false, `${width}px : aucun débordement horizontal avec la carte`);
+    };
+    assertFileCardLayout(await measureFileCard(), 320);
     /* Dépliage accessible du nom complet : clic = aria-expanded + dépliement,
        second clic = repli ellipsé — sans débordement horizontal. */
     await page.click(".document-unified-filename");
@@ -344,6 +372,12 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.tabsAbsent, true, "aucun onglet Original/Informations à 390px");
     assert.equal(state.infoToggleVisible, true, "bascule Informations visible à 390px");
     assert.equal(state.infoHidden, true, "informations fermées par défaut à 390px");
+    /* Carte « Informations fichier » revérifiée à 390 px (mêmes positions). */
+    await page.click("#viewerDetailsBtn");
+    assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "la bascule ouvre le volet Informations à 390px");
+    assertFileCardLayout(await measureFileCard(), 390);
+    await page.click("#viewerDetailsBtn");
+    assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "la bascule referme le volet à 390px");
     assert.equal(await page.locator("#viewerImage").isVisible(), true, "le lecteur reste affiché à 390px");
     assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "libellé « Original » masqué jusqu'à 760px");
     assert.equal(state.titleLineClamp, "2", "titre limité à deux lignes à 390px");

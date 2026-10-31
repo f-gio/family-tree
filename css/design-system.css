@@ -5195,15 +5195,17 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
   #documentDetailView .document-unified-details { overflow: visible; }
   #documentDetailView .document-unified-facts { grid-template-columns: minmax(0, 1fr); }
   #documentDetailView .viewer-image-controls { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
-  /* Carte « Informations fichier » compacte : métadonnées sur deux colonnes
-     (Type/Format, puis Taille/Date d'ajout), libellé et valeur sur une ligne,
-     nom du fichier sur toute la largeur sous les métadonnées avec dépliage
-     accessible — aucun débordement horizontal. */
-  #documentDetailView .document-unified-facts--file { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
-  #documentDetailView .document-unified-facts--file .document-unified-fact { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
-  #documentDetailView .document-unified-facts--file .document-unified-fact span { min-width: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-  #documentDetailView .document-unified-fact--file-name { flex-wrap: wrap; }
-  #documentDetailView .document-unified-fact--file-name .document-unified-filename { flex: 1 1 auto; min-width: 0; text-align: right; }
+  /* Carte « Informations fichier » : chaque métadonnée forme un groupe
+     vertical compact (libellé au-dessus de sa valeur, alignés à gauche,
+     jamais justifiés aux extrémités des colonnes) dans une grille à deux
+     colonnes — la date reste entièrement lisible, sans troncature.
+     « Fichier » et son nom restent sur toute la largeur, rapprochés des
+     métadonnées, avec dépliage accessible du nom complet. */
+  #documentDetailView .document-unified-facts--file { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2) var(--space-3); }
+  #documentDetailView .document-unified-facts--file .document-unified-fact { display: grid; align-content: start; gap: 2px; }
+  #documentDetailView .document-unified-facts--file .document-unified-fact span { min-width: 0; overflow-wrap: anywhere; text-align: left; }
+  #documentDetailView .document-unified-facts--file .document-unified-fact--file-name { grid-column: 1 / -1; margin-top: calc(var(--space-1) - var(--space-2)); }
+  #documentDetailView .document-unified-facts--file .document-unified-fact--file-name .document-unified-filename { max-width: 100%; text-align: left; }
   #documentDetailView .document-unified-section-head [data-transcribe-document] { padding-inline: var(--space-2); }
 }
 @media (max-width: 760px) {
