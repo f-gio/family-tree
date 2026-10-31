@@ -278,3 +278,46 @@ test("la restauration répare les identifiants douteux au lieu d'abandonner le b
   const withBadSelection = restoreTranscriptionWorkshopDraft({ ...base, selectedPassageId: "inconnu" });
   assert.equal(withBadSelection.selectedPassageId, "p1", "sélection inconnue rabattue sur un passage valide");
 });
+
+test("les brouillons locaux sont isolés par propriétaire, l'espace hérité jamais touché", () => {
+  const storage = createFakeStorage();
+  const draft = createTranscriptionWorkshopDraft({ documentId: "doc-1", pageId: "page-1", passages: samplePassages() });
+  editTranscriptionWorkshopPassage(draft, "p1", { textIt: "Anno del testamento" });
+  const record = buildTranscriptionDraftRecord(draft, "2026-10-31T10:00:00.000Z");
+
+  /* Clés privées distinctes par compte ; la clé historique (héritée) est
+     conservée à l'identique — aucun déplacement automatique. */
+  const keyA = transcriptionDraftStorageKey("doc-1", "page-1", "uid-a");
+  const keyB = transcriptionDraftStorageKey("doc-1", "page-1", "uid-b");
+  assert.equal(keyA, "familyTreeTranscriptionDraft:uid-a|doc-1|page-1", "clé privée du compte A");
+  assert.notEqual(keyA, keyB, "comptes distincts = clés distinctes");
+  assert.equal(transcriptionDraftStorageKey("doc-1", "page-1"), "familyTreeTranscriptionDraft:doc-1|page-1", "clé héritée inchangée");
+  assert.equal(transcriptionDraftStorageKey("doc-1", "page-1", "uid a/b"), "familyTreeTranscriptionDraft:uid%20a%2Fb|doc-1|page-1", "propriétaire encodé");
+  assert.throws(() => transcriptionDraftStorageKey("doc-1", "page-1", " "), /ownerUid/);
+  assert.throws(() => transcriptionDraftStorageKey("doc-1", "page-1", 42), /ownerUid/);
+
+  /* Un compte écrit dans son espace : invisible pour l'autre compte et pour
+     la lecture héritée (jamais d'attribution automatique dans l'autre sens). */
+  writeTranscriptionDraft(storage, "doc-1", "page-1", record, "uid-a");
+  assert.ok(readTranscriptionDraft(storage, "doc-1", "page-1", "uid-a")?.record, "propriétaire : lecture OK");
+  assert.equal(readTranscriptionDraft(storage, "doc-1", "page-1", "uid-b"), null, "autre compte : rien");
+  assert.equal(readTranscriptionDraft(storage, "doc-1", "page-1"), null, "espace hérité : rien (pas d'attribution)");
+
+  /* L'écriture d'un compte n'est jamais bloquée par le vide d'un autre. */
+  assert.equal(transcriptionDraftWriteBlockReason(storage, "doc-1", "page-1", null, "uid-b"), null, "espace de B vide : écriture de B autorisée");
+  assert.equal(transcriptionDraftWriteBlockReason(storage, "doc-1", "page-1", "2026-10-31T09:00:00.000Z", "uid-a"), "newer", "baseline antérieure de A : le record de A est plus récent, réécriture bloquée");
+  assert.equal(transcriptionDraftWriteBlockReason(storage, "doc-1", "page-1", null, "uid-a"), "unknown-baseline", "sans référence pour l'espace de A : contenu d'origine inconnu, refusé");
+
+  /* Retrait d'un compte : son espace seulement. */
+  const legacyRecord = buildTranscriptionDraftRecord(draft, "2026-10-20T08:00:00.000Z");
+  writeTranscriptionDraft(storage, "doc-1", "page-1", legacyRecord);
+  writeTranscriptionDraft(storage, "doc-1", "page-1", record, "uid-a");
+  removeTranscriptionDraft(storage, "doc-1", "page-1", "uid-a");
+  assert.equal(readTranscriptionDraft(storage, "doc-1", "page-1", "uid-a"), null, "espace de A vidé par son retrait");
+  assert.ok(readTranscriptionDraft(storage, "doc-1", "page-1")?.record, "espace hérité intact après retrait de A");
+  assert.equal(
+    transcriptionDraftWriteBlockReason(storage, "doc-1", "page-1", "2026-10-20T08:00:00.000Z", "uid-b"),
+    null,
+    "le hérité n'appartient jamais à un compte : rien n'est lu pour B, rien ne le bloque"
+  );
+});

@@ -815,6 +815,57 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    /* Brouillons de transcription synchronisés entre appareils (lot 2B.2) :
+       espace strictement privé par propriétaire — aucun admin ne l'ouvre, aucune
+       permission élargie sur les autres collections. Lecture/écriture du seul
+       propriétaire authentifié, identifiants et structure vérifiés, horodatages
+       au format ISO, version strictement croissante : la vérification se fait
+       côté base, jamais par la date saisie par le client. */
+    function validTranscriptionDraftId(value) {
+      return value is string && value.matches('^[^/]{1,300}$');
+    }
+
+    function validTranscriptionDraftSnapshot(snapshot, documentId, pageId) {
+      return snapshot is map
+        && snapshot.keys().hasOnly(['documentId', 'pageId', 'original', 'passages', 'createdIds', 'selectedPassageId'])
+        && snapshot.documentId == documentId && snapshot.pageId == pageId
+        && snapshot.original is list && snapshot.original.size() <= 500
+        && snapshot.passages is list && snapshot.passages.size() <= 500
+        && snapshot.createdIds is list && snapshot.createdIds.size() <= 500
+        && (snapshot.selectedPassageId == null || snapshot.selectedPassageId is string);
+    }
+
+    function validTranscriptionDraft(data, ownerUid, documentId, pageId) {
+      return data is map
+        && data.keys().hasOnly(['ownerUid', 'documentId', 'pageId', 'snapshot', 'version', 'createdAt', 'updatedAt', 'updatedBy'])
+        && data.ownerUid == ownerUid && data.ownerUid == request.auth.uid
+        && data.documentId == documentId && data.pageId == pageId
+        && data.version is int && data.version >= 1
+        && data.updatedBy == request.auth.uid
+        && data.createdAt is string && data.createdAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]{3}Z$')
+        && data.updatedAt is string && data.updatedAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]{3}Z$')
+        && validTranscriptionDraftSnapshot(data.snapshot, documentId, pageId);
+    }
+
+    match /transcriptionDrafts/{ownerUid} {
+      match /documents/{documentId} {
+        match /pages/{pageId} {
+          allow read: if signedIn() && request.auth.uid == ownerUid
+            && validTranscriptionDraftId(documentId) && validTranscriptionDraftId(pageId);
+          allow create: if signedIn() && request.auth.uid == ownerUid
+            && validTranscriptionDraftId(documentId) && validTranscriptionDraftId(pageId)
+            && validTranscriptionDraft(request.resource.data, ownerUid, documentId, pageId)
+            && request.resource.data.version == 1;
+          allow update: if signedIn() && request.auth.uid == ownerUid
+            && validTranscriptionDraftId(documentId) && validTranscriptionDraftId(pageId)
+            && validTranscriptionDraft(request.resource.data, ownerUid, documentId, pageId)
+            && resource.data.version is int && request.resource.data.version == resource.data.version + 1
+            && request.resource.data.createdAt == resource.data.createdAt;
+          allow delete: if signedIn() && request.auth.uid == ownerUid;
+        }
+      }
+    }
+
     // Aucun autre document Firestore n'est exposé.
     match /{document=**} {
       allow read, write: if false;

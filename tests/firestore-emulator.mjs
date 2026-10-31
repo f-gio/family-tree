@@ -2015,3 +2015,189 @@ test("suppression définitive : une erreur de collecte ne présente pas une supp
     await signOutAll();
   }
 });
+
+
+// ─── LOT 2B.2 : BROUILONS SYNCHRONISÉS (transcriptionDrafts) ────────────────
+// Collection privée par propriétaire : aucun test n'écrit ailleurs que dans
+// l'espace du compte connecté, aucune donnée de production n'est concernée.
+
+function transcriptionDraftRef(ownerUid) {
+  return doc(db, "transcriptionDrafts", ownerUid, "documents", "doc-sync", "pages", "page-sync");
+}
+
+function transcriptionDraftPayload(ownerUid, overrides = {}) {
+  const now = new Date().toISOString();
+  return {
+    ownerUid,
+    documentId: "doc-sync",
+    pageId: "page-sync",
+    snapshot: {
+      documentId: "doc-sync",
+      pageId: "page-sync",
+      original: [],
+      passages: [{ id: "p-1", order: 0, textIt: "Anno 1891", translationFr: "L'annee 1891" }],
+      createdIds: [],
+      selectedPassageId: "p-1"
+    },
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+    updatedBy: ownerUid,
+    ...overrides
+  };
+}
+
+test("LOT 2B.2 — brouillons : création, lecture, incrémentation de version et nettoyage par le propriétaire", async () => {
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  try {
+    const ref = transcriptionDraftRef(memberUid);
+    await setDoc(ref, transcriptionDraftPayload(memberUid));
+    const created = await getDoc(ref);
+    assert.equal(created.exists(), true, "création acceptée pour le propriétaire");
+    assert.equal(created.data().version, 1, "première version = 1");
+    assert.equal(created.data().updatedBy, memberUid, "écrivain = propriétaire");
+    assert.equal(created.data().ownerUid, memberUid, "propriétaire porté par le document");
+    // Écriture concurrente type application : relecture, incrémentation stricte.
+    await runTransaction(db, async transaction => {
+      const live = await transaction.get(ref);
+      assert.equal(live.data().version, 1);
+      transaction.set(ref, {
+        ...live.data(),
+        snapshot: { ...live.data().snapshot, passages: [{ id: "p-1", order: 0, textIt: "Anno 1892", translationFr: null }] },
+        version: live.data().version + 1,
+        updatedAt: new Date().toISOString()
+      });
+    });
+    const updated = await getDoc(ref);
+    assert.equal(updated.data().version, 2, "incrémentation acceptée");
+    assert.equal(updated.data().snapshot.passages[0].textIt, "Anno 1892", "contenu distant mis à jour");
+    await deleteDoc(ref);
+    assert.equal((await getDoc(ref)).exists(), false, "nettoyage du propriétaire accepté");
+  } finally {
+    await signOutAll();
+  }
+});
+
+test("LOT 2B.2 — brouillons : isolation stricte entre comptes et hors connexion", async () => {
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  const memberRef = transcriptionDraftRef(memberUid);
+  await setDoc(memberRef, transcriptionDraftPayload(memberUid));
+  await signOutAll();
+  try {
+    await expectDenied(getDoc(memberRef), "lecture anonyme refusée");
+    await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+    await expectDenied(getDoc(memberRef), "un autre compte (même admin) ne lit pas les brouillons d'autrui");
+    await expectDenied(deleteDoc(memberRef), "suppression par autrui refusée");
+    await expectDenied(setDoc(memberRef, { ...transcriptionDraftPayload(memberUid), version: 2, updatedAt: new Date().toISOString() }), "écriture par autrui refusée");
+    // Le compte admin peut créer son propre espace privé — jamais celui d'autrui.
+    const adminOwnRef = transcriptionDraftRef(adminUid);
+    await setDoc(adminOwnRef, transcriptionDraftPayload(adminUid));
+    assert.equal((await getDoc(adminOwnRef)).exists(), true, "espace privé du compte lui-même");
+    await deleteDoc(adminOwnRef);
+    await signOutAll();
+    await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+    await deleteDoc(memberRef);
+  } finally {
+    await signOutAll();
+  }
+});
+
+test("LOT 2B.2 — brouillons : deux écritures concurrentes ne s'écrasent jamais", async () => {
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  const ref = transcriptionDraftRef(memberUid);
+  try {
+    await setDoc(ref, transcriptionDraftPayload(memberUid)); // v1 — appareil A
+    // Appareil A publie la version 2.
+    await runTransaction(db, async transaction => {
+      const live = await transaction.get(ref);
+      transaction.set(ref, {
+        ...live.data(),
+        snapshot: { ...live.data().snapshot, passages: [{ id: "p-1", order: 0, textIt: "Appareil A", translationFr: null }] },
+        version: live.data().version + 1,
+        updatedAt: new Date().toISOString()
+      });
+    });
+    // Appareil B, avec une base obsolète, tente la version 2 sans incrémentation :
+    // refusé par les règles — l'état distant n'est pas écrasé.
+    await expectDenied(runTransaction(db, async transaction => {
+      const live = await transaction.get(ref);
+      transaction.set(ref, {
+        ...live.data(),
+        snapshot: { ...live.data().snapshot, passages: [{ id: "p-1", order: 0, textIt: "Appareil B", translationFr: null }] },
+        version: live.data().version,
+        updatedAt: new Date().toISOString()
+      });
+    }), "écriture sans incrémentation refusée");
+    await expectDenied(setDoc(ref, transcriptionDraftPayload(memberUid, {
+      snapshot: { ...transcriptionDraftPayload(memberUid).snapshot, passages: [{ id: "p-1", order: 0, textIt: "Appareil B", translationFr: null }] }
+    })), "réécriture en version 1 sur un document existant refusée");
+    const survivor = await getDoc(ref);
+    assert.equal(survivor.data().version, 2, "la version la plus récente reste en place");
+    assert.equal(survivor.data().snapshot.passages[0].textIt, "Appareil A", "le contenu de l'appareil A n'a jamais été écrasé");
+  } finally {
+    await deleteDoc(ref).catch(() => {});
+    await signOutAll();
+  }
+});
+
+test("LOT 2B.2 — brouillons : suppression du propriétaire autorisée à toute version, sans aucune tombstone", async () => {
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  const ref = transcriptionDraftRef(memberUid);
+  try {
+    await setDoc(ref, transcriptionDraftPayload(memberUid)); // v1
+    await runTransaction(db, async transaction => {
+      const live = await transaction.get(ref);
+      transaction.set(ref, { ...live.data(), version: live.data().version + 1, updatedAt: new Date().toISOString() });
+    });
+    assert.equal((await getDoc(ref)).data().version, 2, "version portée à 2 avant suppression");
+    // Suppression du propriétaire : les règles ne la conditionnent PAS à une
+    // version (le pur gé est une décision applicative, testée dans le plan pur
+    // et en navigateur) ; le compte échoue désormais la lecture, sans trace.
+    await deleteDoc(ref);
+    assert.equal((await getDoc(ref)).exists(), false, "après suppression : aucune donnée résiduelle");
+    await expectDenied(getDoc(transcriptionDraftRef(adminUid)), "l'espace privé reste fermé aux autres comptes même après suppression");
+    // Re-création immédiate du propriétaire autorisée par les règles : rien ne
+    // marque « supprimé » — c'est la logique applicative (conflit sur version
+    // connue) qui empêche une réapparition silencieuse, pas Firestore.
+    await setDoc(ref, transcriptionDraftPayload(memberUid));
+    const recreated = await getDoc(ref);
+    assert.equal(recreated.exists(), true, "re-création du propriétaire acceptée (choix explicite possible)");
+    assert.equal(recreated.data().version, 1, "re-création en version 1");
+    await deleteDoc(ref);
+  } finally {
+    await deleteDoc(ref).catch(() => {});
+    await signOutAll();
+  }
+});
+
+test("LOT 2B.2 — brouillons : identifiants, champs et structure vérifiés", async () => {
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  const ref = transcriptionDraftRef(memberUid);
+  try {
+    await expectDenied(setDoc(ref, transcriptionDraftPayload(memberUid, { extraField: "ajoute" })), "champ inconnu refusé");
+    await expectDenied(setDoc(ref, transcriptionDraftPayload(memberUid, { updatedBy: adminUid })), "écrivain différent du propriétaire refusé");
+    await expectDenied(setDoc(ref, transcriptionDraftPayload(memberUid, { ownerUid: adminUid })), "propriétaire déclaré différent refusé");
+    await expectDenied(setDoc(ref, transcriptionDraftPayload(memberUid, { version: "1" })), "version non entière refusée");
+    await expectDenied(setDoc(ref, transcriptionDraftPayload(memberUid, { version: 0 })), "version inférieure à 1 refusée");
+    await expectDenied(setDoc(ref, transcriptionDraftPayload(memberUid, { updatedAt: "31/10/2026" })), "horodatage hors format ISO refusé");
+    await expectDenied(setDoc(ref, transcriptionDraftPayload(memberUid, { createdAt: "2026-10-31" })), "horodatage de création hors format refusé");
+    await expectDenied(setDoc(ref, transcriptionDraftPayload(memberUid, {
+      snapshot: { ...transcriptionDraftPayload(memberUid).snapshot, documentId: "autre-doc" }
+    })), "snapshot d'un autre document refusé");
+    await expectDenied(setDoc(ref, transcriptionDraftPayload(memberUid, {
+      snapshot: { ...transcriptionDraftPayload(memberUid).snapshot, commentaire: "champ libre" }
+    })), "champ inconnu dans le snapshot refusé");
+    await expectDenied(setDoc(ref, transcriptionDraftPayload(memberUid, {
+      snapshot: { ...transcriptionDraftPayload(memberUid).snapshot, passages: "pas-une-liste" }
+    })), "passages hors tableau refusé");
+    // Mise à jour : la date de création ne peut pas être réécrite.
+    await setDoc(ref, transcriptionDraftPayload(memberUid));
+    await expectDenied(updateDoc(ref, transcriptionDraftPayload(memberUid, { version: 2, updatedAt: new Date().toISOString(), createdAt: "2000-01-01T00:00:00.000Z" })), "createdAt réécrit en update refusé");
+    const stored = await getDoc(ref);
+    await expectDenied(updateDoc(ref, { ...transcriptionDraftPayload(memberUid), version: 1, createdAt: stored.data().createdAt, updatedAt: new Date().toISOString() }), "update sans incrémentation refusée");
+    await deleteDoc(ref);
+  } finally {
+    await deleteDoc(ref).catch(() => {});
+    await signOutAll();
+  }
+});

@@ -19,11 +19,25 @@ function requireNonEmptyString(value, label) {
   return value;
 }
 
-/** Clé de stockage isolée par document et par page. */
-export function transcriptionDraftStorageKey(documentId, pageId) {
+/* Propriétaire d'un brouillon local. Sans propriétaire (null) : clé HÉRITÉE,
+   écrite avant la synchronisation entre appareils ou en session sans compte —
+   jamais attribuée automatiquement à un compte connecté, jamais lue par un
+   compte (reprise explicite seulement, côté application). Avec propriétaire :
+   clé privée du compte, les autres comptes ni lisent ni n'écrivent. */
+function requireOwnerUid(ownerUid) {
+  requireNonEmptyString(ownerUid, "ownerUid");
+  return ownerUid;
+}
+
+/** Clé de stockage isolée par propriétaire, document et page :
+    `…:{uid encodé}|document|page` ; sans propriétaire, la clé historique
+    `…:document|page` est conservée à l'identique (compatibilité, aucun déplacement
+    automatique des brouillons existants). */
+export function transcriptionDraftStorageKey(documentId, pageId, ownerUid = null) {
   requireNonEmptyString(documentId, "documentId");
   requireNonEmptyString(pageId, "pageId");
-  return `${TRANSCRIPTION_DRAFT_STORAGE_PREFIX}${documentId}|${pageId}`;
+  if (ownerUid == null) return `${TRANSCRIPTION_DRAFT_STORAGE_PREFIX}${documentId}|${pageId}`;
+  return `${TRANSCRIPTION_DRAFT_STORAGE_PREFIX}${encodeURIComponent(requireOwnerUid(ownerUid))}|${documentId}|${pageId}`;
 }
 
 /** Sérialise uniquement les données utiles à la reprise (textes, traductions,
@@ -90,8 +104,8 @@ export function parseTranscriptionDraftRecord(raw, { documentId, pageId }) {
     LA LECTURE NE SUPPRIME JAMAIS rien : la destruction automatique d'un
     brouillon sur un échec de lecture ou de restauration est interdite — seul
     un abandon explicite de l'utilisateur retire une donnée. */
-export function readTranscriptionDraft(storage, documentId, pageId) {
-  const key = transcriptionDraftStorageKey(documentId, pageId);
+export function readTranscriptionDraft(storage, documentId, pageId, ownerUid = null) {
+  const key = transcriptionDraftStorageKey(documentId, pageId, ownerUid);
   let raw = null;
   try {
     raw = storage.getItem(key);
@@ -106,15 +120,17 @@ export function readTranscriptionDraft(storage, documentId, pageId) {
 
 /** Écrit l'enregistrement. Toute erreur (quota, stockage indisponible)
     remonte à l'appelant : aucun remplacement partiel n'est possible. */
-export function writeTranscriptionDraft(storage, documentId, pageId, record) {
-  const key = transcriptionDraftStorageKey(documentId, pageId);
+export function writeTranscriptionDraft(storage, documentId, pageId, record, ownerUid = null) {
+  const key = transcriptionDraftStorageKey(documentId, pageId, ownerUid);
   const raw = serializeTranscriptionDraftRecord(record);
   storage.setItem(key, raw);
   return raw;
 }
 
-export function removeTranscriptionDraft(storage, documentId, pageId) {
-  storage.removeItem(transcriptionDraftStorageKey(documentId, pageId));
+/** Retrait limité à l'espace du propriétaire indiqué : un brouillon d'un autre
+    compte (ou hérité sans propriétaire) n'est jamais touché. */
+export function removeTranscriptionDraft(storage, documentId, pageId, ownerUid = null) {
+  storage.removeItem(transcriptionDraftStorageKey(documentId, pageId, ownerUid));
 }
 
 /** Raison d'interdire une écriture :
@@ -125,8 +141,8 @@ export function removeTranscriptionDraft(storage, documentId, pageId) {
     - "unreadable" : un enregistrement présent est illisible — réécrire le
       ferait disparaître son contenu : refusé aussi, il reste en local.
     null = écriture autorisée. */
-export function transcriptionDraftWriteBlockReason(storage, documentId, pageId, baselineSavedAt) {
-  const stored = readTranscriptionDraft(storage, documentId, pageId);
+export function transcriptionDraftWriteBlockReason(storage, documentId, pageId, baselineSavedAt, ownerUid = null) {
+  const stored = readTranscriptionDraft(storage, documentId, pageId, ownerUid);
   if (!stored) return null;
   if (!stored.record) return "unreadable";
   if (typeof baselineSavedAt !== "string" || !baselineSavedAt) return "unknown-baseline";

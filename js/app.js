@@ -63,6 +63,20 @@ import {
   removeTranscriptionDraft,
   transcriptionDraftWriteBlockReason
 } from "./transcription-draft-storage.js";
+import {
+  TRANSCRIPTION_DRAFT_REMOTE_COLLECTION,
+  TRANSCRIPTION_DRAFT_SYNC_DELAY_MS,
+  TRANSCRIPTION_DRAFT_SYNC_LABELS,
+  validateTranscriptionDraftTarget,
+  transcriptionDraftRemoteKey,
+  transcriptionDraftNowIso,
+  transcriptionDraftSnapshotFromDraft,
+  parseTranscriptionDraftRemoteData,
+  buildTranscriptionDraftRemotePayload,
+  reconcileTranscriptionDraftOnOpen,
+  planTranscriptionDraftWrite,
+  transcriptionDraftSnapshotPreview
+} from "./transcription-draft-sync.js";
 import { PROOF_FACT_KINDS, PROOF_FACT_KIND_LABELS, PROOF_RELATION_LABELS, showProofFamilyRelation, validateProofGuidedFields, buildProofGuidedInput } from "./genealogy-proof-form.js";
 import { BACKUP_ARCHIVE_VERSION, createBackupArchiveManifest, compareBackupCaptureMarkers, generateBackupZip, readBackupZip, prepareBackupRestorePlan } from "./backup-archive.js";
 
@@ -4898,6 +4912,19 @@ function markTranscriptionWorkshopDraftSaveFailure(key, status, message) {
   if (notify) toast(message, "error");
 }
 
+/** Propriétaire d'un brouillon de session : stamp posé à l'ouverture (null =
+    session sans compte → espace hérité). La sauvegarde n'utilise QUE ce stamp —
+    un brouillon n'est jamais réattribué au compte courant à l'écriture. */
+function transcriptionDraftOwnerUid(draft) {
+  return draft && draft.ownerUid != null ? draft.ownerUid : null;
+}
+
+/** Stamp le propriétaire sur un brouillon restauré (stockage local ou distant). */
+function stampTranscriptionDraftOwner(draft, ownerUid) {
+  if (draft) draft.ownerUid = ownerUid ?? null;
+  return draft;
+}
+
 /** Écriture effective d'un brouillon modifié : baseline horodatée, refus d'un
     contenu plus récent déjà stocké, déduplication du dernier contenu écrit,
     puis horodatage de la sauvegarde. */
@@ -4911,7 +4938,8 @@ function persistTranscriptionWorkshopDraft(draft) {
     markTranscriptionWorkshopDraftSaveFailure(key, "failed", TRANSCRIPTION_DRAFT_FAILURE_MESSAGE);
     return false;
   }
-  const blockReason = transcriptionDraftWriteBlockReason(storage, draft.documentId, draft.pageId, state?.savedAt || null);
+  const ownerUid = transcriptionDraftOwnerUid(draft);
+  const blockReason = transcriptionDraftWriteBlockReason(storage, draft.documentId, draft.pageId, state?.savedAt || null, ownerUid);
   if (blockReason) {
     /* Un enregistrement illisible reste en local : jamais réécrit ni effacé,
        l'utilisateur est averti une seule fois. */
@@ -4926,26 +4954,33 @@ function persistTranscriptionWorkshopDraft(draft) {
   const snapshotPayload = JSON.stringify(record.snapshot);
   if (state?.status === "saved" && transcriptionDraftLastSnapshots.get(key) === snapshotPayload) return true;
   try {
-    writeTranscriptionDraft(storage, draft.documentId, draft.pageId, record);
+    writeTranscriptionDraft(storage, draft.documentId, draft.pageId, record, ownerUid);
   } catch {
     markTranscriptionWorkshopDraftSaveFailure(key, "failed", TRANSCRIPTION_DRAFT_FAILURE_MESSAGE);
     return false;
   }
   transcriptionDraftLastSnapshots.set(key, snapshotPayload);
   transcriptionDraftSaveStates.set(key, { status: "saved", savedAt: record.savedAt, notifiedFailure: false });
+  /* Écriture locale confirmée : la copie distante suit environ 5 s plus tard
+     (aucune écriture à chaque frappe) — le local n'attend jamais le distant. */
+  scheduleTranscriptionDraftRemoteSync(draft);
   updateWorkshopDraftIndicators();
   return true;
 }
 
 /** Retire la copie locale d'un brouillon (abandon explicite ou retour à l'état
-    initial). Un retrait impossible est signalé, jamais supprimé en silence : le
-    contenu local reste alors en place. Ne touche jamais aux autres clés. */
+    initial). Le retrait est limité à l'espace du propriétaire du brouillon —
+    un brouillon d'un autre compte ou hérité n'est jamais touché. Un retrait
+    impossible est signalé, jamais supprimé en silence : le contenu local reste
+    alors en place. Ne touche jamais aux autres clés. */
 function removeTranscriptionWorkshopDraftRecordFor(documentId, pageId) {
   const key = transcriptionWorkshopDraftKey(documentId, pageId);
+  const sessionDraft = transcriptionWorkshopDrafts.get(key);
+  const ownerUid = sessionDraft ? transcriptionDraftOwnerUid(sessionDraft) : transcriptionDraftSyncOwnerUid();
   const storage = transcriptionWorkshopDraftStorage();
   if (storage) {
     try {
-      if (readTranscriptionDraft(storage, documentId, pageId)) removeTranscriptionDraft(storage, documentId, pageId);
+      if (readTranscriptionDraft(storage, documentId, pageId, ownerUid)) removeTranscriptionDraft(storage, documentId, pageId, ownerUid);
     } catch {
       markTranscriptionWorkshopDraftSaveFailure(key, "failed", TRANSCRIPTION_DRAFT_FAILURE_MESSAGE);
       return false;
@@ -4953,6 +4988,9 @@ function removeTranscriptionWorkshopDraftRecordFor(documentId, pageId) {
   }
   transcriptionDraftLastSnapshots.delete(key);
   transcriptionDraftSaveStates.delete(key);
+  /* Abandon local explicite : le miroir distant est reporté (différé), et
+     seulement avec une version de référence connue — sinon rien n'est purgé. */
+  scheduleTranscriptionDraftRemoteSync(sessionDraft || { documentId, pageId, dirty: false, ownerUid });
   return true;
 }
 
@@ -5000,16 +5038,593 @@ function flushTranscriptionWorkshopDraftSaves() {
   }
 }
 
+/* ---- Synchronisation distante entre appareils (lot 2B.2, incrément 2) -----
+   Le local reste la sauvegarde de référence : le distant est une copie lisible
+   sur les autres appareils, jamais son remplaçant. Une écriture distante part
+   environ 5 s après la dernière modification (plus le bouton « Enregistrer »,
+   la réouverture, la reconnexion) — jamais à chaque frappe, aucun abonnement
+   permanent : une lecture ponctuelle suffit à l'ouverture. Les versions (et
+   jamais une date, aussi récente soit-elle) décident de l'écriture ; toute
+   divergence ou base inconnue devient un conflit à choix explicite, sans
+   fusion de textes ni effacement silencieux. Sans utilisateur connecté, cette
+   couche reste entièrement désactivée et le fonctionnel local est inchangé. */
+let transcriptionDraftRemoteStates = new Map();
+let transcriptionDraftSyncTimers = new Map();
+let transcriptionDraftSyncInFlight = new Set();
+/* Clé du conflit dont le dialogue est ouvert (résolution en cours). */
+let transcriptionDraftOpenConflictKey = null;
+const TRANSCRIPTION_DRAFT_REMOTE_BASE_PREFIX = "familyTreeTranscriptionDraftRemote:";
+const TRANSCRIPTION_DRAFT_SYNC_FAILURE_MESSAGE = "La synchronisation entre appareils a échoué. Vos modifications restent conservées sur cet appareil.";
+const TRANSCRIPTION_DRAFT_SYNC_CONFLICT_MESSAGE = "Conflit de brouillon : deux versions existent. Choisissez celle à conserver — rien n’est effacé.";
+const TRANSCRIPTION_DRAFT_SYNC_UNREADABLE_MESSAGE = "Le brouillon distant n’a pas pu être relu : rien n’a été remplacé, ni sur cet appareil ni sur le compte.";
+
+/** Propriétaire courant : sans utilisateur connecté, aucune écriture ni
+    lecture distante n'est tentée. */
+function transcriptionDraftSyncOwnerUid() {
+  try {
+    return auth.currentUser?.uid || null;
+  } catch {
+    return null;
+  }
+}
+
+function transcriptionDraftRemoteState(key) {
+  let state = transcriptionDraftRemoteStates.get(key);
+  if (!state) {
+    state = transcriptionDraftRemoteStateFresh(null);
+    transcriptionDraftRemoteStates.set(key, state);
+  }
+  return state;
+}
+
+function transcriptionDraftRemoteStateFresh(ownerUid) {
+  return {
+    ownerUid: ownerUid || null,
+    status: "idle",
+    baseVersion: null,
+    baseLoaded: false,
+    lastSyncedSnapshot: null,
+    conflictRemote: null,
+    conflictLocalSnapshot: null,
+    conflictTarget: null,
+    notifiedFailure: false,
+    notifiedConflict: false
+  };
+}
+
+/** Un changement de compte sur le même navigateur réinitialise l'état distant
+    : jamais de base ni de contenu d'un propriétaire précédent mélangés à un
+    autre. */
+function ensureTranscriptionDraftRemoteStateOwner(key, ownerUid) {
+  const state = transcriptionDraftRemoteState(key);
+  if (state.ownerUid == null) {
+    state.ownerUid = ownerUid;
+    return state;
+  }
+  if (state.ownerUid === ownerUid) return state;
+  const fresh = transcriptionDraftRemoteStateFresh(ownerUid);
+  transcriptionDraftRemoteStates.set(key, fresh);
+  return fresh;
+}
+
+function transcriptionDraftRemoteTarget(ownerUid, documentId, pageId) {
+  return validateTranscriptionDraftTarget({ ownerUid, documentId, pageId });
+}
+
+/* Référence de version conservée entre les sessions (localStorage) : elle
+   évite un faux conflit après rechargement quand le distant n'a pas bougé, et
+   n'est jamais prise pour une autorisation d'écrasement — seule la comparaison
+   avec l'état réel de la base décide, dans la transaction. */
+function transcriptionDraftRemoteBaseStorageKey(target) {
+  return `${TRANSCRIPTION_DRAFT_REMOTE_BASE_PREFIX}${encodeURIComponent(target.ownerUid)}|${target.documentId}|${target.pageId}`;
+}
+
+function readTranscriptionDraftRemoteBase(target) {
+  const storage = transcriptionWorkshopDraftStorage();
+  if (!storage) return null;
+  try {
+    const version = Number.parseInt(storage.getItem(transcriptionDraftRemoteBaseStorageKey(target)) ?? "", 10);
+    return Number.isSafeInteger(version) && version >= 1 ? version : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeTranscriptionDraftRemoteBase(target, version) {
+  const storage = transcriptionWorkshopDraftStorage();
+  if (!storage) return;
+  try {
+    const key = transcriptionDraftRemoteBaseStorageKey(target);
+    if (version == null) storage.removeItem(key);
+    else storage.setItem(key, String(version));
+  } catch {
+    /* Best effort : sans stockage, la base reste en mémoire pour la session. */
+  }
+}
+
+function ensureTranscriptionDraftBaseLoaded(target, remoteState) {
+  if (remoteState.baseLoaded) return;
+  remoteState.baseLoaded = true;
+  remoteState.baseVersion = readTranscriptionDraftRemoteBase(target);
+}
+
+function transcriptionDraftRemoteRef(target) {
+  return doc(db, TRANSCRIPTION_DRAFT_REMOTE_COLLECTION, target.ownerUid, "documents", target.documentId, "pages", target.pageId);
+}
+
+/** Lecture ponctuelle du brouillon distant (aucun onSnapshot). Le substitut
+    window.__transcriptionDraftRemoteBackend sert aux tests de navigation. */
+async function readTranscriptionDraftRemote(target) {
+  const validated = transcriptionDraftRemoteTarget(target.ownerUid, target.documentId, target.pageId);
+  const substitute = window.__transcriptionDraftRemoteBackend;
+  if (substitute) return substitute.read(validated);
+  const snapshot = await getDoc(transcriptionDraftRemoteRef(validated));
+  return snapshot.exists() ? parseTranscriptionDraftRemoteData(snapshot.data(), validated) : null;
+}
+
+/** Écriture atomique : le distant est relu DANS la transaction, le plan est
+    calculé contre la version observée, puis l'écriture incrémente la version —
+    deux appareils concurrents ne peuvent pas s'écraser silencieusement, et le
+    refus remonte comme « conflict » avec la version distante intacte. */
+async function writeTranscriptionDraftRemote(target, localSnapshot, baseVersion) {
+  const validated = transcriptionDraftRemoteTarget(target.ownerUid, target.documentId, target.pageId);
+  const substitute = window.__transcriptionDraftRemoteBackend;
+  if (substitute) return substitute.write(validated, localSnapshot, baseVersion);
+  let outcome = null;
+  try {
+    await runTransaction(db, async transaction => {
+      const ref = transcriptionDraftRemoteRef(validated);
+      const snapshot = await transaction.get(ref);
+      const remote = snapshot.exists() ? parseTranscriptionDraftRemoteData(snapshot.data(), validated) : null;
+      const plan = planTranscriptionDraftWrite({ localSnapshot, remote, baseVersion });
+      if (plan.operation === "conflict") {
+        outcome = { outcome: "conflict", remote };
+        throw new Error("Conflit de brouillon détecté : écriture annulée");
+      }
+      if (plan.operation === "adopt") {
+        outcome = { outcome: "synced", remote };
+        throw new Error("Contenu déjà présent à distance : aucune écriture nécessaire");
+      }
+      if (plan.operation === "none") {
+        outcome = { outcome: "synced", remote };
+        throw new Error("Rien à écrire à distance");
+      }
+      const now = transcriptionDraftNowIso();
+      if (plan.operation === "delete") {
+        transaction.delete(ref);
+        outcome = { outcome: "synced", remote: null };
+        return;
+      }
+      const payload = buildTranscriptionDraftRemotePayload({
+        target: validated,
+        snapshot: localSnapshot,
+        version: plan.version,
+        createdAt: plan.operation === "update" && remote ? remote.createdAt : now,
+        updatedAt: now
+      });
+      transaction.set(ref, payload);
+      outcome = { outcome: "synced", remote: payload };
+    });
+  } catch (error) {
+    /* Un plan annulé (conflit, adoption, rien à faire) a déjà posé son
+       résultat : seules les vraies erreurs (réseau, droits) remontent. */
+    if (!outcome) throw error;
+  }
+  if (!outcome) throw new Error("Transaction de synchronisation interrompue");
+  return outcome;
+}
+
+function scheduleTranscriptionDraftRemoteSync(draft, { delay = TRANSCRIPTION_DRAFT_SYNC_DELAY_MS } = {}) {
+  if (!draft?.documentId || !draft?.pageId) return;
+  const ownerUid = transcriptionDraftSyncOwnerUid();
+  if (!ownerUid) return;
+  /* Brouillon non rattaché au compte courant (autre compte, hérité ou anonyme)
+     : jamais programmé pour ce compte — la synchronisation ne change jamais de
+     propriétaire. */
+  if ((draft.ownerUid ?? null) !== ownerUid) return;
+  const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
+  const remoteState = ensureTranscriptionDraftRemoteStateOwner(key, ownerUid);
+  if (remoteState.status === "conflict") return;
+  const target = transcriptionDraftRemoteTarget(ownerUid, draft.documentId, draft.pageId);
+  ensureTranscriptionDraftBaseLoaded(target, remoteState);
+  const snapshot = transcriptionDraftSnapshotFromDraft(draft);
+  if (snapshot != null && remoteState.lastSyncedSnapshot === JSON.stringify(snapshot)) return;
+  if (snapshot == null && remoteState.baseVersion == null) return;
+  if (remoteState.status === "synced") remoteState.status = "pending";
+  const pendingTimer = transcriptionDraftSyncTimers.get(key);
+  if (pendingTimer) clearTimeout(pendingTimer.timer);
+  /* L'envoi mémorise le compte qui l'a programmé : si le compte change avant
+     le déclenchement, l'envoi du compte précédent est abandonné — jamais de
+     contenu publié sous un autre compte. Le brouillon local reste intact. */
+  transcriptionDraftSyncTimers.set(key, {
+    ownerUid,
+    draft,
+    timer: setTimeout(() => {
+      const entry = transcriptionDraftSyncTimers.get(key);
+      if (entry) transcriptionDraftSyncTimers.delete(key);
+      if (transcriptionDraftSyncOwnerUid() !== ownerUid) return;
+      syncTranscriptionDraftNow(draft, { reason: "debounce" });
+    }, delay)
+  });
+}
+
+/** Envoi immédiat (bouton « Enregistrer », différé écoulé, reconnexion,
+    réouverture). L'état local n'est jamais modifié ni supprimé par le distant :
+    un échec garde la copie locale et annonce « Synchronisation impossible ». */
+async function syncTranscriptionDraftNow(draft, { reason = "auto" } = {}) {
+  if (!draft?.documentId || !draft?.pageId) return;
+  const ownerUid = transcriptionDraftSyncOwnerUid();
+  if (!ownerUid) return;
+  /* Garde identique à la programmation : un brouillon d'un autre propriétaire
+     (ou sans propriétaire) n'est jamais publié sous le compte courant. */
+  if ((draft.ownerUid ?? null) !== ownerUid) return;
+  const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
+  const remoteState = ensureTranscriptionDraftRemoteStateOwner(key, ownerUid);
+  if (remoteState.status === "conflict") return;
+  if (transcriptionDraftSyncInFlight.has(key)) return;
+  const pendingTimer = transcriptionDraftSyncTimers.get(key);
+  if (pendingTimer) {
+    clearTimeout(pendingTimer.timer);
+    transcriptionDraftSyncTimers.delete(key);
+  }
+  const currentDraft = transcriptionWorkshopDrafts.get(key) || draft;
+  const snapshot = transcriptionDraftSnapshotFromDraft(currentDraft);
+  const target = transcriptionDraftRemoteTarget(ownerUid, draft.documentId, draft.pageId);
+  ensureTranscriptionDraftBaseLoaded(target, remoteState);
+  if (snapshot == null && remoteState.baseVersion == null) return;
+  if (snapshot != null && remoteState.lastSyncedSnapshot === JSON.stringify(snapshot)) return;
+  transcriptionDraftSyncInFlight.add(key);
+  remoteState.status = "syncing";
+  updateWorkshopDraftIndicators();
+  try {
+    const result = await writeTranscriptionDraftRemote(target, snapshot, remoteState.baseVersion);
+    if (ownerUid !== transcriptionDraftSyncOwnerUid()) {
+      /* Compte changé pendant l'envoi : le résultat appartient au compte
+         précédent, il n'est appliqué ni à l'état ni à l'interface. */
+      if (transcriptionDraftRemoteStates.get(key) === remoteState) transcriptionDraftRemoteStates.delete(key);
+      return;
+    }
+    if (result.outcome === "conflict") {
+      remoteState.status = "conflict";
+      remoteState.conflictRemote = result.remote;
+      remoteState.conflictLocalSnapshot = snapshot;
+      remoteState.conflictTarget = { documentId: draft.documentId, pageId: draft.pageId };
+      /* Suppression distante observée : le dernier contenu connu n'est plus
+         référencé à distance — le dédoublonnage doit être levé pour qu'un
+         choix explicite de republication passe réellement. */
+      if (!result.remote) remoteState.lastSyncedSnapshot = null;
+      updateWorkshopDraftIndicators();
+      if (!remoteState.notifiedConflict) {
+        remoteState.notifiedConflict = true;
+        toast(TRANSCRIPTION_DRAFT_SYNC_CONFLICT_MESSAGE, "error");
+      }
+      if (transcriptionWorkshopDraft && transcriptionWorkshopDraftKey(transcriptionWorkshopDraft.documentId, transcriptionWorkshopDraft.pageId) === key) {
+        openTranscriptionDraftConflictDialog(key);
+      }
+      return;
+    }
+    const remote = result.remote;
+    if (remote) {
+      remoteState.baseVersion = remote.version;
+      storeTranscriptionDraftRemoteBase(target, remote.version);
+    } else {
+      remoteState.baseVersion = null;
+      storeTranscriptionDraftRemoteBase(target, null);
+    }
+    remoteState.baseLoaded = true;
+    /* Contenu modifié pendant l'envoi : la référence avance, l'envoi repart. */
+    const settled = transcriptionDraftSnapshotFromDraft(transcriptionWorkshopDrafts.get(key) || currentDraft);
+    const pushed = JSON.stringify(snapshot ?? null);
+    if (JSON.stringify(settled ?? null) !== pushed) {
+      remoteState.lastSyncedSnapshot = settled ? JSON.stringify(settled) : remote ? JSON.stringify(remote.snapshot) : null;
+      remoteState.status = "pending";
+      updateWorkshopDraftIndicators();
+      scheduleTranscriptionDraftRemoteSync(transcriptionWorkshopDrafts.get(key) || currentDraft);
+      return;
+    }
+    remoteState.lastSyncedSnapshot = settled ? JSON.stringify(settled) : null;
+    remoteState.status = remote ? "synced" : "idle";
+    remoteState.conflictRemote = null;
+    remoteState.conflictLocalSnapshot = null;
+    remoteState.conflictTarget = null;
+    remoteState.notifiedConflict = false;
+    remoteState.notifiedFailure = false;
+    updateWorkshopDraftIndicators();
+  } catch {
+    if (ownerUid !== transcriptionDraftSyncOwnerUid()) {
+      if (transcriptionDraftRemoteStates.get(key) === remoteState) transcriptionDraftRemoteStates.delete(key);
+      return;
+    }
+    remoteState.status = "offline";
+    updateWorkshopDraftIndicators();
+    if (!remoteState.notifiedFailure) {
+      remoteState.notifiedFailure = true;
+      toast(TRANSCRIPTION_DRAFT_SYNC_FAILURE_MESSAGE, "error");
+    }
+  } finally {
+    transcriptionDraftSyncInFlight.delete(key);
+  }
+}
+
+/** Lecture du brouillon distant à l'ouverture de l'atelier : migration non
+    destructive du local, chargement du distant, confirmation ou conflit. */
+async function loadTranscriptionDraftRemote(documentId, pageId, draftAtOpen) {
+  const ownerUid = transcriptionDraftSyncOwnerUid();
+  if (!ownerUid) return;
+  const target = transcriptionDraftRemoteTarget(ownerUid, documentId, pageId);
+  const key = transcriptionWorkshopDraftKey(documentId, pageId);
+  const remoteState = ensureTranscriptionDraftRemoteStateOwner(key, ownerUid);
+  if (remoteState.status === "conflict" || transcriptionDraftSyncInFlight.has(key)) return;
+  let remote = null;
+  try {
+    remote = await readTranscriptionDraftRemote(target);
+  } catch {
+    remoteState.status = "offline";
+    updateWorkshopDraftIndicators();
+    if (!remoteState.notifiedFailure) {
+      remoteState.notifiedFailure = true;
+      toast(TRANSCRIPTION_DRAFT_SYNC_FAILURE_MESSAGE, "error");
+    }
+    return;
+  }
+  if (ownerUid !== transcriptionDraftSyncOwnerUid()) return;
+  const stillLoaded = transcriptionWorkshopDrafts.has(key);
+  const currentDraft = stillLoaded ? transcriptionWorkshopDrafts.get(key) : null;
+  const localSnapshot = transcriptionDraftSnapshotFromDraft(currentDraft || draftAtOpen);
+  /* Base de référence AVANT lecture : si le distant a disparu alors que la
+     version était connue, c'est une suppression observée (conflit explicite),
+     jamais une migration silencieuse. La référence est conservée (mémoire et
+     localStorage) pour que le conflit survive à un rechargement. */
+  ensureTranscriptionDraftBaseLoaded(target, remoteState);
+  const knownBase = remoteState.baseVersion;
+  const plan = reconcileTranscriptionDraftOnOpen({ localSnapshot, remote, baseVersion: knownBase });
+  remoteState.baseLoaded = true;
+  remoteState.baseVersion = remote ? remote.version : knownBase;
+  storeTranscriptionDraftRemoteBase(target, remote ? remote.version : knownBase);
+  if (plan.operation === "none") {
+    remoteState.status = "idle";
+    updateWorkshopDraftIndicators();
+    return;
+  }
+  if (plan.operation === "push") {
+    /* Aucun brouillon sur le compte : migration non destructive du local — la
+       copie locale reste en place jusqu'à confirmation de l'écriture. */
+    if (!stillLoaded) return;
+    updateWorkshopDraftIndicators();
+    await syncTranscriptionDraftNow(currentDraft, { reason: "migration" });
+    return;
+  }
+  if (plan.operation === "confirm") {
+    remoteState.lastSyncedSnapshot = localSnapshot ? JSON.stringify(localSnapshot) : null;
+    remoteState.status = "synced";
+    updateWorkshopDraftIndicators();
+    return;
+  }
+  if (plan.operation === "restore") {
+    if (!stillLoaded) return;
+    let restored = null;
+    try {
+      restored = restoreTranscriptionWorkshopDraft(remote.snapshot);
+    } catch {
+      restored = null;
+    }
+    if (!restored) {
+      remoteState.status = "idle";
+      toast(TRANSCRIPTION_DRAFT_SYNC_UNREADABLE_MESSAGE, "error");
+      updateWorkshopDraftIndicators();
+      return;
+    }
+    if (!restored.dirty) {
+      remoteState.status = "idle";
+      updateWorkshopDraftIndicators();
+      return;
+    }
+    const restoredSnapshot = transcriptionDraftSnapshotFromDraft(restored);
+    remoteState.lastSyncedSnapshot = restoredSnapshot ? JSON.stringify(restoredSnapshot) : null;
+    remoteState.status = "synced";
+    stampTranscriptionDraftOwner(restored, ownerUid);
+    transcriptionWorkshopDrafts.set(key, restored);
+    const applyHere = transcriptionWorkshopDraft === draftAtOpen;
+    if (applyHere) transcriptionWorkshopDraft = restored;
+    persistTranscriptionWorkshopDraft(restored);
+    if (applyHere && isTranscriptionWorkshopActive()) renderTranscriptionWorkshop();
+    updateWorkshopDraftIndicators();
+    return;
+  }
+  if (plan.operation === "conflict") {
+    remoteState.status = "conflict";
+    remoteState.conflictRemote = remote;
+    remoteState.conflictLocalSnapshot = localSnapshot;
+    remoteState.conflictTarget = { documentId, pageId };
+    if (!remote) remoteState.lastSyncedSnapshot = null;
+    updateWorkshopDraftIndicators();
+    if (!stillLoaded) {
+      toast(TRANSCRIPTION_DRAFT_SYNC_CONFLICT_MESSAGE, "error");
+      return;
+    }
+    if (!remoteState.notifiedConflict) {
+      remoteState.notifiedConflict = true;
+      toast(TRANSCRIPTION_DRAFT_SYNC_CONFLICT_MESSAGE, "error");
+    }
+    openTranscriptionDraftConflictDialog(key);
+  }
+}
+
+function transcriptionDraftConflictDateLabel(iso) {
+  const time = Date.parse(String(iso || ""));
+  if (Number.isNaN(time)) return "à une date inconnue";
+  return new Date(time).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" });
+}
+
+/** Dialogue de résolution : les deux versions sont affichées telles quelles,
+    côte à côte sur desktop et empilées sur mobile ; aucune n'est fusionnée. */
+function openTranscriptionDraftConflictDialog(key) {
+  const remoteState = transcriptionDraftRemoteStates.get(key);
+  if (!remoteState || remoteState.status !== "conflict") return;
+  /* L'atelier peut avoir été quitté pendant la lecture : le conflit reste
+     marqué (statut et bouton du pied) et se rouvre à la prochaine ouverture. */
+  if (!isTranscriptionWorkshopActive()) return;
+  const remote = remoteState.conflictRemote;
+  const local = remoteState.conflictLocalSnapshot;
+  transcriptionDraftOpenConflictKey = key;
+  $("transcriptionDraftConflictLocalText").value = local
+    ? transcriptionDraftSnapshotPreview(local)
+    : "(aucune modification locale)";
+  $("transcriptionDraftConflictRemoteText").value = remote
+    ? transcriptionDraftSnapshotPreview(remote.snapshot)
+    : "(aucun brouillon distant)";
+  $("transcriptionDraftConflictLocalMeta").textContent = local
+    ? `Enregistré localement le ${transcriptionDraftConflictDateLabel(transcriptionDraftSaveStates.get(key)?.savedAt)}`
+    : "Aucune copie locale : l’annulation de cet appareil est en conflit avec le compte.";
+  $("transcriptionDraftConflictRemoteMeta").textContent = remote
+    ? `Modifié le ${transcriptionDraftConflictDateLabel(remote.updatedAt)} sur le compte (version ${remote.version})`
+    : "Aucune version sur le compte.";
+  const dialog = $("transcriptionDraftConflictDialog");
+  if (!dialog.open) dialog.showModal();
+}
+
+/** Choix explicite de l'utilisateur : la version retenue est appliquée telle
+    quelle — jamais fusionnée — et repart avec la version distante observée
+    comme base. Fermer le dialogue ne résout rien (le statut reste « Conflit à
+    résoudre » et le bouton du pied permet de rouvrir). */
+function resolveTranscriptionDraftConflict(choice) {
+  const key = transcriptionDraftOpenConflictKey;
+  const dialog = $("transcriptionDraftConflictDialog");
+  if (!key) {
+    if (dialog?.open) dialog.close();
+    return;
+  }
+  const remoteState = transcriptionDraftRemoteStates.get(key);
+  if (!remoteState || remoteState.status !== "conflict") {
+    transcriptionDraftOpenConflictKey = null;
+    if (dialog?.open) dialog.close();
+    return;
+  }
+  const remote = remoteState.conflictRemote;
+  const localSnapshot = remoteState.conflictLocalSnapshot;
+  const conflictTarget = remoteState.conflictTarget;
+  const ownerUid = transcriptionDraftSyncOwnerUid();
+  transcriptionDraftOpenConflictKey = null;
+  if (dialog?.open) dialog.close();
+  if (!ownerUid || !conflictTarget) return;
+  const target = transcriptionDraftRemoteTarget(ownerUid, conflictTarget.documentId, conflictTarget.pageId);
+  if (remoteState.ownerUid && remoteState.ownerUid !== ownerUid) {
+    /* Conflit du compte précédent : aucune résolution sous le nouveau compte,
+       aucun contenu réorienté. */
+    if (transcriptionDraftRemoteStates.get(key) === remoteState) transcriptionDraftRemoteStates.delete(key);
+    updateWorkshopDraftIndicators();
+    return;
+  }
+  remoteState.notifiedConflict = false;
+  remoteState.status = "pending";
+  if (choice === "remote") {
+    if (!remote) {
+      /* Conflit de suppression : le compte n'a plus de brouillon et l'utilisateur
+         choisit la version distante — la copie locale est retirée sur choix
+         EXPLICITE (jamais automatiquement) et le brouillon redevient propre. */
+      const draft = transcriptionWorkshopDrafts.get(key);
+      if (draft) resetTranscriptionWorkshopDraft(draft);
+      removeTranscriptionWorkshopDraftRecordFor(conflictTarget.documentId, conflictTarget.pageId);
+      remoteState.status = "idle";
+      remoteState.baseVersion = null;
+      remoteState.baseLoaded = true;
+      remoteState.lastSyncedSnapshot = null;
+      remoteState.conflictRemote = null;
+      remoteState.conflictLocalSnapshot = null;
+      remoteState.conflictTarget = null;
+      remoteState.notifiedConflict = false;
+      updateWorkshopDraftIndicators();
+      if (draft && transcriptionWorkshopDraft === draft && isTranscriptionWorkshopActive()) renderTranscriptionWorkshop();
+      toast("Le brouillon du compte a été supprimé : la copie locale de cet appareil a été retirée, sur votre choix.", "success");
+      return;
+    }
+    let restored = null;
+    try {
+      restored = restoreTranscriptionWorkshopDraft(remote.snapshot);
+    } catch {
+      restored = null;
+    }
+    if (!restored) {
+      remoteState.status = "conflict";
+      remoteState.notifiedConflict = true;
+      transcriptionDraftOpenConflictKey = key;
+      toast(TRANSCRIPTION_DRAFT_SYNC_UNREADABLE_MESSAGE, "error");
+      updateWorkshopDraftIndicators();
+      openTranscriptionDraftConflictDialog(key);
+      return;
+    }
+    remoteState.baseVersion = remote.version;
+    remoteState.baseLoaded = true;
+    storeTranscriptionDraftRemoteBase(target, remote.version);
+    const restoredSnapshot = transcriptionDraftSnapshotFromDraft(restored);
+    remoteState.lastSyncedSnapshot = restoredSnapshot ? JSON.stringify(restoredSnapshot) : null;
+    remoteState.status = "synced";
+    remoteState.conflictRemote = null;
+    remoteState.conflictLocalSnapshot = null;
+    remoteState.conflictTarget = null;
+    stampTranscriptionDraftOwner(restored, ownerUid);
+    const draft = transcriptionWorkshopDrafts.get(key);
+    if (draft) {
+      transcriptionWorkshopDrafts.set(key, restored);
+      if (transcriptionWorkshopDraft === draft) {
+        transcriptionWorkshopDraft = restored;
+        persistTranscriptionWorkshopDraft(restored);
+        if (isTranscriptionWorkshopActive()) renderTranscriptionWorkshop();
+      }
+    }
+    updateWorkshopDraftIndicators();
+    toast("Version distante conservée : elle remplace la copie de cet appareil.", "success");
+    return;
+  }
+  /* choice === "local" : la version de cet appareil part vers le compte (ou le
+     nettoyage local est reporté à distance), sur la base observée. */
+  remoteState.baseVersion = remote ? remote.version : null;
+  remoteState.baseLoaded = true;
+  storeTranscriptionDraftRemoteBase(target, remote ? remote.version : null);
+  remoteState.conflictRemote = null;
+  remoteState.conflictLocalSnapshot = null;
+  remoteState.conflictTarget = null;
+  const draft = transcriptionWorkshopDrafts.get(key);
+  if (localSnapshot == null) {
+    updateWorkshopDraftIndicators();
+    scheduleTranscriptionDraftRemoteSync(draft || { documentId: conflictTarget.documentId, pageId: conflictTarget.pageId, dirty: false, ownerUid }, { delay: 0 });
+    return;
+  }
+  if (!draft || !draft.dirty) {
+    remoteState.status = "idle";
+    updateWorkshopDraftIndicators();
+    return;
+  }
+  updateWorkshopDraftIndicators();
+  syncTranscriptionDraftNow(draft, { reason: "conflict-resolved" });
+}
+
+/** Écriture distante en attente exécutée sans attendre (fermeture de l'onglet,
+    sortie de l'atelier) : le brouillon local est déjà conservé, l'envoi part
+    au mieux — l'état distant ne JAMAIS n'efface une donnée locale. */
+function flushTranscriptionDraftRemoteSends() {
+  const currentUid = transcriptionDraftSyncOwnerUid();
+  for (const [key, pending] of transcriptionDraftSyncTimers) {
+    clearTimeout(pending.timer);
+    transcriptionDraftSyncTimers.delete(key);
+    /* Envoi programmé par un autre compte : abandonné, jamais réorienté. */
+    if (pending.ownerUid !== currentUid) continue;
+    const draft = transcriptionWorkshopDrafts.get(key) || pending.draft;
+    if (!draft) continue;
+    syncTranscriptionDraftNow(draft, { reason: "flush" });
+  }
+}
+
 /** Reprend le brouillon local d'une page, ou null. La lecture et la
     restauration ne détruisent JAMAIS un enregistrement : un contenu propre
     retiré reste un nettoyage nominal, un échec (illisible ou incohérent)
     conserve la donnée en local et signale l'erreur une seule fois — le
     brouillon en mémoire n'est alors jamais présenté comme enregistré. */
-function restoreTranscriptionWorkshopDraftFromStorage(documentId, pageId) {
+function restoreTranscriptionWorkshopDraftFromStorage(documentId, pageId, ownerUid = null) {
   const storage = transcriptionWorkshopDraftStorage();
   if (!storage) return null;
   const key = transcriptionWorkshopDraftKey(documentId, pageId);
-  const stored = readTranscriptionDraft(storage, documentId, pageId);
+  const stored = readTranscriptionDraft(storage, documentId, pageId, ownerUid);
   if (!stored) return null;
   if (!stored.record) {
     markTranscriptionWorkshopDraftSaveFailure(key, "failed", TRANSCRIPTION_DRAFT_UNREADABLE_MESSAGE);
@@ -5027,12 +5642,13 @@ function restoreTranscriptionWorkshopDraftFromStorage(documentId, pageId) {
   }
   if (!draft.dirty) {
     try {
-      removeTranscriptionDraft(storage, documentId, pageId);
+      removeTranscriptionDraft(storage, documentId, pageId, ownerUid);
     } catch {
       /* Brouillon propre : retrait best effort, sans conséquence fonctionnelle. */
     }
     return null;
   }
+  stampTranscriptionDraftOwner(draft, ownerUid);
   transcriptionDraftLastSnapshots.set(key, JSON.stringify(stored.record.snapshot));
   transcriptionDraftSaveStates.set(key, { status: "saved", savedAt: stored.record.savedAt, notifiedFailure: false });
   return draft;
@@ -5043,6 +5659,116 @@ function transcriptionWorkshopCollectionsState() {
     loading: !genealogyCollectionsLoaded.has("transcriptionHeads"),
     error: genealogyCollectionErrors.has("transcriptionHeads")
   };
+}
+
+/* ---- Brouillons hérités (sans propriétaire) : reprise explicite ----------
+   Écrits avant la synchronisation entre appareils ou en session sans compte :
+   ni lus, ni synchronisés, ni supprimés automatiquement par un compte. Une
+   offre unique par compte et par page (marqueur non destructif) propose de les
+   rattacher ; seule l'action « Reprendre » copie le contenu dans l'espace privé
+   du compte — la copie héritée reste intacte sur l'appareil. */
+let transcriptionDraftLegacyRecoveryTarget = null;
+
+function transcriptionDraftLegacyRecoveryFlagKey(ownerUid, documentId, pageId) {
+  return `familyTreeTranscriptionDraftRecovery:${encodeURIComponent(ownerUid)}|${documentId}|${pageId}`;
+}
+
+/** Le stockage illisible ou indisponible interdit l'offre (jamais d'obligation). */
+function isTranscriptionDraftLegacyRecoveryHandled(ownerUid, documentId, pageId) {
+  const storage = transcriptionWorkshopDraftStorage();
+  if (!storage) return true;
+  try {
+    return storage.getItem(transcriptionDraftLegacyRecoveryFlagKey(ownerUid, documentId, pageId)) === "1";
+  } catch {
+    return true;
+  }
+}
+
+function markTranscriptionDraftLegacyRecoveryHandled(ownerUid, documentId, pageId) {
+  const storage = transcriptionWorkshopDraftStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(transcriptionDraftLegacyRecoveryFlagKey(ownerUid, documentId, pageId), "1");
+  } catch {
+    /* Best effort : sans marqueur, la prochaine ouverture re-propose — jamais destructif. */
+  }
+}
+
+/** Offre de reprise, proposée après l'échange distant à l'ouverture de l'atelier :
+   aucun brouillon du compte pour cette page ET un brouillon hérité présent. */
+function offerTranscriptionDraftLegacyRecovery(documentId, pageId) {
+  const ownerUid = transcriptionDraftSyncOwnerUid();
+  if (!ownerUid) return;
+  if (!isTranscriptionWorkshopActive()) return;
+  const context = transcriptionWorkshopContext;
+  if (!context || context.documentId !== documentId || context.pageId !== pageId) return;
+  const storage = transcriptionWorkshopDraftStorage();
+  if (!storage) return;
+  const key = transcriptionWorkshopDraftKey(documentId, pageId);
+  const owned = transcriptionWorkshopDrafts.get(key);
+  /* Le compte possède déjà un brouillon actif ou stocké pour la page : rien à
+     proposer (les deux versions ne sont jamais présentées ensemble). */
+  if (owned && (owned.ownerUid ?? null) === ownerUid && owned.dirty) return;
+  if (readTranscriptionDraft(storage, documentId, pageId, ownerUid)?.record) return;
+  if (isTranscriptionDraftLegacyRecoveryHandled(ownerUid, documentId, pageId)) return;
+  const legacy = readTranscriptionDraft(storage, documentId, pageId);
+  if (!legacy?.record) return;
+  let draft = null;
+  try {
+    draft = restoreTranscriptionWorkshopDraft(legacy.record.snapshot);
+  } catch {
+    draft = null;
+  }
+  if (!draft || !draft.dirty) {
+    /* Rien de récupérable : rien n'est offert et rien n'est supprimé. */
+    markTranscriptionDraftLegacyRecoveryHandled(ownerUid, documentId, pageId);
+    return;
+  }
+  transcriptionDraftLegacyRecoveryTarget = { ownerUid, documentId, pageId };
+  $("transcriptionDraftRecoveryMeta").textContent = `Enregistré sur cet appareil le ${transcriptionDraftConflictDateLabel(legacy.record.savedAt)}`;
+  $("transcriptionDraftRecoveryText").value = transcriptionDraftSnapshotPreview(transcriptionDraftSnapshotFromDraft(draft));
+  const dialog = $("transcriptionDraftRecoveryDialog");
+  if (!dialog.open) dialog.showModal();
+}
+
+/** Résolution explicite : « Reprendre » copie vers l'espace privé du compte
+    (l'hérité est conservé), « Le laisser tel quel » marque l'offre traitée sans
+    toucher au contenu. Fermer le dialogue ne marque rien (nouvelle offre). */
+function resolveTranscriptionDraftLegacyRecovery(choice) {
+  const target = transcriptionDraftLegacyRecoveryTarget;
+  transcriptionDraftLegacyRecoveryTarget = null;
+  const dialog = $("transcriptionDraftRecoveryDialog");
+  if (dialog?.open) dialog.close();
+  if (!target) return;
+  markTranscriptionDraftLegacyRecoveryHandled(target.ownerUid, target.documentId, target.pageId);
+  if (choice !== "claim") {
+    toast("Brouillon hérité laissé intact : il restera local et non synchronisé.", "info");
+    return;
+  }
+  const storage = transcriptionWorkshopDraftStorage();
+  if (!storage) return;
+  const legacy = readTranscriptionDraft(storage, target.documentId, target.pageId);
+  if (!legacy?.record) return;
+  let draft = null;
+  try {
+    draft = restoreTranscriptionWorkshopDraft(legacy.record.snapshot);
+  } catch {
+    draft = null;
+  }
+  if (!draft || !draft.dirty) return;
+  stampTranscriptionDraftOwner(draft, target.ownerUid);
+  const key = transcriptionWorkshopDraftKey(target.documentId, target.pageId);
+  transcriptionWorkshopDrafts.set(key, draft);
+  const isCurrent = transcriptionWorkshopContext
+    && transcriptionWorkshopContext.documentId === target.documentId
+    && transcriptionWorkshopContext.pageId === target.pageId;
+  if (isCurrent) {
+    transcriptionWorkshopDraft = draft;
+    if (isTranscriptionWorkshopActive()) renderTranscriptionWorkshop();
+  }
+  persistTranscriptionWorkshopDraft(draft);
+  updateWorkshopDraftIndicators();
+  toast("Brouillon repris : il appartient maintenant à votre compte et pourra être synchronisé.", "success");
 }
 
 function transcriptionWorkshopImageSource(photo) {
@@ -5400,22 +6126,26 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
     photos,
     imageSrc: transcriptionWorkshopImageSource(photo)
   };
-  /* Restaure le brouillon de la page : d'abord celui de la session, sinon sa
-     copie locale (localStorage) — reprise après fermeture, changement de page
-     ou rechargement. Un brouillon sans correction est recréé pour refléter les
-     données à jour (chargement terminé, révision reçue pendant la session). */
+  /* Restaure le brouillon de la page : d'abord celui de la session appartenant
+     au compte courant, sinon la copie locale de l'espace privé du compte —
+     jamais le brouillon d'un autre compte ni le brouillon hérité sans
+     propriétaire (reprise explicite seulement, cf. offre ci-dessous). */
   const key = transcriptionWorkshopDraftKey(context.documentId, page.id);
-  const existing = transcriptionWorkshopDrafts.get(key) || restoreTranscriptionWorkshopDraftFromStorage(context.documentId, page.id);
+  const ownerUid = transcriptionDraftSyncOwnerUid();
+  const sessionDraft = transcriptionWorkshopDrafts.get(key);
+  const sessionOwned = (sessionDraft?.ownerUid ?? null) === (ownerUid ?? null);
+  const existing = (sessionOwned ? sessionDraft : null) || restoreTranscriptionWorkshopDraftFromStorage(context.documentId, page.id, ownerUid);
   if (existing?.dirty) {
+    stampTranscriptionDraftOwner(existing, ownerUid);
     transcriptionWorkshopDraft = existing;
     transcriptionWorkshopDrafts.set(key, existing);
   } else {
     const { passages } = proofPassagesForPage(context.documentId, page.id);
-    transcriptionWorkshopDraft = createTranscriptionWorkshopDraft({
+    transcriptionWorkshopDraft = stampTranscriptionDraftOwner(createTranscriptionWorkshopDraft({
       documentId: context.documentId,
       pageId: page.id,
       passages
-    });
+    }), ownerUid);
     transcriptionWorkshopDrafts.set(key, transcriptionWorkshopDraft);
   }
   transcriptionWorkshopCompare = false;
@@ -5430,6 +6160,13 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
   createWorkshopImageViewer();
   syncWorkshopZone();
   scheduleTranscriptionWorkshopScrollTop();
+  /* Synchronisation entre appareils : lecture ponctuelle du distant à
+     l'ouverture (aucun abonnement) — migration du local, chargement du distant,
+     confirmation ou conflit explicite. Une fois cet échange réglé, l'offre de
+     reprise d'un brouillon hérité (sans propriétaire) est proposée si nécessaire. */
+  loadTranscriptionDraftRemote(context.documentId, page.id, transcriptionWorkshopDraft)
+    .catch(() => {})
+    .finally(() => offerTranscriptionDraftLegacyRecovery(context.documentId, page.id));
 }
 
 /* Ouverture en haut de page (correctif Safari iPhone) : à l'entrée dans
@@ -5927,22 +6664,44 @@ function syncWorkshopUnloadGuard() {
 function updateWorkshopDraftIndicators() {
   const draft = transcriptionWorkshopDraft;
   if (!draft) return;
-  /* État de sauvegarde locale, porté par un statut compact et non intrusif :
-     brouillon propre, écriture en attente, version conservée localement ou
-     échec — sans notification répétée (le toast n'est émis qu'une fois) et   toujours après un résultat d'écriture réel. */
+  /* Un seul libellé en pied du panneau, toujours après un résultat réel :
+     conflit à résoudre > échec local > synchronisation impossible > écriture
+     locale en attente > synchronisation en cours > synchronisé entre appareils
+     > états locaux. Aucun doublon d'avertissement (toast émis une fois). */
   const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
   const state = transcriptionDraftSaveStates.get(key);
-  const failed = state?.status === "failed" || state?.status === "conflict";
+  const storedRemoteState = transcriptionDraftRemoteStates.get(key);
+  /* État distant d'un autre compte (changement de compte sur ce navigateur) :
+     jamais affiché sous le compte courant. */
+  const remoteState = storedRemoteState
+    && (storedRemoteState.ownerUid == null || storedRemoteState.ownerUid === transcriptionDraftSyncOwnerUid())
+    ? storedRemoteState : null;
+  const localFailed = state?.status === "failed" || state?.status === "conflict";
   const pending = state?.status === "pending";
-  const status = failed ? "Échec de sauvegarde"
-    : pending ? "Enregistrement…"
-      : draft.dirty ? (state?.status === "saved" ? "Enregistré localement" : "Enregistrement…")
-        : "Brouillon local";
-  const dirty = failed || pending || (draft.dirty && state?.status !== "saved");
+  const conflict = remoteState?.status === "conflict";
+  const offline = remoteState?.status === "offline";
+  const syncing = remoteState?.status === "syncing";
+  const synced = remoteState?.status === "synced";
+  const failed = localFailed || offline;
+  const status = conflict ? TRANSCRIPTION_DRAFT_SYNC_LABELS.conflict
+    : localFailed ? "Échec de sauvegarde"
+      : offline ? TRANSCRIPTION_DRAFT_SYNC_LABELS.offline
+        : pending ? "Enregistrement…"
+          : syncing ? TRANSCRIPTION_DRAFT_SYNC_LABELS.syncing
+            : synced ? TRANSCRIPTION_DRAFT_SYNC_LABELS.synced
+              : draft.dirty ? (state?.status === "saved" ? "Enregistré localement" : "Enregistrement…")
+                : "Brouillon local";
+  const dirty = failed || pending || conflict || syncing || (draft.dirty && state?.status !== "saved");
   const statusElement = $("workshopSaveStatus");
   statusElement.textContent = status;
   statusElement.classList.toggle("is-dirty", dirty);
   statusElement.classList.toggle("is-failed", failed);
+  statusElement.classList.toggle("is-synced", synced && !failed && !conflict);
+  statusElement.classList.toggle("is-conflict", conflict);
+  /* Conflit refermé sans choix : le bouton du pied permet de rouvrir la
+     comparaison — l'état reste visible tant qu'aucune décision n'est prise. */
+  const conflictButton = $("workshopConflictBtn");
+  if (conflictButton) conflictButton.hidden = !conflict;
   /* Action de sauvegarde manuelle (menu « … ») : active dès qu'il existe du
      travail à écrire immédiatement ; l'autosauvegarde différée continue. */
   const saveButton = $("workshopSaveDraftBtn");
@@ -6035,10 +6794,15 @@ function resetTranscriptionWorkshopState() {
   if ($("workshopZone")) $("workshopZone").hidden = true;
   if ($("workshopImageTools")) $("workshopImageTools").hidden = true;
   if ($("workshopSaveStatus")) {
-    $("workshopSaveStatus").classList.remove("is-dirty", "is-failed");
+    $("workshopSaveStatus").classList.remove("is-dirty", "is-failed", "is-synced", "is-conflict");
     $("workshopSaveStatus").textContent = "Brouillon local";
   }
   if ($("workshopSaveDraftBtn")) $("workshopSaveDraftBtn").disabled = true;
+  if ($("workshopConflictBtn")) $("workshopConflictBtn").hidden = true;
+  if ($("transcriptionDraftConflictDialog")?.open) $("transcriptionDraftConflictDialog").close();
+  transcriptionDraftOpenConflictKey = null;
+  if ($("transcriptionDraftRecoveryDialog")?.open) $("transcriptionDraftRecoveryDialog").close();
+  transcriptionDraftLegacyRecoveryTarget = null;
   if ($("workshopHelpBtn")) $("workshopHelpBtn").setAttribute("aria-expanded", "false");
   if ($("workshopDraftHelp")) $("workshopDraftHelp").hidden = true;
   if ($("workshopLayout")) { $("workshopLayout").dataset.activePanel = "original"; delete $("workshopLayout").dataset.compare; }
@@ -6080,7 +6844,12 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
       clearTimeout(pendingTimer);
       transcriptionDraftSaveTimers.delete(key);
     }
-    if (persistTranscriptionWorkshopDraft(draft)) toast("Brouillon enregistré localement.", "success");
+    if (persistTranscriptionWorkshopDraft(draft)) {
+      toast("Brouillon enregistré localement.", "success");
+      /* Écriture distante immédiate (sans attendre les 5 s) : le libellé local
+         reste affiché tant que l'envoi n'a pas abouti. */
+      syncTranscriptionDraftNow(draft, { reason: "manual" });
+    }
     closeTranscriptionWorkshopMenu();
     return;
   }
@@ -6186,9 +6955,48 @@ $("transcriptionWorkshopView").addEventListener("input", event => {
   if (transcriptionWorkshopCompare) renderWorkshopCompareContent();
 });
 
+/* Résolution des conflits : comparaison puis choix explicite — les boutons
+   vivent sur le dialog racine, hors de la vue atelier ; ils ne touchent ni les
+   onglets, ni la visionneuse, ni « Enregistrer ». */
+$("transcriptionDraftConflictKeepLocalBtn").addEventListener("click", () => resolveTranscriptionDraftConflict("local"));
+$("transcriptionDraftConflictKeepRemoteBtn").addEventListener("click", () => resolveTranscriptionDraftConflict("remote"));
+$("workshopConflictBtn").addEventListener("click", () => {
+  const draft = transcriptionWorkshopDraft;
+  const key = draft
+    ? transcriptionWorkshopDraftKey(draft.documentId, draft.pageId)
+    : transcriptionDraftOpenConflictKey;
+  if (key) openTranscriptionDraftConflictDialog(key);
+});
+
+/* Reprise d'un brouillon hérité : choix explicite entre rattacher (copie
+   non destructive vers l'espace du compte) et laisser intact. */
+$("transcriptionDraftRecoveryClaimBtn").addEventListener("click", () => resolveTranscriptionDraftLegacyRecovery("claim"));
+$("transcriptionDraftRecoveryLeaveBtn").addEventListener("click", () => resolveTranscriptionDraftLegacyRecovery("leave"));
+
 /* Rechargement ou fermeture de l'onglet : écriture immédiate des sauvegardes
    en attente, pour que le brouillon soit repris au prochain chargement. */
 window.addEventListener("pagehide", flushTranscriptionWorkshopDraftSaves);
+/* Envoi distant en attente exécuté sans attendre au rechargement ou à la
+   fermeture : la copie locale est déjà écrite, l'envoi part au mieux. */
+window.addEventListener("pagehide", flushTranscriptionDraftRemoteSends);
+/* Reconnexion : les synchronisations en échec repartent automatiquement, avec
+   les mêmes garde-fous (version de référence, aucun conflit silencieux). */
+window.addEventListener("online", () => {
+  let retriggered = false;
+  const currentUid = transcriptionDraftSyncOwnerUid();
+  for (const [key, remoteState] of transcriptionDraftRemoteStates) {
+    if (remoteState.status !== "offline") continue;
+    /* État distant d'un compte précédent : jamais rejoué sous le compte courant. */
+    if (remoteState.ownerUid !== currentUid) continue;
+    const draft = transcriptionWorkshopDrafts.get(key);
+    if (!draft) continue;
+    remoteState.status = "pending";
+    remoteState.notifiedFailure = false;
+    retriggered = true;
+    syncTranscriptionDraftNow(draft, { reason: "online" });
+  }
+  if (retriggered) updateWorkshopDraftIndicators();
+});
 
 /* Retour système du navigateur : l'entrée d'historique réelle de l'atelier est
    consommée par Retour — même sortie confirmée que le bouton Retour, jamais de

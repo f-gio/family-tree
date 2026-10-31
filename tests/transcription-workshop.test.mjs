@@ -434,16 +434,24 @@ test("les brouillons sont persistés localement et repris sans toucher aux modul
     readFile(new URL("../js/document-transcription.js", import.meta.url), "utf8"),
     readFile(new URL("../js/transcription-draft-storage.js", import.meta.url), "utf8")
   ]);
-  // Reprendre automatiquement à l'ouverture (mémoire d'abord, sinon localStorage).
-  assert.match(app, /transcriptionWorkshopDrafts\.get\(key\) \|\| restoreTranscriptionWorkshopDraftFromStorage\(context\.documentId, page\.id\)/, "reprise du brouillon local à l'ouverture");
+  // Reprendre automatiquement à l'ouverture : mémoire d'abord (seulement si le
+  // brouillon appartient au compte courant), sinon l'espace local du compte.
+  assert.match(
+    app,
+    /\(sessionOwned \? sessionDraft : null\) \|\| restoreTranscriptionWorkshopDraftFromStorage\(context\.documentId, page\.id, ownerUid\)/,
+    "reprise du brouillon du compte courant à l'ouverture"
+  );
   assert.match(app, /restoreTranscriptionWorkshopDraft\(stored\.record\.snapshot\)/, "snapshot revalidé par le module pur avant import");
+  assert.match(app, /stampTranscriptionDraftOwner\(draft, ownerUid\)/, "propriétaire stampé à la restauration");
   // Sauvegarde automatique, différée et sans écriture inutile.
   assert.match(app, /scheduleTranscriptionWorkshopDraftSave\(transcriptionWorkshopDraft\)/, "programmation à chaque édition");
   assert.match(app, /const TRANSCRIPTION_DRAFT_SAVE_DELAY_MS = 400;/, "regroupement des frappes avant écriture");
   assert.match(app, /transcriptionDraftLastSnapshots\.get\(key\) === snapshotPayload/, "dernier contenu écrit dédupliqué");
-  // Horodatage et refus d'écraser une version plus récente.
+  // Horodatage et refus d'écraser une version plus récente (dans l'espace du propriétaire).
   assert.match(app, /buildTranscriptionDraftRecord\(draft, new Date\(\)\.toISOString\(\)\)/, "horodatage de dernière sauvegarde");
-  assert.match(app, /transcriptionDraftWriteBlockReason\(storage, draft\.documentId, draft\.pageId, state\?\.savedAt \|\| null\)/, "comparaison avec la dernière version connue avant écriture");
+  assert.match(app, /transcriptionDraftWriteBlockReason\(storage, draft\.documentId, draft\.pageId, state\?\.savedAt \|\| null, ownerUid\)/, "comparaison avec la dernière version connue avant écriture, chez le propriétaire");
+  assert.match(app, /writeTranscriptionDraft\(storage, draft\.documentId, draft\.pageId, record, ownerUid\)/, "écriture local dans l'espace privé du propriétaire");
+  assert.match(app, /if \(\(draft\.ownerUid \?\? null\) !== ownerUid\) return;/, "jamais de synchronisation d'un brouillon qui n'appartient pas au compte courant");
   assert.match(app, /TRANSCRIPTION_DRAFT_CONFLICT_MESSAGE/, "avertissement explicite d'une version plus récente");
   // Échec de stockage : avertissement, mémoire conservée, aucune suppression.
   assert.match(app, /Sauvegarde locale impossible : le stockage du navigateur est indisponible ou complet\./, "échec annoncé en clair");
