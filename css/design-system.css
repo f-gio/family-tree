@@ -2302,6 +2302,9 @@ html.viewer-fullscreen-active body { overflow: hidden !important; }
   white-space: nowrap;
 }
 .document-unified-filename:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; border-radius: var(--radius-sm); }
+/* Dépliage accessible du nom complet : le nom ellipsé se déplie sur toute la
+   largeur au clic (aria-expanded géré côté applicatif). */
+.document-unified-filename.is-expanded { white-space: normal; word-break: break-word; text-align: left; }
 .document-unified-people { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
 .document-unified-people li { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; flex-wrap: wrap; }
 .document-unified-person-meta { color: var(--color-text-muted); font-size: var(--text-xs); }
@@ -2700,6 +2703,12 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-footer .transcription-workshop-save-status { min-width: 0; }
 .transcription-workshop-help { margin: 0; padding: var(--space-2) var(--space-3); border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface-soft); color: var(--color-text-muted); font-size: var(--text-sm); }
 .transcription-workshop-state { margin: 0; padding: var(--space-3); border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface-soft); color: var(--color-text-muted); font-size: var(--text-sm); }
+/* Barre d'outils de la visionneuse de l'atelier : même grammaire que la fiche
+   Document (classe viewer-image-controls + groupe de zoom jointif), calée à
+   gauche au-dessus de l'image — le texte « Ajusté » n'apparaît plus dans la
+   barre (l'indicateur de vol de zoom suffit au geste). */
+#workshopImageTools { justify-content: flex-start; gap: var(--space-2); }
+.transcription-workshop-panel-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
 .transcription-workshop-menu { position: relative; }
 .transcription-workshop-menu > summary { display: inline-flex; align-items: center; justify-content: center; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); cursor: pointer; list-style: none; }
 .transcription-workshop-menu > summary::-webkit-details-marker { display: none; }
@@ -2719,7 +2728,6 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-passage-nav { display: flex; align-items: center; gap: var(--space-2); }
 .transcription-workshop-tools .btn, .transcription-workshop-passage-nav .btn,
 #workshopPageNav .btn, #workshopPhotoNav .btn { min-width: var(--control-touch); min-height: var(--control-touch); padding: 0; }
-.transcription-workshop-zoom-label { min-width: 3.5rem; color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); text-align: center; }
 .transcription-workshop-zoom-indicator { position: absolute; right: var(--space-2); top: calc(100% + var(--space-1)); z-index: 5; padding: 2px var(--space-2); border-radius: var(--radius-pill); background: var(--color-brand); color: var(--color-surface-raised); font-size: var(--text-xs); font-weight: var(--weight-semibold); opacity: 0; pointer-events: none; transition: opacity var(--transition-fast); }
 .transcription-workshop-zoom-indicator.is-visible { opacity: 1; }
 .transcription-workshop-image-viewport { position: relative; flex: 1 1 auto; min-height: 200px; overflow: auto; border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface-muted); overscroll-behavior: contain; }
@@ -2769,12 +2777,15 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .transcription-workshop-list { max-height: 65dvh; }
 }
 @media (max-width: 760px) {
-  /* En-tête atelier empilé : titre pleine largeur, actions puis Retour à
-     droite — aucun chevauchement ni débordement à 320 et 390 px. */
-  .transcription-workshop-header { gap: var(--space-2); grid-template-columns: minmax(0, 1fr); }
-  .transcription-workshop-head-status { grid-column: 1; grid-row: 2; justify-self: end; flex: 0 0 auto; max-width: 100%; }
-  .transcription-workshop-head-status .dedicated-page-actions-row { flex-wrap: wrap; justify-content: flex-end; }
-  .transcription-workshop-heading .page-kicker { white-space: nowrap; }
+  /* En-tête atelier sur le modèle de la fiche Document : titre à gauche
+     (retour à la ligne naturel, deux lignes maximum), menu « … » puis Retour
+     à droite — une seule hauteur, sans rangée d'actions empilée. */
+  .transcription-workshop-header { gap: var(--space-2); grid-template-columns: minmax(0, 1fr) auto; row-gap: 0; padding-bottom: var(--space-1); }
+  .transcription-workshop-head-status { grid-column: auto; grid-row: auto; justify-self: auto; flex: 0 0 auto; max-width: none; }
+  .transcription-workshop-head-status .dedicated-page-actions-row { flex-wrap: nowrap; justify-content: flex-end; }
+  /* Cibles tactiles : `.btn.small` (32px) prime sur le minimum mobile — les
+     actions du panneau de transcription repassent à 44 px. */
+  .transcription-workshop-panel-actions .btn { min-height: var(--control-touch); }
   .transcription-workshop-heading #workshopPageLabel { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .transcription-workshop-tabs { display: flex; }
   .transcription-workshop-divider { display: none; }
@@ -2785,7 +2796,6 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .transcription-workshop-layout:not([data-active-panel="original"]) #workshopPanelRight { display: flex; }
   .transcription-workshop-layout[data-active-panel="italian"] .workshop-field-fr { display: none; }
   .transcription-workshop-layout[data-active-panel="french"] .workshop-field-it { display: none; }
-  .transcription-workshop-tools .transcription-workshop-zoom-label { display: none; }
   .transcription-workshop-passage textarea { min-height: clamp(8rem, 24dvh, 16rem); }
   .transcription-workshop-heading h2 { max-width: none; }
 }
@@ -5185,6 +5195,16 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
   #documentDetailView .document-unified-details { overflow: visible; }
   #documentDetailView .document-unified-facts { grid-template-columns: minmax(0, 1fr); }
   #documentDetailView .viewer-image-controls { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+  /* Carte « Informations fichier » compacte : métadonnées sur deux colonnes
+     (Type/Format, puis Taille/Date d'ajout), libellé et valeur sur une ligne,
+     nom du fichier sur toute la largeur sous les métadonnées avec dépliage
+     accessible — aucun débordement horizontal. */
+  #documentDetailView .document-unified-facts--file { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+  #documentDetailView .document-unified-facts--file .document-unified-fact { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+  #documentDetailView .document-unified-facts--file .document-unified-fact span { min-width: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+  #documentDetailView .document-unified-fact--file-name { flex-wrap: wrap; }
+  #documentDetailView .document-unified-fact--file-name .document-unified-filename { flex: 1 1 auto; min-width: 0; text-align: right; }
+  #documentDetailView .document-unified-section-head [data-transcribe-document] { padding-inline: var(--space-2); }
 }
 @media (max-width: 760px) {
   .source-detail-header { margin-bottom: var(--space-4); }

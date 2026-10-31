@@ -340,15 +340,36 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.ok(html.indexOf('id="workshopSaveStatus"') > html.indexOf('id="workshopPassageList"'), "statut après la liste de transcription");
   assert.ok(html.indexOf('id="workshopSaveStatus"') > html.indexOf('id="workshopComparePanel"'), "statut en fin du panneau de transcription");
   assert.ok(html.indexOf('id="workshopSaveStatus"') > html.indexOf('id="transcriptionWorkshopView"'), "statut contenu dans la vue atelier");
-  /* Sauvegarde manuelle : action secondaire du menu « … », jamais un gros
-     bouton dans l'en-tête — l'autosauvegarde reste le fonctionnement principal. */
-  assert.match(html, /id="workshopActionsMenu"[\s\S]{0,800}id="workshopSaveDraftBtn"/, "« Enregistrer maintenant » vit dans le panneau du menu");
-  assert.match(html, />Enregistrer maintenant</, "action de sauvegarde manuelle libellée « Enregistrer maintenant »");
-  assert.match(html, /id="workshopSaveDraftBtn"[^>]*title="Écrire le brouillon dans le stockage local de ce navigateur"/, "but explicite : sauvegarde locale, pas de publication officielle");
-  assert.doesNotMatch(html, /class="btn small" type="button" id="workshopSaveDraftBtn"/, "plus de gros bouton Enregistrer dans l’en-tête");
+  /* Sauvegarde manuelle : « Enregistrer » rejoint « Ajouter un passage » dans
+     la barre du panneau de transcription, jamais dans l'en-tête ni dans le menu
+     — l'autosauvegarde reste le fonctionnement principal. */
+  const panelActions = html.match(/<div class="transcription-workshop-panel-actions">[\s\S]*?<\/div><\/div>/)?.[0] || "";
+  assert.ok(panelActions, "barre d’actions du panneau de transcription présente");
+  assert.match(panelActions, /id="workshopAddPassageBtn"/, "« Ajouter un passage » dans la barre");
+  assert.match(panelActions, /id="workshopSaveDraftBtn"/, "« Enregistrer » dans la barre, à côté d’Ajouter");
+  assert.ok(panelActions.indexOf('id="workshopAddPassageBtn"') < panelActions.indexOf('id="workshopSaveDraftBtn"'), "« Enregistrer » immédiatement après « Ajouter un passage »");
+  assert.match(panelActions, />Enregistrer</, "libellé « Enregistrer »");
+  assert.match(panelActions, /#icon-save/, "icône de sauvegarde sur Enregistrer");
+  assert.doesNotMatch(panelActions, /#icon-download/, "aucune icône de téléchargement sur Enregistrer");
+  assert.ok(html.indexOf('id="workshopSaveDraftBtn"') > html.indexOf('id="workshopPanelRight"'), "bouton hors du panneau photo, dans le panneau de transcription");
+  assert.doesNotMatch(html, /id="workshopActionsMenu"[\s\S]{0,900}id="workshopSaveDraftBtn"/, "« Enregistrer » retiré du menu « … » (pas de doublon)");
+  assert.doesNotMatch(html, />Enregistrer maintenant</, "l’ancien libellé du menu a disparu");
   assert.match(html, />Afficher l’aide</, "accès à l’aide du brouillon conservé dans le menu");
+  assert.match(html, />Annuler les changements</, "« Annuler les changements » conservé dans le menu");
   assert.match(app, /event\.target\.closest\("#workshopSaveDraftBtn"\)/, "clic branché sur l’écriture immédiate");
   assert.match(app, /event\.target\.closest\("#workshopHelpBtn"\)/, "divulgateur de l’aide rebranché sur le menu");
+  /* Barre d’outils de la visionneuse : même grammaire que la fiche Document,
+     calée à gauche, texte « Ajusté » retiré. */
+  const imageTools = html.match(/<div class="transcription-workshop-tools viewer-image-controls" id="workshopImageTools">[\s\S]*?<\/div><div class="genealogy-inline-actions" id="workshopPageNav">/)?.[0] || "";
+  assert.ok(imageTools, "barre d’outils image avec la grammaire de la fiche Document");
+  assert.ok(html.indexOf('id="workshopImageTools"') < html.indexOf('id="workshopPageNav"'), "outils à gauche, navigation des pages ensuite");
+  assert.ok(imageTools.indexOf("#icon-zoom-out") < imageTools.indexOf("#icon-zoom-in"), "Zoom − puis Zoom +");
+  assert.ok(imageTools.indexOf('class="viewer-image-zoom-group"') < imageTools.indexOf("#icon-zoom-out"), "groupe de zoom jointif englobant les deux boutons, comme la fiche Document");
+  assert.ok(imageTools.indexOf("#icon-zoom-in") < imageTools.indexOf("#icon-fit-width"), "Ajuster après Zoom +");
+  assert.ok(imageTools.indexOf("#icon-fit-width") < imageTools.indexOf("#icon-maximize"), "Plein écran en dernier");
+  assert.doesNotMatch(html, /workshopZoomLabel/, "texte « Ajusté » retiré de la barre");
+  assert.doesNotMatch(css, /\.transcription-workshop-zoom-label \{/, "règles du texte « Ajusté » supprimées");
+  assert.match(css, /#workshopImageTools \{ justify-content: flex-start;/, "outils alignés à gauche, jamais centrés");
   assert.doesNotMatch(html, />Valider la transcription</, "aucun bouton de validation fictif avant l’incrément 2");
   assert.match(html, /Emplacement de la validation officielle \(incrément 2\)/, "place réservée à la validation officielle dans la hiérarchie");
   assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour"[^>]*><span class="dedicated-page-back-arrow"/, "flèche décorative et libellé de destination");
@@ -608,18 +629,16 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     assert.equal(stored.length, 1, "une copie locale écrite");
     assert.equal(JSON.parse(stored[0][1]).snapshot.passages[0].textIt, "Anno millenovecentosedici", "texte présent en local");
 
-    /* Enregistrer maintenant : action du menu « … », écriture immédiate sans
-       attendre le délai d'autosauvegarde. */
+    /* Enregistrer : action visible de la barre du panneau de transcription,
+       écriture immédiate sans menu ni délai d'autosauvegarde. */
     await page.fill('[data-workshop-field="textIt"]', "Anno senza attesa");
-    await page.click("#workshopActionsMenu > summary");
+    assert.equal(await page.locator("#workshopSaveDraftBtn").isVisible(), true, "« Enregistrer » visible sans ouvrir le menu");
     await page.click("#workshopSaveDraftBtn");
     stored = await page.evaluate(() => window.__repro.stored());
     assert.equal(JSON.parse(stored[0][1]).snapshot.passages[0].textIt, "Anno senza attesa", "écriture immédiate au clic, avant le délai d’autosauvegarde");
-    assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "le menu se ferme après l’action d’enregistrement");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "le menu « … » reste fermé");
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré localement", undefined, { timeout: 1500 });
-    await page.click("#workshopActionsMenu > summary");
     assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), false, "action Enregistrer réutilisable après de nouvelles modifications");
-    await page.keyboard.press("Escape");
 
     /* Position du Retour : modèle de la fiche Document — à droite, sous le menu « … ». */
     const layout = await page.evaluate(() => {
@@ -632,6 +651,34 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     assert.ok(layout.back[0] >= layout.menuBottom - 1, `Retour positionné sous le menu « … » (${layout.back[0]} ≥ ${layout.menuBottom})`);
     assert.ok(layout.back[1] <= layout.headerRight + 1, "Retour aligné à droite de l’en-tête");
     assert.ok(layout.back[2] >= 44 && layout.back[3] >= 44, "Retour ≥ 44 px");
+
+    /* Desktop : outils calés à gauche du panneau image, texte « Ajusté »
+       retiré, quatre commandes dans l'ordre de la fiche Document ; actions
+       de transcription regroupées à droite, navigation à gauche. */
+    const desktopTools = await page.evaluate(() => {
+      const tools = document.getElementById("workshopImageTools").getBoundingClientRect();
+      const panel = document.getElementById("workshopPanelOriginal").getBoundingClientRect();
+      const zoomLabelAbsent = !document.getElementById("workshopZoomLabel");
+      const order = [...document.querySelectorAll("#workshopImageTools button")].map(button => button.dataset.viewerImageZoom || button.id);
+      const add = document.getElementById("workshopAddPassageBtn").getBoundingClientRect();
+      const save = document.getElementById("workshopSaveDraftBtn").getBoundingClientRect();
+      const nav = document.querySelector(".transcription-workshop-passage-nav").getBoundingClientRect();
+      return {
+        toolsLeft: Math.round(tools.left),
+        panelLeft: Math.round(panel.left),
+        zoomLabelAbsent,
+        order,
+        addRight: Math.round(add.right),
+        saveLeft: Math.round(save.left),
+        navLeft: Math.round(nav.left),
+        navRight: Math.round(nav.right)
+      };
+    });
+    assert.ok(desktopTools.toolsLeft <= desktopTools.panelLeft + 1, `outils à gauche du panneau (${desktopTools.toolsLeft} ≤ ${desktopTools.panelLeft})`);
+    assert.equal(desktopTools.zoomLabelAbsent, true, "texte « Ajusté » retiré de la barre");
+    assert.deepEqual(desktopTools.order, ["out", "in", "workshopImageModeBtn", "workshopImageFullscreenBtn"], "4 commandes dans l’ordre de la fiche Document");
+    assert.ok(desktopTools.saveLeft >= desktopTools.addRight - 1, "« Enregistrer » immédiatement à droite d’« Ajouter un passage »");
+    assert.ok(desktopTools.navRight <= desktopTools.addRight, "navigation des passages à gauche des actions de transcription");
 
     /* Mobile : aucune largeur débordante avec la colonne d’actions complète. */
     await page.setViewportSize({ width: 320, height: 780 });
@@ -769,18 +816,25 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 const back = document.getElementById("workshopBackBtn").getBoundingClientRect();
                 const tabs = [...document.querySelectorAll(".transcription-workshop-tab")].map(tab => { const r = tab.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
                 const tools = [...document.querySelectorAll("#workshopImageTools button")].map(button => { const r = button.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
+                const toolsRect = document.getElementById("workshopImageTools").getBoundingClientRect();
+                const panelRect = document.getElementById("workshopPanelOriginal").getBoundingClientRect();
                 return {
                   kickerText: kicker.textContent.trim(),
                   kickerScroll: kicker.scrollWidth,
                   headingWidth: Math.round(heading.width),
+                  headingRight: Math.round(heading.right),
                   headingBottom: heading.bottom,
                   headerHeight: header.height,
                   labelWhiteSpace: getComputedStyle(label).whiteSpace,
                   labelHeight: Math.round(labelRect.height),
-                  menuTop: menu.top, menuRight: menu.right, menuHeight: Math.round(menu.height),
+                  menuTop: menu.top, menuLeft: menu.left, menuRight: menu.right, menuHeight: Math.round(menu.height),
                   backTop: back.top, backRight: back.right, backWidth: Math.round(back.width), backHeight: Math.round(back.height),
                   headerRight: header.right,
                   tabs, tools,
+                  toolsLeft: Math.round(toolsRect.left),
+                  panelLeft: Math.round(panelRect.left),
+                  zoomLabelAbsent: !document.getElementById("workshopZoomLabel"),
+                  toolOrder: [...document.querySelectorAll("#workshopImageTools button")].map(button => button.dataset.viewerImageZoom || button.id),
                   pageScroll: document.documentElement.scrollWidth,
                   viewport: innerWidth
                 };
@@ -791,12 +845,13 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               /* « Page X · Y passages » compact : une seule ligne. */
               assert.equal(layout.labelWhiteSpace, "nowrap", "libellé de page sur une seule ligne");
               assert.ok(layout.labelHeight <= 26, `libellé de page compact sans retour à la ligne (${layout.labelHeight}px)`);
-              /* En-tête compact : moins haut qu'auparavant (211 px max à 390,
-                 208 px à 320 dans la version précédente). */
-              assert.ok(layout.headerHeight <= 205, `en-tête mobile compact (${layout.headerHeight}px ≤ 205px)`);
-              /* Empilement : actions (menu) sous le titre, sans chevauchement —
-                 le statut de sauvegarde n'est plus dans l'en-tête. */
-              assert.ok(layout.headingBottom <= layout.menuTop + 1, `menu sous le titre sans chevauchement (${layout.headingBottom} ≤ ${layout.menuTop})`);
+              /* En-tête réellement compact, sur le modèle de la fiche Document :
+                 203 px à 390 et 208 px à 320 avant correction, 121 px pour la
+                 fiche Document — l'atelier doit désormais rester en dessous. */
+              assert.ok(layout.headerHeight <= 130, `en-tête mobile compact (${layout.headerHeight}px ≤ 130px, jusqu'à 211px avant)`);
+              /* Modèle fiche Document : titre à gauche, actions (menu) à droite
+                 sur la même rangée — sans chevauchement horizontal. */
+              assert.ok(layout.headingRight <= layout.menuLeft + 1, `titre à gauche des actions sans chevauchement (${layout.headingRight} ≤ ${layout.menuLeft})`);
               /* Menu à droite ; Retour à droite, sous le menu ; cibles ≥ 44 px. */
               assert.ok(layout.menuRight <= layout.headerRight + 1, "menu « … » à droite de l’en-tête");
               assert.ok(layout.backRight <= layout.headerRight + 1, "Retour à droite de l’en-tête");
@@ -814,6 +869,9 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               for (const [toolWidth, toolHeight] of layout.tools) {
                 assert.ok(toolWidth >= 44 && toolHeight >= 44, `outil photo ≥ 44 px (${toolWidth}×${toolHeight})`);
               }
+              assert.equal(layout.zoomLabelAbsent, true, "texte « Ajusté » retiré de la barre");
+              assert.ok(layout.toolsLeft <= layout.panelLeft + 1, `outils à gauche sous les onglets (${layout.toolsLeft} ≤ ${layout.panelLeft})`);
+              assert.deepEqual(layout.toolOrder, ["out", "in", "workshopImageModeBtn", "workshopImageFullscreenBtn"], "4 commandes dans l’ordre de la fiche Document");
 
               /* Statut de sauvegarde : pied d'atelier du panneau de
                  transcription, visible après la zone de saisie — jamais dans
@@ -826,13 +884,20 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 const status = document.getElementById("workshopSaveStatus").getBoundingClientRect();
                 const list = document.getElementById("workshopPassageList").getBoundingClientRect();
                 const header = document.querySelector(".transcription-workshop-header").getBoundingClientRect();
+                const add = document.getElementById("workshopAddPassageBtn").getBoundingClientRect();
+                const save = document.getElementById("workshopSaveDraftBtn").getBoundingClientRect();
                 return {
                   statusTop: Math.round(status.top),
                   statusHeight: Math.round(status.height),
                   listBottom: Math.round(list.bottom),
                   headerBottom: Math.round(header.bottom),
                   inFooter: !!document.getElementById("workshopSaveStatus").closest(".transcription-workshop-footer"),
-                  inRightPanel: !!document.getElementById("workshopSaveStatus").closest("#workshopPanelRight")
+                  inRightPanel: !!document.getElementById("workshopSaveStatus").closest("#workshopPanelRight"),
+                  addVisible: add.width > 0 && add.height > 0,
+                  saveVisible: save.width > 0 && save.height > 0,
+                  saveAfterAdd: save.left >= add.right - 1,
+                  addHeight: Math.round(add.height),
+                  saveHeight: Math.round(save.height)
                 };
               });
               assert.equal(footerState.inFooter, true, "statut dans le pied d’atelier");
@@ -840,6 +905,13 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               assert.ok(footerState.statusHeight > 0, "statut visible sur l’onglet de saisie");
               assert.ok(footerState.statusTop >= footerState.headerBottom - 1, `statut hors de l’en-tête (${footerState.statusTop} ≥ ${footerState.headerBottom})`);
               assert.ok(footerState.statusTop >= footerState.listBottom - 1, `statut après la zone de saisie (${footerState.statusTop} ≥ ${footerState.listBottom})`);
+              /* « Ajouter un passage » et « Enregistrer » côte à côte au-srcours
+                 de la fiche du passage, largeurs compactes, cibles ≥ 44 px. */
+              assert.equal(footerState.addVisible, true, "« Ajouter un passage » visible sur l’onglet de saisie");
+              assert.equal(footerState.saveVisible, true, "« Enregistrer » visible sur l’onglet de saisie");
+              assert.ok(footerState.saveAfterAdd, "« Enregistrer » immédiatement à droite d’« Ajouter un passage »");
+              assert.ok(footerState.addHeight >= 44, `« Ajouter » ≥ 44 px (${footerState.addHeight})`);
+              assert.ok(footerState.saveHeight >= 44, `« Enregistrer » ≥ 44 px (${footerState.saveHeight})`);
 
               /* Menu contextuel complet en mobile : ouverture, clic extérieur, Échap. */
               await page.click("#workshopActionsMenu > summary");
@@ -852,7 +924,7 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
 
               /* Échec de stockage : avertissement immédiat même si le statut
                  est en bas, brouillon conservé en mémoire, aucun succès
-                 trompeur — puis récupération par « Enregistrer maintenant ». */
+                 trompeur — puis récupération par « Enregistrer ». */
               await page.fill('[data-workshop-field="textIt"]', "Anno sotto errore");
               await page.evaluate(() => {
                 window.__nativeSetItem = Storage.prototype.setItem;
@@ -874,7 +946,6 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               assert.equal(failure.warningVisible, true, "avertissement immédiat visible via le toast");
               assert.equal(failure.firstField, "Anno sotto errore", "brouillon conservé en mémoire malgré l’échec");
               await page.evaluate(() => { Storage.prototype.setItem = window.__nativeSetItem; });
-              await page.click("#workshopActionsMenu > summary");
               await page.click("#workshopSaveDraftBtn");
               await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré localement", undefined, { timeout: 3000 });
               const recovered = await page.evaluate(() => ({ stored: window.__repro.stored().length, status: document.getElementById("workshopSaveStatus").textContent }));

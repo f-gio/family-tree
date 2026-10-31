@@ -7742,7 +7742,7 @@ function renderUnifiedDocumentDetails(item) {
   const addedAt = item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString("fr-FR") : "";
   fileFacts.push(["Date d'ajout", addedAt || "Non renseigné"]);
   const fileName = item.fileName || "Non renseigné";
-  const fileGrid = `<div class="document-unified-facts document-unified-facts--file">${fileFacts.map(([label, value]) => `<div class="document-unified-fact"><strong>${esc(label)}</strong><span>${esc(value)}</span></div>`).join("")}<div class="document-unified-fact document-unified-fact--file-name"><strong>Fichier</strong><button type="button" class="document-unified-filename" title="${esc(fileName)}" aria-label="Nom du fichier : ${esc(fileName)}. Activer pour afficher le nom complet." data-unified-filename="${esc(fileName)}">${esc(fileName)}</button></div></div>`;
+  const fileGrid = `<div class="document-unified-facts document-unified-facts--file">${fileFacts.map(([label, value]) => `<div class="document-unified-fact"><strong>${esc(label)}</strong><span>${esc(value)}</span></div>`).join("")}<div class="document-unified-fact document-unified-fact--file-name"><strong>Fichier</strong><button type="button" class="document-unified-filename" title="${esc(fileName)}" aria-label="Nom du fichier : ${esc(fileName)}. Activer pour afficher ou masquer le nom complet." aria-expanded="false" data-unified-filename="${esc(fileName)}">${esc(fileName)}</button></div></div>`;
   const historicalFacts = [];
   if (item.date) historicalFacts.push(["Date du document", formatGenealogyDate(null, item.date)]);
   const place = formatCompactPlace(item.place, item.placeInfo);
@@ -10259,7 +10259,14 @@ document.addEventListener("click", event => {
 });
 $("viewerDocumentDetails").addEventListener("click", event => {
   const filenameButton = event.target.closest("[data-unified-filename]");
-  if (filenameButton) return toast(`Nom du fichier : ${filenameButton.dataset.unifiedFilename}`);
+  if (filenameButton) {
+    /* Dépliage accessible : le nom ellipsé se déroule sur toute la largeur au
+       clic, sans toast et sans débordement horizontal (aria-expanded suivi). */
+    const expanded = filenameButton.getAttribute("aria-expanded") === "true";
+    filenameButton.setAttribute("aria-expanded", String(!expanded));
+    filenameButton.classList.toggle("is-expanded", !expanded);
+    return;
+  }
   const editDocument = event.target.closest("[data-unified-document-edit]");
   if (editDocument) return openUnifiedDocumentEditor(editDocument.dataset.unifiedDocumentEdit);
   const personButton = event.target.closest("[data-unified-person]");

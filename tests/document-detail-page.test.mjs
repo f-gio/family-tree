@@ -286,6 +286,51 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "libellé « Original » masqué sur mobile (lot corrections)");
     await page.click("#viewerDetailsBtn");
     assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "la bascule ouvre le volet Informations à 320px");
+    /* Carte « Informations fichier » compacte : métadonnées sur deux colonnes
+       (Type/Format, Taille/Date d'ajout), libellé et valeur sur une ligne,
+       nom du fichier sur toute la largeur sous les métadonnées, bouton
+       Transcrire compact avec cible ≥ 44 px. */
+    const fileCard = await page.evaluate(() => {
+      const section = [...document.querySelectorAll("#viewerDocumentDetailsContent .document-unified-section")].find(item => item.querySelector("h4")?.textContent === "Informations fichier");
+      const facts = section.querySelector(".document-unified-facts--file");
+      const cols = getComputedStyle(facts).gridTemplateColumns.split(" ").filter(value => value && value !== "none").length;
+      const metadataFacts = [...facts.querySelectorAll(".document-unified-fact")].filter(item => !item.classList.contains("document-unified-fact--file-name"));
+      const firstFact = metadataFacts[0];
+      const lastFact = metadataFacts[metadataFacts.length - 1];
+      const name = facts.querySelector(".document-unified-filename");
+      const transcribe = section.querySelector("[data-transcribe-document]");
+      const transcribeRect = transcribe.getBoundingClientRect();
+      const factsRect = facts.getBoundingClientRect();
+      return {
+        cols,
+        factDisplay: getComputedStyle(firstFact).display,
+        factHeight: Math.round(firstFact.getBoundingClientRect().height),
+        cardHeight: Math.round(section.getBoundingClientRect().height),
+        nameAfterMetadata: Math.round(name.getBoundingClientRect().top - lastFact.getBoundingClientRect().bottom),
+        nameOverflow: name.scrollWidth > name.clientWidth + 1,
+        trWidth: Math.round(transcribeRect.width),
+        trHeight: Math.round(transcribeRect.height),
+        overflow: document.documentElement.scrollWidth > innerWidth,
+        factsWidth: Math.round(factsRect.width)
+      };
+    });
+    assert.equal(fileCard.cols, 2, "métadonnées sur deux colonnes (Type/Format, Taille/Date d’ajout)");
+    assert.equal(fileCard.factDisplay, "flex", "libellé et valeur sur une ligne");
+    assert.ok(fileCard.factHeight <= 24, `fait compact sur une ligne (${fileCard.factHeight}px)`);
+    assert.ok(fileCard.cardHeight <= 280, `carte « Informations fichier » compacte (${fileCard.cardHeight}px, 388px avant)`);
+    assert.ok(fileCard.nameAfterMetadata >= -1, `nom du fichier sous les métadonnées (${fileCard.nameAfterMetadata}px)`);
+    assert.ok(fileCard.trHeight >= 44, `bouton Transcrire ≥ 44 px (${fileCard.trHeight}px)`);
+    assert.ok(fileCard.trWidth < 81, `bouton Transcrire plus compact (${fileCard.trWidth}px, 81px avant)`);
+    assert.equal(fileCard.overflow, false, "aucun débordement horizontal avec la carte compacte");
+    /* Dépliage accessible du nom complet : clic = aria-expanded + dépliement,
+       second clic = repli ellipsé — sans débordement horizontal. */
+    await page.click(".document-unified-filename");
+    const expanded = await page.locator(".document-unified-filename").first().evaluate(button => ({ expanded: button.getAttribute("aria-expanded"), cls: button.classList.contains("is-expanded") }));
+    assert.equal(expanded.expanded, "true", "nom déplié au clic (aria-expanded)");
+    assert.equal(expanded.cls, true, "classe de dépliage appliquée");
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "aucun débordement en déplié");
+    await page.click(".document-unified-filename");
+    assert.equal(await page.locator(".document-unified-filename").first().getAttribute("aria-expanded"), "false", "nom replié au second clic");
     await page.click("#viewerDetailsBtn");
     assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "la bascule referme le volet à 320px");
     assert.equal(state.subtitleAbsent, true, "aucun sous-titre résiduel à 320px");
