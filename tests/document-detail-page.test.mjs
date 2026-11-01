@@ -19,7 +19,7 @@ window.__documentPageTest = {
     };
     const sourceData = { id: "doc-source-fixture", title: "Source du registre", status: "active", documentIds: [documentItem.id], personIds: ["doc-person-fixture"] };
     const proofData = { id: "doc-proof-fixture", factId: "fact-doc", factType: "birth", personIds: ["doc-person-fixture"], documentId: documentItem.id, relation: "supports", technicalStatus: "active", sourceValue: "1891", citationIt: { textIt: "Nato nel 1891" }, citationFr: { textIt: "Nato nel 1891", translationFr: "Né en 1891" } };
-    people = [{ id: "doc-person-fixture", firstName: "Ada", lastName: "Consult", birthDate: "1890", deathDate: "1960", place: "", deathPlace: "", partnerIds: [], childIds: [], inTree: true }];
+    people = [{ id: "doc-person-fixture", firstName: "Ada Maria Costanza Vittoria", lastName: "Consultazione Genealogica Internazionale", birthDate: "1890", deathDate: "1960", place: "", deathPlace: "", partnerIds: [], childIds: [], inTree: true }];
     documents = [documentItem];
     loadedPeople = loadedDocuments = true;
     genealogyRecords = {
@@ -171,7 +171,14 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     });
     const archiveScroll = await page.evaluate(() => window.scrollY);
     await page.evaluate(() => window.__documentPageTest.openFromArchives());
-    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+    try { await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden); }
+    catch (error) {
+      const diagnostic = await page.evaluate(() => ({
+        state: window.__documentPageTest.state(),
+        visibleDialogs: [...document.querySelectorAll("dialog[open]")].map(dialog => dialog.id)
+      }));
+      throw new Error(`${error.message}; erreurs applicatives : ${errors.join(" | ")}; état : ${JSON.stringify(diagnostic)}`);
+    }
     let state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, true, "page Document ouverte depuis Archives");
     assert.equal(state.backLabel, "Retour aux archives", "destination du Retour annoncée accessible");
@@ -286,10 +293,17 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "libellé « Original » masqué sur mobile (lot corrections)");
     await page.click("#viewerDetailsBtn");
     assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "la bascule ouvre le volet Informations à 320px");
+    const longPersonChip = await page.locator("#viewerDocumentDetails .document-unified-people .person-chip-consult").evaluate(button => {
+      const name = button.querySelector("span");
+      return { buttonWidth: button.getBoundingClientRect().width, nameWidth: name.clientWidth, nameScrollWidth: name.scrollWidth, fontSize: getComputedStyle(button).fontSize };
+    });
+    assert.ok(longPersonChip.buttonWidth > 0, "nom long affiché dans une pastille mobile");
+    assert.ok(longPersonChip.nameScrollWidth <= longPersonChip.nameWidth + 1, "nom long renvoyé à la ligne sans débordement mobile");
+    assert.ok(parseFloat(longPersonChip.fontSize) < 16, "typographie des personnes réduite et harmonisée sur mobile");
     /* Carte « Informations fichier » : positions réelles — chaque métadonnée
        est un groupe vertical (libellé au-dessus de sa valeur, alignés à
        gauche) sur deux colonnes, la date n'est jamais tronquée, « Fichier »
-       occupe toute la largeur, bouton Transcrire ≥ 44 px. */
+       occupe toute la largeur ; la carte Transcription est distincte. */
     const measureFileCard = () => page.evaluate(() => {
       const section = [...document.querySelectorAll("#viewerDocumentDetailsContent .document-unified-section")].find(item => item.querySelector("h4")?.textContent === "Informations fichier");
       const facts = section.querySelector(".document-unified-facts--file");
@@ -311,7 +325,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
         };
       });
       const nameItem = facts.querySelector(".document-unified-fact--file-name");
-      const transcribe = section.querySelector("[data-transcribe-document]");
+      const transcribe = document.querySelector(".document-transcription-card [data-transcribe-document]");
+      const transcriptionCard = document.querySelector(".document-transcription-card");
       const factsRect = rect(facts);
       const nameItemRect = rect(nameItem);
       const metadataBottom = Math.max(...groups.map(group => group.bottom));
@@ -323,8 +338,10 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
         nameFullWidth: Math.abs(nameItemRect.width - factsRect.width) <= 2,
         cardHeight: Math.round(rect(section).height),
         headHeight: Math.round(rect(section.querySelector(".document-unified-section-head")).height),
+        transcriptionCardHeight: Math.round(rect(transcriptionCard).height),
         trWidth: Math.round(rect(transcribe).width),
         trHeight: Math.round(rect(transcribe).height),
+        transcriptionCardTitle: transcriptionCard.querySelector("h4").textContent.trim(),
         overflow: document.documentElement.scrollWidth > innerWidth
       };
     });
@@ -344,9 +361,10 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       assert.ok(fileCard.metaToNameGap >= 0 && fileCard.metaToNameGap <= 8, `${width}px : « Fichier » rapproché des métadonnées (${fileCard.metaToNameGap}px)`);
       assert.equal(fileCard.nameFullWidth, true, `${width}px : nom du fichier sur toute la largeur`);
       assert.ok(fileCard.cardHeight <= 280, `${width}px : carte « Informations fichier » compacte (${fileCard.cardHeight}px)`);
-      assert.ok(fileCard.headHeight >= 44, `${width}px : ligne « Informations fichier » + Transcrire ≥ 44 px (${fileCard.headHeight}px)`);
+      assert.ok(fileCard.headHeight <= 44, `${width}px : en-tête Informations compact sans bouton d’action (${fileCard.headHeight}px)`);
       assert.ok(fileCard.trHeight >= 44, `${width}px : bouton Transcrire ≥ 44 px (${fileCard.trHeight}px)`);
-      assert.ok(fileCard.trWidth < 81, `${width}px : bouton Transcrire plus compact (${fileCard.trWidth}px, 81px avant)`);
+      assert.match(fileCard.transcriptionCardTitle, /Transcription/, `${width}px : carte Transcription dédiée`);
+      assert.ok(fileCard.transcriptionCardHeight > 80, `${width}px : carte Transcription distincte visible`);
       assert.equal(fileCard.overflow, false, `${width}px : aucun débordement horizontal avec la carte`);
     };
     assertFileCardLayout(await measureFileCard(), 320);
@@ -401,6 +419,12 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "head « Original » masqué pour une image, desktop inchangé");
     assert.equal(state.infoVisible, true, "panneau Informations desktop reste visible");
     assert.equal(state.detailsOverflowY, "visible", "les Informations suivent le défilement naturel de la page");
+    const desktopLongPerson = await page.locator("#viewerDocumentDetails .document-unified-people .person-chip-consult").evaluate(button => {
+      const name = button.querySelector("span");
+      return { nameWidth: name.clientWidth, nameScrollWidth: name.scrollWidth, fontSize: getComputedStyle(button).fontSize };
+    });
+    assert.ok(desktopLongPerson.nameScrollWidth <= desktopLongPerson.nameWidth + 1, "nom long renvoyé à la ligne sans débordement desktop");
+    assert.ok(parseFloat(desktopLongPerson.fontSize) < 16, "typographie des personnes réduite et harmonisée sur desktop");
 
     /* Comparaison géométrique des trois en-têtes aux largeurs mobile et desktop. */
     const headerMeasure = viewId => page.evaluate(id => {

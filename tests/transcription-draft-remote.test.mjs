@@ -219,7 +219,9 @@ async function openRemoteHarness(t) {
 }
 
 async function openWorkshopOn(page) {
-  await page.evaluate(() => { window.__draftRemote.openDoc(); window.__draftRemote.transcribe(); });
+  await page.evaluate(() => window.__draftRemote.openDoc());
+  await page.waitForSelector("#viewerDocumentDetails [data-transcribe-document]");
+  await page.evaluate(() => window.__draftRemote.transcribe());
   await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
 }
 
@@ -828,7 +830,7 @@ test("après validation : un brouillon distant hérité n'est jamais restauré n
     /* Ouverture : le brouillon hérité n'est PAS restauré — le contenu affiché
        est le contenu officiel, le badge reste « Validée », aucun conflit. */
     await openWorkshopOn(page);
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Brouillon local", undefined, { timeout: 8000 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Consultation officielle · v1", undefined, { timeout: 8000 });
     assert.equal(await page.evaluate(() => window.__draftRemote.fieldValue()), "Anno millenovecento", "contenu officiel affiché, jamais le brouillon hérité");
     assert.equal(await page.evaluate(() => document.getElementById("workshopOfficialBadge").textContent), "Validée · v1", "badge « Validée » sans faux conflit");
     assert.equal(await page.locator("#transcriptionDraftConflictDialog").isVisible(), false, "aucune fenêtre de conflit à l'ouverture");
@@ -841,10 +843,11 @@ test("après validation : un brouillon distant hérité n'est jamais restauré n
     const second = await createDevice();
     await second.evaluate(() => { window.__draftRemote.seedOfficial(); });
     await openWorkshopOn(second);
-    await second.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Brouillon local", undefined, { timeout: 8000 });
+    await second.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Consultation officielle · v1", undefined, { timeout: 8000 });
     assert.equal(await second.evaluate(() => document.getElementById("workshopOfficialBadge").textContent), "Validée · v1", "second appareil : version officielle retrouvée");
+    await second.click("#workshopModeBtn");
     await second.fill('[data-workshop-field="textIt"]', "Anno con modifica post validazione");
-    assert.equal(await second.evaluate(() => document.getElementById("workshopOfficialBadge").textContent), "Révision en cours · v1", "brouillon de révision après validation");
+    assert.equal(await second.evaluate(() => document.getElementById("workshopOfficialBadge").textContent), "Révision en cours · v2", "brouillon de révision annonce la prochaine version officielle");
     await clickSave(second);
     await second.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].version, 1, "révision publiée en version 1 (aucune référence héritée)");

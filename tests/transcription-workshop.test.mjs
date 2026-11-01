@@ -150,7 +150,7 @@ test("l’accès à l’atelier couvre toute source et tout document consultable
   const app = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
   assert.match(app, /const workshopCompatible = kind === "transcription"\s*\|\| kind === "source/, "toute source propose Transcrire, même sans pages rattachées");
   assert.match(app, /data-transcribe-document=/, "action Transcrire dans la fiche document unifiée");
-  assert.match(app, /function openTranscriptionWorkshopForDocument\(documentItem\)/, "ouverture depuis la fiche du document");
+  assert.match(app, /function openTranscriptionWorkshopForDocument\(documentItem, preferredPageId = ""\)/, "ouverture depuis la fiche du document sur la page de transcription sélectionnée");
   assert.match(app, /transcriptionWorkshopNoPagesMessage/, "état explicite quand les pages sont absentes");
   assert.match(app, /rattachez d’abord ses pages et photographies à la source officielle via l’action « Réviser »/, "solution cohérente sans invention de données officielles");
   assert.match(app, /linkedDocumentIds/, "résolution élargie du contexte");
@@ -255,7 +255,7 @@ test("l’accès direct aux JPEG applique les portes JPEG, admin et révision ex
   ]);
   // Porte JPEG (périmètre de l'étape).
   assert.match(app, /if \(!isTranscriptionJpegDocument\(documentItem\)\)/, "gate JPEG avant tout traitement");
-  assert.match(app, /Seuls les documents JPEG peuvent ouvrir l’atelier de transcription à cette étape/, "message hors périmètre explicite");
+  assert.match(app, /Seuls les documents JPEG peuvent initialiser une nouvelle page de transcription/, "une page existante reste consultable quel que soit le format, l’initialisation reste limitée au JPEG");
   // Réutilisation d'une page existante (aucune sélection de source sur ce chemin).
   assert.match(app, /const existingPage = findSourcePageForDocument\(data, documentItem\.id\)/, "réutilisation de la page existante");
   // Sources : actives seulement, jamais la « première » trouvée.
@@ -463,7 +463,7 @@ test("les brouillons sont persistés localement et repris sans toucher aux modul
   assert.match(app, /stampTranscriptionDraftOwner\(draft, ownerUid\)/, "propriétaire stampé à la restauration");
   // Sauvegarde automatique, différée et sans écriture inutile.
   assert.match(app, /scheduleTranscriptionWorkshopDraftSave\(transcriptionWorkshopDraft\)/, "programmation à chaque édition");
-  assert.match(app, /const TRANSCRIPTION_DRAFT_SAVE_DELAY_MS = 400;/, "regroupement des frappes avant écriture");
+  assert.match(app, /const TRANSCRIPTION_DRAFT_SAVE_DELAY_MS = 3000;/, "regroupement des frappes pendant trois secondes avant écriture");
   assert.match(app, /transcriptionDraftLastSnapshots\.get\(key\) === snapshotPayload/, "dernier contenu écrit dédupliqué");
   // Horodatage et refus d'écraser une version plus récente (dans l'espace du propriétaire).
   assert.match(app, /buildTranscriptionDraftRecord\(draft, new Date\(\)\.toISOString\(\)\)/, "horodatage de dernière sauvegarde");
@@ -606,7 +606,9 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     await page.waitForFunction(() => typeof window.__repro === "object");
     const boot = async () => page.evaluate(() => { window.__repro.show(); window.__repro.seed(); });
     const openWorkshop = async () => {
-      await page.evaluate(() => { window.__repro.openDoc(); window.__repro.transcribe(); });
+      await page.evaluate(() => window.__repro.openDoc());
+      await page.waitForSelector("#viewerDocumentDetails [data-transcribe-document]");
+      await page.evaluate(() => window.__repro.transcribe());
       await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
     };
     await boot();
@@ -672,7 +674,7 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), false, "action Enregistrer réutilisable après de nouvelles modifications");
     /* Retour au contenu attendu pour la suite de la régression (réouverture). */
     await page.fill('[data-workshop-field="textIt"]', "Anno senza attesa");
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 2500 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
 
     /* Position du Retour : modèle de la fiche Document — à droite, sous le menu « … ». */
     const layout = await page.evaluate(() => {
@@ -974,7 +976,7 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                   throw error;
                 };
               });
-              await page.waitForTimeout(700);
+              await page.waitForTimeout(3500);
               const failure = await page.evaluate(() => ({
                 status: document.getElementById("workshopSaveStatus").textContent,
                 failedClass: document.getElementById("workshopSaveStatus").classList.contains("is-failed"),

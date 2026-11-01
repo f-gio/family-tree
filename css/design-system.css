@@ -2699,10 +2699,15 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-save-status.is-failed { color: var(--color-danger); }
 .transcription-workshop-save-status.is-synced { color: var(--color-success); }
 .transcription-workshop-save-status.is-conflict { color: var(--color-warning); }
+.transcription-workshop-autosave-hint { min-width: 0; color: var(--color-text-muted); font-size: var(--text-xs); }
+.transcription-workshop-remote-status { min-width: 0; color: var(--color-text-muted); font-size: var(--text-xs); }
+.transcription-workshop-remote-status.is-failed { color: var(--color-danger); }
+.transcription-workshop-remote-status.is-conflict { color: var(--color-warning); }
+.transcription-workshop-remote-status.is-synced { color: var(--color-success); }
 /* Pied d'atelier : le statut vit en bas du panneau de transcription, à droite
    du séparateur sur desktop et après la zone de saisie sur mobile — jamais au
    dessus du document, jamais en position fixe ou flottante. */
-.transcription-workshop-footer { display: flex; align-items: center; gap: var(--space-2); flex: 0 0 auto; min-width: 0; margin-top: auto; padding-top: var(--space-2); border-top: var(--border-subtle); }
+.transcription-workshop-footer { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); flex: 0 0 auto; min-width: 0; margin-top: auto; padding-top: var(--space-2); border-top: var(--border-subtle); }
 .transcription-workshop-footer .transcription-workshop-save-status { min-width: 0; }
 .transcription-workshop-conflict-btn { flex: 0 0 auto; margin-left: auto; }
 /* Résolution de conflit : comparaison côte à côte sur desktop, empilée et
@@ -2792,6 +2797,18 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-history-text { margin: var(--space-2) 0 0; max-height: 40dvh; overflow: auto; padding: var(--space-2); border: var(--border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-muted); font-size: var(--text-sm); white-space: pre-wrap; }
 .transcription-history-diff { margin: var(--space-1) 0 0; color: var(--color-text-muted); font-size: var(--text-sm); }
 .transcription-history-summary { margin: 0 0 var(--space-2); display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); color: var(--color-text-muted); font-size: var(--text-xs); }
+.transcription-history-passages { display: grid; gap: var(--space-2); }
+.transcription-history-passage { min-width: 0; border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); }
+.transcription-history-passage > summary { display: flex; align-items: center; min-height: var(--control-touch); padding: var(--space-2) var(--space-3); color: var(--color-text-label); font-weight: var(--weight-semibold); cursor: pointer; }
+.transcription-history-passage-body { display: grid; gap: var(--space-1); padding: 0 var(--space-3) var(--space-3); }
+.transcription-history-passage-body .transcription-history-text { max-height: none; margin: 0 0 var(--space-2); }
+.transcription-history-missing { margin: 0 0 var(--space-2); color: var(--color-text-muted); font-size: var(--text-sm); font-style: italic; }
+.document-transcription-card { gap: var(--space-2); }
+.document-transcription-card .document-unified-section-head { align-items: center; }
+.document-transcription-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2) var(--space-3); }
+.document-transcription-summary > div { display: grid; gap: 2px; min-width: 0; }
+.document-transcription-summary strong { color: var(--color-text-muted); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .04em; }
+.document-transcription-summary span { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-sm); }
 @media (max-width: 760px) {
   #workshopValidateLabel { display: none; }
   #workshopPanelCollapseBtn { display: none; }
@@ -2936,6 +2953,8 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .person-chip span { overflow-wrap: anywhere; min-width: 0; }
 .person-chip.is-missing { color: var(--color-text-muted); font-style: italic; border-style: dashed; }
 .person-chip-consult { cursor: pointer; min-height: var(--control-touch); font: inherit; text-align: left; }
+.document-unified-section .person-chip-consult { font-size: var(--text-xs); }
+.document-unified-section .person-chip-consult span { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 .person-chip-consult:hover { border-color: var(--color-text-muted); }
 .person-chip-consult:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
 .genealogy-source-guided-fields > section .person-multiselect-chip { background: var(--color-surface); border: var(--border-default); }

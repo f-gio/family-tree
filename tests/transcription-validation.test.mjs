@@ -42,28 +42,37 @@ window.__inc2 = {
   },
   /* Version officielle existante : même contenu que la page (badge « Validée »). */
   seedOfficial() {
-    const passages = window.__inc2.passagesFixture();
+    const basePassages = window.__inc2.passagesFixture();
+    const previousPassages = [...basePassages, {
+      id: "p-deleted", order: 2, textIt: "Passage supprimé", translationFr: "Traduction supprimée",
+      separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 3", translationState: "current"
+    }];
+    const passages = [
+      { ...basePassages[0], textIt: "Anno millenovecento corrente", translationFr: "L’année mille neuf cent courante" },
+      basePassages[1],
+      { id: "p-added", order: 2, textIt: "Nuovo passaggio", translationFr: null, separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 4", translationState: "not-started" }
+    ];
     const content = {
       documentId: "doc-repro",
       pageId: "page-repro-1",
       passages,
-      transcriptionIt: "Anno millenovecento\\nindici di Orino",
-      translationFr: "L’année mille neuf cent",
+      transcriptionIt: "Anno millenovecento corrente\\nindici di Orino\\nNuovo passaggio",
+      translationFr: "L’année mille neuf cent courante",
       changeKind: "initial",
       justification: "Validation de la transcription",
       authorUid: "admin-seed",
       previousRevisionId: null
     };
+    const previousContent = { ...content, passages: previousPassages, transcriptionIt: "Anno millenovecento\\nindici di Orino\\nPassage supprimé" };
     genealogyRecords.transcriptionHeads = [{
-      id: "tx-seed-head", data: content, version: 1, revisionId: "tx-seed-rev1",
+      id: "tx-seed-head", data: content, version: 2, revisionId: "tx-seed-rev2",
       createdAt: new Date("2026-10-20T10:00:00Z"), createdBy: "admin-seed",
-      updatedAt: new Date("2026-10-20T10:00:00Z"), updatedBy: "admin-seed", eventId: "tx-seed-ev1"
+      updatedAt: new Date("2026-10-21T10:00:00Z"), updatedBy: "admin-seed", eventId: "tx-seed-ev2"
     }];
-    genealogyRecords.transcriptionRevisions = [{
-      id: "tx-seed-rev1", objectId: "tx-seed-head", authorUid: "admin-seed",
-      createdAt: new Date("2026-10-20T10:00:00Z"), previousRevisionId: null,
-      data: content, eventId: "tx-seed-ev1"
-    }];
+    genealogyRecords.transcriptionRevisions = [
+      { id: "tx-seed-rev1", objectId: "tx-seed-head", authorUid: "admin-seed", createdAt: new Date("2026-10-20T10:00:00Z"), previousRevisionId: null, data: previousContent, eventId: "tx-seed-ev1" },
+      { id: "tx-seed-rev2", objectId: "tx-seed-head", authorUid: "admin-seed", createdAt: new Date("2026-10-21T10:00:00Z"), previousRevisionId: "tx-seed-rev1", data: content, eventId: "tx-seed-ev2" }
+    ];
   },
   openDoc() { setView("directory"); openStoredDocument(documents[0], "directory"); },
   transcribe() { const button = document.querySelector("#viewerDocumentDetails [data-transcribe-document]"); if (button) button.click(); },
@@ -114,9 +123,15 @@ async function bootInc2(page) {
   await page.evaluate(() => { window.__inc2.show(); window.__inc2.seed(); });
 }
 
-async function openInc2Workshop(page) {
-  await page.evaluate(() => { window.__inc2.openDoc(); window.__inc2.transcribe(); });
-  await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+async function openInc2Workshop(page, pageErrors = []) {
+  await page.evaluate(() => window.__inc2.openDoc());
+  await page.waitForSelector("#viewerDocumentDetails [data-transcribe-document]");
+  await page.evaluate(() => window.__inc2.transcribe());
+  try {
+    await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+  } catch (error) {
+    throw new Error(`${error.message}; erreurs applicatives : ${pageErrors.join(" | ")}`);
+  }
 }
 
 function assertNoInc2PageErrors(pageErrors) {
@@ -132,7 +147,18 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
     /* Sans version officielle : badge « Brouillon », validation primaire
        proposée pour le premier enregistrement, Enregistrer inactif au repos. */
     await bootInc2(page);
-    await openInc2Workshop(page);
+    await page.evaluate(() => window.__inc2.openDoc());
+    await page.waitForSelector(".document-transcription-card [data-transcribe-document]");
+    const documentCard = await page.evaluate(() => {
+      const card = document.querySelector(".document-transcription-card");
+      return { text: card.textContent, action: card.querySelector("[data-transcribe-document]").textContent.trim() };
+    });
+    assert.match(documentCard.text, /Transcription existante · version source/, "carte Document reflète les passages de la page sans créer de version");
+    assert.match(documentCard.text, /Passages\s*2/, "carte Document affiche le nombre de passages");
+    assert.match(documentCard.text, /Italien\s*Présente/, "état italien affiché dans la carte");
+    assert.match(documentCard.text, /Français\s*Partielle/, "état français affiché dans la carte");
+    assert.equal(documentCard.action, "Reprendre la transcription", "action adaptée à la transcription existante");
+    await openInc2Workshop(page, pageErrors);
     await page.waitForFunction(() => window.__inc2.officialBadge().text !== "", undefined, { timeout: 5000 });
     const initial = await page.evaluate(() => ({
       badge: window.__inc2.officialBadge(),
@@ -140,6 +166,8 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
       validateLabel: document.getElementById("workshopValidateLabel").textContent,
       validateDisabled: document.getElementById("workshopValidateBtn").disabled,
       saveDisabled: document.getElementById("workshopSaveDraftBtn").disabled,
+      autoSaveHintHidden: document.getElementById("workshopAutosaveHint").hidden,
+      editorDisabled: document.querySelector('[data-workshop-field="textIt"]').disabled,
       collapsed: document.getElementById("workshopLayout").classList.contains("is-document-collapsed")
     }));
     assert.equal(initial.badge.hidden, false, "badge d'état visible");
@@ -148,6 +176,8 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
     assert.equal(initial.validateLabel, "Valider la transcription", "libellé du premier enregistrement");
     assert.equal(initial.validateDisabled, false, "validation active (texte italien non vide)");
     assert.equal(initial.saveDisabled, true, "Enregistrer inactif sans modification non sauvegardée");
+    assert.equal(initial.autoSaveHintHidden, false, "autosauvegarde annoncée en édition");
+    assert.equal(initial.editorDisabled, false, "brouillon sans version officielle directement éditable");
     assert.equal(initial.collapsed, false, "vue partagée par défaut");
 
     /* Modification locale : Enregistrer réarmé immédiatement. */
@@ -172,7 +202,7 @@ test("validation : confirmation précise, échec réseau sans perte du brouillon
   const { browser, server, context, page, pageErrors } = harness;
   try {
     await bootInc2(page);
-    await openInc2Workshop(page);
+    await openInc2Workshop(page, pageErrors);
     await page.fill('[data-workshop-field="textIt"]', "Anno della conferma");
 
     /* Dialogue : version, historique et distinction avec Enregistrer/Comparer. */
@@ -214,38 +244,76 @@ test("historique : versions listées avec auteur et date, consultation en lectur
   try {
     await bootInc2(page);
     await page.evaluate(() => window.__inc2.seedOfficial());
-    await openInc2Workshop(page);
+    await page.evaluate(() => window.__inc2.openDoc());
+    await page.waitForSelector(".document-transcription-card [data-transcribe-document]");
+    const officialCard = await page.evaluate(() => {
+      const card = document.querySelector(".document-transcription-card");
+      return { text: card.textContent, action: card.querySelector("[data-transcribe-document]").textContent.trim() };
+    });
+    assert.match(officialCard.text, /Validée · v2/, "carte indique la version officielle courante");
+    assert.equal(officialCard.action, "Consulter la transcription", "action de consultation quand aucune révision n'existe");
+    await page.evaluate(() => window.__inc2.transcribe());
+    await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
 
-    /* Badge et libellé reflètent la version officielle ; la modification crée
-       un brouillon de révision SANS nouvelle version, le retour au texte
-       officiel rétablit « Validée » sans écriture. */
+    /* L'officiel s'ouvre en lecture seule. L'activation d'une révision ne crée
+       aucun brouillon avant un vrai changement de texte. */
     await page.waitForFunction(() => window.__inc2.officialBadge().text !== "", undefined, { timeout: 8000 });
-    assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Validée · v1", "contenu officiel : Validée · v1");
-    assert.equal(await page.locator("#workshopValidateLabel").textContent(), "Valider la révision", "action suivante : validation de révision");
-    await page.fill('[data-workshop-field="textIt"]', "Anno con modifica");
-    assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Révision en cours · v1", "modification : Révision en cours · v1");
-    await page.fill('[data-workshop-field="textIt"]', "Anno millenovecento");
-    await page.waitForFunction(() => window.__inc2.officialBadge().text === "Validée · v1", undefined, { timeout: 3000 });
-    assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Validée · v1", "retour au texte officiel : Validée rétablie sans nouvelle version");
+    assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Validée · v2", "contenu officiel : Validée · v2");
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "officiel en lecture seule");
+    assert.equal(await page.locator("#workshopAddPassageBtn").isHidden(), true, "ajout masqué en lecture seule");
+    assert.equal(await page.locator("#workshopSaveDraftBtn").isHidden(), true, "Enregistrer masqué en lecture seule");
+    assert.equal(await page.locator("#workshopValidateBtn").isHidden(), true, "Valider masqué en lecture seule");
+    assert.equal(await page.locator("#workshopModeBtn").textContent(), "Modifier", "action explicite pour entrer en édition");
+    await page.click("#workshopModeBtn");
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), false, "édition activée explicitement");
+    assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), true, "pas de brouillon créé par l'activation seule");
+    assert.equal(await page.locator("#workshopAutosaveHint").isVisible(), true, "autosauvegarde annoncée en édition");
+    await page.locator('[data-workshop-field="textIt"]').first().fill("Anno con modifica");
+    assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Révision en cours · v3", "badge annonce la prochaine version");
+    await page.click("#workshopModeBtn");
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "aperçu officiel temporaire en lecture seule");
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Anno millenovecento corrente", "aperçu de la version officielle");
+    assert.equal(await page.locator("#workshopModeBtn").textContent(), "Reprendre la révision", "action pour retrouver le brouillon");
+    await page.click("#workshopModeBtn");
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Anno con modifica", "brouillon retrouvé sans perte");
+    await page.locator('[data-workshop-field="textIt"]').first().fill("Anno millenovecento corrente");
+    await page.waitForFunction(() => window.__inc2.officialBadge().text === "Validée · v2", undefined, { timeout: 3000 });
+    assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Validée · v2", "contenu revenu à l'officiel sans nouvelle version");
 
     /* Historique consultable sans quitter l'atelier. */
     await page.click("#workshopHistoryBtn");
     await page.waitForFunction(() => document.getElementById("transcriptionHistoryDialog").open, undefined, { timeout: 5000 });
     const rows = await page.locator("[data-history-revision]").count();
-    assert.equal(rows, 1, "une version listée");
-    assert.match(await page.locator("[data-history-revision]").textContent(), /v1 · version actuelle/, "version actuelle repérée");
-    assert.match(await page.locator("[data-history-revision]").textContent(), /Administratrice Seed/, "auteur de la version affiché");
-    assert.match(await page.locator("[data-history-revision]").textContent(), /\d/, "date affichée");
+    assert.equal(rows, 2, "les versions sont listées");
+    assert.match(await page.locator('[data-history-revision="tx-seed-rev2"]').textContent(), /v2 · version actuelle/, "version actuelle repérée");
+    assert.match(await page.locator('[data-history-revision="tx-seed-rev2"]').textContent(), /Administratrice Seed/, "auteur de la version affiché");
+    assert.match(await page.locator('[data-history-revision="tx-seed-rev2"]').textContent(), /\d/, "date affichée");
     assert.equal(await page.evaluate(() => !document.getElementById("transcriptionWorkshopView").hidden), true, "atelier non quitté");
 
     /* Consultation détaillée : texte officiel en lecture seule + comparaisons. */
-    await page.click('[data-history-revision="tx-seed-rev1"]');
-    await page.waitForFunction(() => !document.getElementById("transcriptionHistoryDetail").hidden, undefined, { timeout: 5000 });
+    await page.click('[data-history-revision="tx-seed-rev2"]');
+    try {
+      await page.waitForFunction(() => !document.getElementById("transcriptionHistoryDetail").hidden, undefined, { timeout: 5000 });
+    } catch (error) {
+      throw new Error(`${error.message}; erreurs applicatives : ${pageErrors.join(" | ")}`);
+    }
     const detail = await page.locator("#transcriptionHistoryDetail").textContent();
-    assert.match(detail, /Anno millenovecento/, "texte de la version affiché");
-    assert.match(detail, /Version initiale officielle/, "comparaison avec la version précédente (initial)");
+    assert.match(detail, /Anno millenovecento corrente/, "texte italien de la version affiché");
+    assert.match(detail, /Modifié/, "passage modifié identifié");
+    assert.match(detail, /Ajouté/, "passage ajouté identifié");
+    assert.match(detail, /Supprimé/, "passage supprimé identifié");
+    assert.match(detail, /Inchangé/, "passage inchangé identifié");
+    assert.match(detail, /Nuovo passaggio/, "texte d'un passage ajouté affiché");
+    assert.match(detail, /Traduction française absente/, "absence de traduction signalée par passage");
     assert.match(detail, /Brouillon courant/, "comparaison avec le brouillon courant");
     assert.match(detail, /Traduction française/, "état de la traduction française suivi séparément");
+    assert.equal(await page.locator("#transcriptionHistoryDetail .transcription-history-passage").count(), 4, "un accordéon par passage courant ou supprimé");
+    const accordions = page.locator("#transcriptionHistoryDetail .transcription-history-passage");
+    assert.equal(await accordions.nth(0).evaluate(element => element.open), true, "premier accordéon ouvert par défaut");
+    assert.equal(await accordions.nth(1).evaluate(element => element.open), false, "autres accordéons repliés au départ");
+    await accordions.nth(1).locator("summary").click();
+    assert.equal(await accordions.nth(0).evaluate(element => element.open), true, "premier accordéon reste ouvert");
+    assert.equal(await accordions.nth(1).evaluate(element => element.open), true, "plusieurs passages peuvent rester ouverts");
     assert.ok(await page.locator("#transcriptionHistoryBackBtn").isVisible(), "retour à la liste");
     await page.click("#transcriptionHistoryBackBtn");
     await page.waitForFunction(() => document.getElementById("transcriptionHistoryDetail").hidden && !document.getElementById("transcriptionHistoryList").hidden, undefined, { timeout: 5000 });
@@ -253,7 +321,7 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     await page.waitForFunction(() => !document.getElementById("transcriptionHistoryDialog").open);
 
     /* L'atelier est intact après consultation. */
-    assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Validée · v1", "badge intact après l'historique");
+    assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Validée · v2", "badge intact après l'historique");
     assert.equal(await page.evaluate(() => !document.getElementById("transcriptionWorkshopView").hidden), true, "toujours dans l'atelier");
 
     assertNoInc2PageErrors(pageErrors);
@@ -270,7 +338,7 @@ test("repli du volet Document : vue étendue, contenu et défilement conservés,
   const { browser, server, context, page, pageErrors } = harness;
   try {
     await bootInc2(page);
-    await openInc2Workshop(page);
+    await openInc2Workshop(page, pageErrors);
 
     /* Défilement initial non nul pour vérifier la conservation. */
     await page.evaluate(() => {
@@ -327,7 +395,7 @@ test("repli du volet Document : vue étendue, contenu et défilement conservés,
     /* Une nouvelle session d'atelier repart en vue partagée. */
     await page.click("#workshopBackBtn");
     await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden);
-    await openInc2Workshop(page);
+    await openInc2Workshop(page, pageErrors);
     const reopened = await page.evaluate(() => document.getElementById("workshopLayout").classList.contains("is-document-collapsed"));
     assert.equal(reopened, false, "vue partagée par défaut à la réouverture (session nouvelle)");
 
