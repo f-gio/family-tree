@@ -129,6 +129,9 @@ window.__documentPageTest = {
       workshopTitle: $("workshopDocumentTitle").textContent,
       workshopTitleLabel: $("workshopDocumentTitle").getAttribute("aria-label"),
       workshopTitleLineClamp: getComputedStyle($("workshopDocumentTitle")).webkitLineClamp,
+      workshopBreadcrumb: document.querySelector(".transcription-workshop-breadcrumb")?.textContent || "",
+      workshopNavigationDisplay: getComputedStyle(document.querySelector(".topbar .main-nav")).display,
+      workshopBrandDisplay: getComputedStyle(document.querySelector(".topbar .brand")).display,
       workshopHorizontalOverflow: document.documentElement.scrollWidth > innerWidth,
       workshopHeaderClass: $("transcriptionWorkshopView").querySelector("header").className,
       workshopLossBannerPresent: !!$("workshopLossWarning")
@@ -414,8 +417,22 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       assert.equal(state.workshopHorizontalOverflow, false, `Atelier sans débordement à ${width}px`);
       assert.ok(state.workshopBackHeight >= 44 && state.workshopMenuHeight >= 44, `Retour et menu Atelier ≥44px à ${width}px`);
       assert.equal(state.workshopTitleLineClamp, "2", `titre Atelier limité à deux lignes à ${width}px`);
-      await page.click("#workshopBackBtn");
-      await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+      assert.match(state.workshopBreadcrumb, width >= 761
+        ? /Documents.*Transcription/
+        : /Registre de consultation paroissial.*Transcription/, `fil d’Ariane compact à ${width}px`);
+      if (width >= 981) {
+        assert.equal(state.workshopNavigationDisplay, "none", "méga-menu masqué dans l’atelier desktop");
+        assert.notEqual(state.workshopBrandDisplay, "none", "identité de marque conservée dans l’atelier desktop");
+      } else {
+        assert.notEqual(state.workshopNavigationDisplay, "none", `navigation générale préservée hors desktop A1 (${width}px)`);
+      }
+      if (width >= 981) {
+        await page.click("[data-workshop-breadcrumb='document']");
+        await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentDetailView").hidden);
+      } else {
+        await page.click("#workshopBackBtn");
+        await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+      }
     }
     await page.setViewportSize({ width: 1280, height: 900 });
     state = await page.evaluate(() => window.__documentPageTest.state());

@@ -325,6 +325,9 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /function exitTranscriptionWorkshop\(\)/, "action Retour gérée");
   assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour"/, "action Retour dans l’en-tête");
   assert.match(html, /class="dedicated-page-header transcription-workshop-header"/, "l’atelier réutilise l’en-tête commun");
+  assert.match(html, /aria-label="Fil d’Ariane"[\s\S]*?data-workshop-breadcrumb="documents"[\s\S]*?data-workshop-breadcrumb="document"[\s\S]*?aria-current="page">Transcription/, "fil d’Ariane vers les routes Documents, Document et Transcription");
+  assert.match(app, /function navigateTranscriptionWorkshopBreadcrumb\(destination\)/, "retours du fil d’Ariane branchés sur des vues réelles");
+  assert.match(css, /body:has\(#transcriptionWorkshopView:not\(\[hidden\]\)\) \.topbar \.main-nav \{ display: none !important; \}/, "méga-menu masqué uniquement quand l’atelier est actif sur desktop");
   assert.match(html, /class="btn dedicated-page-back"[^>]*id="workshopBackBtn"/, "Retour Atelier utilise la cible tactile partagée");
   /* Modèle de la fiche Document : le Retour vit dans la colonne d'actions de
      l'en-tête, à droite, SOUS le menu « … » — plus de ligne indépendante. */
@@ -340,14 +343,17 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.ok(html.indexOf('id="workshopSaveStatus"') > html.indexOf('id="workshopPassageList"'), "statut après la liste de transcription");
   assert.ok(html.indexOf('id="workshopSaveStatus"') > html.indexOf('id="workshopComparePanel"'), "statut en fin du panneau de transcription");
   assert.ok(html.indexOf('id="workshopSaveStatus"') > html.indexOf('id="transcriptionWorkshopView"'), "statut contenu dans la vue atelier");
-  /* Sauvegarde manuelle : « Enregistrer » rejoint « Ajouter un passage » dans
-     la barre du panneau de transcription, jamais dans l'en-tête ni dans le menu
-     — l'autosauvegarde reste le fonctionnement principal. */
+  /* Navigation par pastilles ; le + reste le mécanisme existant d'ajout et
+     Enregistrer demeure dans le groupe d'actions du panneau. */
   const panelActions = html.match(/<div class="transcription-workshop-panel-actions">[\s\S]*?<\/div><\/div>/)?.[0] || "";
   assert.ok(panelActions, "barre d’actions du panneau de transcription présente");
-  assert.match(panelActions, /id="workshopAddPassageBtn"/, "« Ajouter un passage » dans la barre");
-  assert.match(panelActions, /id="workshopSaveDraftBtn"/, "« Enregistrer » dans la barre, à côté d’Ajouter");
-  assert.ok(panelActions.indexOf('id="workshopAddPassageBtn"') < panelActions.indexOf('id="workshopSaveDraftBtn"'), "« Enregistrer » immédiatement après « Ajouter un passage »");
+  assert.match(html, /id="workshopPassagePills"/, "navigation numérotée des passages présente");
+  assert.match(html, /id="workshopAddPassageBtn"[^>]*aria-label="Ajouter un passage"/, "+ accessible et branché sur l’ajout existant");
+  assert.doesNotMatch(html, /id="workshopPrevBtn"|id="workshopNextBtn"/, "Précédent/Suivant remplacés par les pastilles");
+  assert.match(app, /function renderWorkshopPassageNavigation\(displayedPassages, selectedPassageId\)/, "rendu de la navigation numérotée");
+  assert.match(app, /if \(total <= 7\)/, "fenêtre bornée de pastilles lorsque la liste est longue");
+  assert.match(app, /aria-current="step"/, "pastille active exposée aux technologies d’assistance");
+  assert.match(panelActions, /id="workshopSaveDraftBtn"/, "« Enregistrer » conservé dans le groupe d’actions");
   assert.match(panelActions, />Enregistrer</, "libellé « Enregistrer »");
   assert.match(panelActions, /#icon-save/, "icône de sauvegarde sur Enregistrer");
   assert.doesNotMatch(panelActions, /#icon-download/, "aucune icône de téléchargement sur Enregistrer");
@@ -358,6 +364,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(html, />Annuler les changements</, "« Annuler les changements » conservé dans le menu");
   assert.match(app, /event\.target\.closest\("#workshopSaveDraftBtn"\)/, "clic branché sur l’écriture immédiate");
   assert.match(app, /event\.target\.closest\("#workshopHelpBtn"\)/, "divulgateur de l’aide rebranché sur le menu");
+  assert.match(app, /some\(button => !button\.hidden && !button\.disabled\)/, "menu ⋯ limité aux actions secondaires disponibles");
   /* Barre d’outils de la visionneuse : même grammaire que la fiche Document,
      calée à gauche, texte « Ajusté » retiré. */
   const imageTools = html.match(/<div class="transcription-workshop-tools viewer-image-controls" id="workshopImageTools">[\s\S]*?<\/div><div class="genealogy-inline-actions" id="workshopPageNav">/)?.[0] || "";
@@ -396,7 +403,8 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour"[^>]*><span class="dedicated-page-back-arrow"/, "flèche décorative et libellé de destination");
   assert.match(app, /function teardownTranscriptionWorkshop\(\)/, "nettoyage du lecteur à la sortie");
   for (const tab of ["Original", "Italien", "Français"]) assert.ok(html.includes(`>${tab}</button>`), `onglet ${tab} présent`);
-  assert.ok(html.includes('id="workshopPrevBtn"') && html.includes('id="workshopNextBtn"'), "navigation Précédent / Suivant");
+  assert.match(html, /id="workshopPassagePills"/, "pastilles de navigation des passages présentes");
+  assert.doesNotMatch(html, /id="workshopPrevBtn"|id="workshopNextBtn"/, "commandes Précédent/Suivant retirées");
   assert.ok(html.includes("Comparer"), "mode Comparer accessible depuis les passages");
   assert.match(html, /id="workshopSaveStatus"[^>]*role="status"[^>]*>Brouillon local</, "statut compact « Brouillon local » annoncé comme statut");
   assert.doesNotMatch(html, /id="workshopDraftBadge"/, "l’ancienne pastille de remplacement a disparu");
@@ -409,7 +417,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /classList\.toggle\("is-dirty", dirty\)/, "le badge unique signale les modifications non enregistrées");
   assert.match(app, /confirmTranscriptionWorkshopClose/, "une confirmation explicite protège toujours les brouillons à la sortie");
   assert.ok(html.includes('id="workshopAddPassageBtn"'), "bouton d’ajout de passage accessible");
-  assert.match(html, /\+ Ajouter un passage/, "libellé d’ajout de passage");
+  assert.match(html, /id="workshopAddPassageBtn"[^>]*aria-label="Ajouter un passage"[^>]*>\+<\/button>/, "+ est le bouton d’ajout accessible");
   assert.match(html, /id="workshopDivider"[^>]*role="separator"/, "séparateur de redimensionnement");
   for (const button of html.match(/<button[^>]*id="workshop[^>]*>/g)) {
     assert.match(button, /\btype="button"/, `bouton atelier sans type explicite : ${button}`);
@@ -436,7 +444,8 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /data-workshop-delete-passage/, "bouton de suppression des passages créés");
   assert.match(app, /isTranscriptionWorkshopPassageCreated\(draft, passage\.id\)/, "suppression réservée aux passages créés");
   assert.match(app, /Ajoutez un passage pour commencer/, "état vide orienté action");
-  assert.match(css, /#workshopPageNav \.btn, #workshopPhotoNav \.btn \{ min-width: var\(--control-touch\)/, "cibles tactiles ≥ 44 px");
+  assert.match(css, /\.transcription-workshop-passage-nav \.btn[^\{]*\{ min-width: var\(--control-touch\)/, "cibles tactiles ≥ 44 px pour navigation des passages");
+  assert.match(css, /\.transcription-workshop-passage-pill\.btn\.is-active \{ border-color: var\(--color-brand\); background: var\(--color-brand\); color: var\(--color-surface-raised\); \}/, "pastille active clairement repérée");
   /* Bloc mobile atelier : en-tête empilé + onglets dépliés. Extrait tel quel
      pour rester insensible aux longueurs de commentaires de style. */
   const workshopMobileBlock = css.match(/@media \(max-width: 760px\) \{\s*\/\* En-tête atelier[\s\S]*?\.transcription-workshop-tabs \{ display: flex; \}/)?.[0] || "";
@@ -652,6 +661,18 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     assert.ok(desktopLayout.statusTop >= desktopLayout.panelRightTop && desktopLayout.statusTop <= desktopLayout.panelRightBottom, "statut contenu dans le panneau de transcription");
     assert.ok(desktopLayout.statusHeight > 0, "statut visible sur desktop");
 
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.waitForTimeout(80);
+    const desktopPageOverflow = await page.evaluate(() => {
+      const box = selector => {
+        const r = document.querySelector(selector).getBoundingClientRect();
+        return [Math.round(r.top), Math.round(r.bottom), Math.round(r.height)];
+      };
+      return { scrollHeight: document.documentElement.scrollHeight, height: innerHeight, topbar: box("#topbar"), workshop: box("#transcriptionWorkshopView"), header: box(".transcription-workshop-header"), layout: box("#workshopLayout"), tabs: box(".transcription-workshop-tabs"), mainPadding: getComputedStyle(document.getElementById("transcriptionWorkshopView")).padding };
+    });
+    assert.ok(desktopPageOverflow.scrollHeight <= desktopPageOverflow.height + 2, `atelier desktop ≥981px sans scroll de page (${JSON.stringify(desktopPageOverflow)})`);
+    await page.setViewportSize({ width: 1280, height: 900 });
+
     /* Saisie puis autosauvegarde : état écrit réellement — le bouton est
        désactivé dès que le contenu est enregistré localement (incrément 2). */
     await page.fill('[data-workshop-field="textIt"]', "Anno millenovecentosedici");
@@ -710,6 +731,8 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
         addRight: Math.round(add.right),
         addLeft: Math.round(add.left),
         saveLeft: Math.round(save.left),
+        passagePillCount: document.querySelectorAll("#workshopPassagePills [data-workshop-passage-select]").length,
+        activePassagePill: document.querySelector("#workshopPassagePills [aria-current='step']")?.textContent || "",
         navLeft: Math.round(nav.left),
         navRight: Math.round(nav.right),
         headRight: Math.round(document.querySelector("#workshopPanelRight .transcription-workshop-panel-head").getBoundingClientRect().right),
@@ -720,8 +743,11 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     assert.ok(desktopTools.toolsLeft <= desktopTools.panelLeft + 1, `outils à gauche du panneau (${desktopTools.toolsLeft} ≤ ${desktopTools.panelLeft})`);
     assert.equal(desktopTools.zoomLabelAbsent, true, "texte « Ajusté » retiré de la barre");
     assert.deepEqual(desktopTools.order, ["out", "in", "workshopImageModeBtn", "workshopImageFullscreenBtn"], "4 commandes dans l’ordre de la fiche Document");
-    assert.ok(desktopTools.saveLeft >= desktopTools.addRight - 1, "« Enregistrer » immédiatement à droite d’« Ajouter un passage »");
-    assert.ok(desktopTools.navRight <= desktopTools.addRight, `navigation des passages à gauche des actions de transcription (nav ${desktopTools.navLeft}..${desktopTools.navRight} vs actions ${desktopTools.actionsRect[0]}..${desktopTools.actionsRect[0] + desktopTools.actionsRect[2]}, head ${desktopTools.headLeft}..${desktopTools.headRight})`);
+    assert.equal(desktopTools.passagePillCount, 2, "une pastille numérotée par passage courant");
+    assert.equal(desktopTools.activePassagePill, "1", "premier passage marqué actif");
+    assert.ok(desktopTools.addRight <= desktopTools.navRight + 1 && desktopTools.addLeft >= desktopTools.navLeft - 1, "+ intégré à la navigation des passages");
+    assert.ok(desktopTools.saveLeft >= desktopTools.actionsRect[0] - 1, "Enregistrer reste dans le groupe d'actions du panneau");
+    assert.ok(desktopTools.navRight <= desktopTools.headRight + 1, `navigation des passages contenue dans l'en-tête droit (${desktopTools.navRight} ≤ ${desktopTools.headRight})`);
 
     /* Mobile : aucune largeur débordante avec la colonne d’actions complète. */
     await page.setViewportSize({ width: 320, height: 780 });
@@ -734,7 +760,7 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     /* Menu « … » : ouverture normale, fermeture extérieure, Échap, sortie. */
     await page.click("#workshopActionsMenu > summary");
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "menu ouvert par « … »");
-    await page.click("#workshopDocumentTitle");
+    await page.click("#workshopPageLabel");
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "clic extérieur ferme le menu");
     await page.click("#workshopActionsMenu > summary");
     await page.keyboard.press("Escape");
@@ -746,7 +772,7 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
        recouvre temporairement le lien Retour (même grammaire que l'en-tête de
        la fiche Document) : une fermeture extérieure le libère. */
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "menu ouvert avant la fermeture extérieure");
-    await page.click("#workshopDocumentTitle");
+    await page.click("#workshopPageLabel");
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "fermeture extérieure avant navigation");
     await page.click("#workshopBackBtn");
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
@@ -851,7 +877,9 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
 
               const layout = await page.evaluate(() => {
                 const header = document.querySelector(".transcription-workshop-header").getBoundingClientRect();
-                const kicker = document.querySelector(".transcription-workshop-heading .page-kicker");
+                const breadcrumb = document.querySelector(".transcription-workshop-breadcrumb");
+                const documentCrumb = document.getElementById("workshopDocumentTitle");
+                const currentCrumb = document.querySelector(".transcription-workshop-breadcrumb-current");
                 const heading = document.querySelector(".transcription-workshop-heading").getBoundingClientRect();
                 const label = document.getElementById("workshopPageLabel");
                 const labelRect = label.getBoundingClientRect();
@@ -862,8 +890,9 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 const toolsRect = document.getElementById("workshopImageTools").getBoundingClientRect();
                 const panelRect = document.getElementById("workshopPanelOriginal").getBoundingClientRect();
                 return {
-                  kickerText: kicker.textContent.trim(),
-                  kickerScroll: kicker.scrollWidth,
+                  breadcrumbText: breadcrumb.textContent.trim(),
+                  documentCrumbLabel: documentCrumb.getAttribute("aria-label"),
+                  currentCrumb: currentCrumb.textContent.trim(),
                   headingWidth: Math.round(heading.width),
                   headingRight: Math.round(heading.right),
                   headingBottom: heading.bottom,
@@ -882,9 +911,12 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                   viewport: innerWidth
                 };
               });
-              /* Titre « Atelier de transcription » entièrement lisible. */
-              assert.equal(layout.kickerText, "Atelier de transcription", "titre du métier intact");
-              assert.ok(layout.kickerScroll <= layout.headingWidth + 1, `titre sans troncature (${layout.kickerScroll} ≤ ${layout.headingWidth})`);
+              /* Fil d'Ariane : titre du document complet accessible, page courante explicite. */
+              assert.match(layout.breadcrumbText, width >= 761
+                ? /Documents.*Registre Transactions Immobilières.*Transcription/
+                : /Registre Transactions Immobilières.*Transcription/, "fil d’Ariane compact adapté au breakpoint");
+              assert.equal(layout.documentCrumbLabel, "Registre Transactions Immobilières", "nom complet du document exposé à l’accessibilité");
+              assert.equal(layout.currentCrumb, "Transcription", "étape courante annoncée dans le fil d’Ariane");
               /* « Page X · Y passages » compact : une seule ligne. */
               assert.equal(layout.labelWhiteSpace, "nowrap", "libellé de page sur une seule ligne");
               assert.ok(layout.labelHeight <= 26, `libellé de page compact sans retour à la ligne (${layout.labelHeight}px)`);
@@ -961,7 +993,7 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "menu ouvert");
               /* Clic extérieur au coin gauche du titre : le panneau du menu est
                  ancré à droite et peut recouvrir le centre du titre sur mobile. */
-              await page.click("#workshopDocumentTitle", { position: { x: 6, y: 6 } });
+              await page.click("#workshopPageLabel", { position: { x: 6, y: 6 } });
               assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "clic extérieur ferme le menu");
               await page.click("#workshopActionsMenu > summary");
               await page.keyboard.press("Escape");

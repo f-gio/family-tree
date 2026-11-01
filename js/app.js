@@ -5931,6 +5931,14 @@ function transcriptionWorkshopDisplayedPassages() {
   return transcriptionWorkshopDraft?.passages || [];
 }
 
+function transcriptionWorkshopDisplayedSelectedPassageId() {
+  const draft = transcriptionWorkshopDraft;
+  const displayed = transcriptionWorkshopDisplayedPassages();
+  return displayed.some(passage => passage.id === draft?.selectedPassageId)
+    ? draft.selectedPassageId
+    : displayed[0]?.id || null;
+}
+
 function setTranscriptionWorkshopMode({ editing, viewingOfficial = false } = {}) {
   if (!transcriptionWorkshopDraft) return;
   /* Un changement de mode ne laisse jamais une saisie uniquement en attente. */
@@ -6804,6 +6812,34 @@ function exitTranscriptionWorkshop() {
   return leaveTranscriptionWorkshop();
 }
 
+function navigateTranscriptionWorkshopBreadcrumb(destination) {
+  if (!isTranscriptionWorkshopActive()) return false;
+  const previousTarget = transcriptionWorkshopReturn;
+  const previousView = activeView;
+  activeView = "documents";
+  if (destination === "document") {
+    const documentId = transcriptionWorkshopContext?.documentId;
+    if (!documents.some(item => item.id === documentId)) {
+      activeView = previousView;
+      return toast("Le document associé n’est plus disponible.", "error");
+    }
+    transcriptionWorkshopReturn = {
+      kind: "document",
+      documentId,
+      returnContext: "documents",
+      pageContext: null
+    };
+  } else {
+    transcriptionWorkshopReturn = null;
+  }
+  if (!exitTranscriptionWorkshop()) {
+    transcriptionWorkshopReturn = previousTarget;
+    activeView = previousView;
+    return false;
+  }
+  return true;
+}
+
 function leaveTranscriptionWorkshop() {
   if (!isTranscriptionWorkshopActive()) return false;
   /* Avant toute navigation : écriture immédiate des sauvegardes en attente —
@@ -7005,9 +7041,10 @@ function renderWorkshopPassageList(editable) {
     list.innerHTML = "";
     return;
   }
+  const displayedSelection = transcriptionWorkshopDisplayedSelectedPassageId();
   list.innerHTML = displayedPassages.map((passage, index) => {
     const label = transcriptionWorkshopPassageLabel(passage, index);
-    const selected = passage.id === draft.selectedPassageId;
+    const selected = passage.id === displayedSelection;
     const changed = !transcriptionWorkshopViewingOfficial && isTranscriptionWorkshopPassageChanged(draft, passage.id);
     const itId = `workshopField-it-${passage.id}`;
     const frId = `workshopField-fr-${passage.id}`;
@@ -7144,7 +7181,8 @@ function renderWorkshopCompareContent() {
   const draft = transcriptionWorkshopDraft;
   const context = transcriptionWorkshopContext;
   const container = $("workshopCompareContent");
-  const passage = transcriptionWorkshopDisplayedPassages().find(item => item.id === draft?.selectedPassageId);
+  const selectedPassageId = transcriptionWorkshopDisplayedSelectedPassageId();
+  const passage = transcriptionWorkshopDisplayedPassages().find(item => item.id === selectedPassageId);
   if (!passage) {
     container.innerHTML = `<p class="transcription-workshop-empty">Aucun passage n’est sélectionné.</p>`;
     return;
@@ -7187,24 +7225,59 @@ function positionWorkshopCompareCrop(image, anchor) {
   else image.addEventListener("load", apply, { once: true });
 }
 
+function renderWorkshopPassageNavigation(displayedPassages, selectedPassageId) {
+  const container = $("workshopPassagePills");
+  if (!container) return;
+  const total = displayedPassages.length;
+  const selectedIndex = displayedPassages.findIndex(passage => passage.id === selectedPassageId);
+  let indexes = [];
+  if (total <= 7) {
+    indexes = Array.from({ length: total }, (_, index) => index);
+  } else {
+    const selected = selectedIndex < 0 ? 0 : selectedIndex;
+    let start;
+    let end;
+    if (selected <= 2) {
+      start = 0;
+      end = 4;
+    } else if (selected >= total - 3) {
+      start = total - 5;
+      end = total - 1;
+    } else {
+      start = selected - 1;
+      end = selected + 1;
+    }
+    indexes = [...new Set([0, ...Array.from({ length: end - start + 1 }, (_, offset) => start + offset), total - 1])].sort((a, b) => a - b);
+  }
+  let previousIndex = -1;
+  const entries = [];
+  for (const index of indexes) {
+    if (previousIndex >= 0 && index - previousIndex > 1) {
+      entries.push(`<span class="transcription-workshop-passage-ellipsis" aria-hidden="true">…</span>`);
+    }
+    const passage = displayedPassages[index];
+    const active = passage.id === selectedPassageId;
+    const line = passage.lineLabel ? ` · ${passage.lineLabel}` : "";
+    entries.push(`<button class="transcription-workshop-passage-pill${active ? " is-active" : ""}" type="button" data-workshop-passage-select="${esc(passage.id)}" aria-label="Passage ${index + 1}${esc(line)}"${active ? ' aria-current="step"' : ""}>${index + 1}</button>`);
+    previousIndex = index;
+  }
+  container.innerHTML = entries.join("");
+}
+
 function updateWorkshopNavigation() {
   const draft = transcriptionWorkshopDraft;
   if (!draft) return;
   const displayed = transcriptionWorkshopDisplayedPassages();
-  const selectedIndex = displayed.findIndex(passage => passage.id === draft.selectedPassageId);
-  const position = {
-    previousId: selectedIndex > 0 ? displayed[selectedIndex - 1]?.id : null,
-    nextId: selectedIndex >= 0 && selectedIndex + 1 < displayed.length ? displayed[selectedIndex + 1]?.id : null,
-    index: selectedIndex,
-    total: displayed.length
-  };
+  const selectedPassageId = transcriptionWorkshopDisplayedSelectedPassageId();
+  const selectedIndex = displayed.findIndex(passage => passage.id === selectedPassageId);
   const unsaved = transcriptionWorkshopHasUnsavedChanges();
-  $("workshopPrevBtn").disabled = position.previousId == null;
-  $("workshopNextBtn").disabled = position.nextId == null;
-  $("workshopResetBtn").disabled = !unsaved;
-  $("workshopStatus").textContent = draft.passages.length
-    ? `${position.index >= 0 ? `Passage ${position.index + 1} sur ${position.total}` : ""}`.trim()
+  const resetButton = $("workshopResetBtn");
+  resetButton.disabled = !unsaved;
+  resetButton.hidden = transcriptionWorkshopIsReadOnly() || !unsaved;
+  $("workshopStatus").textContent = displayed.length
+    ? `${selectedIndex >= 0 ? `Passage ${selectedIndex + 1} sur ${displayed.length}` : ""}`.trim()
     : "";
+  renderWorkshopPassageNavigation(displayed, selectedPassageId);
 }
 
 function syncWorkshopUnloadGuard() {
@@ -7306,12 +7379,14 @@ function updateWorkshopDraftIndicators() {
   if (viewOfficialButton) viewOfficialButton.hidden = !transcriptionWorkshopHead() || officialReadOnly || !draft.dirty;
   const cancelEditButton = $("workshopCancelEditBtn");
   if (cancelEditButton) cancelEditButton.hidden = officialReadOnly;
+  const helpButton = $("workshopHelpBtn");
+  if (helpButton) helpButton.hidden = officialReadOnly;
   const autoSaveHint = $("workshopAutosaveHint");
   if (autoSaveHint) autoSaveHint.hidden = officialReadOnly;
   const addPassageButton = $("workshopAddPassageBtn");
   if (addPassageButton) addPassageButton.hidden = officialReadOnly;
   const resetButton = $("workshopResetBtn");
-  if (resetButton) resetButton.hidden = officialReadOnly;
+  if (resetButton) resetButton.hidden = officialReadOnly || !transcriptionWorkshopHasUnsavedChanges();
   /* Conflit refermé sans choix : le bouton du pied permet de rouvrir la
      comparaison — l'état reste visible tant qu'aucune décision n'est prise. */
   const conflictButton = $("workshopConflictBtn");
@@ -7361,6 +7436,13 @@ function updateWorkshopDraftIndicators() {
   }
   syncWorkshopUnloadGuard();
   updateWorkshopNavigation();
+  const actionMenu = $("workshopActionsMenu");
+  if (actionMenu) {
+    const hasAvailableAction = [...actionMenu.querySelectorAll(".transcription-workshop-menu-panel button")]
+      .some(button => !button.hidden && !button.disabled);
+    actionMenu.hidden = !hasAvailableAction;
+    if (!hasAvailableAction) actionMenu.open = false;
+  }
 }
 
 function setWorkshopPage(pageId) {
@@ -7474,6 +7556,8 @@ function resetTranscriptionWorkshopState() {
 }
 
 $("transcriptionWorkshopView").addEventListener("click", event => {
+  const breadcrumb = event.target.closest("[data-workshop-breadcrumb]");
+  if (breadcrumb) return navigateTranscriptionWorkshopBreadcrumb(breadcrumb.dataset.workshopBreadcrumb);
   if (event.target.closest("#workshopModeBtn")) {
     if (transcriptionWorkshopViewingOfficial || transcriptionWorkshopIsReadOnly()) {
       setTranscriptionWorkshopMode({ editing: true });
@@ -7540,6 +7624,8 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     syncWorkshopZone();
     return;
   }
+  const passagePill = event.target.closest("[data-workshop-passage-select]");
+  if (passagePill) return selectWorkshopPassage(passagePill.dataset.workshopPassageSelect);
   const pageButton = event.target.closest("[data-workshop-page]");
   if (pageButton) return setWorkshopPage(pageButton.dataset.workshopPage);
   if (event.target.closest("#workshopAddPassageBtn")) {
@@ -7573,18 +7659,6 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     renderTranscriptionWorkshop();
     if (draft.selectedPassageId) selectWorkshopPassage(draft.selectedPassageId, { scroll: false });
     toast("Passage supprimé du brouillon.");
-    return;
-  }
-  if (event.target.closest("#workshopPrevBtn")) {
-    const displayed = transcriptionWorkshopDisplayedPassages();
-    const index = displayed.findIndex(passage => passage.id === transcriptionWorkshopDraft?.selectedPassageId);
-    if (index > 0) selectWorkshopPassage(displayed[index - 1].id);
-    return;
-  }
-  if (event.target.closest("#workshopNextBtn")) {
-    const displayed = transcriptionWorkshopDisplayedPassages();
-    const index = displayed.findIndex(passage => passage.id === transcriptionWorkshopDraft?.selectedPassageId);
-    if (index >= 0 && index + 1 < displayed.length) selectWorkshopPassage(displayed[index + 1].id);
     return;
   }
   if (event.target.closest("#workshopResetBtn")) {

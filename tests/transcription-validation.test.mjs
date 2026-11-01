@@ -227,6 +227,18 @@ test("la carte Document propose Ajouter quand la page ne contient aucune transcr
     await page.evaluate(() => window.__inc2.useMemberProfile());
     assert.equal(await page.locator("#workshopValidateBtn").isHidden(), true, "aucune validation officielle visible sans droit administrateur");
     assert.equal(await page.locator("#workshopCancelEditBtn").isVisible(), true, "Annuler reste disponible pour le contributeur");
+    for (let index = 0; index < 10; index++) await page.click("#workshopAddPassageBtn");
+    const passagePills = page.locator("#workshopPassagePills [data-workshop-passage-select]");
+    assert.ok(await passagePills.count() <= 7, "navigation compacte pour une page avec de nombreux passages");
+    assert.equal(await passagePills.first().textContent(), "1", "première pastille repère le début de la liste");
+    assert.equal(await passagePills.last().textContent(), "10", "dernière pastille reste accessible");
+    assert.ok(await page.locator("#workshopPassagePills .transcription-workshop-passage-ellipsis").count() > 0, "ellipse les numéros intermédiaires masqués");
+    assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "10", "passage actif repéré après les ajouts");
+    assert.equal(await page.locator(".transcription-workshop-passage-menu").count(), 10, "menu ⋯ uniquement sur les passages ajoutés et supprimables");
+    await passagePills.first().click();
+    assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "1", "clic sur une pastille sélectionne le passage correspondant");
+    assert.equal(await page.locator("#workshopPassagePills").evaluate(element => element.scrollWidth <= element.clientWidth), true, "pastilles nombreuses contenues dans le panneau");
+    assert.ok(await page.locator(".transcription-workshop-passage-menu").count() > 0, "⋯ de passage uniquement pour les passages créés et supprimables");
     assertNoInc2PageErrors(pageErrors);
   } finally {
     await context.close().catch(() => {});
@@ -294,6 +306,20 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").evaluate(button => button.classList.contains("primary")), false, "CTA officiel non principal");
     await page.evaluate(() => window.__inc2.transcribe());
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+    assert.match(await page.locator(".transcription-workshop-breadcrumb").textContent(), /Documents.*Registre Transactions Immobilières/, "fil d’Ariane compact avec le document courant");
+    assert.equal(await page.locator("#workshopPageHeading").textContent(), "Transcription", "titre de page sans répétition du document");
+    assert.equal(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", "méga-menu masqué uniquement dans l’atelier desktop");
+    assert.notEqual(await page.locator(".topbar .brand").evaluate(element => getComputedStyle(element).display), "none", "identité La Nostra Storia conservée");
+    await page.click('[data-workshop-breadcrumb="documents"]');
+    await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentsView").hidden);
+    await page.evaluate(() => window.__inc2.openDoc());
+    await page.waitForSelector(".document-transcription-card [data-transcribe-document]");
+    await page.evaluate(() => window.__inc2.transcribe());
+    await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+    await page.click('[data-workshop-breadcrumb="document"]');
+    await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentDetailView").hidden);
+    await page.evaluate(() => window.__inc2.transcribe());
+    await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
 
     /* L'officiel s'ouvre en lecture seule. L'activation d'une révision ne crée
        aucun brouillon avant un vrai changement de texte. */
@@ -303,18 +329,25 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     assert.equal(await page.locator("#workshopAddPassageBtn").isHidden(), true, "ajout masqué en lecture seule");
     assert.equal(await page.locator("#workshopSaveDraftBtn").isHidden(), true, "Enregistrer masqué en lecture seule");
     assert.equal(await page.locator("#workshopValidateBtn").isHidden(), true, "Valider masqué en lecture seule");
+    assert.equal(await page.locator(".transcription-workshop-passage-menu").count(), 0, "aucun menu destructif sur les passages officiels");
+    assert.equal(await page.locator("#workshopActionsMenu").isHidden(), true, "menu ⋯ masqué sans action secondaire disponible");
+    assert.equal(await page.locator("#workshopActionsMenu").isHidden(), true, "⋯ masqué en consultation officielle sans action secondaire");
     assert.equal(await page.locator(".transcription-workshop-header #workshopValidateBtn").count(), 0, "aucun doublon de validation dans l’en-tête supérieur");
     assert.equal(await page.locator("#workshopModeBtn").textContent(), "Modifier", "action explicite pour entrer en édition");
     await page.click("#workshopModeBtn");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), false, "édition activée explicitement");
     assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), true, "pas de brouillon créé par l'activation seule");
     assert.equal(await page.locator("#workshopAutosaveHint").isVisible(), true, "autosauvegarde annoncée en édition");
+    assert.equal(await page.locator("#workshopActionsMenu").isHidden(), false, "menu ⋯ visible dès qu’une aide secondaire est disponible");
     assert.equal(await page.locator("#workshopModeBtn").isHidden(), true, "Modifier remplacé en mode édition");
     assert.equal(await page.locator("#workshopCancelEditBtn").textContent(), "Annuler", "action Annuler au même emplacement");
     assert.equal(await page.locator("#workshopValidateBtn").textContent(), "Valider", "action Valider alignée avec Annuler");
     await page.locator('[data-workshop-field="textIt"]').first().fill("Anno con modifica");
     assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Révision en cours · v3", "badge annonce la prochaine version");
+    assert.equal(await page.locator("#workshopActionsMenu").isHidden(), false, "⋯ apparaît dès qu’une action secondaire est disponible");
+    assert.equal(await page.locator("#workshopViewOfficialMenuBtn").evaluate(button => button.hidden), false, "action de consultation de l’officiel disponible dans une révision");
     await page.click("#workshopActionsMenu > summary");
+    assert.equal(await page.locator("#workshopViewOfficialMenuBtn").isVisible(), true, "menu ouvert expose la consultation de l’officiel");
     await page.click("#workshopViewOfficialMenuBtn");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "aperçu officiel temporaire en lecture seule");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Anno millenovecento corrente", "aperçu de la version officielle");
