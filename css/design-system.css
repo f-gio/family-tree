@@ -2734,6 +2734,16 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-divider { width: var(--space-2); border: 0; border-radius: var(--radius-pill); background: transparent; cursor: col-resize; touch-action: none; }
 .transcription-workshop-divider:hover, .transcription-workshop-divider:focus-visible { background: var(--color-border); }
 .transcription-workshop-divider:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+/* Repli du volet Document (desktop uniquement) : la transcription occupe toute
+   la largeur ; la vue partagée est l'état par défaut de chaque session. */
+.transcription-workshop-layout.is-document-collapsed { grid-template-columns: minmax(0, 1fr); }
+.transcription-workshop-layout.is-document-collapsed #workshopPanelOriginal,
+.transcription-workshop-layout.is-document-collapsed #workshopDivider { display: none; }
+.transcription-workshop-restore-row { display: none; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-3) 0; }
+.transcription-workshop-layout.is-document-collapsed .transcription-workshop-restore-row { display: flex; }
+/* Navigation des pages et barre d'actions calées à droite (la troisième
+   commande du repli suit la navigation, en extrémité de la barre d'outils). */
+#workshopPageNav { margin-inline-start: auto; }
 .transcription-workshop-panel { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 0; }
 .transcription-workshop-panel-head { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .transcription-workshop-panel-head h4 { margin: 0; font: 700 var(--text-lg)/var(--leading-tight) var(--font-display); }
@@ -2763,6 +2773,30 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-badge { display: inline-flex; align-items: center; padding: 2px var(--space-2); border-radius: var(--radius-pill); background: var(--color-surface-muted); color: var(--color-text-label); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
 .transcription-workshop-badge--review { background: var(--color-warning-soft); color: var(--color-warning); }
 .transcription-workshop-badge--modified { background: var(--color-accent-soft); color: var(--color-accent); }
+.transcription-workshop-badge--validated { background: var(--color-success-soft); color: var(--color-success); }
+/* Panneau de transcription : badge d'état collé à la navigation, actions
+   calées à droite — l'en-tête reste sur une ligne le plus longtemps possible
+   et l'ordre « Ajouter » puis « Enregistrer » est conservé. */
+.transcription-workshop-right .transcription-workshop-panel-head { justify-content: flex-start; }
+.transcription-workshop-right .transcription-workshop-panel-actions { margin-inline-start: auto; }
+/* Accès discret à l'historique dans le pied, à côté du statut. */
+.transcription-workshop-history-btn { flex: 0 0 auto; }
+/* Historique des versions : lignes compactes et texte officiel en lecture
+   seule, consultables sans quitter l'atelier ni perdre le brouillon. */
+.transcription-history-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); width: 100%; min-height: var(--control-touch); padding: var(--space-2); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); color: inherit; text-align: left; cursor: pointer; }
+.transcription-history-row + .transcription-history-row { margin-top: var(--space-2); }
+.transcription-history-row.is-current { border-color: var(--color-success); }
+.transcription-history-row:hover { background: var(--color-surface-soft); }
+.transcription-history-version { flex: 0 0 auto; font-weight: var(--weight-semibold); }
+.transcription-history-meta { min-width: 0; color: var(--color-text-muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.transcription-history-text { margin: var(--space-2) 0 0; max-height: 40dvh; overflow: auto; padding: var(--space-2); border: var(--border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-muted); font-size: var(--text-sm); white-space: pre-wrap; }
+.transcription-history-diff { margin: var(--space-1) 0 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+.transcription-history-summary { margin: 0 0 var(--space-2); display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); color: var(--color-text-muted); font-size: var(--text-xs); }
+@media (max-width: 760px) {
+  #workshopValidateLabel { display: none; }
+  #workshopPanelCollapseBtn { display: none; }
+  .transcription-workshop-restore-row { display: none !important; }
+}
 .transcription-workshop-passage-actions { display: flex; align-items: center; gap: var(--space-2); margin-inline-start: auto; }
 .transcription-workshop-field-block { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--space-1); min-width: 0; min-height: 0; }
 .transcription-workshop-field-label { color: var(--color-text-label); font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: .05em; }

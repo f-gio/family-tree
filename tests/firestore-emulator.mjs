@@ -2201,3 +2201,117 @@ test("LOT 2B.2 — brouillons : identifiants, champs et structure vérifiés", a
     await signOutAll();
   }
 });
+
+// ─── LOT 2B.2 INCRÉMENT 2 : VALIDATION OFFICIELLE DES TRANSCRIPTIONS ────────
+// Les permissions existantes ne sont PAS élargies : seule la création/la
+// révision admin reste possible, avec deux invariants ajoutés — texte italien
+// non vide côté base, immuabilité des révisions et versions strictement
+// croissantes (aucune donnée de production n'est concernée).
+
+function transcriptionOfficialContent({ textIt = "Ada, figlia di Giuseppe", translationFr = null, documentId = "doc-inc2", pageId = "page-inc2", changeKind = "initial" } = {}) {
+  return {
+    documentId,
+    pageId,
+    passages: [{
+      id: "p-1", order: 0, textIt, translationFr, separatorAfter: "", unreadable: false,
+      hypotheses: [], anchor: null, lineLabel: "l. 1",
+      translationState: translationFr == null ? "not-started" : "current"
+    }],
+    transcriptionIt: textIt,
+    translationFr,
+    changeKind,
+    justification: "Validation de la transcription",
+    authorUid: adminUid,
+    previousRevisionId: null
+  };
+}
+
+test("LOT 2B.2 incrément 2 — transcriptions officielles : droits inchangés, italien non vide, révisions immuables", async () => {
+  const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
+  const headRef = doc(db, "transcriptionHeads", "tx-inc2");
+
+  /* Membre approuvé : aucune écriture officielle (permissions non élargies). */
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  try {
+    await expectDenied(store.createOfficial({
+      type: "transcription", id: "tx-inc2-member", revisionId: "tx-inc2-m-rev", eventId: "tx-inc2-m-ev",
+      data: transcriptionOfficialContent({ documentId: "doc-member", pageId: "page-member" }),
+      reason: "Validation d'un membre", actorUid: memberUid
+    }), "création officielle interdite hors administrateur");
+    await expectDenied(setDoc(doc(db, "transcriptionHeads", "tx-inc2-member"), {
+      data: transcriptionOfficialContent(), version: 1,
+      revisionId: "x", createdAt: serverTimestamp(), createdBy: memberUid,
+      updatedAt: serverTimestamp(), updatedBy: memberUid, eventId: "x"
+    }), "écriture directe interdite hors administrateur");
+  } finally {
+    await signOutAll();
+  }
+
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  try {
+    /* Première validation : version 1, SANS traduction française (facultative),
+       head + révision + événement atomiques. */
+    await store.createOfficial({
+      type: "transcription", id: "tx-inc2", revisionId: "tx-inc2-rev1", eventId: "tx-inc2-ev1",
+      data: transcriptionOfficialContent({ textIt: "Ada, figlia di Giuseppe", translationFr: null }),
+      reason: "Validation de la transcription", actorUid: adminUid
+    });
+    const head = await getDoc(headRef);
+    assert.equal(head.exists(), true, "en-tête créé");
+    assert.equal(head.data().version, 1, "première version = 1");
+    assert.equal(head.data().data.translationFr, null, "traduction française absente : acceptée");
+    assert.equal((await getDoc(doc(db, "transcriptionRevisions", "tx-inc2-rev1"))).exists(), true, "révision immuable créée");
+
+    /* Texte italien vide : refusé côté base (création ET révision). */
+    await expectDenied(store.createOfficial({
+      type: "transcription", id: "tx-inc2-empty", revisionId: "tx-inc2-e-rev", eventId: "tx-inc2-e-ev",
+      data: transcriptionOfficialContent({ textIt: "" }),
+      reason: "Validation invalide", actorUid: adminUid
+    }), "création avec texte italien vide refusée");
+    await expectDenied(store.reviseOfficial({
+      type: "transcription", id: "tx-inc2", revisionId: "tx-inc2-e-rev2", eventId: "tx-inc2-e-ev2",
+      data: transcriptionOfficialContent({ textIt: "", changeKind: "transcription-correction" }),
+      reason: "Révision vide", actorUid: adminUid
+    }), "révision avec texte italien vide refusée");
+
+    /* Révision : version courante vérifiée puis version 2 écrite. */
+    await store.reviseOfficial({
+      type: "transcription", id: "tx-inc2", revisionId: "tx-inc2-rev2", eventId: "tx-inc2-ev2",
+      data: transcriptionOfficialContent({ textIt: "Ada Rossi, figlia di Giuseppe", translationFr: null, changeKind: "transcription-correction" }),
+      reason: "Validation de la révision", actorUid: adminUid, expectedRevisionId: "tx-inc2-rev1"
+    });
+    const revised = await getDoc(headRef);
+    assert.equal(revised.data().version, 2, "révision publiée en version 2");
+    assert.equal(revised.data().revisionId, "tx-inc2-rev2", "en-tête pointé vers la révision courante");
+    const rev2 = await getDoc(doc(db, "transcriptionRevisions", "tx-inc2-rev2"));
+    assert.equal(rev2.data().previousRevisionId, "tx-inc2-rev1", "chaîne des versions conservée");
+
+    /* Validation concurrente / double clic : version courante périmée refusée,
+       aucune écriture, aucune révision supplémentaire. */
+    await assert.rejects(store.reviseOfficial({
+      type: "transcription", id: "tx-inc2", revisionId: "tx-inc2-rev3", eventId: "tx-inc2-ev3",
+      data: transcriptionOfficialContent({ textIt: "Encore", changeKind: "transcription-correction" }),
+      reason: "Double validation", actorUid: adminUid, expectedRevisionId: "tx-inc2-rev1"
+    }), /version officielle a changé/, "expectedRevisionId périmé refusé");
+    assert.equal((await getDoc(headRef)).data().version, 2, "tête inchangée après tentative périmée");
+    assert.equal((await getDoc(doc(db, "transcriptionRevisions", "tx-inc2-rev3"))).exists(), false, "aucune révision créée par la tentative refusée");
+    await expectDenied(updateDoc(headRef, { version: 2 }), "réécriture de version sans incrémentation refusée");
+
+    /* Immuabilité : révisions et en-tête ne sont jamais modifiables ni
+       supprimables rétroactivement. */
+    await expectDenied(updateDoc(doc(db, "transcriptionRevisions", "tx-inc2-rev1"), { data: transcriptionOfficialContent({ textIt: "Piraté" }) }), "mise à jour d'une révision refusée");
+    await expectDenied(deleteDoc(doc(db, "transcriptionRevisions", "tx-inc2-rev1")), "suppression d'une révision refusée");
+    await expectDenied(deleteDoc(headRef), "suppression de l'en-tête refusée");
+
+    /* Lecture d'un historique pour un membre approuvé (consultation seule). */
+  } finally {
+    await signOutAll();
+  }
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  try {
+    const readable = await getDoc(headRef);
+    assert.equal(readable.exists(), true, "membre approuvé : lecture de l'historique officiel");
+  } finally {
+    await signOutAll();
+  }
+});

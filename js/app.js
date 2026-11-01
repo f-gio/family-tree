@@ -33,7 +33,12 @@ import { createGenealogyCollaborationStore } from "./genealogy-collaboration-fir
 import { createGenealogyProof, transitionProofStatus, validateGenealogyProof } from "./genealogy-proofs.js";
 import { createConclusionRevision, createConclusionHead } from "./fact-conclusions.js";
 import { createSourceDocument, mergeSourceDocumentGuidedData, resolveSourceDocumentLinks, searchLinkedDocuments, SOURCE_DOCUMENT_PICKER_PAGE_SIZE } from "./source-document-model.js";
-import { createPageTextRevision } from "./document-transcription.js";
+import {
+  createPageTextRevision,
+  hasTranscriptionContent,
+  orderTranscriptionRevisionHistory,
+  comparePageTextRevisions
+} from "./document-transcription.js";
 import {
   createTranscriptionWorkshopDraft,
   editTranscriptionWorkshopPassage,
@@ -5490,6 +5495,16 @@ async function loadTranscriptionDraftRemote(documentId, pageId, draftAtOpen) {
        inchangée depuis notre dernier envoi — la version distante plus récente
        l'emporte, sans conflit ni écriture. */
     if (!stillLoaded) return;
+    /* Brouillon distant hérité d'avant une validation : la version officielle
+       existe et la copie locale est propre — le distant n'est JAMAIS restauré
+       (pas de réapparition après validation, pas de faux conflit). Le brouillon
+       distant reste en place : aucune suppression silencieuse ; son nettoyage
+       suit le flux normal de synchronisation. */
+    if (plan.operation === "restore" && transcriptionOfficialHeadForPage(documentId, pageId)) {
+      remoteState.status = "idle";
+      updateWorkshopDraftIndicators();
+      return;
+    }
     let restored = null;
     try {
       restored = restoreTranscriptionWorkshopDraft(remote.snapshot);
@@ -5860,6 +5875,322 @@ function resolveTranscriptionDraftLegacyRecovery(choice) {
   persistTranscriptionWorkshopDraft(draft);
   updateWorkshopDraftIndicators();
   toast("Brouillon repris : il appartient maintenant à votre compte et pourra être synchronisé.", "success");
+}
+
+/* ---- Validation officielle, historique et repli du volet (incrément 2) ----
+   « Enregistrer », « Comparer » et « Valider » restent strictement distincts :
+   seule la validation crée une version officielle (head + révision atomiques,
+   numérotée et immuable). Les droits et la version courante sont revérifiés à
+   la confirmation, hors ligne la validation est refusée, et un échec d'écriture
+   ne touche jamais le brouillon courant. */
+
+let transcriptionWorkshopDocumentCollapsed = false;
+let transcriptionValidationTarget = null;
+let transcriptionHistoryRevisionId = null;
+
+function transcriptionOfficialHeadForPage(documentId, pageId) {
+  if (!documentId || !pageId) return null;
+  return genealogyRecords.transcriptionHeads.find(head => {
+    const data = genealogyRecordData(head);
+    return data.documentId === documentId && data.pageId === pageId;
+  }) || null;
+}
+
+function transcriptionWorkshopHead() {
+  const context = transcriptionWorkshopContext;
+  if (!context) return null;
+  return transcriptionOfficialHeadForPage(context.documentId, context.pageId);
+}
+
+function transcriptionWorkshopOfficialState() {
+  const head = transcriptionWorkshopHead();
+  const draft = transcriptionWorkshopDraft;
+  if (!head) return { kind: "draft", label: "Brouillon", head: null };
+  const version = Number.isSafeInteger(head.version) && head.version >= 1 ? head.version : 1;
+  const officialPassages = genealogyRecordData(head).passages;
+  const matchesOfficial = Array.isArray(officialPassages) && draft != null
+    && transcriptionDraftSnapshotsEqual(officialPassages, draft.passages);
+  return matchesOfficial
+    ? { kind: "validated", label: `Validée · v${version}`, head }
+    : { kind: "revision", label: `Révision en cours · v${version}`, head };
+}
+
+function openTranscriptionValidationDialog() {
+  const context = transcriptionWorkshopContext;
+  const draft = transcriptionWorkshopDraft;
+  if (!context || !draft) return;
+  if (!isAdminUser()) return toast("La validation officielle est réservée aux administrateurs.", "error");
+  if (!hasTranscriptionContent(draft.passages)) return toast("La transcription italienne est vide : rien à valider.", "error");
+  const head = transcriptionWorkshopHead();
+  const version = head ? (Number.isSafeInteger(head.version) && head.version >= 1 ? head.version : 1) + 1 : 1;
+  transcriptionValidationTarget = {
+    headId: head?.id || null,
+    documentId: context.documentId,
+    pageId: context.pageId,
+    nextVersion: version
+  };
+  $("transcriptionValidationTitle").textContent = head ? "Valider la révision" : "Valider la transcription";
+  $("transcriptionValidationMessage").textContent = head
+    ? `La version v${version} sera enregistrée comme nouvelle version officielle (actuellement v${version - 1}). L’historique est conservé dans « Historique » : aucune version antérieure n’est modifiée ni supprimée. La traduction française reste facultative et est suivie séparément.`
+    : `La version v1 sera enregistrée comme première version officielle de cette page, avec son historique immuable consultable dans « Historique ». La traduction française reste facultative et est suivie séparément.`;
+  $("transcriptionValidationError").hidden = true;
+  const dialog = $("transcriptionValidationDialog");
+  if (!dialog.open) dialog.showModal();
+}
+
+async function confirmTranscriptionValidation() {
+  const target = transcriptionValidationTarget;
+  const dialog = $("transcriptionValidationDialog");
+  const confirmButton = $("transcriptionValidationConfirmBtn");
+  const errorBox = $("transcriptionValidationError");
+  if (!target || !dialog.open) return;
+  const fail = message => {
+    errorBox.textContent = message;
+    errorBox.hidden = false;
+  };
+  /* Re-vérification des droits et du mode hors ligne au moment exact de la
+     confirmation : l'état affiché peut être périmé. */
+  if (!isAdminUser()) return fail("La validation officielle est réservée aux administrateurs.");
+  if (!navigator.onLine) return fail("La validation officielle nécessite une connexion Internet.");
+  const draft = transcriptionWorkshopDraft;
+  const context = transcriptionWorkshopContext;
+  if (!draft || !context || context.documentId !== target.documentId || context.pageId !== target.pageId) {
+    return fail("Le brouillon de cette page n’est plus ouvert. Fermez le dialogue et réessayez.");
+  }
+  if (!hasTranscriptionContent(draft.passages)) return fail("La transcription italienne est vide : rien à valider.");
+  errorBox.hidden = true;
+  await withButtonPending(confirmButton, async () => {
+    /* Sauvegarde locale écrite AVANT toute tentative officielle : un échec
+       réseau conserve intégralement le brouillon (local + mémoire). */
+    flushTranscriptionWorkshopDraftSaves();
+    let headId = target.headId;
+    let freshHead = null;
+    if (headId) {
+      const snapshot = await getDocFromServer(doc(refs.transcriptionHeads, headId));
+      freshHead = snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
+      if (!freshHead) return fail("La version officielle de cette page vient de changer : fermez et rouvrez l’atelier pour la réviser.");
+    } else {
+      const fresh = await getDocsFromServer(query(refs.transcriptionHeads, where("data.documentId", "==", target.documentId)));
+      const found = fresh.docs.map(documentSnapshot => ({ id: documentSnapshot.id, ...documentSnapshot.data() }))
+        .find(record => genealogyRecordData(record).pageId === target.pageId);
+      if (found) return fail("Une version officielle de cette page vient d’être créée : fermez et rouvrez l’atelier pour la réviser.");
+      headId = `transcription-head:${target.documentId}:${target.pageId}`;
+    }
+    if (!dialog.open) return;
+    const authorUid = auth.currentUser.uid;
+    const revisionId = createGenealogyId(refs.transcriptionRevisions);
+    const eventId = createGenealogyId(refs.genealogyEvents);
+    const content = createPageTextRevision({
+      id: revisionId,
+      documentId: target.documentId,
+      pageId: target.pageId,
+      previousRevisionId: freshHead?.revisionId ?? null,
+      authorUid,
+      changedAt: new Date().toISOString(),
+      changeKind: freshHead ? "transcription-correction" : "initial",
+      justification: freshHead ? "Validation de la révision" : "Validation de la transcription",
+      passages: draft.passages
+    });
+    if (freshHead) {
+      await genealogyStore.reviseOfficial({
+        type: "transcription",
+        id: headId,
+        revisionId,
+        eventId,
+        data: content,
+        reason: "Validation de la révision de transcription",
+        actorUid: authorUid,
+        expectedRevisionId: freshHead.revisionId
+      });
+    } else {
+      await genealogyStore.createOfficial({
+        type: "transcription",
+        id: headId,
+        revisionId,
+        eventId,
+        data: content,
+        reason: "Validation de la transcription",
+        actorUid: authorUid
+      });
+    }
+    applyTranscriptionValidation({ headId, content, revisionId, eventId, freshHead, authorUid });
+    transcriptionValidationTarget = null;
+    if (dialog.open) dialog.close();
+    toast(`Version v${freshHead ? (freshHead.version || 1) + 1 : 1} validée : l’historique complet est conservé.`, "success");
+  }, "Validation…").catch(error => fail(error.message || "La validation a échoué : votre brouillon est conservé."));
+}
+
+/* Applique une validation réussie en mémoire (le prochain abonnement serveur
+   confirmera les horodatages exacts) et remet le brouillon à l'état « Validée » :
+   le contenu officiel devient la nouvelle référence locale. */
+function applyTranscriptionValidation({ headId, content, revisionId, eventId, freshHead, authorUid }) {
+  const now = new Date();
+  const version = freshHead ? (Number.isSafeInteger(freshHead.version) && freshHead.version >= 1 ? freshHead.version : 1) + 1 : 1;
+  const headRecord = genealogyRecords.transcriptionHeads.find(head => head.id === headId);
+  if (headRecord) {
+    headRecord.data = content;
+    headRecord.version = version;
+    headRecord.revisionId = revisionId;
+    headRecord.updatedAt = now;
+    headRecord.updatedBy = authorUid;
+    headRecord.eventId = eventId;
+  } else {
+    genealogyRecords.transcriptionHeads.push({
+      id: headId, data: content, version, revisionId,
+      createdAt: now, createdBy: authorUid, updatedAt: now, updatedBy: authorUid, eventId
+    });
+  }
+  genealogyRecords.transcriptionRevisions.push({
+    id: revisionId, objectId: headId, authorUid, createdAt: now,
+    previousRevisionId: freshHead?.revisionId ?? null, data: content, eventId
+  });
+  const key = transcriptionWorkshopDraftKey(content.documentId, content.pageId);
+  const previousDraft = transcriptionWorkshopDrafts.get(key) || transcriptionWorkshopDraft;
+  const selectedPassageId = previousDraft?.selectedPassageId ?? null;
+  const rebuilt = createTranscriptionWorkshopDraft({
+    documentId: content.documentId,
+    pageId: content.pageId,
+    passages: content.passages
+  });
+  if (selectedPassageId && rebuilt.passages.some(passage => passage.id === selectedPassageId)) {
+    rebuilt.selectedPassageId = selectedPassageId;
+  }
+  stampTranscriptionDraftOwner(rebuilt, previousDraft ? transcriptionDraftOwnerUid(previousDraft) : null);
+  transcriptionWorkshopDrafts.set(key, rebuilt);
+  if (transcriptionWorkshopDraft === previousDraft) transcriptionWorkshopDraft = rebuilt;
+  /* Brouillon redevenu identique au officiel : la copie locale est retirée
+     (nettoyage nominal) et le badge repasse à « Validée ». */
+  persistTranscriptionWorkshopDraft(rebuilt);
+  if (isTranscriptionWorkshopActive()) renderTranscriptionWorkshop();
+  updateWorkshopDraftIndicators();
+}
+
+function formatTranscriptionHistoryDate(value) {
+  const date = value instanceof Date ? value : (value && typeof value.toDate === "function" ? value.toDate() : (typeof value === "string" ? new Date(value) : null));
+  if (!date || Number.isNaN(date.getTime())) return "date inconnue";
+  return date.toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function transcriptionHistoryEntries(head) {
+  const revisions = genealogyRecords.transcriptionRevisions.filter(record => record.objectId === head.id);
+  return orderTranscriptionRevisionHistory(head, revisions);
+}
+
+function openTranscriptionHistoryDialog() {
+  transcriptionHistoryRevisionId = null;
+  $("transcriptionHistoryDetail").hidden = true;
+  $("transcriptionHistoryDetail").innerHTML = "";
+  $("transcriptionHistoryList").hidden = false;
+  $("transcriptionHistoryBackBtn").hidden = true;
+  renderTranscriptionHistoryList();
+  const dialog = $("transcriptionHistoryDialog");
+  if (!dialog.open) dialog.showModal();
+}
+
+function renderTranscriptionHistoryList() {
+  const container = $("transcriptionHistoryList");
+  const head = transcriptionWorkshopHead();
+  if (!head) {
+    container.innerHTML = `<p class="transcription-workshop-empty">Aucune version officielle n’existe encore pour cette page. Validez la transcription pour créer la première version.</p>`;
+    return;
+  }
+  const entries = transcriptionHistoryEntries(head);
+  container.innerHTML = entries.length
+    ? entries.map((entry, index) => `
+    <button type="button" class="transcription-history-row${index === 0 ? " is-current" : ""}" data-history-revision="${esc(entry.revisionId)}">
+      <span class="transcription-history-version">v${entry.version}${index === 0 ? " · version actuelle" : ""}</span>
+      <span class="transcription-history-meta">${esc(genealogyActorLabel(entry.revision.authorUid) || "Compte inconnu")} · ${esc(formatTranscriptionHistoryDate(entry.revision.createdAt))}</span>
+    </button>`).join("")
+    : `<p class="transcription-workshop-empty">Aucune révision n’est chargée pour cette page.</p>`;
+}
+
+function openTranscriptionHistoryDetail(revisionId) {
+  const head = transcriptionWorkshopHead();
+  if (!head) return;
+  const entries = transcriptionHistoryEntries(head);
+  const index = entries.findIndex(entry => entry.revisionId === revisionId);
+  if (index < 0) return;
+  const entry = entries[index];
+  const content = genealogyRecordData(entry.revision);
+  if (!content || typeof content !== "object") return;
+  transcriptionHistoryRevisionId = revisionId;
+  const previous = index + 1 < entries.length ? genealogyRecordData(entries[index + 1].revision) : null;
+  let officialDiff = "Version initiale officielle de cette page.";
+  if (previous) {
+    try {
+      const comparison = comparePageTextRevisions(
+        { documentId: content.documentId, pageId: content.pageId, passages: previous.passages || [] },
+        { documentId: content.documentId, pageId: content.pageId, passages: content.passages || [] }
+      );
+      officialDiff = comparison.passageChanges.length
+        ? `${comparison.passageChanges.length} passage(s) modifié(s) par rapport à la version v${entry.version - 1}`
+        : "Aucun changement de passage par rapport à la version précédente";
+    } catch {
+      officialDiff = "Comparaison avec la version précédente indisponible.";
+    }
+  }
+  let draftDiff = "";
+  const draft = transcriptionWorkshopDraft;
+  const context = transcriptionWorkshopContext;
+  if (draft && context && context.documentId === content.documentId && context.pageId === content.pageId) {
+    try {
+      const comparison = comparePageTextRevisions(
+        { documentId: content.documentId, pageId: content.pageId, passages: content.passages || [] },
+        { documentId: content.documentId, pageId: content.pageId, passages: draft.passages }
+      );
+      draftDiff = comparison.passageChanges.length
+        ? `Brouillon courant : ${comparison.passageChanges.length} passage(s) différent(s) de cette version.`
+        : "Brouillon courant : contenu identique à cette version.";
+    } catch {
+      draftDiff = "";
+    }
+  }
+  const translationLine = Array.isArray(content.passages) && content.passages.some(passage => passage?.translationFr != null && passage.translationFr !== "")
+    ? "Traduction française : présente (suivie séparément de la validation italienne)"
+    : "Traduction française : absente (facultative, suivie séparément)";
+  const detail = $("transcriptionHistoryDetail");
+  detail.innerHTML = `
+    <div class="transcription-history-summary">
+      <span class="transcription-workshop-badge${index === 0 ? " transcription-workshop-badge--validated" : ""}">v${entry.version}${index === 0 ? " · version actuelle" : ""}</span>
+      <span>${esc(genealogyActorLabel(entry.revision.authorUid) || "Compte inconnu")}</span>
+      <span>${esc(formatTranscriptionHistoryDate(entry.revision.createdAt))}</span>
+      <span>${esc(translationLine)}</span>
+    </div>
+    <p class="transcription-history-diff">${esc(officialDiff)}${draftDiff ? ` — ${esc(draftDiff)}` : ""}</p>
+    <pre class="transcription-history-text">${esc(content.transcriptionIt || "")}</pre>`;
+  $("transcriptionHistoryList").hidden = true;
+  detail.hidden = false;
+  $("transcriptionHistoryBackBtn").hidden = false;
+}
+
+function showTranscriptionHistoryList() {
+  $("transcriptionHistoryDetail").hidden = true;
+  $("transcriptionHistoryDetail").innerHTML = "";
+  $("transcriptionHistoryList").hidden = false;
+  $("transcriptionHistoryBackBtn").hidden = true;
+  transcriptionHistoryRevisionId = null;
+  renderTranscriptionHistoryList();
+}
+
+/* Repli du volet Document (desktop) : état de vue pur — aucune sauvegarde ni
+   synchronisation n'est déclenchée par le changement de vue, les composants de
+   la visionneuse restent montés. */
+function applyWorkshopDocumentLayout() {
+  const layout = $("workshopLayout");
+  if (layout) layout.classList.toggle("is-document-collapsed", transcriptionWorkshopDocumentCollapsed);
+}
+
+function collapseWorkshopDocumentPanel() {
+  if (window.matchMedia("(max-width: 760px)").matches) return;
+  transcriptionWorkshopDocumentCollapsed = true;
+  applyWorkshopDocumentLayout();
+  $("workshopPanelExpandBtn")?.focus();
+}
+
+function expandWorkshopDocumentPanel() {
+  transcriptionWorkshopDocumentCollapsed = false;
+  applyWorkshopDocumentLayout();
+  $("workshopPanelCollapseBtn")?.focus();
 }
 
 function transcriptionWorkshopImageSource(photo) {
@@ -6241,6 +6572,10 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
   }
   transcriptionWorkshopCompare = false;
   transcriptionWorkshopView = "original";
+  /* Vue partagée par défaut à chaque nouvelle session d'atelier ; le mode
+     repli est conservé pendant les changements de page de la session. */
+  if (!isTranscriptionWorkshopActive()) transcriptionWorkshopDocumentCollapsed = false;
+  applyWorkshopDocumentLayout();
   /* Entrée dans la vue dédiée : le contexte d'origine est capturé avant de
      fermer la fiche ou la visionneuse qui resteraient en arrière-plan. */
   captureTranscriptionWorkshopReturn();
@@ -6801,12 +7136,47 @@ function updateWorkshopDraftIndicators() {
      comparaison — l'état reste visible tant qu'aucune décision n'est prise. */
   const conflictButton = $("workshopConflictBtn");
   if (conflictButton) conflictButton.hidden = !conflict;
-  /* Action de sauvegarde manuelle (menu « … ») : active dès qu'il existe du
-     travail à écrire immédiatement ; l'autosauvegarde différée continue. */
+  /* Badge d'état officiel près de la barre du panneau : Brouillon,
+     Validée · vN ou Révision en cours · vN (comparaison au contenu officiel). */
+  const officialState = transcriptionWorkshopOfficialState();
+  const officialBadge = $("workshopOfficialBadge");
+  if (officialBadge) {
+    officialBadge.hidden = !officialState;
+    if (officialState) {
+      officialBadge.textContent = officialState.label;
+      officialBadge.classList.toggle("transcription-workshop-badge--validated", officialState.kind === "validated");
+      officialBadge.classList.toggle("transcription-workshop-badge--modified", officialState.kind === "revision");
+      officialBadge.title = officialState.kind === "draft"
+        ? "Aucune version officielle pour cette page : le contenu reste un brouillon"
+        : officialState.kind === "validated"
+          ? "Version officielle courante de cette page"
+          : "Modifications locales pas encore validées en version officielle";
+    }
+  }
+  /* Validation officielle : réservée aux administrateurs, texte italien non
+     vide exigé — le texte français reste facultatif. */
+  const validateButton = $("workshopValidateBtn");
+  if (validateButton) {
+    const targetLabel = transcriptionWorkshopHead() ? "Valider la révision" : "Valider la transcription";
+    const validateLabel = $("workshopValidateLabel");
+    if (validateLabel && validateLabel.textContent !== targetLabel) validateLabel.textContent = targetLabel;
+    if (validateButton.getAttribute("aria-label") !== targetLabel) validateButton.setAttribute("aria-label", targetLabel);
+    validateButton.hidden = !isAdminUser();
+    const hasContent = hasTranscriptionContent(draft.passages);
+    validateButton.disabled = !hasContent;
+    validateButton.title = hasContent ? targetLabel : "La transcription italienne est vide : rien à valider";
+  }
+  /* Enregistrer : actif seulement si un contenu local diffère du dernier
+     contenu sauvegardé localement (ou si la sauvegarde locale a échoué) —
+     jamais lié à la synchronisation distante (~5 s). */
   const saveButton = $("workshopSaveDraftBtn");
   if (saveButton) {
-    saveButton.disabled = !draft.dirty;
-    saveButton.title = draft.dirty ? "Écrire le brouillon dans le stockage local de ce navigateur" : "Le brouillon n’a aucune modification à enregistrer";
+    const localFailed = state?.status === "failed" || state?.status === "conflict";
+    const hasUnsavedLocalChanges = draft.dirty && state?.status !== "saved";
+    saveButton.disabled = !localFailed && !hasUnsavedLocalChanges;
+    saveButton.title = saveButton.disabled
+      ? (draft.dirty ? "Les modifications sont déjà enregistrées sur cet appareil" : "Le brouillon n’a aucune modification à enregistrer")
+      : "Écrire le brouillon dans le stockage local de ce navigateur";
   }
   syncWorkshopUnloadGuard();
   updateWorkshopNavigation();
@@ -6902,6 +7272,10 @@ function resetTranscriptionWorkshopState() {
   transcriptionDraftOpenConflictKey = null;
   if ($("transcriptionDraftRecoveryDialog")?.open) $("transcriptionDraftRecoveryDialog").close();
   transcriptionDraftLegacyRecoveryTarget = null;
+  if ($("transcriptionValidationDialog")?.open) $("transcriptionValidationDialog").close();
+  if ($("transcriptionHistoryDialog")?.open) $("transcriptionHistoryDialog").close();
+  transcriptionValidationTarget = null;
+  transcriptionHistoryRevisionId = null;
   if ($("workshopHelpBtn")) $("workshopHelpBtn").setAttribute("aria-expanded", "false");
   if ($("workshopDraftHelp")) $("workshopDraftHelp").hidden = true;
   if ($("workshopLayout")) { $("workshopLayout").dataset.activePanel = "original"; delete $("workshopLayout").dataset.compare; }
@@ -7070,6 +7444,19 @@ $("workshopConflictBtn").addEventListener("click", () => {
    non destructive vers l'espace du compte) et laisser intact. */
 $("transcriptionDraftRecoveryClaimBtn").addEventListener("click", () => resolveTranscriptionDraftLegacyRecovery("claim"));
 $("transcriptionDraftRecoveryLeaveBtn").addEventListener("click", () => resolveTranscriptionDraftLegacyRecovery("leave"));
+
+/* Validation officielle, historique et repli du volet (incrément 2) :
+   boutons de l'en-tête et du pied, dialogues racine — aucune nouvelle barre. */
+$("workshopValidateBtn").addEventListener("click", () => openTranscriptionValidationDialog());
+$("transcriptionValidationConfirmBtn").addEventListener("click", () => { confirmTranscriptionValidation(); });
+$("workshopHistoryBtn").addEventListener("click", () => openTranscriptionHistoryDialog());
+$("transcriptionHistoryList").addEventListener("click", event => {
+  const row = event.target.closest("[data-history-revision]");
+  if (row) openTranscriptionHistoryDetail(row.dataset.historyRevision);
+});
+$("transcriptionHistoryBackBtn").addEventListener("click", showTranscriptionHistoryList);
+$("workshopPanelCollapseBtn").addEventListener("click", collapseWorkshopDocumentPanel);
+$("workshopPanelExpandBtn").addEventListener("click", expandWorkshopDocumentPanel);
 
 /* Rechargement ou fermeture de l'onglet : écriture immédiate des sauvegardes
    en attente, pour que le brouillon soit repris au prochain chargement. */

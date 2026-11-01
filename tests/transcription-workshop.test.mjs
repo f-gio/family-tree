@@ -370,8 +370,26 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.doesNotMatch(html, /workshopZoomLabel/, "texte « Ajusté » retiré de la barre");
   assert.doesNotMatch(css, /\.transcription-workshop-zoom-label \{/, "règles du texte « Ajusté » supprimées");
   assert.match(css, /#workshopImageTools \{ justify-content: flex-start;/, "outils alignés à gauche, jamais centrés");
-  assert.doesNotMatch(html, />Valider la transcription</, "aucun bouton de validation fictif avant l’incrément 2");
   assert.match(html, /Emplacement de la validation officielle \(incrément 2\)/, "place réservée à la validation officielle dans la hiérarchie");
+  /* Validation officielle (incrément 2) : action primaire dans l'en-tête,
+     droits et texte italien vérifiés côté applicatif, confirmation dédiée. */
+  assert.match(html, /id="workshopValidateBtn"[^>]*aria-label="Valider la transcription"[^>]*hidden/, "bouton de validation présent, masqué par défaut");
+  assert.ok(html.indexOf('id="workshopValidateBtn"') < html.indexOf('id="workshopActionsMenu"'), "validation primaire placée avant le menu des actions secondaires");
+  assert.match(html, /id="transcriptionValidationDialog"/, "dialogue de confirmation de validation");
+  assert.match(html, /id="workshopOfficialBadge"[^>]*hidden/, "badge d'état officiel dans la barre du panneau");
+  assert.match(html, /id="workshopHistoryBtn"/, "accès « Historique » dans le pied");
+  assert.ok(html.indexOf('id="workshopHistoryBtn"') > html.indexOf('id="workshopSaveStatus"'), "« Historique » à côté du statut de sauvegarde");
+  assert.match(html, /id="transcriptionHistoryDialog"/, "dialogue d'historique responsive");
+  assert.match(app, /hasTranscriptionContent\(draft\.passages\)/, "texte italien vide interdit pour la validation");
+  assert.match(app, /expectedRevisionId: freshHead\.revisionId/, "version courante revérifiée avant validation");
+  assert.match(app, /navigator\.onLine/, "validation officielle réservée à la connexion");
+  assert.match(app, /genealogyStore\.createOfficial\(\{\s*type: "transcription"/, "première validation via la création officielle atomique");
+  assert.match(app, /genealogyStore\.reviseOfficial\(\{[\s\S]*?type: "transcription"/, "révision via la révision officielle atomique");
+  /* Repli du volet Document (desktop) : état de vue pur. */
+  assert.match(html, /id="workshopPanelCollapseBtn"[^>]*aria-label="Masquer le document"/, "commande de repli dans la barre du document");
+  assert.match(html, />Afficher le document</, "commande de réouverture en haut de la zone de travail");
+  assert.match(css, /\.transcription-workshop-layout\.is-document-collapsed \{ grid-template-columns: minmax\(0, 1fr\); \}/, "état de repli : transcription seule");
+  assert.match(css, /@media \(max-width: 760px\) \{\s*#workshopValidateLabel \{ display: none; \}/, "libellés masqués sur mobile, jamais de bouton de repli mobile");
   assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour"[^>]*><span class="dedicated-page-back-arrow"/, "flèche décorative et libellé de destination");
   assert.match(app, /function teardownTranscriptionWorkshop\(\)/, "nettoyage du lecteur à la sortie");
   for (const tab of ["Original", "Italien", "Français"]) assert.ok(html.includes(`>${tab}</button>`), `onglet ${tab} présent`);
@@ -629,24 +647,32 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     assert.ok(desktopLayout.statusTop >= desktopLayout.panelRightTop && desktopLayout.statusTop <= desktopLayout.panelRightBottom, "statut contenu dans le panneau de transcription");
     assert.ok(desktopLayout.statusHeight > 0, "statut visible sur desktop");
 
-    /* Saisie puis autosauvegarde : état écrit réellement. */
+    /* Saisie puis autosauvegarde : état écrit réellement — le bouton est
+       désactivé dès que le contenu est enregistré localement (incrément 2). */
     await page.fill('[data-workshop-field="textIt"]', "Anno millenovecentosedici");
     await page.fill('[data-workshop-field="translationFr"]', "L’année mille neuf cent seize");
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
     let stored = await page.evaluate(() => window.__repro.stored());
     assert.equal(stored.length, 1, "une copie locale écrite");
     assert.equal(JSON.parse(stored[0][1]).snapshot.passages[0].textIt, "Anno millenovecentosedici", "texte présent en local");
+    assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), true, "désactivé une fois la sauvegarde locale réussie");
 
     /* Enregistrer : action visible de la barre du panneau de transcription,
-       écriture immédiate sans menu ni délai d'autosauvegarde. */
+       réactivée dès la modification, écriture immédiate sans menu ni délai. */
     await page.fill('[data-workshop-field="textIt"]', "Anno senza attesa");
     assert.equal(await page.locator("#workshopSaveDraftBtn").isVisible(), true, "« Enregistrer » visible sans ouvrir le menu");
+    assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), false, "réactivé immédiatement à la modification");
     await page.click("#workshopSaveDraftBtn");
     stored = await page.evaluate(() => window.__repro.stored());
     assert.equal(JSON.parse(stored[0][1]).snapshot.passages[0].textIt, "Anno senza attesa", "écriture immédiate au clic, avant le délai d’autosauvegarde");
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "le menu « … » reste fermé");
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 1500 });
+    assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), true, "désactivé après la sauvegarde manuelle");
+    await page.fill('[data-workshop-field="textIt"]', "Anno dopo modifica");
     assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), false, "action Enregistrer réutilisable après de nouvelles modifications");
+    /* Retour au contenu attendu pour la suite de la régression (réouverture). */
+    await page.fill('[data-workshop-field="textIt"]', "Anno senza attesa");
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 2500 });
 
     /* Position du Retour : modèle de la fiche Document — à droite, sous le menu « … ». */
     const layout = await page.evaluate(() => {
@@ -677,16 +703,20 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
         zoomLabelAbsent,
         order,
         addRight: Math.round(add.right),
+        addLeft: Math.round(add.left),
         saveLeft: Math.round(save.left),
         navLeft: Math.round(nav.left),
-        navRight: Math.round(nav.right)
+        navRight: Math.round(nav.right),
+        headRight: Math.round(document.querySelector("#workshopPanelRight .transcription-workshop-panel-head").getBoundingClientRect().right),
+        headLeft: Math.round(document.querySelector("#workshopPanelRight .transcription-workshop-panel-head").getBoundingClientRect().left),
+        actionsRect: (() => { const r = document.querySelector("#workshopPanelRight .transcription-workshop-panel-actions").getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; })()
       };
     });
     assert.ok(desktopTools.toolsLeft <= desktopTools.panelLeft + 1, `outils à gauche du panneau (${desktopTools.toolsLeft} ≤ ${desktopTools.panelLeft})`);
     assert.equal(desktopTools.zoomLabelAbsent, true, "texte « Ajusté » retiré de la barre");
     assert.deepEqual(desktopTools.order, ["out", "in", "workshopImageModeBtn", "workshopImageFullscreenBtn"], "4 commandes dans l’ordre de la fiche Document");
     assert.ok(desktopTools.saveLeft >= desktopTools.addRight - 1, "« Enregistrer » immédiatement à droite d’« Ajouter un passage »");
-    assert.ok(desktopTools.navRight <= desktopTools.addRight, "navigation des passages à gauche des actions de transcription");
+    assert.ok(desktopTools.navRight <= desktopTools.addRight, `navigation des passages à gauche des actions de transcription (nav ${desktopTools.navLeft}..${desktopTools.navRight} vs actions ${desktopTools.actionsRect[0]}..${desktopTools.actionsRect[0] + desktopTools.actionsRect[2]}, head ${desktopTools.headLeft}..${desktopTools.headRight})`);
 
     /* Mobile : aucune largeur débordante avec la colonne d’actions complète. */
     await page.setViewportSize({ width: 320, height: 780 });
@@ -924,7 +954,9 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               /* Menu contextuel complet en mobile : ouverture, clic extérieur, Échap. */
               await page.click("#workshopActionsMenu > summary");
               assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "menu ouvert");
-              await page.click("#workshopDocumentTitle");
+              /* Clic extérieur au coin gauche du titre : le panneau du menu est
+                 ancré à droite et peut recouvrir le centre du titre sur mobile. */
+              await page.click("#workshopDocumentTitle", { position: { x: 6, y: 6 } });
               assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "clic extérieur ferme le menu");
               await page.click("#workshopActionsMenu > summary");
               await page.keyboard.press("Escape");

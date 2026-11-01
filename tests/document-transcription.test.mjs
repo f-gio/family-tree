@@ -7,6 +7,8 @@ import {
   createPageTextRevision,
   createReadingHypothesis,
   createTranscriptionPassage,
+  hasTranscriptionContent,
+  orderTranscriptionRevisionHistory,
   reconstructFrenchTranslation,
   reconstructItalianTranscription,
   validateTranscriptionPassage
@@ -201,4 +203,36 @@ test("une révision ne peut pas être comparée à une autre cible documentaire"
   const before = revision("rev-a", [passage("p-1")]);
   const otherPage = revision("rev-b", [passage("p-1")], { pageId: "page-2" });
   assert.throws(() => comparePageTextRevisions(before, otherPage), /même document et la même page/);
+});
+
+test("validation : le texte italien vide est interdit, la traduction française reste facultative", () => {
+  assert.equal(hasTranscriptionContent([]), false, "aucun passage : rien à valider");
+  assert.equal(hasTranscriptionContent([passage("p-1", { textIt: "   ", translationFr: "Charles" })]), false,
+    "italien blanc même avec une traduction présente : validation interdite");
+  assert.equal(hasTranscriptionContent([passage("p-1", { textIt: "", translationFr: null })]), false, "italien vide : validation interdite");
+  assert.equal(hasTranscriptionContent([passage("p-1", { textIt: "Carlo", translationFr: null })]), true,
+    "italien non vide SANS traduction française : validation autorisée");
+  assert.equal(hasTranscriptionContent(null), false, "entrée non tableau : rien à valider");
+});
+
+test("historique : chaîne de révisions ordonnée, immuable et robuste aux liens manquants", () => {
+  const head = { version: 3, revisionId: "r-3" };
+  const revisions = [
+    { id: "r-3", previousRevisionId: "r-2", data: { transcriptionIt: "C" } },
+    { id: "r-2", previousRevisionId: "r-1", data: { transcriptionIt: "B" } },
+    { id: "r-1", previousRevisionId: null, data: { transcriptionIt: "A" } },
+    { id: "orphan", previousRevisionId: "jamais-lie", data: { transcriptionIt: "?" } }
+  ];
+  const ordered = orderTranscriptionRevisionHistory(head, revisions);
+  assert.deepEqual(ordered.map(entry => [entry.revisionId, entry.version]), [["r-3", 3], ["r-2", 2], ["r-1", 1]],
+    "de la version courante à la première, numérotée en descendant");
+  assert.equal(ordered.some(entry => entry.revisionId === "orphan"), false, "révision orpheline jamais présentée");
+  /* Chaîne interrompue : s'arrête sans erreur, jamais de réécriture. */
+  const broken = orderTranscriptionRevisionHistory(head, [{ id: "r-3", previousRevisionId: "absent", data: {} }]);
+  assert.deepEqual(broken.map(entry => [entry.revisionId, entry.version]), [["r-3", 3]], "lien manquant : arrêt propre");
+  /* Version plancher : un head sans version entière reste lisible. */
+  const clamped = orderTranscriptionRevisionHistory({ version: undefined, revisionId: "r-1" }, [{ id: "r-1", previousRevisionId: null, data: {} }]);
+  assert.deepEqual(clamped.map(entry => entry.version), [1], "version par défaut bornée à 1");
+  assert.throws(() => orderTranscriptionRevisionHistory(null, []), /head/, "en-tête requis");
+  assert.throws(() => orderTranscriptionRevisionHistory(head, "liste"), /revisions/, "liste de révisions requise");
 });

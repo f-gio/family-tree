@@ -147,6 +147,40 @@ export function reconstructFrenchTranslation(passages = []) {
   return reassemble(passages, "translationFr");
 }
 
+/** Vrai si le contenu italien contient au moins un caractère significatif :
+    la validation officielle d'une transcription italienne VIDE est interdite.
+    La traduction française reste facultative (suivie séparément) et n'entre
+    pas dans ce contrôle. */
+export function hasTranscriptionContent(passages = []) {
+  if (!Array.isArray(passages)) return false;
+  return passages.some(passage => typeof passage?.textIt === "string" && passage.textIt.trim().length > 0);
+}
+
+/** Historique officiel ordonné de la plus récente (version du head) à la
+    première version, en suivant la chaîne previousRevisionId. Les révisions
+    orphelines (jamais liées à la chaîne active) sont ignorées : seule la ligne
+    officielle remontée du head est présentée. Aucune révision n'est modifiée. */
+export function orderTranscriptionRevisionHistory(head, revisions = []) {
+  if (!head || typeof head !== "object" || Array.isArray(head)) throw new TypeError("head doit être l'en-tête officiel");
+  if (!Array.isArray(revisions)) throw new TypeError("revisions doit être un tableau");
+  const byId = new Map();
+  for (const revision of revisions) {
+    if (revision && typeof revision.id === "string") byId.set(revision.id, revision);
+  }
+  const ordered = [];
+  const seen = new Set();
+  let revisionId = typeof head.revisionId === "string" ? head.revisionId : null;
+  let version = Number.isSafeInteger(head.version) && head.version >= 1 ? head.version : 1;
+  while (revisionId && byId.has(revisionId) && !seen.has(revisionId)) {
+    seen.add(revisionId);
+    const revision = byId.get(revisionId);
+    ordered.push({ revisionId, version, revision });
+    revisionId = typeof revision.previousRevisionId === "string" ? revision.previousRevisionId : null;
+    version = Math.max(1, version - 1);
+  }
+  return ordered;
+}
+
 /** Creates an immutable snapshot. Callers supply stable IDs and known authors/timestamps. */
 export function createPageTextRevision({
   id,

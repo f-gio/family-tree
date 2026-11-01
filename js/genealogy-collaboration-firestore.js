@@ -283,7 +283,7 @@ export function createGenealogyCollaborationStore(db, sdk) {
       });
     },
 
-    async reviseOfficial({ type, id, revisionId, eventId, data, reason, eventType, actorUid }) {
+    async reviseOfficial({ type, id, revisionId, eventId, data, reason, eventType, actorUid, expectedRevisionId = null }) {
       const spec = OFFICIAL[type];
       if (!spec) throw new TypeError("Type de donnée officielle non reconnu");
       const effectiveEventType = eventType ?? spec.revised;
@@ -294,6 +294,12 @@ export function createGenealogyCollaborationStore(db, sdk) {
         const headSnapshot = await transaction.get(headRef);
         if (!headSnapshot.exists()) throw new Error("Donnée officielle introuvable");
         const previous = headSnapshot.data();
+        /* Version courante vérifiée contre celle que l'appelant a lue : une
+           validation concurrente (ou un double clic qui aurait passé le premier
+           verrou) est refusée sans écraser ni dupliquer la révision. */
+        if (expectedRevisionId != null && previous.revisionId !== expectedRevisionId) {
+          throw new Error("La version officielle a changé pendant l'opération ; aucune écriture n'a été effectuée.");
+        }
         const timestamp = stamp();
         transaction.update(headRef, {
           data: structuredClone(data), version: previous.version + 1, revisionId, updatedAt: timestamp, updatedBy: actorUid, eventId

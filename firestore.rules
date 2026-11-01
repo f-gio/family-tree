@@ -451,6 +451,15 @@ service cloud.firestore {
         && validCollaborationId(data.eventId) && validCollaborationId(data.revisionId);
     }
 
+    /* Une transcription officielle ne peut jamais porter un texte italien vide :
+       invariant vérifié côté base à chaque écriture (création ET révision).
+       La traduction française reste facultative. */
+    function hasNonEmptyItalian(data) {
+      return data.data is map
+        && data.data.transcriptionIt is string
+        && data.data.transcriptionIt.size() > 0;
+    }
+
     function officialDeletionLockPath(objectType, objectId) {
       return /databases/$(database)/documents/officialDeletionLocks/$(objectType)/objects/$(objectId);
     }
@@ -690,11 +699,13 @@ service cloud.firestore {
     match /transcriptionHeads/{transcriptionId} {
       allow read: if isApproved();
       allow create: if isAdmin() && validOfficialRecord(request.resource.data)
+        && hasNonEmptyItalian(request.resource.data)
         && request.resource.data.version == 1 && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time
         && hasOfficialEvent(request.resource.data.eventId, 'transcription', transcriptionId, request.resource.data.revisionId, null)
         && hasOfficialRevision('transcriptionRevisions', request.resource.data.revisionId, transcriptionId, request.resource.data.eventId, request.resource.data.data, null);
       allow update: if isAdmin() && validOfficialRecord(request.resource.data)
+        && hasNonEmptyItalian(request.resource.data)
         && request.resource.data.version == resource.data.version + 1
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.createdBy == resource.data.createdBy

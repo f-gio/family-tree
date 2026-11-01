@@ -64,6 +64,32 @@ window.__draftRemote = {
     localStorage.setItem(this.legacyKey(), JSON.stringify(record));
     localStorage.removeItem(this.recoveryFlagOf(window.__draftRemoteUid || "compte-remote-1"));
   },
+  passagesFixture() {
+    return [
+      { id: "p-1", order: 0, textIt: "Anno millenovecento", translationFr: "L’année mille neuf cent", separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 1", translationState: "current" },
+      { id: "p-2", order: 1, textIt: "indici di Orino", translationFr: null, separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 2", translationState: "not-started" }
+    ];
+  },
+  /* Version officielle de la page : même contenu que le document seedé
+     (badge « Validée »), pour le scénario « brouillon distant hérité ». */
+  seedOfficial() {
+    const content = {
+      documentId: "doc-remote",
+      pageId: "page-remote-1",
+      passages: window.__draftRemote.passagesFixture(),
+      transcriptionIt: "Anno millenovecento\\nindici di Orino",
+      translationFr: "L’année mille neuf cent",
+      changeKind: "initial",
+      justification: "Validation de la transcription",
+      authorUid: "admin-seed",
+      previousRevisionId: null
+    };
+    genealogyRecords.transcriptionHeads = [{
+      id: "tx-remote-seed", data: content, version: 1, revisionId: "tx-remote-seed-rev1",
+      createdAt: new Date("2026-10-20T10:00:00Z"), createdBy: "admin-seed",
+      updatedAt: new Date("2026-10-20T10:00:00Z"), updatedBy: "admin-seed", eventId: "tx-remote-seed-ev1"
+    }];
+  },
   show() { $("authScreen").hidden = true; $("topbar").hidden = false; setView("directory"); },
   seed() {
     const documentItem = {
@@ -72,12 +98,7 @@ window.__draftRemote = {
       fileName: "registre.jpg", mimeType: "image/jpeg",
       fileData: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAGcP//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAQUCf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEQAD8kf//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQIDAT8kf//Z",
       personIds: [],
-      pages: [{ id: "page-remote-1", label: "Folio 1", photographs: [{ id: "photo-remote-1", preview: { dataUrl: "${REMOTE_TEST_SVG}" } }],
-        passages: [
-          { id: "p-1", order: 0, textIt: "Anno millenovecento", translationFr: "L’année mille neuf cent", separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 1", translationState: "current" },
-          { id: "p-2", order: 1, textIt: "indici di Orino", translationFr: null, separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 2", translationState: "not-started" }
-        ]
-      }]
+      pages: [{ id: "page-remote-1", label: "Folio 1", photographs: [{ id: "photo-remote-1", preview: { dataUrl: "${REMOTE_TEST_SVG}" } }], passages: window.__draftRemote.passagesFixture() }]
     };
     documents = [documentItem];
     people = [];
@@ -216,6 +237,20 @@ function assertNoWorkshopPageErrors(pageErrors) {
   assert.deepEqual(relevant, [], `aucune erreur applicative liée à la synchronisation (${relevant.join(" | ")})`);
 }
 
+/* « Enregistrer » n'est actif que si un contenu local diffère du dernier
+   contenu enregistré (incrément 2) : une saisie (même valeur) réarme le
+   bouton, puis le clic déclenche l'écriture immédiate. */
+async function clickSave(page) {
+  if (await page.locator("#workshopSaveDraftBtn").isDisabled()) {
+    await page.evaluate(() => {
+      const field = document.querySelector('[data-workshop-field="textIt"]');
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await page.waitForFunction(() => !document.getElementById("workshopSaveDraftBtn").disabled, undefined, { timeout: 3000 });
+  }
+  await page.click("#workshopSaveDraftBtn");
+}
+
 /* Attente côté Node (le « serveur » simulé vit dans ce processus). */
 async function waitForRemote(description, predicate, timeout = 9000) {
   const deadline = Date.now() + timeout;
@@ -242,7 +277,7 @@ test("brouillons synchronisés : migration de l'ordinateur, délai ~5 s et repri
     await page.fill('[data-workshop-field="textIt"]', "Anno sotto computer");
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
     const labelBeforeSave = await page.evaluate(() => window.__draftRemote.badge());
-    await page.click("#workshopSaveDraftBtn");
+    await clickSave(page);
     const samples = await page.evaluate(async () => {
       const seen = new Set();
       const status = document.getElementById("workshopSaveStatus");
@@ -309,7 +344,7 @@ test("brouillons synchronisés : conflits à choix explicite, hors ligne et réc
     const page = await createDevice();
     await openWorkshopOn(page);
     await page.fill('[data-workshop-field="textIt"]', "Version ordinateur A");
-    await page.click("#workshopSaveDraftBtn");
+    await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].version, 1, "version 1 publiée");
 
@@ -318,7 +353,7 @@ test("brouillons synchronisés : conflits à choix explicite, hors ligne et réc
     await openWorkshopOn(other);
     await other.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 8000 });
     await other.fill('[data-workshop-field="textIt"]', "Version mobile B");
-    await other.click("#workshopSaveDraftBtn");
+    await clickSave(other);
     await other.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].version, 2, "appareil 2 publié en version 2");
     assert.equal(serverState.entries[key].snapshot.passages[0].textIt, "Version mobile B", "contenu de l'appareil 2 en place");
@@ -326,7 +361,7 @@ test("brouillons synchronisés : conflits à choix explicite, hors ligne et réc
     /* Conflit côté appareil 1 : la base obsolète n'écrase rien, les deux
        versions sont présentées, choix explicite exigé. */
     await page.fill('[data-workshop-field="textIt"]', "Version ordinateur A modifiée");
-    await page.click("#workshopSaveDraftBtn");
+    await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Conflit à résoudre", undefined, { timeout: 5000 });
     assert.equal(await page.locator("#transcriptionDraftConflictDialog").isVisible(), true, "dialogue de conflit ouvert");
     assert.equal(await page.locator("#workshopConflictBtn").isVisible(), true, "bouton « Résoudre » visible en pied");
@@ -346,11 +381,11 @@ test("brouillons synchronisés : conflits à choix explicite, hors ligne et réc
 
     /* Second conflit avec l'autre appareil, choix : conserver la version locale. */
     await other.fill('[data-workshop-field="textIt"]', "Version mobile B, seconde main");
-    await other.click("#workshopSaveDraftBtn");
+    await clickSave(other);
     await other.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].version, 3, "appareil 2 passé en version 3");
     await page.fill('[data-workshop-field="textIt"]', "Version ordinateur A, choix local");
-    await page.click("#workshopSaveDraftBtn");
+    await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Conflit à résoudre", undefined, { timeout: 5000 });
     await page.click("#transcriptionDraftConflictKeepLocalBtn");
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
@@ -360,7 +395,7 @@ test("brouillons synchronisés : conflits à choix explicite, hors ligne et réc
     /* Hors ligne : local préservé, échec annoncé, aucune donnée perdue. */
     serverState.offline = true;
     await page.fill('[data-workshop-field="textIt"]', "Texte saisi hors ligne");
-    await page.click("#workshopSaveDraftBtn");
+    await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisation impossible — brouillon conservé sur cet appareil", undefined, { timeout: 5000 });
     assert.equal(await page.evaluate(() => window.__draftRemote.fieldValue()), "Texte saisi hors ligne", "contenu en mémoire intact");
     assert.equal(await page.evaluate(() => !!localStorage.getItem("familyTreeTranscriptionDraft:compte-remote-1|doc-remote|page-remote-1")), true, "copie locale conservée malgré l'échec distant");
@@ -396,7 +431,7 @@ test("scénario 1-2 : suppression distante explicite, jamais de réapparition si
     const page = await createDevice();
     await openWorkshopOn(page);
     await page.fill('[data-workshop-field="textIt"]', "Version publiée sur ordinateur");
-    await page.click("#workshopSaveDraftBtn");
+    await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].version, 1, "version 1 publiée");
 
@@ -415,7 +450,7 @@ test("scénario 1-2 : suppression distante explicite, jamais de réapparition si
     /* Scénario 2 (écriture) : B, qui conserve l'ancienne version, modifie —
        aucune republication silencieuse, conflit explicite à la place. */
     await other.fill('[data-workshop-field="textIt"]', "Version modifiée après suppression");
-    await other.click("#workshopSaveDraftBtn");
+    await clickSave(other);
     await other.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Conflit à résoudre", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key], undefined, "aucune republication silencieuse du brouillon supprimé");
     assert.equal(await other.evaluate(k => localStorage.getItem(k).includes("Version modifiée après suppression"), localKey), true, "version locale intacte pendant le conflit (récupérable)");
@@ -432,7 +467,7 @@ test("scénario 1-2 : suppression distante explicite, jamais de réapparition si
 
     /* Republication seulement explicite : une nouvelle saisie crée à nouveau. */
     await other.fill('[data-workshop-field="textIt"]', "Après choix explicite");
-    await other.click("#workshopSaveDraftBtn");
+    await clickSave(other);
     await other.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].version, 1, "re-création v1 après décision explicite");
     assert.equal(serverState.entries[key].snapshot.passages[0].textIt, "Après choix explicite", "contenu volontairement republié");
@@ -469,7 +504,7 @@ test("scénario 4 : retour en ligne après modification distante = conflit, jama
     const page = await createDevice();
     await openWorkshopOn(page);
     await page.fill('[data-workshop-field="textIt"]', "Version ordinateur A");
-    await page.click("#workshopSaveDraftBtn");
+    await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
 
     /* Pendant l'absence de A, un autre appareil publie la version 2. */
@@ -477,14 +512,14 @@ test("scénario 4 : retour en ligne après modification distante = conflit, jama
     await openWorkshopOn(other);
     await other.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 8000 });
     await other.fill('[data-workshop-field="textIt"]', "Version mobile B");
-    await other.click("#workshopSaveDraftBtn");
+    await clickSave(other);
     await other.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].version, 2, "distant porté à la version 2");
 
     /* A modifie hors ligne : local conservé, aucun écriture, échec annoncé. */
     serverState.offline = true;
     await page.fill('[data-workshop-field="textIt"]', "Texte hors ligne");
-    await page.click("#workshopSaveDraftBtn");
+    await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisation impossible — brouillon conservé sur cet appareil", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].version, 2, "hors ligne : le distant modifié n'est pas touché");
     assert.equal(await page.evaluate(k => localStorage.getItem(k).includes("Texte hors ligne"), localKey), true, "version locale enregistrée localement");
@@ -540,7 +575,7 @@ test("scénario 5 : changement de compte pendant une écriture en attente = envo
     /* Retour au compte original : publication sous le BON compte (local
        préservé, isolation de l'envoi démontrée). */
     await page.evaluate(() => { window.__draftRemoteUid = "compte-remote-1"; });
-    await page.click("#workshopSaveDraftBtn");
+    await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].version, 1, "publié au retour du compte original");
     assert.equal(serverState.entries[key].ownerUid, "compte-remote-1", "propriétaire = compte d'origine");
@@ -569,7 +604,7 @@ test("isolation locale : deux comptes sur le même navigateur, brouillon non syn
     serverState.offline = true;
     await page.fill('[data-workshop-field="textIt"]', "Brouillon du premier compte");
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
-    await page.click("#workshopSaveDraftBtn");
+    await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisation impossible — brouillon conservé sur cet appareil", undefined, { timeout: 5000 });
     assert.deepEqual(serverState.entries, {}, "hors ligne : rien publié");
     assert.equal(await page.evaluate(k => localStorage.getItem(k).includes("Brouillon du premier compte"), localA), true, "copie locale du compte 1 enregistrée");
@@ -587,7 +622,7 @@ test("isolation locale : deux comptes sur le même navigateur, brouillon non syn
 
     /* Sauvegarde du compte 2 : espace propre, aucune écrasement du compte 1. */
     await page.fill('[data-workshop-field="textIt"]', "Brouillon du second compte");
-    await page.click("#workshopSaveDraftBtn");
+    await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
     assert.equal(await page.evaluate(k => localStorage.getItem(k).includes("Brouillon du second compte"), localB), true, "copie locale du compte 2 dans SON espace");
     assert.equal(await page.evaluate(k => localStorage.getItem(k).includes("Brouillon du premier compte"), localA), true, "écriture du compte 2 sans écrasement du compte 1");
@@ -628,7 +663,7 @@ test("PC → iPhone → PC sans modification concurrente : adoption automatique,
     const pc = await createDevice();
     await openWorkshopOn(pc);
     await pc.fill('[data-workshop-field="textIt"]', "Version ordinateur");
-    await pc.click("#workshopSaveDraftBtn");
+    await clickSave(pc);
     await pc.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].version, 1, "version 1 publiée");
 
@@ -637,7 +672,7 @@ test("PC → iPhone → PC sans modification concurrente : adoption automatique,
     await openWorkshopOn(phone);
     await phone.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 8000 });
     await phone.fill('[data-workshop-field="textIt"]', "Version iPhone");
-    await phone.click("#workshopSaveDraftBtn");
+    await clickSave(phone);
     await phone.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].version, 2, "version 2 publiée par le téléphone");
 
@@ -746,11 +781,75 @@ test("reprise d'un ancien brouillon sans UID : explicite, non destructive, jamai
     assert.equal(await legacyIntact(), true, "reprise non destructive : hérité conservé");
 
     /* Reconnexion à la synchronisation : le contenu repris part sous LE compte. */
-    await page.click("#workshopSaveDraftBtn");
+    await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].ownerUid, "compte-remote-1", "repris publié sous le compte qui a repris");
     assert.equal(serverState.entries[key].snapshot.passages[0].textIt.includes("testamento ereditato"), true, "contenu repris publié tel quel");
     assert.equal(await legacyIntact(), true, "hérité toujours intact après synchronisation");
+
+    assertNoWorkshopPageErrors(pageErrors);
+  } finally {
+    for (const context of contexts) await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
+});
+
+test("après validation : un brouillon distant hérité n'est jamais restauré ni faux-conflit", { timeout: 120000 }, async t => {
+  const harness = await openRemoteHarness(t);
+  if (!harness) return;
+  const { browser, server, serverState, contexts, pageErrors, createDevice } = harness;
+  try {
+    const key = serverKey();
+    /* Version officielle de la page (validation effectuée sur un autre
+       appareil) + brouillon distant hérité d'avant la validation, contenu
+       différent de l'officiel. */
+    const page = await createDevice();
+    await page.evaluate(() => { window.__draftRemote.seedOfficial(); });
+    serverState.entries[key] = buildTranscriptionDraftRemotePayload({
+      target: { ownerUid: "compte-remote-1", documentId: "doc-remote", pageId: "page-remote-1" },
+      snapshot: {
+        documentId: "doc-remote", pageId: "page-remote-1",
+        original: [
+          { id: "p-1", order: 0, textIt: "Anno millenovecento", translationFr: "L’année mille neuf cent", separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 1", translationState: "current" },
+          { id: "p-2", order: 1, textIt: "indici di Orino", translationFr: null, separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 2", translationState: "not-started" }
+        ],
+        passages: [
+          { id: "p-1", order: 0, textIt: "Anno del brouillon obsoleto", translationFr: null, separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 1", translationState: "not-started" },
+          { id: "p-2", order: 1, textIt: "indici di Orino", translationFr: null, separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 2", translationState: "not-started" }
+        ],
+        createdIds: [], selectedPassageId: "p-1"
+      },
+      version: 1,
+      createdAt: "2026-10-25T10:00:00.000Z",
+      updatedAt: "2026-10-25T10:00:00.000Z"
+    });
+
+    /* Ouverture : le brouillon hérité n'est PAS restauré — le contenu affiché
+       est le contenu officiel, le badge reste « Validée », aucun conflit. */
+    await openWorkshopOn(page);
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Brouillon local", undefined, { timeout: 8000 });
+    assert.equal(await page.evaluate(() => window.__draftRemote.fieldValue()), "Anno millenovecento", "contenu officiel affiché, jamais le brouillon hérité");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopOfficialBadge").textContent), "Validée · v1", "badge « Validée » sans faux conflit");
+    assert.equal(await page.locator("#transcriptionDraftConflictDialog").isVisible(), false, "aucune fenêtre de conflit à l'ouverture");
+    assert.equal(serverState.entries[key].snapshot.passages[0].textIt, "Anno del brouillon obsoleto", "brouillon distant intact (jamais supprimé ni écrasé par l'ouverture)");
+
+    /* Réouverture sur un second appareil (mémoire et stockage vierges, comme
+       un PC/iPhone qui retrouve la version officielle) : aucun reliquat, aucun
+       conflit — la révision suivante se synchronise en version 1. */
+    delete serverState.entries[key];
+    const second = await createDevice();
+    await second.evaluate(() => { window.__draftRemote.seedOfficial(); });
+    await openWorkshopOn(second);
+    await second.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Brouillon local", undefined, { timeout: 8000 });
+    assert.equal(await second.evaluate(() => document.getElementById("workshopOfficialBadge").textContent), "Validée · v1", "second appareil : version officielle retrouvée");
+    await second.fill('[data-workshop-field="textIt"]', "Anno con modifica post validazione");
+    assert.equal(await second.evaluate(() => document.getElementById("workshopOfficialBadge").textContent), "Révision en cours · v1", "brouillon de révision après validation");
+    await clickSave(second);
+    await second.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
+    assert.equal(serverState.entries[key].version, 1, "révision publiée en version 1 (aucune référence héritée)");
+    assert.equal(serverState.entries[key].snapshot.passages[0].textIt, "Anno con modifica post validazione", "révision synchronisée sans faux conflit");
+    assert.equal(await second.locator("#transcriptionDraftConflictDialog").isVisible(), false, "aucun conflit sur la révision suivante");
 
     assertNoWorkshopPageErrors(pageErrors);
   } finally {
