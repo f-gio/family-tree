@@ -58,7 +58,12 @@ import {
   findSourcePageForDocument,
   prepareLegacyDocumentPage,
   isLegacyDocumentPhotograph,
-  LEGACY_DOCUMENT_IMAGE_PREFIX
+  LEGACY_DOCUMENT_IMAGE_PREFIX,
+  setTranscriptionWorkshopPassageAnchor,
+  clampWorkshopZoneRect,
+  workshopZoneRectFromDrag,
+  workshopZoneMoveRect,
+  workshopZoneResizeRect
 } from "./transcription-workshop.js";
 import {
   buildTranscriptionDraftRecord,
@@ -5959,6 +5964,8 @@ function transcriptionWorkshopDisplayTextDiff(before, after) {
 
 function setTranscriptionWorkshopDisplayMode(mode) {
   if (!transcriptionWorkshopDraft || !transcriptionWorkshopEditing || !["draft", "official", "diff"].includes(mode)) return;
+  /* B1 : changement de mode hors brouillon = abandon propre du tracé. */
+  cancelWorkshopZoneTool();
   /* Bascule purement visuelle : flush puis rendu — aucun contenu n'est écrit
      ni réinitialisé lors d'un changement d'onglet. */
   flushTranscriptionWorkshopDraftSaves();
@@ -5993,6 +6000,8 @@ function setTranscriptionWorkshopMode({ editing, viewingOfficial = false } = {})
 function cancelTranscriptionWorkshopEdit() {
   const draft = transcriptionWorkshopDraft;
   if (!draft || !transcriptionWorkshopEditing) return;
+  /* B1 : sortir du mode édition abandonne le tracé en cours, sans écriture. */
+  cancelWorkshopZoneTool();
   flushTranscriptionWorkshopDraftSaves();
   const head = transcriptionWorkshopHead();
   if (!draft.dirty) {
@@ -6055,6 +6064,9 @@ function openTranscriptionValidationDialog() {
   const context = transcriptionWorkshopContext;
   const draft = transcriptionWorkshopDraft;
   if (!context || !draft) return;
+  /* B1 : la validation est une action de session — le tracé éventuel est
+     abandonné avant d'ouvrir le dialogue. */
+  cancelWorkshopZoneTool();
   if (!isAdminUser()) return toast("La validation officielle est réservée aux administrateurs.", "error");
   if (!hasTranscriptionContent(draft.passages)) return toast("La transcription italienne est vide : rien à valider.", "error");
   const head = transcriptionWorkshopHead();
@@ -6707,6 +6719,9 @@ async function confirmTranscriptionPageInit() {
 }
 
 function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
+  /* B1 : (ré)ouverture ou changement de page pendant un tracé = abandon propre
+     du rectangle temporaire, avant tout changement de contexte. */
+  cancelWorkshopZoneTool();
   const page = context.pages.find(value => value.id === pageId) || context.pages[0];
   const photos = Array.isArray(page?.photographs) ? page.photographs : [];
   const photo = photos.find(value => value.id === photoId) || photos[0] || null;
@@ -6768,6 +6783,7 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
     .then(() => {
       if (transcriptionWorkshopContext?.documentId !== context.documentId || transcriptionWorkshopContext?.pageId !== page.id) return;
       if (transcriptionWorkshopDraft?.dirty && transcriptionOfficialHeadForPage(context.documentId, page.id)) {
+        cancelWorkshopZoneTool();
         transcriptionWorkshopEditing = true;
         transcriptionWorkshopViewingOfficial = false;
         transcriptionWorkshopDisplayMode = "draft";
@@ -7054,6 +7070,9 @@ function renderWorkshopImageArea() {
   if (srcChanged) {
     image.src = context.imageSrc;
     image.alt = page?.label ? page.label : "Page du document";
+    /* Dès l'image chargée (ajustement du lecteur effectué), la zone et
+       l'éditeur B1 se repositionnent sur les offsets réels. */
+    image.addEventListener("load", scheduleWorkshopZoneSync, { once: true });
   }
   workshopImageViewer?.fit();
 }
@@ -7094,6 +7113,34 @@ function workshopPassageBadges(passage, draft) {
   return badges.join("");
 }
 
+/* B1 : délimitation de la zone du passage ACTIF, en édition du brouillon
+   uniquement — jamais en consultation, version officielle ou différences. */
+function workshopZoneEntryMarkup(passage, { selected = false, editable = false } = {}) {
+  if (!editable || !selected || !passage) return "";
+  return passage.anchor
+    ? `<button class="btn small" type="button" data-workshop-zone-action="adjust">Ajuster</button><button class="btn small danger" type="button" data-workshop-zone-action="delete">Supprimer la zone</button>`
+    : `<button class="btn small" type="button" data-workshop-zone-action="draw">Délimiter ce passage</button>`;
+}
+
+/* Les actions de zone suivent la sélection sans réécriture complète de la
+   liste (la sélection de passage ne re-rend jamais les cartes). */
+function refreshWorkshopZoneActions() {
+  const draft = transcriptionWorkshopDraft;
+  const list = $("workshopPassageList");
+  if (!draft || !list) return;
+  const editable = !transcriptionWorkshopEditorState() && !transcriptionWorkshopIsReadOnly();
+  const displayedSelection = transcriptionWorkshopDisplayedSelectedPassageId();
+  for (const article of list.children) {
+    const box = article.querySelector(".transcription-workshop-zone-entry");
+    if (!box) continue;
+    const selected = article.dataset.workshopPassage === displayedSelection;
+    box.innerHTML = workshopZoneEntryMarkup(
+      draft.passages.find(item => item.id === article.dataset.workshopPassage),
+      { selected, editable }
+    );
+  }
+}
+
 /* Un seul bloc DOM par passage : en-tête (numéro, états, actions) puis
    transcription italienne et traduction française empilées. Les onglets
    mobiles filtrent ces blocs par CSS, sans duplication du DOM. */
@@ -7128,8 +7175,9 @@ function renderWorkshopPassageList(editable) {
     const deleteMenu = editable && isTranscriptionWorkshopPassageCreated(draft, passage.id)
       ? `<details class="transcription-workshop-passage-menu"><summary aria-label="Plus d’actions du passage" title="Plus d’actions">⋯</summary><div class="transcription-workshop-passage-menu-panel"><button class="btn danger" type="button" data-workshop-delete-passage="${esc(passage.id)}">Supprimer ce passage</button></div></details>`
       : "";
+    const zoneActions = workshopZoneEntryMarkup(passage, { selected, editable });
     return `<article class="transcription-workshop-passage${selected ? " is-selected" : ""}${changed ? " is-modified" : ""}" data-workshop-passage="${esc(passage.id)}"${selected ? ' aria-current="true"' : ""}>
-<div class="transcription-workshop-passage-head"><span class="sr-only">Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</span><div class="transcription-workshop-badges">${transcriptionWorkshopViewingOfficial ? "" : workshopPassageBadges(passage, draft)}</div><div class="transcription-workshop-passage-actions">${deleteMenu}</div></div>
+<div class="transcription-workshop-passage-head"><span class="sr-only">Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</span><div class="transcription-workshop-badges">${transcriptionWorkshopViewingOfficial ? "" : workshopPassageBadges(passage, draft)}</div><div class="transcription-workshop-passage-actions"><span class="transcription-workshop-zone-entry">${zoneActions}</span>${deleteMenu}</div></div>
 <div class="transcription-workshop-field-block workshop-field-it"><label class="transcription-workshop-field-label" for="${esc(itId)}">Transcription italienne</label><textarea id="${esc(itId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="textIt"${editable ? "" : " disabled"}>${esc(passage.textIt ?? "")}</textarea>${hypotheses}</div>
 <div class="transcription-workshop-field-block workshop-field-fr"><label class="transcription-workshop-field-label" for="${esc(frId)}">Traduction française</label><textarea id="${esc(frId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="translationFr"${editable ? "" : " disabled"}>${esc(passage.translationFr ?? "")}</textarea><p class="transcription-workshop-meta transcription-workshop-fr-state">${esc(transcriptionWorkshopTranslationBadge(draft, passage))}</p></div>
 </article>`;
@@ -7171,25 +7219,306 @@ function syncWorkshopZone() {
   const anchor = passage?.anchor;
   const visible = Boolean(anchor && context?.imageSrc && anchor.photographId === context.photoId
     && !image.hidden && image.naturalWidth);
-  zone.hidden = !visible;
-  if (!visible) return;
-  /* Le lecteur repositionne l'image en permanence : la zone suit ses offsets
-     réels, quel que soit le mode d'ajustement et le déplacement. */
-  zone.style.left = `${image.offsetLeft + anchor.x * image.offsetWidth}px`;
-  zone.style.top = `${image.offsetTop + anchor.y * image.offsetHeight}px`;
-  zone.style.width = `${anchor.width * image.offsetWidth}px`;
-  zone.style.height = `${anchor.height * image.offsetHeight}px`;
+  /* En mode tracé, la zone passive cède la place à l'éditeur temporaire —
+     jamais deux rectangles concurrents. */
+  zone.hidden = !visible || Boolean(workshopZoneTool);
+  const display = visible ? workshopImageDisplayRect() : null;
+  if (display) {
+    /* Géométrie calculée sur l'image RÉELLEMENT affichée (getBoundingClientRect
+       du lecteur) : alignée quel que soit le zoom, le pan, le translate du
+       lecteur et le redimensionnement — jamais sur le conteneur. */
+    zone.style.left = `${display.left + anchor.x * display.width}px`;
+    zone.style.top = `${display.top + anchor.y * display.height}px`;
+    zone.style.width = `${anchor.width * display.width}px`;
+    zone.style.height = `${anchor.height * display.height}px`;
+  }
+  renderWorkshopZoneEditor();
 }
 
-/* Synchronise la zone après les gestes et actions du lecteur d'image. */
-function scheduleWorkshopZoneSync() {
+/** Rect de l'image dans le repère du cadre (contenu défilé inclus). */
+function workshopImageDisplayRect() {
+  const image = $("workshopPageImage");
+  const frame = $("workshopImageFrame");
+  const imageRect = image.getBoundingClientRect();
+  const frameRect = frame.getBoundingClientRect();
+  if (!imageRect.width || !imageRect.height) return null;
+  return {
+    left: imageRect.left - frameRect.left - frame.clientLeft + frame.scrollLeft,
+    top: imageRect.top - frameRect.top - frame.clientTop + frame.scrollTop,
+    width: imageRect.width,
+    height: imageRect.height
+  };
+}
+
+/* Synchronise la zone après les gestes et actions du lecteur d'image.
+   Double requestAnimationFrame : le lecteur recalcule son ajustement dans la
+   boucle de rendu (ResizeObserver, réconciliation du scrollbar) après le
+   premier rAF. Vérification d'alignement en espace écran : si la géométrie
+   est encore en transition, une nouvelle synchro est bornée (6 essais) — la
+   zone et l'éditeur finissent toujours parfaitement alignés sur l'image. */
+function scheduleWorkshopZoneSync(retry) {
+  /* Les écouteurs d'événements transmettent l'event en premier argument :
+     la tentative n'est acceptée que si elle est un compteur entier. */
+  const attempt = Number.isInteger(retry) ? retry : 0;
   if (!isTranscriptionWorkshopActive()) return;
-  requestAnimationFrame(syncWorkshopZone);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    syncWorkshopZone();
+    if (!isTranscriptionWorkshopActive() || attempt >= 6) return;
+    /* Re-vérification à la paire de rendu suivante : un repositionnement
+       ultérieur du lecteur (réconciliation du scrollbar après un zoom) est
+       ainsi rattrapé — 6 essais bornés, aucun bouclage infini. */
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!isTranscriptionWorkshopActive() || !workshopZoneNeedsResync()) return;
+      scheduleWorkshopZoneSync(attempt + 1);
+    }));
+  }));
+}
+
+/** Vrai si la zone passive n'est pas alignée sur l'image affichée (±1 px). */
+function workshopZoneNeedsResync() {
+  const zone = $("workshopZone");
+  const image = $("workshopPageImage");
+  const tool = workshopZoneTool;
+  if (!zone || !image || tool || zone.hidden) return false;
+  const anchor = transcriptionWorkshopDraft?.passages
+    .find(passage => passage.id === transcriptionWorkshopDraft.selectedPassageId)?.anchor;
+  if (!anchor) return false;
+  const imageRect = image.getBoundingClientRect();
+  if (!imageRect.width || !imageRect.height) return false;
+  const bounds = zone.getBoundingClientRect();
+  return Math.abs(bounds.left - (imageRect.left + anchor.x * imageRect.width)) > 1
+    || Math.abs(bounds.top - (imageRect.top + anchor.y * imageRect.height)) > 1
+    || Math.abs(bounds.width - anchor.width * imageRect.width) > 1
+    || Math.abs(bounds.height - anchor.height * imageRect.height) > 1;
+}
+
+/* ---- B1 : délimitation graphique des passages (JPEG) ----------------------
+   Le rectangle temporaire n'est JAMAIS écrit dans le brouillon avant la
+   confirmation explicite ; « Annuler » restaure l'état précédent exactement.
+   Une seule zone par passage (modèle existant), écrite via le brouillon
+   (autosauvegarde + synchronisation existantes, aucune écriture officielle). */
+let workshopZoneTool = null;
+
+function workshopZonePhotographIds() {
+  return (transcriptionWorkshopContext?.photos || []).map(photo => photo.id);
+}
+
+function renderWorkshopZoneEditor() {
+  const editor = $("workshopZoneEditor");
+  const rectEl = $("workshopZoneEditorRect");
+  const image = $("workshopPageImage");
+  const tool = workshopZoneTool;
+  const visible = Boolean(tool && isTranscriptionWorkshopActive() && !image.hidden && image.naturalWidth);
+  editor.hidden = !visible;
+  if (!visible) {
+    rectEl.hidden = true;
+    return;
+  }
+  const display = workshopImageDisplayRect();
+  if (!display) {
+    rectEl.hidden = true;
+    editor.hidden = true;
+    return;
+  }
+  /* L'éditeur épouse l'image affichée : zoom, pan, translate du lecteur et
+     redimensionnement suivis sans recalcul manuel (coordonnées normalisées). */
+  editor.style.left = `${display.left}px`;
+  editor.style.top = `${display.top}px`;
+  editor.style.width = `${display.width}px`;
+  editor.style.height = `${display.height}px`;
+  if (!tool.rect) {
+    rectEl.hidden = true;
+    return;
+  }
+  rectEl.hidden = false;
+  rectEl.style.left = `${tool.rect.x * 100}%`;
+  rectEl.style.top = `${tool.rect.y * 100}%`;
+  rectEl.style.width = `${tool.rect.width * 100}%`;
+  rectEl.style.height = `${tool.rect.height * 100}%`;
+}
+
+function updateWorkshopZoneToolUi() {
+  const tool = workshopZoneTool;
+  const confirmButton = $("workshopZoneConfirmBtn");
+  const hint = $("workshopZoneHint");
+  if (!tool || !confirmButton || !hint) return;
+  confirmButton.disabled = !tool.rect;
+  hint.textContent = tool.rect
+    ? "Déplacez la zone ou redimensionnez-la avec ses poignées, puis confirmez."
+    : "Glissez sur la photographie pour tracer la zone.";
+}
+
+function cancelWorkshopZoneTool() {
+  if (!workshopZoneTool && $("workshopZoneActions")?.hidden) return;
+  /* Abandon propre : aucune coordonnée temporaire n'est conservée ni écrite. */
+  workshopZoneTool = null;
+  $("workshopPanelOriginal")?.classList.remove("is-zone-editing");
+  const actions = $("workshopZoneActions");
+  if (actions) actions.hidden = true;
+  renderWorkshopZoneEditor();
+  syncWorkshopZone();
+}
+
+function startWorkshopZoneTool(mode) {
+  if (!isTranscriptionWorkshopActive()) return;
+  const blockedState = transcriptionWorkshopEditorState();
+  if (blockedState) return toast(blockedState, "error");
+  if (transcriptionWorkshopIsReadOnly()) return;
+  const draft = transcriptionWorkshopDraft;
+  const context = transcriptionWorkshopContext;
+  const passageId = draft?.selectedPassageId;
+  const passage = draft?.passages.find(item => item.id === passageId);
+  if (!draft || !passage || !context) return;
+  if (!context.imageSrc || !context.photoId) return toast("Aucune photographie n’est associée à cette page.", "error");
+  if (mode === "adjust" && !passage.anchor) return;
+  cancelWorkshopZoneTool();
+  if (mode === "adjust") {
+    /* La zone existante est ajustée SA photographie : affichage basculé au
+       besoin (le rectangle est normalisé, donc parfaitement réaligné). */
+    const anchor = passage.anchor;
+    if (anchor.photographId !== context.photoId) {
+      const photo = context.photos.find(value => value.id === anchor.photographId);
+      const imageSrc = transcriptionWorkshopImageSource(photo);
+      if (!photo || !imageSrc) return toast("La photographie de cette zone n’est pas disponible.", "error");
+      context.photoId = photo.id;
+      context.imageSrc = imageSrc;
+      renderWorkshopImageArea();
+      renderWorkshopPhotoNav();
+    }
+  }
+  /* Le tracé se fait sur la photographie : sur mobile, bascule vers
+     l'onglet Original (sans effet sur la double colonne desktop). */
+  setWorkshopTab("original");
+  workshopZoneTool = {
+    passageId,
+    rect: mode === "adjust" ? clampWorkshopZoneRect(passage.anchor) : null,
+    phase: mode === "adjust" ? "adjusting" : "drawing",
+    drag: null
+  };
+  $("workshopPanelOriginal").classList.add("is-zone-editing");
+  $("workshopZoneActions").hidden = false;
+  updateWorkshopZoneToolUi();
+  renderTranscriptionWorkshop();
+  /* État immédiat (l'image est déjà stable) puis repositionnement après la
+     bascule d'onglet / l'ajustement du lecteur du prochain rendu. */
+  syncWorkshopZone();
+  scheduleWorkshopZoneSync();
+}
+
+function confirmWorkshopZoneTool() {
+  const tool = workshopZoneTool;
+  const draft = transcriptionWorkshopDraft;
+  const context = transcriptionWorkshopContext;
+  if (!tool || !tool.rect || !draft) return;
+  if (transcriptionWorkshopIsReadOnly() || transcriptionWorkshopEditorState()
+    || tool.passageId !== draft.selectedPassageId || !context?.photoId || !context.imageSrc) {
+    return cancelWorkshopZoneTool();
+  }
+  const rect = clampWorkshopZoneRect(tool.rect);
+  try {
+    setTranscriptionWorkshopPassageAnchor(draft, tool.passageId, {
+      shape: "rect",
+      photographId: context.photoId,
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height
+    }, { photographIds: workshopZonePhotographIds() });
+  } catch (error) {
+    return toast(error.message || "La zone ne peut pas être enregistrée.", "error");
+  }
+  /* Écriture par le brouillon existant (autosauvegarde différée), puis fin du
+     mode tracé — aucune écriture avant cette confirmation. */
+  scheduleTranscriptionWorkshopDraftSave(draft);
+  cancelWorkshopZoneTool();
+  renderTranscriptionWorkshop();
+  syncWorkshopZone();
+}
+
+function deleteWorkshopZone() {
+  const draft = transcriptionWorkshopDraft;
+  const passageId = draft?.selectedPassageId;
+  const passage = draft?.passages.find(item => item.id === passageId);
+  if (!passage?.anchor) return;
+  if (transcriptionWorkshopIsReadOnly() || transcriptionWorkshopEditorState()) return;
+  if (!confirm("Supprimer la zone de ce passage ?")) return;
+  cancelWorkshopZoneTool();
+  try {
+    setTranscriptionWorkshopPassageAnchor(draft, passageId, null, { photographIds: workshopZonePhotographIds() });
+  } catch (error) {
+    return toast(error.message || "La zone ne peut pas être supprimée.", "error");
+  }
+  scheduleTranscriptionWorkshopDraftSave(draft);
+  renderTranscriptionWorkshop();
+  syncWorkshopZone();
+}
+
+function workshopZonePointerPoint(event) {
+  const bounds = $("workshopZoneEditor").getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return null;
+  return {
+    x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
+    y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height))
+  };
+}
+
+function onWorkshopZonePointerDown(event) {
+  const tool = workshopZoneTool;
+  if (!tool || (event.button != null && event.button !== 0)) return;
+  const point = workshopZonePointerPoint(event);
+  if (!point) return;
+  const handle = event.target.closest?.("[data-zone-handle]");
+  const onRect = Boolean(event.target.closest?.("#workshopZoneEditorRect"));
+  event.preventDefault();
+  event.stopPropagation();
+  try { $("workshopZoneEditor").setPointerCapture(event.pointerId); } catch { /* capture best effort */ }
+  const common = { start: point, startX: event.clientX, startY: event.clientY, base: tool.rect ? { ...tool.rect } : null };
+  if (handle && tool.rect) tool.drag = { ...common, action: handle.dataset.zoneHandle };
+  else if (onRect && tool.rect) tool.drag = { ...common, action: "move" };
+  else tool.drag = { ...common, action: "draw" };
+}
+
+function onWorkshopZonePointerMove(event) {
+  const tool = workshopZoneTool;
+  if (!tool?.drag) return;
+  const point = workshopZonePointerPoint(event);
+  if (!point) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const dx = point.x - tool.drag.start.x;
+  const dy = point.y - tool.drag.start.y;
+  if (tool.drag.action === "draw") tool.rect = workshopZoneRectFromDrag(tool.drag.start, point);
+  else if (tool.drag.action === "move") tool.rect = workshopZoneMoveRect(tool.drag.base, dx, dy);
+  else tool.rect = workshopZoneResizeRect(tool.drag.base, tool.drag.action, dx, dy);
+  renderWorkshopZoneEditor();
+  updateWorkshopZoneToolUi();
+}
+
+function onWorkshopZonePointerEnd(event) {
+  const tool = workshopZoneTool;
+  if (!tool?.drag) return;
+  const drag = tool.drag;
+  const moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 6;
+  if (drag.action === "draw") {
+    /* Un simple clic ne crée rien (ou restaure le rectangle précédent) ;
+       un glisser réel valide le tracé et passe à l'ajustement. */
+    if (moved) {
+      tool.rect = workshopZoneRectFromDrag(drag.start, workshopZonePointerPoint(event) || drag.start);
+      tool.phase = "adjusting";
+    } else {
+      tool.rect = drag.base;
+    }
+  }
+  tool.drag = null;
+  renderWorkshopZoneEditor();
+  updateWorkshopZoneToolUi();
 }
 
 function selectWorkshopPassage(passageId, { scroll = true } = {}) {
   const draft = transcriptionWorkshopDraft;
   if (!draft) return;
+  /* B1 : changement de passage pendant un tracé = abandon propre du temporaire. */
+  cancelWorkshopZoneTool();
   try { selectTranscriptionWorkshopPassage(draft, passageId); }
   catch { return; }
   const passage = draft.passages.find(item => item.id === passageId);
@@ -7205,6 +7534,7 @@ function selectWorkshopPassage(passageId, { scroll = true } = {}) {
     }
   }
   syncWorkshopSelectionClasses();
+  refreshWorkshopZoneActions();
   syncWorkshopZone();
   updateWorkshopNavigation();
   if (transcriptionWorkshopCompare) renderWorkshopCompareContent();
@@ -7246,6 +7576,8 @@ function setWorkshopTab(view, { silent = false } = {}) {
        d'onglet le referme pour ne pas le rouvrir dans un autre état. */
     closeTranscriptionWorkshopMenu();
     setWorkshopCompare(false);
+    /* B1 : quitter l'onglet Original pendant un tracé abandonne le temporaire. */
+    cancelWorkshopZoneTool();
   }
 }
 
@@ -7699,6 +8031,7 @@ function resetTranscriptionWorkshopState() {
   unbindTranscriptionWorkshopMenu();
   transcriptionWorkshopDraft = null;
   unbindWorkshopVirtualKeyboard();
+  cancelWorkshopZoneTool();
   transcriptionWorkshopContext = null;
   transcriptionWorkshopEditing = false;
   transcriptionWorkshopViewingOfficial = false;
@@ -7759,6 +8092,16 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
   if (event.target.closest("#workshopCancelEditBtn")) return cancelTranscriptionWorkshopEdit();
   const modeButton = event.target.closest("[data-workshop-mode]");
   if (modeButton) return setTranscriptionWorkshopDisplayMode(modeButton.dataset.workshopMode);
+  /* B1 : actions de délimitation du passage actif + commandes du mode tracé. */
+  const zoneAction = event.target.closest("[data-workshop-zone-action]");
+  if (zoneAction) {
+    const action = zoneAction.dataset.workshopZoneAction;
+    if (action === "draw" || action === "adjust") return startWorkshopZoneTool(action);
+    if (action === "delete") return deleteWorkshopZone();
+    return;
+  }
+  if (event.target.closest("#workshopZoneCancelBtn")) return cancelWorkshopZoneTool();
+  if (event.target.closest("#workshopZoneConfirmBtn")) return confirmWorkshopZoneTool();
   const tab = event.target.closest("[data-workshop-tab]");
   if (tab) return setWorkshopTab(tab.dataset.workshopTab);
   if (event.target.closest("#workshopBackBtn")) return exitTranscriptionWorkshop();
@@ -7775,6 +8118,8 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
   }
   const photoButton = event.target.closest("[data-workshop-photo]");
   if (photoButton && transcriptionWorkshopContext) {
+    /* B1 : changement de photographie pendant un tracé = abandon propre. */
+    cancelWorkshopZoneTool();
     const photo = transcriptionWorkshopContext.photos.find(value => value.id === photoButton.dataset.workshopPhoto);
     if (!photo) return;
     transcriptionWorkshopContext.photoId = photo.id;
@@ -7961,6 +8306,34 @@ window.addEventListener("popstate", () => {
 ["wheel", "touchend", "touchcancel", "pointerup", "pointercancel", "click", "keydown"].forEach(type => {
   $("workshopPanelOriginal").addEventListener(type, scheduleWorkshopZoneSync, { passive: true });
 });
+
+/* B1 : pendant le mode tracé, les gestes du lecteur (pan, pinch, molette)
+   sont neutralisés au niveau de la capture du panneau — sauf sur les seules
+   commandes du tracé. L'éditeur lui-même stoppe les gestes pour que rien ne
+   remonte jusqu'au lecteur. Hors tracé, aucun écouteur n'agit. */
+function guardWorkshopZoneViewerGestures(event) {
+  if (!workshopZoneTool) return;
+  /* Les cibles dédiées (éditeur, commandes) gèrent leurs propres événements ;
+     seuls les gestes hors de ces zones sont neutralisés avant le lecteur. */
+  if (event.target.closest?.("#workshopZoneActions")) return;
+  if (event.target.closest?.("#workshopZoneEditor")) return;
+  event.stopPropagation();
+}
+["wheel", "touchstart", "touchmove", "pointerdown"].forEach(type => {
+  $("workshopPanelOriginal").addEventListener(type, guardWorkshopZoneViewerGestures, { capture: true, passive: true });
+});
+["touchstart", "touchmove", "touchend", "touchcancel", "wheel"].forEach(type => {
+  $("workshopZoneEditor").addEventListener(type, event => event.stopPropagation(), { passive: true });
+});
+$("workshopZoneEditor").addEventListener("pointerdown", onWorkshopZonePointerDown);
+$("workshopZoneEditor").addEventListener("pointermove", onWorkshopZonePointerMove);
+$("workshopZoneEditor").addEventListener("pointerup", onWorkshopZonePointerEnd);
+$("workshopZoneEditor").addEventListener("pointercancel", onWorkshopZonePointerEnd);
+/* Alignement de la zone et de l'éditeur sur tout redimensionnement de fenêtre
+   (le lecteur recalcule son ajustement via ResizeObserver). */
+window.addEventListener("resize", () => {
+  if (isTranscriptionWorkshopActive()) scheduleWorkshopZoneSync();
+}, { passive: true });
 
 function setupWorkshopDivider() {
   const divider = $("workshopDivider");

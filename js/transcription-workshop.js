@@ -12,7 +12,7 @@
    reste du côté de l'application, après validation explicite de l'utilisateur
    et par le canal admin existant (reviseOfficial). */
 
-import { createPageTextRevision, comparePageTextRevisions, createTranscriptionPassage } from "./document-transcription.js";
+import { createPageTextRevision, comparePageTextRevisions, createTranscriptionPassage, validateTranscriptionPassage } from "./document-transcription.js";
 import { addDocumentPage, addPhotographsToPage, validateSourceDocument } from "./source-document-model.js";
 
 export const WORKSHOP_TRANSLATION_STATE_LABELS = Object.freeze({
@@ -282,6 +282,109 @@ export function isTranscriptionWorkshopPassageChanged(draft, passageId) {
   const before = draft.original.find(item => item.id === passageId);
   if (!passage || !before) return false;
   return !samePassageText(passage, before);
+}
+
+/* ---- B1 : zones graphiques des passages (JPEG) ----------------------------
+   Modèle existant strictement réutilisé : { shape: "rect", photographId, x,
+   y, width, height } en coordonnées normalisées 0..1, une zone par passage.
+   Les helpers de géométrie sont purs (testables sans DOM) ; l'écriture passe
+   par setTranscriptionWorkshopPassageAnchor, qui valide avec le modèle de
+   document-transcription (coordonnées, taille positive, limites et photo de
+   LA page) avant de toucher au brouillon. Aucune écriture hors brouillon. */
+
+export const WORKSHOP_ZONE_MIN_SIZE = 0.015;
+
+function zonePoint(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(1, number));
+}
+
+/** Ramène un rectangle dans l'image avec une taille minimale garantie. */
+export function clampWorkshopZoneRect(rect) {
+  if (!rect || typeof rect !== "object") throw new TypeError("Le rectangle de zone est requis");
+  const min = WORKSHOP_ZONE_MIN_SIZE;
+  let width = Math.max(min, Math.min(1, Number(rect.width) || 0));
+  let height = Math.max(min, Math.min(1, Number(rect.height) || 0));
+  let x = zonePoint(rect.x);
+  let y = zonePoint(rect.y);
+  x = Math.min(x, 1 - width);
+  y = Math.min(y, 1 - height);
+  return { x, y, width, height };
+}
+
+/** Rectangle tracé entre deux points normalisés (cliquer-glisser). */
+export function workshopZoneRectFromDrag(start, current) {
+  const from = { x: zonePoint(start?.x), y: zonePoint(start?.y) };
+  const to = { x: zonePoint(current?.x), y: zonePoint(current?.y) };
+  return clampWorkshopZoneRect({
+    x: Math.min(from.x, to.x),
+    y: Math.min(from.y, to.y),
+    width: Math.abs(to.x - from.x),
+    height: Math.abs(to.y - from.y)
+  });
+}
+
+/** Déplacement borné : le rectangle ne sort jamais de l'image. */
+export function workshopZoneMoveRect(rect, dx, dy) {
+  const base = clampWorkshopZoneRect(rect);
+  return clampWorkshopZoneRect({
+    x: base.x + (Number(dx) || 0),
+    y: base.y + (Number(dy) || 0),
+    width: base.width,
+    height: base.height
+  });
+}
+
+/** Redimensionnement par poignée (nw|ne|sw|se), taille minimale garantie. */
+export function workshopZoneResizeRect(rect, handle, dx, dy) {
+  const base = clampWorkshopZoneRect(rect);
+  const deltaX = Number(dx) || 0;
+  const deltaY = Number(dy) || 0;
+  const left = base.x;
+  const top = base.y;
+  const right = base.x + base.width;
+  const bottom = base.y + base.height;
+  if (handle === "nw" || handle === "sw") {
+    const nextLeft = Math.max(0, Math.min(right - WORKSHOP_ZONE_MIN_SIZE, left + deltaX));
+    if (handle === "nw") {
+      const nextTop = Math.max(0, Math.min(bottom - WORKSHOP_ZONE_MIN_SIZE, top + deltaY));
+      return clampWorkshopZoneRect({ x: nextLeft, y: nextTop, width: right - nextLeft, height: bottom - nextTop });
+    }
+    const nextBottom = Math.min(1, Math.max(top + WORKSHOP_ZONE_MIN_SIZE, bottom + deltaY));
+    return clampWorkshopZoneRect({ x: nextLeft, y: top, width: right - nextLeft, height: nextBottom - top });
+  }
+  if (handle === "ne" || handle === "se") {
+    const nextRight = Math.min(1, Math.max(left + WORKSHOP_ZONE_MIN_SIZE, right + deltaX));
+    if (handle === "ne") {
+      const nextTop = Math.max(0, Math.min(bottom - WORKSHOP_ZONE_MIN_SIZE, top + deltaY));
+      return clampWorkshopZoneRect({ x: left, y: nextTop, width: nextRight - left, height: bottom - nextTop });
+    }
+    const nextBottom = Math.min(1, Math.max(top + WORKSHOP_ZONE_MIN_SIZE, bottom + deltaY));
+    return clampWorkshopZoneRect({ x: left, y: top, width: nextRight - left, height: nextBottom - top });
+  }
+  return base;
+}
+
+/** Écrit (ou supprime avec null) la zone du passage dans le brouillon.
+    Aucune écriture si la validation du modèle échoue : le brouillon reste
+    intact et l'erreur est levée pour être annoncée par l'application. */
+export function setTranscriptionWorkshopPassageAnchor(draft, passageId, anchor, { photographIds = null } = {}) {
+  if (!draft || typeof draft !== "object") throw new TypeError("Le brouillon d’atelier est requis");
+  const passage = draft.passages.find(item => item.id === passageId);
+  if (!passage) throw new Error("Passage introuvable dans le brouillon");
+  if (anchor == null) {
+    passage.anchor = null;
+    recomputeDraftState(draft);
+    return draft;
+  }
+  if (typeof anchor !== "object" || Array.isArray(anchor)) throw new TypeError("anchor doit être un rectangle ou null");
+  const candidate = { ...passage, anchor: { ...anchor } };
+  const validation = validateTranscriptionPassage(candidate, { photographIds });
+  if (!validation.valid) throw new TypeError(validation.errors.join("; "));
+  passage.anchor = { ...anchor };
+  recomputeDraftState(draft);
+  return draft;
 }
 
 export function transcriptionWorkshopPassagePosition(draft, passageId) {

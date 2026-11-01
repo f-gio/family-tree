@@ -14,6 +14,12 @@ import {
   transcriptionWorkshopPassageLabel,
   transcriptionWorkshopTranslationBadge,
   WORKSHOP_TRANSLATION_STATE_LABELS,
+  WORKSHOP_ZONE_MIN_SIZE,
+  clampWorkshopZoneRect,
+  workshopZoneRectFromDrag,
+  workshopZoneMoveRect,
+  workshopZoneResizeRect,
+  setTranscriptionWorkshopPassageAnchor,
   isTranscriptionJpegDocument,
   findSourcePageForDocument,
   prepareLegacyDocumentPage,
@@ -144,6 +150,51 @@ test("seuls les passages ajoutés dans le brouillon sont supprimables", () => {
   assert.equal(draft.dirty, true, "une correction officielle subsiste après suppression du passage créé");
   resetTranscriptionWorkshopDraft(draft);
   assert.deepEqual(draft.createdIds, [], "la réinitialisation vide la liste des passages créés");
+});
+
+test("B1 : géométrie des zones et écriture de la zone du passage dans le brouillon", () => {
+  const draft = createTranscriptionWorkshopDraft({ documentId: "doc-1", pageId: "page-1", passages: samplePassages() });
+  /* Bornes : coordonnées 0..1, jamais hors image, taille minimale. */
+  const clamped = clampWorkshopZoneRect({ x: -0.2, y: 1.4, width: 0, height: 3 });
+  assert.equal(clamped.x, 0, "x négatif ramené à 0");
+  assert.ok(clamped.width >= WORKSHOP_ZONE_MIN_SIZE, "largeur minimale garantie");
+  assert.ok(clamped.height >= WORKSHOP_ZONE_MIN_SIZE, "hauteur minimale garantie");
+  assert.ok(clamped.x + clamped.width <= 1 && clamped.y + clamped.height <= 1, "rectangle contenu dans l’image");
+  const drag = workshopZoneRectFromDrag({ x: 0.7, y: 0.6 }, { x: 0.2, y: 0.3 });
+  assert.ok(Math.abs(drag.x - 0.2) < 1e-9 && Math.abs(drag.y - 0.3) < 1e-9, "origine au point le plus haut à gauche");
+  assert.ok(Math.abs(drag.width - 0.5) < 1e-9 && Math.abs(drag.height - 0.3) < 1e-9, "taille = delta du glisser");
+  const moved = workshopZoneMoveRect({ x: 0.4, y: 0.4, width: 0.2, height: 0.2 }, 0.9, 0.9);
+  assert.ok(moved.x + moved.width <= 1 + 1e-9 && moved.y + moved.height <= 1 + 1e-9, "déplacement borné aux limites");
+  const resized = workshopZoneResizeRect({ x: 0.4, y: 0.4, width: 0.2, height: 0.2 }, "nw", -1, -1);
+  assert.ok(resized.x >= 0 && resized.y >= 0, "redimensionnement ne sort jamais de l’image");
+  assert.ok(resized.width >= WORKSHOP_ZONE_MIN_SIZE && resized.height >= WORKSHOP_ZONE_MIN_SIZE, "redimensionnement conserve la taille minimale");
+  /* Écriture confirmée : validée par le modèle, sans toucher aux autres
+     passages, et suppression = retour à l’état du brouillon d’origine. */
+  const otherPassage = JSON.stringify(draft.passages[1]);
+  setTranscriptionWorkshopPassageAnchor(draft, "p1", {
+    shape: "rect", photographId: "photo-1", x: 0.5, y: 0.5, width: 0.2, height: 0.2
+  }, { photographIds: ["photo-1"] });
+  assert.equal(draft.passages[0].anchor.x, 0.5, "zone écrite sur le passage sélectionné");
+  assert.equal(draft.dirty, true, "zone confirmée = brouillon modifié (autosauvegarde armée)");
+  assert.equal(JSON.stringify(draft.passages[1]), otherPassage, "les autres passages ne sont jamais touchés");
+  assert.throws(
+    () => setTranscriptionWorkshopPassageAnchor(draft, "p1", { shape: "rect", photographId: "photo-9", x: 0.1, y: 0.1, width: 0.2, height: 0.2 }, { photographIds: ["photo-1"] }),
+    /photographie absente de la page/, "zone refusée si la photographie n’appartient pas à la page"
+  );
+  assert.throws(
+    () => setTranscriptionWorkshopPassageAnchor(draft, "p1", { shape: "rect", photographId: "photo-1", x: 0.9, y: 0.1, width: 0.5, height: 0.2 }, { photographIds: ["photo-1"] }),
+    /limites normalisées/, "zone hors limites refusée"
+  );
+  assert.throws(() => setTranscriptionWorkshopPassageAnchor(draft, "inconnu", null), /introuvable/, "passage inconnu refusé");
+  const fresh = createTranscriptionWorkshopDraft({ documentId: "doc-1", pageId: "page-1", passages: samplePassages() });
+  setTranscriptionWorkshopPassageAnchor(fresh, "p2", {
+    shape: "rect", photographId: "photo-1", x: 0.1, y: 0.1, width: 0.3, height: 0.2
+  }, { photographIds: ["photo-1"] });
+  assert.equal(fresh.dirty, true, "ajout de zone = brouillon modifié");
+  setTranscriptionWorkshopPassageAnchor(fresh, "p2", null, { photographIds: ["photo-1"] });
+  assert.equal(fresh.passages[1].anchor, null, "suppression = association graphique retirée, texte conservé");
+  assert.equal(fresh.passages[1].textIt, "indici di Orino", "la transcription italienne n’est jamais supprimée");
+  assert.equal(fresh.dirty, false, "retour exact à l’état original du brouillon");
 });
 
 test("l’accès à l’atelier couvre toute source et tout document consultable", async () => {
@@ -462,6 +513,18 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(css, /\.transcription-workshop-passage textarea \{ width: 100%; flex: 1 1 auto; min-height: clamp\(8rem, 24dvh, 16rem\)[^}]*field-sizing: content/, "champs de hauteur adaptée au contenu avec plafond anti-scroll imbriqué");
   assert.match(css, /\.transcription-workshop-passage-menu-panel \{/, "menu discret des actions de passage");
   assert.match(css, /\.transcription-workshop-image-viewport > img \{ position: absolute/, "zone d’ancrage suivant les offsets du lecteur");
+  /* B1 : délimitation graphique — éditeur temporaire masqué au repos, écriture
+     seulement après confirmation, gestes du lecteur neutralisés au tracé. */
+  assert.match(html, /id="workshopZoneEditor"[^>]*hidden/, "éditeur de zone présent et masqué au repos");
+  assert.match(html, /id="workshopZoneActions"[^>]*hidden/, "commandes du mode tracé masquées au repos");
+  assert.match(html, /id="workshopZoneConfirmBtn"[^>]*disabled/, "confirmation indisponible sans rectangle tracé");
+  assert.equal((html.match(/data-zone-handle=/g) || []).length, 4, "quatre poignées de redimensionnement");
+  assert.match(app, /function startWorkshopZoneTool\(mode\)/, "mode de tracé piloté par l’application");
+  assert.match(app, /function confirmWorkshopZoneTool\(\)/, "écriture de la zone seulement après confirmation");
+  assert.match(app, /guardWorkshopZoneViewerGestures/, "gestes du lecteur neutralisés pendant le tracé");
+  assert.match(app, /window\.addEventListener\("resize", \(\) => \{\s*if \(isTranscriptionWorkshopActive\(\)\) scheduleWorkshopZoneSync\(\);/, "réalignement de la zone sur redimensionnement de fenêtre");
+  assert.match(css, /\.transcription-workshop-zone-editor \{ position: absolute; z-index: 12;/, "éditeur superposé à l’image");
+  assert.match(css, /\.transcription-workshop-zone-actions \{/, "commandes du tracé sous la photographie");
   // Brouillons multipages : conservation pendant la session, confirmation seulement à la fermeture.
   assert.match(app, /transcriptionWorkshopDrafts = new Map\(\)/, "carte de brouillons par page");
   assert.match(app, /function transcriptionWorkshopHasUnsavedChanges\(\)/, "dirty global sur toutes les pages");
