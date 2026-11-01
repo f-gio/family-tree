@@ -370,11 +370,13 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.doesNotMatch(html, /workshopZoomLabel/, "texte « Ajusté » retiré de la barre");
   assert.doesNotMatch(css, /\.transcription-workshop-zoom-label \{/, "règles du texte « Ajusté » supprimées");
   assert.match(css, /#workshopImageTools \{ justify-content: flex-start;/, "outils alignés à gauche, jamais centrés");
-  assert.match(html, /Emplacement de la validation officielle \(incrément 2\)/, "place réservée à la validation officielle dans la hiérarchie");
-  /* Validation officielle (incrément 2) : action primaire dans l'en-tête,
-     droits et texte italien vérifiés côté applicatif, confirmation dédiée. */
-  assert.match(html, /id="workshopValidateBtn"[^>]*aria-label="Valider la transcription"[^>]*hidden/, "bouton de validation présent, masqué par défaut");
-  assert.ok(html.indexOf('id="workshopValidateBtn"') < html.indexOf('id="workshopActionsMenu"'), "validation primaire placée avant le menu des actions secondaires");
+  /* Validation en ligne des passages : Annuler puis Valider dans le groupe
+     d'actions existant, accès à l'officiel préservé dans le menu secondaire. */
+  assert.match(html, /id="workshopCancelEditBtn"[^>]*aria-label="Annuler la révision"[^>]*hidden/, "annulation disponible en mode édition seulement");
+  assert.match(html, /id="workshopValidateBtn"[^>]*aria-label="Valider la révision"[^>]*hidden/, "validation en ligne, masquée en lecture seule");
+  assert.ok(html.indexOf('id="workshopCancelEditBtn"') < html.indexOf('id="workshopValidateBtn"'), "ordre Annuler puis Valider");
+  assert.match(html, /id="workshopViewOfficialMenuBtn"[^>]*hidden/, "consultation de l'officiel préservée dans le menu d'actions");
+  assert.doesNotMatch(html, /dedicated-page-actions-row">\s*<button[^>]*id="workshopValidateBtn"/, "aucune validation officielle dans l'en-tête supérieur");
   assert.match(html, /id="transcriptionValidationDialog"/, "dialogue de confirmation de validation");
   assert.match(html, /id="workshopOfficialBadge"[^>]*hidden/, "badge d'état officiel dans la barre du panneau");
   assert.match(html, /id="workshopHistoryBtn"/, "accès « Historique » dans le pied");
@@ -389,7 +391,8 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(html, /id="workshopPanelCollapseBtn"[^>]*aria-label="Masquer le document"/, "commande de repli dans la barre du document");
   assert.match(html, />Afficher le document</, "commande de réouverture en haut de la zone de travail");
   assert.match(css, /\.transcription-workshop-layout\.is-document-collapsed \{ grid-template-columns: minmax\(0, 1fr\); \}/, "état de repli : transcription seule");
-  assert.match(css, /@media \(max-width: 760px\) \{\s*#workshopValidateLabel \{ display: none; \}/, "libellés masqués sur mobile, jamais de bouton de repli mobile");
+  assert.doesNotMatch(css, /#workshopValidateLabel \{ display: none;/, "libellé Valider visible sur mobile");
+  assert.match(css, /\.transcription-workshop-panel-actions \.transcription-workshop-edit-cta \{[^}]*min-height: var\(--control-touch\)/, "cibles tactiles égales pour Annuler/Valider");
   assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour"[^>]*><span class="dedicated-page-back-arrow"/, "flèche décorative et libellé de destination");
   assert.match(app, /function teardownTranscriptionWorkshop\(\)/, "nettoyage du lecteur à la sortie");
   for (const tab of ["Original", "Italien", "Français"]) assert.ok(html.includes(`>${tab}</button>`), `onglet ${tab} présent`);

@@ -119,13 +119,19 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.locator('[data-genealogy-tile-id="source-page-fixture"]').evaluate(tile => tile.click());
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
     assert.match(await page.locator("#sourcePageTitle").textContent(), /Registre paroissial/);
-    /* Personnes associées : pastille commune beige-gris, cliquable. */
+    /* Personnes associées : pastille commune ivoire, centrée et cliquable. */
     const personChip = page.locator("#sourcePageContent .document-unified-people .person-chip-consult").first();
     assert.equal(await personChip.count(), 1, "section personnes commune présente sur la Source");
     assert.match(await personChip.textContent(), /Rossi Marie/);
     assert.equal(await personChip.getAttribute("data-genealogy-person"), "person-source-fixture");
-    const chipStyle = await personChip.evaluate(element => getComputedStyle(element).backgroundColor);
-    assert.equal(chipStyle, "rgb(243, 238, 229)", "fond beige-gris du design system");
+    const chipStyle = await personChip.evaluate(element => {
+      const style = getComputedStyle(element);
+      return { background: style.backgroundColor, justify: style.justifyContent, align: style.alignItems, textAlign: style.textAlign };
+    });
+    assert.equal(chipStyle.background, "rgb(255, 253, 248)", "fond ivoire du design system");
+    assert.equal(chipStyle.justify, "center", "icône + nom centrés ensemble horizontalement");
+    assert.equal(chipStyle.align, "center", "contenu centré verticalement");
+    assert.equal(chipStyle.textAlign, "center", "texte centré dans la pastille");
     assert.equal(await page.locator("#sourcePageContent .source-detail-fact strong", { hasText: "Personnes concernées" }).count(), 0, "plus de fait texte brut pour les personnes");
     assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux archives");
     assert.equal(await page.locator("#sourcePageBackBtn .dedicated-page-back-label").textContent(), "Retour aux archives", "destination réelle affichée en clair (desktop)");

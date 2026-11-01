@@ -75,10 +75,13 @@ window.__inc2 = {
     ];
   },
   openDoc() { setView("directory"); openStoredDocument(documents[0], "directory"); },
+  emptyTranscriptionPage() { documents[0].pages[0].passages = []; },
+  useMemberProfile() { currentUserProfile = { role: "member", status: "approved" }; updateWorkshopDraftIndicators(); },
   transcribe() { const button = document.querySelector("#viewerDocumentDetails [data-transcribe-document]"); if (button) button.click(); },
   badge() { return $("workshopSaveStatus").textContent; },
   officialBadge() { const el = $("workshopOfficialBadge"); return { hidden: el.hidden, text: el.textContent }; },
-  fieldValue() { return document.querySelector('[data-workshop-field="textIt"]')?.value || ""; }
+  fieldValue() { return document.querySelector('[data-workshop-field="textIt"]')?.value || ""; },
+  localDraftCount() { return [...Array(localStorage.length).keys()].filter(index => localStorage.key(index)?.startsWith("familyTreeTranscriptionDraft:")).length; }
 };
 `;
 
@@ -157,7 +160,8 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
     assert.match(documentCard.text, /Passages\s*2/, "carte Document affiche le nombre de passages");
     assert.match(documentCard.text, /Italien\s*Présente/, "état italien affiché dans la carte");
     assert.match(documentCard.text, /Français\s*Partielle/, "état français affiché dans la carte");
-    assert.equal(documentCard.action, "Reprendre la transcription", "action adaptée à la transcription existante");
+    assert.equal(documentCard.action, "Reprendre", "action courte adaptée à la transcription existante");
+    assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").evaluate(button => button.classList.contains("primary")), false, "CTA ivoire sans style principal vert");
     await openInc2Workshop(page, pageErrors);
     await page.waitForFunction(() => window.__inc2.officialBadge().text !== "", undefined, { timeout: 5000 });
     const initial = await page.evaluate(() => ({
@@ -173,7 +177,7 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
     assert.equal(initial.badge.hidden, false, "badge d'état visible");
     assert.equal(initial.badge.text, "Brouillon", "sans version officielle : « Brouillon »");
     assert.equal(initial.validateHidden, false, "validation visible pour l'administrateur");
-    assert.equal(initial.validateLabel, "Valider la transcription", "libellé du premier enregistrement");
+    assert.equal(initial.validateLabel, "Valider", "libellé court de validation dans le groupe d’édition");
     assert.equal(initial.validateDisabled, false, "validation active (texte italien non vide)");
     assert.equal(initial.saveDisabled, true, "Enregistrer inactif sans modification non sauvegardée");
     assert.equal(initial.autoSaveHintHidden, false, "autosauvegarde annoncée en édition");
@@ -185,9 +189,44 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
     assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), false, "Enregistrer réarmé dès la saisie");
     assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Brouillon",
       "sans officiel, la modification reste un simple brouillon");
+    await page.click("#workshopCancelEditBtn");
+    await page.waitForFunction(() => document.getElementById("transcriptionEditCancelDialog").open);
+    await page.click("#workshopCancelKeepBtn");
+    await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentDetailView").hidden);
+    assert.ok(await page.evaluate(() => window.__inc2.localDraftCount() > 0), "sans version officielle, l’annulation conserve le brouillon local");
+    assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").textContent(), "Reprendre", "la carte Document permet de reprendre le brouillon conservé");
 
     /* Aucune écriture distante ni officielle n'est tentée : le badge et le
        dialogue restent cohérents même hors connexion. */
+    assertNoInc2PageErrors(pageErrors);
+  } finally {
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
+});
+
+test("la carte Document propose Ajouter quand la page ne contient aucune transcription", { timeout: 120000 }, async t => {
+  const harness = await openInc2Harness(t);
+  if (!harness) return;
+  const { browser, server, context, page, pageErrors } = harness;
+  try {
+    await bootInc2(page);
+    await page.evaluate(() => { window.__inc2.emptyTranscriptionPage(); window.__inc2.openDoc(); });
+    await page.waitForSelector(".document-transcription-card [data-transcribe-document]");
+    const card = await page.evaluate(() => {
+      const node = document.querySelector(".document-transcription-card");
+      return { text: node.textContent, action: node.querySelector("[data-transcribe-document]").textContent.trim() };
+    });
+    assert.match(card.text, /Aucune transcription/, "état vide explicite");
+    assert.match(card.text, /Passages\s*0/, "compteur nul affiché");
+    assert.equal(card.action, "Ajouter", "libellé court en l’absence de transcription");
+    await page.evaluate(() => window.__inc2.transcribe());
+    await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+    assert.equal(await page.locator("#workshopOfficialBadge").textContent(), "Brouillon", "l’ouverture de la carte ne crée pas de version officielle");
+    await page.evaluate(() => window.__inc2.useMemberProfile());
+    assert.equal(await page.locator("#workshopValidateBtn").isHidden(), true, "aucune validation officielle visible sans droit administrateur");
+    assert.equal(await page.locator("#workshopCancelEditBtn").isVisible(), true, "Annuler reste disponible pour le contributeur");
     assertNoInc2PageErrors(pageErrors);
   } finally {
     await context.close().catch(() => {});
@@ -251,7 +290,8 @@ test("historique : versions listées avec auteur et date, consultation en lectur
       return { text: card.textContent, action: card.querySelector("[data-transcribe-document]").textContent.trim() };
     });
     assert.match(officialCard.text, /Validée · v2/, "carte indique la version officielle courante");
-    assert.equal(officialCard.action, "Consulter la transcription", "action de consultation quand aucune révision n'existe");
+    assert.equal(officialCard.action, "Consulter", "action de consultation quand aucune révision n'existe");
+    assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").evaluate(button => button.classList.contains("primary")), false, "CTA officiel non principal");
     await page.evaluate(() => window.__inc2.transcribe());
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
 
@@ -263,14 +303,19 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     assert.equal(await page.locator("#workshopAddPassageBtn").isHidden(), true, "ajout masqué en lecture seule");
     assert.equal(await page.locator("#workshopSaveDraftBtn").isHidden(), true, "Enregistrer masqué en lecture seule");
     assert.equal(await page.locator("#workshopValidateBtn").isHidden(), true, "Valider masqué en lecture seule");
+    assert.equal(await page.locator(".transcription-workshop-header #workshopValidateBtn").count(), 0, "aucun doublon de validation dans l’en-tête supérieur");
     assert.equal(await page.locator("#workshopModeBtn").textContent(), "Modifier", "action explicite pour entrer en édition");
     await page.click("#workshopModeBtn");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), false, "édition activée explicitement");
     assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), true, "pas de brouillon créé par l'activation seule");
     assert.equal(await page.locator("#workshopAutosaveHint").isVisible(), true, "autosauvegarde annoncée en édition");
+    assert.equal(await page.locator("#workshopModeBtn").isHidden(), true, "Modifier remplacé en mode édition");
+    assert.equal(await page.locator("#workshopCancelEditBtn").textContent(), "Annuler", "action Annuler au même emplacement");
+    assert.equal(await page.locator("#workshopValidateBtn").textContent(), "Valider", "action Valider alignée avec Annuler");
     await page.locator('[data-workshop-field="textIt"]').first().fill("Anno con modifica");
     assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Révision en cours · v3", "badge annonce la prochaine version");
-    await page.click("#workshopModeBtn");
+    await page.click("#workshopActionsMenu > summary");
+    await page.click("#workshopViewOfficialMenuBtn");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "aperçu officiel temporaire en lecture seule");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Anno millenovecento corrente", "aperçu de la version officielle");
     assert.equal(await page.locator("#workshopModeBtn").textContent(), "Reprendre la révision", "action pour retrouver le brouillon");
@@ -279,6 +324,61 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     await page.locator('[data-workshop-field="textIt"]').first().fill("Anno millenovecento corrente");
     await page.waitForFunction(() => window.__inc2.officialBadge().text === "Validée · v2", undefined, { timeout: 3000 });
     assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Validée · v2", "contenu revenu à l'officiel sans nouvelle version");
+    await page.click("#workshopCancelEditBtn");
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "annulation sans modification repasse immédiatement en lecture seule");
+    assert.equal(await page.locator("#workshopModeBtn").textContent(), "Modifier", "entrée en édition disponible après annulation propre");
+    await page.click("#workshopModeBtn");
+    await page.locator('[data-workshop-field="textIt"]').first().fill("Révision à conserver");
+    await page.click("#workshopCancelEditBtn");
+    await page.waitForFunction(() => document.getElementById("transcriptionEditCancelDialog").open);
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), false, "la confirmation laisse l’édition active tant qu’un choix n’est pas fait");
+    assert.equal(await page.locator("#workshopCancelKeepBtn").isVisible(), true, "choix de conservation explicite proposé");
+    assert.equal(await page.locator("#workshopCancelDiscardBtn").isVisible(), true, "choix d'abandon explicite proposé");
+    await page.click("#workshopCancelKeepBtn");
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "conservation retourne à la consultation officielle");
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Anno millenovecento corrente", "annulation affiche l'officiel sans le modifier");
+    assert.equal(await page.locator("#workshopModeBtn").textContent(), "Reprendre la révision", "le brouillon conservé reste reprenable");
+    await page.click("#workshopModeBtn");
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Révision à conserver", "le brouillon sauvegardé est conservé");
+    await page.click("#workshopBackBtn");
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+    const revisionCard = await page.locator(".document-transcription-card").textContent();
+    assert.match(revisionCard, /Révision en cours · v3/, "carte Document indique la révision locale");
+    assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").textContent(), "Reprendre", "CTA court de reprise de révision");
+    await page.click(".document-transcription-card [data-transcribe-document]");
+    await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Révision à conserver", "la révision reprend sans perte depuis la carte Document");
+    await page.click("#workshopCancelEditBtn");
+    await page.waitForFunction(() => document.getElementById("transcriptionEditCancelDialog").open);
+    await page.click("#workshopCancelDiscardBtn");
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "abandon explicitement confirmé quitte l'édition");
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Anno millenovecento corrente", "l'abandon ne modifie pas l'officiel");
+    assert.equal(await page.evaluate(() => window.__inc2.localDraftCount()), 0, "le brouillon n'est retiré qu'après le choix explicite d'abandon");
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.click("#workshopTabItalian");
+    await page.click("#workshopModeBtn");
+    const mobileEditActions = await page.evaluate(() => {
+      const cancel = document.getElementById("workshopCancelEditBtn");
+      const validate = document.getElementById("workshopValidateBtn");
+      const c = cancel.getBoundingClientRect();
+      const v = validate.getBoundingClientRect();
+      const cancelStyle = getComputedStyle(cancel);
+      const validateStyle = getComputedStyle(validate);
+      return { cancel: [c.x, c.y, c.width, c.height], validate: [v.x, v.y, v.width, v.height], cancelAlign: cancelStyle.justifyContent, validateAlign: validateStyle.justifyContent, cancelBackground: cancelStyle.backgroundColor, cancelColor: cancelStyle.color, validateBackground: validateStyle.backgroundColor, validateColor: validateStyle.color, overflow: document.documentElement.scrollWidth > innerWidth };
+    });
+    assert.ok(mobileEditActions.cancel[3] >= 44 && mobileEditActions.validate[3] >= 44, "Annuler et Valider gardent des cibles tactiles ≥44 px");
+    assert.equal(mobileEditActions.cancel[2], mobileEditActions.validate[2], "boutons de même largeur sur mobile");
+    assert.equal(mobileEditActions.cancel[1], mobileEditActions.validate[1], "boutons alignés sur le même axe");
+    assert.ok(mobileEditActions.cancel[0] < mobileEditActions.validate[0], "ordre Annuler puis Valider sur mobile");
+    assert.equal(mobileEditActions.cancelAlign, "center", "texte Annuler centré dans la capsule");
+    assert.equal(mobileEditActions.validateAlign, "center", "texte Valider centré dans la capsule");
+    assert.equal(mobileEditActions.cancelBackground, "rgb(166, 66, 56)", "Annuler en rouge");
+    assert.equal(mobileEditActions.cancelColor, "rgb(255, 255, 255)", "Annuler en texte blanc");
+    assert.equal(mobileEditActions.validateBackground, "rgb(40, 75, 63)", "Valider en vert de la charte");
+    assert.equal(mobileEditActions.validateColor, "rgb(255, 255, 255)", "Valider en texte blanc");
+    assert.equal(mobileEditActions.overflow, false, "groupe d’édition sans débordement mobile");
+    await page.click("#workshopCancelEditBtn");
 
     /* Historique consultable sans quitter l'atelier. */
     await page.click("#workshopHistoryBtn");
@@ -307,18 +407,80 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     assert.match(detail, /Traduction française absente/, "absence de traduction signalée par passage");
     assert.match(detail, /Brouillon courant/, "comparaison avec le brouillon courant");
     assert.match(detail, /Traduction française/, "état de la traduction française suivi séparément");
+    assert.match(detail, /3 passages modifiés/, "récapitulatif grammatical au pluriel");
+    assert.match(detail, /1 passage traduit sur 3/, "compteur de traductions au singulier correct");
     assert.equal(await page.locator("#transcriptionHistoryDetail .transcription-history-passage").count(), 4, "un accordéon par passage courant ou supprimé");
     const accordions = page.locator("#transcriptionHistoryDetail .transcription-history-passage");
     assert.equal(await accordions.nth(0).evaluate(element => element.open), true, "premier accordéon ouvert par défaut");
     assert.equal(await accordions.nth(1).evaluate(element => element.open), false, "autres accordéons repliés au départ");
+    const firstSummary = accordions.nth(0).locator("summary");
+    const firstBodyId = await accordions.nth(0).locator(".transcription-history-passage-body").getAttribute("id");
+    assert.equal(await firstSummary.getAttribute("aria-controls"), firstBodyId, "en-tête relié à son contenu par aria-controls");
+    await firstSummary.focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await accordions.nth(0).evaluate(element => element.open), false, "fermeture clavier native au clavier");
+    await page.keyboard.press("Enter");
+    assert.equal(await accordions.nth(0).evaluate(element => element.open), true, "réouverture clavier native");
+    const desktopDialog = await page.evaluate(() => {
+      const rect = selector => {
+        const r = document.querySelector(selector).getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      };
+      return {
+        dialog: rect("#transcriptionHistoryDialog"),
+        header: rect("#transcriptionHistoryDialog > .modal-head"),
+        body: rect("#transcriptionHistoryDialog > .modal-body"),
+        footer: rect("#transcriptionHistoryDialog > .modal-actions"),
+        bodyOverflow: getComputedStyle(document.querySelector("#transcriptionHistoryDialog > .modal-body")).overflowY,
+        gap: getComputedStyle(document.querySelector(".transcription-history-passages")).rowGap,
+        summaryGap: getComputedStyle(document.querySelector(".transcription-history-passages")).marginTop,
+        closedChevron: getComputedStyle(document.querySelectorAll(".transcription-history-chevron")[1]).transform,
+        openChevron: getComputedStyle(document.querySelector(".transcription-history-chevron")).transform
+      };
+    });
+    assert.equal(desktopDialog.bodyOverflow, "auto", "seule la zone centrale défile");
+    assert.equal(desktopDialog.gap, "12px", "espacement de 12 px entre accordéons");
+    assert.equal(desktopDialog.summaryGap, "16px", "au moins 16 px avant le premier accordéon");
+    assert.notEqual(desktopDialog.closedChevron, desktopDialog.openChevron, "chevrons orientés différemment selon l’état");
     await accordions.nth(1).locator("summary").click();
     assert.equal(await accordions.nth(0).evaluate(element => element.open), true, "premier accordéon reste ouvert");
     assert.equal(await accordions.nth(1).evaluate(element => element.open), true, "plusieurs passages peuvent rester ouverts");
+    const desktopAfterToggle = await page.evaluate(() => {
+      const rect = selector => {
+        const r = document.querySelector(selector).getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      };
+      return { dialog: rect("#transcriptionHistoryDialog"), header: rect("#transcriptionHistoryDialog > .modal-head"), body: rect("#transcriptionHistoryDialog > .modal-body"), footer: rect("#transcriptionHistoryDialog > .modal-actions") };
+    });
+    assert.deepEqual(desktopAfterToggle, desktopDialog && { dialog: desktopDialog.dialog, header: desktopDialog.header, body: desktopDialog.body, footer: desktopDialog.footer }, "dimensions de modale et chrome stables à l’ouverture des accordéons");
     assert.ok(await page.locator("#transcriptionHistoryBackBtn").isVisible(), "retour à la liste");
     await page.click("#transcriptionHistoryBackBtn");
     await page.waitForFunction(() => document.getElementById("transcriptionHistoryDetail").hidden && !document.getElementById("transcriptionHistoryList").hidden, undefined, { timeout: 5000 });
     await page.locator('[data-close="transcriptionHistoryDialog"]').first().click();
     await page.waitForFunction(() => !document.getElementById("transcriptionHistoryDialog").open);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.click("#workshopTabItalian");
+    await page.click("#workshopHistoryBtn");
+    await page.waitForFunction(() => document.getElementById("transcriptionHistoryDialog").open);
+    await page.click('[data-history-revision="tx-seed-rev2"]');
+    await page.waitForFunction(() => !document.getElementById("transcriptionHistoryDetail").hidden);
+    const mobileBefore = await page.locator("#transcriptionHistoryDialog").evaluate(dialog => {
+      const r = dialog.getBoundingClientRect();
+      return { width: r.width, height: r.height, bodyHeight: dialog.querySelector(":scope > .modal-body").getBoundingClientRect().height, overflow: document.documentElement.scrollWidth > innerWidth, closeVisible: getComputedStyle(dialog.querySelector("[data-close='transcriptionHistoryDialog']")).display !== "none", footerVisible: dialog.querySelector(":scope > .modal-actions").getBoundingClientRect().height > 0 };
+    });
+    assert.ok(mobileBefore.height > 0 && mobileBefore.height <= 844, "hauteur de modale limitée à l’espace mobile");
+    assert.ok(mobileBefore.width <= 390, "pas de débordement horizontal de la modale mobile");
+    assert.equal(mobileBefore.overflow, false, "page mobile sans débordement horizontal");
+    assert.equal(mobileBefore.closeVisible, true, "fermeture accessible sur mobile");
+    assert.equal(mobileBefore.footerVisible, true, "actions de navigation accessibles sur mobile");
+    await page.locator("#transcriptionHistoryDetail .transcription-history-passage").nth(1).locator("summary").click();
+    const mobileAfter = await page.locator("#transcriptionHistoryDialog").evaluate(dialog => {
+      const r = dialog.getBoundingClientRect();
+      return { width: r.width, height: r.height, bodyHeight: dialog.querySelector(":scope > .modal-body").getBoundingClientRect().height };
+    });
+    assert.deepEqual(mobileAfter, { width: mobileBefore.width, height: mobileBefore.height, bodyHeight: mobileBefore.bodyHeight }, "hauteur stable pendant l’ouverture d’un accordéon mobile");
+    await page.locator('[data-close="transcriptionHistoryDialog"]').first().click();
 
     /* L'atelier est intact après consultation. */
     assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Validée · v2", "badge intact après l'historique");

@@ -5887,6 +5887,7 @@ function resolveTranscriptionDraftLegacyRecovery(choice) {
 let transcriptionWorkshopDocumentCollapsed = false;
 let transcriptionWorkshopEditing = false;
 let transcriptionWorkshopViewingOfficial = false;
+let transcriptionWorkshopCancelTarget = null;
 let transcriptionValidationTarget = null;
 let transcriptionHistoryRevisionId = null;
 
@@ -5937,6 +5938,65 @@ function setTranscriptionWorkshopMode({ editing, viewingOfficial = false } = {})
   transcriptionWorkshopEditing = Boolean(editing || !transcriptionWorkshopHead());
   transcriptionWorkshopViewingOfficial = Boolean(viewingOfficial && transcriptionWorkshopHead());
   if (transcriptionWorkshopViewingOfficial) transcriptionWorkshopEditing = true;
+  renderTranscriptionWorkshop();
+}
+
+function cancelTranscriptionWorkshopEdit() {
+  const draft = transcriptionWorkshopDraft;
+  if (!draft || transcriptionWorkshopIsReadOnly()) return;
+  flushTranscriptionWorkshopDraftSaves();
+  const head = transcriptionWorkshopHead();
+  if (!draft.dirty) {
+    if (!head) return exitTranscriptionWorkshop();
+    transcriptionWorkshopEditing = false;
+    transcriptionWorkshopViewingOfficial = false;
+    return renderTranscriptionWorkshop();
+  }
+  transcriptionWorkshopCancelTarget = {
+    documentId: draft.documentId,
+    pageId: draft.pageId,
+    hasOfficial: Boolean(head)
+  };
+  const dialog = $("transcriptionEditCancelDialog");
+  if (!dialog.open) dialog.showModal();
+}
+
+function resolveTranscriptionWorkshopCancel(choice) {
+  const target = transcriptionWorkshopCancelTarget;
+  const draft = transcriptionWorkshopDraft;
+  if (!target || !draft || target.documentId !== draft.documentId || target.pageId !== draft.pageId) {
+    if ($("transcriptionEditCancelDialog").open) $("transcriptionEditCancelDialog").close();
+    transcriptionWorkshopCancelTarget = null;
+    return toast("Le brouillon a changé de page. Vérifiez-le avant de continuer.", "error");
+  }
+  if (choice === "continue") {
+    $("transcriptionEditCancelDialog").close();
+    transcriptionWorkshopCancelTarget = null;
+    return;
+  }
+  if (choice === "keep") {
+    flushTranscriptionWorkshopDraftSaves();
+    const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
+    if (draft.dirty && transcriptionDraftSaveStates.get(key)?.status !== "saved") {
+      return toast("Le brouillon n’a pas pu être enregistré sur cet appareil. L’édition reste ouverte pour éviter toute perte.", "error");
+    }
+  } else if (choice === "discard") {
+    resetTranscriptionWorkshopDraft(draft);
+    scheduleTranscriptionWorkshopDraftSave(draft);
+    transcriptionWorkshopDrafts.set(transcriptionWorkshopDraftKey(draft.documentId, draft.pageId), draft);
+  } else {
+    return;
+  }
+  $("transcriptionEditCancelDialog").close();
+  transcriptionWorkshopCancelTarget = null;
+  if (!target.hasOfficial) return exitTranscriptionWorkshop();
+  if (choice === "keep") {
+    transcriptionWorkshopEditing = true;
+    transcriptionWorkshopViewingOfficial = true;
+  } else {
+    transcriptionWorkshopEditing = false;
+    transcriptionWorkshopViewingOfficial = true;
+  }
   renderTranscriptionWorkshop();
 }
 
@@ -6098,6 +6158,10 @@ function formatTranscriptionHistoryDate(value) {
   return date.toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" });
 }
 
+function formatFrenchCount(count, singular, plural) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 function transcriptionHistoryEntries(head) {
   const revisions = genealogyRecords.transcriptionRevisions.filter(record => record.objectId === head.id);
   return orderTranscriptionRevisionHistory(head, revisions);
@@ -6154,7 +6218,7 @@ function openTranscriptionHistoryDetail(revisionId) {
       );
       passageChanges = new Map(comparison.passageChanges.map(change => [change.passageId, change.change]));
       officialDiff = comparison.passageChanges.length
-        ? `${comparison.passageChanges.length} passage(s) modifié(s) par rapport à la version v${entry.version - 1}`
+        ? `${formatFrenchCount(comparison.passageChanges.length, "passage modifié", "passages modifiés")} par rapport à la version v${entry.version - 1}`
         : "Aucun changement de passage par rapport à la version précédente";
     } catch {
       officialDiff = "Comparaison avec la version précédente indisponible.";
@@ -6170,7 +6234,7 @@ function openTranscriptionHistoryDetail(revisionId) {
         { documentId: content.documentId, pageId: content.pageId, passages: draft.passages }
       );
       draftDiff = comparison.passageChanges.length
-        ? `Brouillon courant : ${comparison.passageChanges.length} passage(s) différent(s) de cette version.`
+        ? `Brouillon courant : ${formatFrenchCount(comparison.passageChanges.length, "passage différent", "passages différents")} de cette version.`
         : "Brouillon courant : contenu identique à cette version.";
     } catch {
       draftDiff = "";
@@ -6186,14 +6250,15 @@ function openTranscriptionHistoryDetail(revisionId) {
     const french = passage.translationFr == null || passage.translationFr === ""
       ? `<p class="transcription-history-missing">Traduction française absente.</p>`
       : `<p class="transcription-history-text">${esc(passage.translationFr)}</p>`;
-    return `<details class="transcription-history-passage"${index === 0 ? " open" : ""}><summary>Passage ${index + 1} · ${esc(change === "initial" ? "Version initiale" : changeLabel(change))}</summary><div class="transcription-history-passage-body"><span class="transcription-workshop-field-label">Transcription italienne</span><p class="transcription-history-text">${esc(passage.textIt || (passage.unreadable ? "Lecture indéchiffrable" : "Texte absent"))}</p><span class="transcription-workshop-field-label">Traduction française</span>${french}</div></details>`;
+    const bodyId = `transcriptionHistoryPassage-${passage.id}-body`;
+    return `<details class="transcription-history-passage"${index === 0 ? " open" : ""}><summary aria-controls="${esc(bodyId)}"><span>Passage ${index + 1} · ${esc(change === "initial" ? "Version initiale" : changeLabel(change))}</span><svg class="ui-icon transcription-history-chevron" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></summary><div class="transcription-history-passage-body" id="${esc(bodyId)}"><span class="transcription-workshop-field-label">Transcription italienne</span><p class="transcription-history-text">${esc(passage.textIt || (passage.unreadable ? "Lecture indéchiffrable" : "Texte absent"))}</p><span class="transcription-workshop-field-label">Traduction française</span>${french}</div></details>`;
   }).join("");
   const deletedMarkup = previousPassages.filter(passage => !currentIds.has(passage.id)).map((passage, index) =>
-    `<details class="transcription-history-passage"><summary>Passage ${passages.length + index + 1} · Supprimé · ${esc(passage.lineLabel || `ancien passage ${index + 1}`)}</summary><div class="transcription-history-passage-body"><span class="transcription-workshop-badge transcription-workshop-badge--review">Supprimé</span><span class="transcription-workshop-field-label">Transcription italienne (version précédente)</span><p class="transcription-history-text">${esc(passage.textIt || "Texte absent")}</p><span class="transcription-workshop-field-label">Traduction française (version précédente)</span>${passage.translationFr ? `<p class="transcription-history-text">${esc(passage.translationFr)}</p>` : `<p class="transcription-history-missing">Traduction française absente.</p>`}</div></details>`
+    `<details class="transcription-history-passage"><summary><span>Passage ${passages.length + index + 1} · Supprimé · ${esc(passage.lineLabel || `ancien passage ${index + 1}`)}</span><svg class="ui-icon transcription-history-chevron" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></summary><div class="transcription-history-passage-body"><span class="transcription-workshop-badge transcription-workshop-badge--review">Supprimé</span><span class="transcription-workshop-field-label">Transcription italienne (version précédente)</span><p class="transcription-history-text">${esc(passage.textIt || "Texte absent")}</p><span class="transcription-workshop-field-label">Traduction française (version précédente)</span>${passage.translationFr ? `<p class="transcription-history-text">${esc(passage.translationFr)}</p>` : `<p class="transcription-history-missing">Traduction française absente.</p>`}</div></details>`
   ).join("");
   const translatedCount = passages.filter(passage => passage.translationFr != null && passage.translationFr !== "").length;
   const translationLine = translatedCount
-    ? `Traduction française : ${translatedCount} passage(s) sur ${passages.length}`
+    ? `Traduction française : ${formatFrenchCount(translatedCount, "passage traduit", "passages traduits")} sur ${passages.length}`
     : "Traduction française : absente";
   const detail = $("transcriptionHistoryDetail");
   detail.innerHTML = `
@@ -7231,12 +7296,16 @@ function updateWorkshopDraftIndicators() {
   const modeButton = $("workshopModeBtn");
   if (modeButton) {
     const hasOfficial = Boolean(transcriptionWorkshopHead());
-    modeButton.hidden = !hasOfficial;
+    modeButton.hidden = !hasOfficial || !officialReadOnly;
     modeButton.textContent = officialReadOnly
-      ? (transcriptionWorkshopViewingOfficial ? "Reprendre la révision" : "Modifier")
-      : "Voir la version officielle";
+      ? (transcriptionWorkshopViewingOfficial && draft.dirty ? "Reprendre la révision" : "Modifier")
+      : "Modifier";
     modeButton.setAttribute("aria-label", modeButton.textContent);
   }
+  const viewOfficialButton = $("workshopViewOfficialMenuBtn");
+  if (viewOfficialButton) viewOfficialButton.hidden = !transcriptionWorkshopHead() || officialReadOnly || !draft.dirty;
+  const cancelEditButton = $("workshopCancelEditBtn");
+  if (cancelEditButton) cancelEditButton.hidden = officialReadOnly;
   const autoSaveHint = $("workshopAutosaveHint");
   if (autoSaveHint) autoSaveHint.hidden = officialReadOnly;
   const addPassageButton = $("workshopAddPassageBtn");
@@ -7270,7 +7339,7 @@ function updateWorkshopDraftIndicators() {
   if (validateButton) {
     const targetLabel = transcriptionWorkshopHead() ? "Valider la révision" : "Valider la transcription";
     const validateLabel = $("workshopValidateLabel");
-    if (validateLabel && validateLabel.textContent !== targetLabel) validateLabel.textContent = targetLabel;
+    if (validateLabel && validateLabel.textContent !== "Valider") validateLabel.textContent = "Valider";
     if (validateButton.getAttribute("aria-label") !== targetLabel) validateButton.setAttribute("aria-label", targetLabel);
     validateButton.hidden = officialReadOnly || !isAdminUser();
     const hasContent = hasTranscriptionContent(draft.passages);
@@ -7392,8 +7461,10 @@ function resetTranscriptionWorkshopState() {
   if ($("transcriptionDraftRecoveryDialog")?.open) $("transcriptionDraftRecoveryDialog").close();
   transcriptionDraftLegacyRecoveryTarget = null;
   if ($("transcriptionValidationDialog")?.open) $("transcriptionValidationDialog").close();
+  if ($("transcriptionEditCancelDialog")?.open) $("transcriptionEditCancelDialog").close();
   if ($("transcriptionHistoryDialog")?.open) $("transcriptionHistoryDialog").close();
   transcriptionValidationTarget = null;
+  transcriptionWorkshopCancelTarget = null;
   transcriptionHistoryRevisionId = null;
   if ($("workshopHelpBtn")) $("workshopHelpBtn").setAttribute("aria-expanded", "false");
   if ($("workshopDraftHelp")) $("workshopDraftHelp").hidden = true;
@@ -7409,6 +7480,12 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     } else {
       setTranscriptionWorkshopMode({ editing: true, viewingOfficial: true });
     }
+    return;
+  }
+  if (event.target.closest("#workshopCancelEditBtn")) return cancelTranscriptionWorkshopEdit();
+  if (event.target.closest("#workshopViewOfficialMenuBtn")) {
+    closeTranscriptionWorkshopMenu();
+    setTranscriptionWorkshopMode({ editing: true, viewingOfficial: true });
     return;
   }
   const tab = event.target.closest("[data-workshop-tab]");
@@ -7579,6 +7656,11 @@ $("transcriptionDraftRecoveryLeaveBtn").addEventListener("click", () => resolveT
    boutons de l'en-tête et du pied, dialogues racine — aucune nouvelle barre. */
 $("workshopValidateBtn").addEventListener("click", () => openTranscriptionValidationDialog());
 $("transcriptionValidationConfirmBtn").addEventListener("click", () => { confirmTranscriptionValidation(); });
+$("workshopCancelContinueBtn").addEventListener("click", () => resolveTranscriptionWorkshopCancel("continue"));
+$("workshopCancelContinueHeaderBtn").addEventListener("click", () => resolveTranscriptionWorkshopCancel("continue"));
+$("workshopCancelKeepBtn").addEventListener("click", () => resolveTranscriptionWorkshopCancel("keep"));
+$("workshopCancelDiscardBtn").addEventListener("click", () => resolveTranscriptionWorkshopCancel("discard"));
+$("transcriptionEditCancelDialog").addEventListener("close", () => { transcriptionWorkshopCancelTarget = null; });
 $("workshopHistoryBtn").addEventListener("click", () => openTranscriptionHistoryDialog());
 $("transcriptionHistoryList").addEventListener("click", event => {
   const row = event.target.closest("[data-history-revision]");
@@ -9232,8 +9314,8 @@ function documentTranscriptionCardMarkup(item, linkedSources, sourceState) {
         : localDraft?.dirty ? "Brouillon local"
           : passages.length ? "Transcription existante · version source" : "Aucune transcription";
     const action = head
-      ? hasRevision ? "Reprendre la révision" : "Consulter la transcription"
-      : localDraft?.dirty || passages.length ? "Reprendre la transcription" : "Commencer la transcription";
+      ? hasRevision ? "Reprendre" : "Consulter"
+      : localDraft?.dirty || passages.length ? "Reprendre" : "Ajouter";
     return { ...candidate, head, localDraft, passages, version, hasRevision, status, action };
   });
   const selected = states.find(state => state.hasRevision || state.localDraft?.dirty)
@@ -9249,7 +9331,7 @@ function documentTranscriptionCardMarkup(item, linkedSources, sourceState) {
   const pagePosition = selected ? selected.pages.findIndex(page => page.id === selected.page.id) : -1;
   const pageLabel = selected && selected.pages.length > 1 ? ` · Page ${pagePosition + 1}` : "";
   const actionMarkup = selected || isDocumentConsultable(item)
-    ? `<button class="btn small primary" type="button" data-transcribe-document="${esc(item.id)}"${selected ? ` data-transcription-page-id="${esc(selected.page.id)}"` : ""}>${esc(selected?.action || "Commencer la transcription")}</button>`
+    ? `<button class="btn small" type="button" data-transcribe-document="${esc(item.id)}"${selected ? ` data-transcription-page-id="${esc(selected.page.id)}"` : ""}>${esc(selected?.action || "Ajouter")}</button>`
     : `<p class="document-unified-notice">Aucune transcription ni page de transcription n’est associée à ce document.</p>`;
   return `<section class="document-unified-section document-transcription-card"><div class="document-unified-section-head"><h4>Transcription${esc(pageLabel)}</h4>${actionMarkup}</div><div class="document-transcription-summary"><div><strong>État</strong><span>${esc(selected?.status || "Aucune transcription")}</span></div><div><strong>Passages</strong><span>${passages.length}</span></div><div><strong>Italien</strong><span>${italian}</span></div><div><strong>Français</strong><span>${french}</span></div></div></section>`;
 }

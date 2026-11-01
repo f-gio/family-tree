@@ -338,7 +338,7 @@ test("la fiche détaillée d'une source présente des faits structurés sans JSO
   for (const label of ["Statut", "Type ou catégorie", "Date", "Lieu", "Institution de conservation", "Fonds ou série", "Cote", "Sous-cote", "Référence archivistique"]) {
     assert.ok(facts.includes(`"${label}"`) || facts.includes(`>${label}</strong>`), `libellé de fiche source absent : ${label}`);
   }
-  /* Personnes associées : composant commun (pastille beige-gris), pas un fait
+  /* Personnes associées : composant commun (pastille ivoire), pas un fait
      archivistique en texte brut. */
   assert.ok(peopleSection.length > 200, "section personnes commune présente pour la Source");
   assert.match(peopleSection, /document-unified-section/, "même grammaire de section que Preuve et Document");
@@ -560,7 +560,8 @@ test("la fiche de consultation d'une preuve affiche des informations métier san
   assert.match(proofPanel, /<section class="document-unified-section"><h4>Personnes concernées/, "capsules placées dans le panneau beige partagé");
   assert.match(proofPage, /<div class="detail-page-main">/, "colonne principale de la page Preuve");
   assert.match(proofPage, /<div class="detail-page-aside">/, "colonne secondaire de la page Preuve");
-  assert.match(css, /\.document-unified-section \.person-chip \{ background: var\(--color-surface-muted\); border: var\(--border-default\); \}/, "pastilles personnes au fond beige-gris commun");
+  assert.match(css, /\.document-unified-section \.person-chip \{ background: var\(--color-surface\); border: var\(--border-default\); \}/, "pastilles personnes au fond ivoire commun");
+  assert.match(css, /\.person-chip \{[^}]*justify-content: center;[^}]*background: var\(--color-surface\);/, "contenu des pastilles centré comme un groupe icône + nom");
   assert.match(css, /\.source-detail-content \.detail-page-main > section,/, "sections des deux zones partagées Source/Preuve");
   assert.match(html, /id="genealogyItemBackBtn"[^>]*aria-label="Revenir à la fiche précédente"/, "bouton de retour entre fiches");
   assert.match(app, /genealogyItemReturn = \{ kind: activeGenealogyItem\.kind/, "pile de retour mémorisée");

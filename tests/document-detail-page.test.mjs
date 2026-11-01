@@ -295,11 +295,17 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "la bascule ouvre le volet Informations à 320px");
     const longPersonChip = await page.locator("#viewerDocumentDetails .document-unified-people .person-chip-consult").evaluate(button => {
       const name = button.querySelector("span");
-      return { buttonWidth: button.getBoundingClientRect().width, nameWidth: name.clientWidth, nameScrollWidth: name.scrollWidth, fontSize: getComputedStyle(button).fontSize };
+      const style = getComputedStyle(button);
+      return { buttonWidth: button.getBoundingClientRect().width, nameWidth: name.clientWidth, nameScrollWidth: name.scrollWidth, fontSize: style.fontSize, justify: style.justifyContent, align: style.alignItems, textAlign: style.textAlign, gap: style.gap, background: style.backgroundColor };
     });
     assert.ok(longPersonChip.buttonWidth > 0, "nom long affiché dans une pastille mobile");
     assert.ok(longPersonChip.nameScrollWidth <= longPersonChip.nameWidth + 1, "nom long renvoyé à la ligne sans débordement mobile");
     assert.ok(parseFloat(longPersonChip.fontSize) < 16, "typographie des personnes réduite et harmonisée sur mobile");
+    assert.equal(longPersonChip.justify, "center", "groupe icône + nom centré horizontalement sur mobile");
+    assert.equal(longPersonChip.align, "center", "contenu centré verticalement sur mobile");
+    assert.equal(longPersonChip.textAlign, "center", "nom centré dans sa capsule mobile");
+    assert.notEqual(longPersonChip.gap, "0px", "espacement constant entre icône et nom");
+    assert.equal(longPersonChip.background, "rgb(255, 253, 248)", "fond ivoire du design system");
     /* Carte « Informations fichier » : positions réelles — chaque métadonnée
        est un groupe vertical (libellé au-dessus de sa valeur, alignés à
        gauche) sur deux colonnes, la date n'est jamais tronquée, « Fichier »
@@ -421,10 +427,15 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.detailsOverflowY, "visible", "les Informations suivent le défilement naturel de la page");
     const desktopLongPerson = await page.locator("#viewerDocumentDetails .document-unified-people .person-chip-consult").evaluate(button => {
       const name = button.querySelector("span");
-      return { nameWidth: name.clientWidth, nameScrollWidth: name.scrollWidth, fontSize: getComputedStyle(button).fontSize };
+      const style = getComputedStyle(button);
+      return { nameWidth: name.clientWidth, nameScrollWidth: name.scrollWidth, fontSize: style.fontSize, justify: style.justifyContent, align: style.alignItems, textAlign: style.textAlign, background: style.backgroundColor };
     });
     assert.ok(desktopLongPerson.nameScrollWidth <= desktopLongPerson.nameWidth + 1, "nom long renvoyé à la ligne sans débordement desktop");
     assert.ok(parseFloat(desktopLongPerson.fontSize) < 16, "typographie des personnes réduite et harmonisée sur desktop");
+    assert.equal(desktopLongPerson.justify, "center", "groupe icône + nom centré horizontalement sur desktop");
+    assert.equal(desktopLongPerson.align, "center", "contenu centré verticalement sur desktop");
+    assert.equal(desktopLongPerson.textAlign, "center", "nom centré dans sa capsule desktop");
+    assert.equal(desktopLongPerson.background, "rgb(255, 253, 248)", "fond ivoire commun sur desktop");
 
     /* Comparaison géométrique des trois en-têtes aux largeurs mobile et desktop. */
     const headerMeasure = viewId => page.evaluate(id => {
