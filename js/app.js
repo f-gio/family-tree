@@ -5920,13 +5920,18 @@ function transcriptionWorkshopOfficialState() {
     : { kind: "revision", label: `Révision en cours · v${version + 1}`, head };
 }
 
+/* Lecture seule : consultation officielle, aperçu officiel et comparaison —
+   la saisie n'existe que dans l'onglet « Mon brouillon » d'une session
+   d'édition explicite (bouton « Modifier »). */
 function transcriptionWorkshopIsReadOnly() {
-  return transcriptionWorkshopDisplayMode === "official" || transcriptionWorkshopDisplayMode === "diff"
-    || Boolean(transcriptionWorkshopHead() && (!transcriptionWorkshopEditing || transcriptionWorkshopViewingOfficial));
+  return !transcriptionWorkshopEditing || transcriptionWorkshopViewingOfficial || transcriptionWorkshopDisplayMode !== "draft";
 }
 
 function transcriptionWorkshopDisplayedPassages() {
-  if (transcriptionWorkshopDisplayMode === "official" || transcriptionWorkshopViewingOfficial) {
+  /* Consultation : jamais le brouillon présenté comme officiel — seul le
+     contenu officiel est affiché (état vide si la version n'existe pas). */
+  if (!transcriptionWorkshopEditing || transcriptionWorkshopViewingOfficial
+    || transcriptionWorkshopDisplayMode === "official") {
     const passages = genealogyRecordData(transcriptionWorkshopHead() || {}).passages;
     if (Array.isArray(passages)) return passages;
     return [];
@@ -5953,10 +5958,14 @@ function transcriptionWorkshopDisplayTextDiff(before, after) {
 }
 
 function setTranscriptionWorkshopDisplayMode(mode) {
-  if (!transcriptionWorkshopDraft || !["draft", "official", "diff"].includes(mode)) return;
+  if (!transcriptionWorkshopDraft || !transcriptionWorkshopEditing || !["draft", "official", "diff"].includes(mode)) return;
+  /* Bascule purement visuelle : flush puis rendu — aucun contenu n'est écrit
+     ni réinitialisé lors d'un changement d'onglet. */
   flushTranscriptionWorkshopDraftSaves();
   transcriptionWorkshopDisplayMode = mode;
-  transcriptionWorkshopViewingOfficial = mode === "official";
+  /* L'aperçu officiel n'existe que s'il y a une version officielle : sans
+     version, l'onglet affiche l'état vide explicite, jamais le brouillon. */
+  transcriptionWorkshopViewingOfficial = mode === "official" && Boolean(transcriptionWorkshopHead());
   transcriptionWorkshopCompare = mode === "diff";
   closeTranscriptionWorkshopMenu();
   renderTranscriptionWorkshop();
@@ -5983,13 +5992,16 @@ function setTranscriptionWorkshopMode({ editing, viewingOfficial = false } = {})
 
 function cancelTranscriptionWorkshopEdit() {
   const draft = transcriptionWorkshopDraft;
-  if (!draft || transcriptionWorkshopIsReadOnly()) return;
+  if (!draft || !transcriptionWorkshopEditing) return;
   flushTranscriptionWorkshopDraftSaves();
   const head = transcriptionWorkshopHead();
   if (!draft.dirty) {
     if (!head) return exitTranscriptionWorkshop();
+    /* Sortie effective du mode édition : retour à la consultation officielle,
+       contrôle segmenté masqué — aucun contenu n'est réinitialisé. */
     transcriptionWorkshopEditing = false;
     transcriptionWorkshopViewingOfficial = false;
+    transcriptionWorkshopDisplayMode = "draft";
     return renderTranscriptionWorkshop();
   }
   transcriptionWorkshopCancelTarget = {
@@ -6030,13 +6042,12 @@ function resolveTranscriptionWorkshopCancel(choice) {
   $("transcriptionEditCancelDialog").close();
   transcriptionWorkshopCancelTarget = null;
   if (!target.hasOfficial) return exitTranscriptionWorkshop();
-  if (choice === "keep") {
-    transcriptionWorkshopEditing = true;
-    transcriptionWorkshopViewingOfficial = true;
-  } else {
-    transcriptionWorkshopEditing = false;
-    transcriptionWorkshopViewingOfficial = true;
-  }
+  /* Choix explicite : la session d'édition se termine et l'on revient à la
+     consultation officielle (contrôle segmenté masqué). « Conserver » laisse
+     le brouillon intact et reprenable ; « Abandonner » l'a déjà remis à zéro. */
+  transcriptionWorkshopEditing = false;
+  transcriptionWorkshopViewingOfficial = false;
+  transcriptionWorkshopDisplayMode = "draft";
   renderTranscriptionWorkshop();
 }
 
@@ -6758,6 +6769,7 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
       if (transcriptionWorkshopDraft?.dirty && transcriptionOfficialHeadForPage(context.documentId, page.id)) {
         transcriptionWorkshopEditing = true;
         transcriptionWorkshopViewingOfficial = false;
+        transcriptionWorkshopDisplayMode = "draft";
         renderTranscriptionWorkshop();
       }
     })
@@ -7092,7 +7104,10 @@ function renderWorkshopPassageList(editable) {
     list.innerHTML = "";
     return;
   }
-  if (transcriptionWorkshopDisplayMode === "official" && !transcriptionWorkshopHead()) {
+  if ((!transcriptionWorkshopEditing || transcriptionWorkshopDisplayMode === "official")
+    && !transcriptionWorkshopHead()) {
+    /* Consultation sans version officielle : état vide explicite — un brouillon
+       n'est jamais présenté comme une version officielle. */
     list.innerHTML = `<p class="transcription-workshop-empty">Aucune version officielle n’est disponible pour cette page.</p>`;
     return;
   }
@@ -7419,7 +7434,8 @@ function updateWorkshopDraftIndicators() {
     ? "Comparaison en lecture seule"
     : transcriptionWorkshopViewingOfficial
       ? (transcriptionWorkshopHead() ? `Version officielle · v${transcriptionWorkshopHead()?.version || 1}` : "Aucune version officielle")
-    : officialReadOnly ? `Consultation officielle · v${transcriptionWorkshopHead()?.version || 1}`
+    : officialReadOnly
+      ? (transcriptionWorkshopHead() ? `Consultation officielle · v${transcriptionWorkshopHead()?.version || 1}` : "Aucune version officielle")
       : conflict ? TRANSCRIPTION_DRAFT_SYNC_LABELS.conflict
     : localFailed ? "Échec de sauvegarde"
       : offline ? TRANSCRIPTION_DRAFT_SYNC_LABELS.offline
@@ -7455,17 +7471,22 @@ function updateWorkshopDraftIndicators() {
     remoteStatusElement.classList.toggle("is-conflict", remoteState?.status === "conflict");
     remoteStatusElement.classList.toggle("is-synced", remoteState?.status === "synced");
   }
+  const inEditSession = transcriptionWorkshopEditing;
   const modeButton = $("workshopModeBtn");
   if (modeButton) {
     const hasOfficial = Boolean(transcriptionWorkshopHead());
-    modeButton.hidden = !hasOfficial || !officialReadOnly;
-    modeButton.textContent = officialReadOnly
-      ? (transcriptionWorkshopViewingOfficial && draft.dirty ? "Reprendre la révision" : "Modifier")
-      : "Modifier";
+    /* « Modifier » n'existe qu'en consultation ; pendant l'édition, le pied
+       affiche Annuler + Valider et le contrôle segmenté gère les vues. */
+    modeButton.hidden = inEditSession || !hasOfficial;
+    modeButton.textContent = draft.dirty ? "Reprendre la révision" : "Modifier";
     modeButton.setAttribute("aria-label", modeButton.textContent);
   }
+  /* Contrôle segmenté Brouillon / Officielle / Différences : visible pendant
+     la session d'édition uniquement, masqué en consultation officielle. */
+  const modeSwitch = document.querySelector(".transcription-workshop-mode");
+  if (modeSwitch) modeSwitch.hidden = !inEditSession;
   const cancelEditButton = $("workshopCancelEditBtn");
-  if (cancelEditButton) cancelEditButton.hidden = officialReadOnly;
+  if (cancelEditButton) cancelEditButton.hidden = !inEditSession;
   const helpButton = $("workshopHelpBtn");
   if (helpButton) helpButton.hidden = officialReadOnly;
   const autoSaveHint = $("workshopAutosaveHint");
@@ -7508,7 +7529,7 @@ function updateWorkshopDraftIndicators() {
     const validateLabel = $("workshopValidateLabel");
     if (validateLabel && validateLabel.textContent !== "Valider") validateLabel.textContent = "Valider";
     if (validateButton.getAttribute("aria-label") !== targetLabel) validateButton.setAttribute("aria-label", targetLabel);
-    validateButton.hidden = officialReadOnly || !isAdminUser();
+    validateButton.hidden = !inEditSession || !isAdminUser();
     const hasContent = hasTranscriptionContent(draft.passages);
     validateButton.disabled = !hasContent;
     validateButton.title = hasContent ? targetLabel : "La transcription italienne est vide : rien à valider";
@@ -7638,11 +7659,9 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
   const breadcrumb = event.target.closest("[data-workshop-breadcrumb]");
   if (breadcrumb) return navigateTranscriptionWorkshopBreadcrumb(breadcrumb.dataset.workshopBreadcrumb);
   if (event.target.closest("#workshopModeBtn")) {
-    if (transcriptionWorkshopViewingOfficial || transcriptionWorkshopIsReadOnly()) {
-      setTranscriptionWorkshopMode({ editing: true });
-    } else {
-      setTranscriptionWorkshopMode({ editing: true, viewingOfficial: true });
-    }
+    /* Consultation → session d'édition : le contrôle segmenté apparaît avec
+       « Mon brouillon » sélectionné par défaut (brouillon existant repris). */
+    setTranscriptionWorkshopMode({ editing: true });
     return;
   }
   if (event.target.closest("#workshopCancelEditBtn")) return cancelTranscriptionWorkshopEdit();
@@ -9812,6 +9831,30 @@ function setUnifiedDetailsCollapsed(collapsed) {
   $("viewerDetailsExpandBtn").setAttribute("aria-label", detailsActionLabel);
   $("viewerDetailsExpandBtn").title = detailsActionLabel;
   $("viewerDetailsExpandBtn").querySelector("use")?.setAttribute("href", collapsed ? "#icon-panel-expand" : "#icon-panel-collapse");
+}
+
+/* Volet « Informations » de la fiche Document sur mobile : après le dépliage
+   naturel du panneau, un unique défilement doux amène le titre et le début du
+   contenu sous l'en-tête sticky. La mise en page est attendue stabilisée (double
+   requestAnimationFrame, sans délai arbitraire) ; si le début du contenu est
+   déjà visible, aucun déplacement n'est provoqué, et le focus n'est jamais
+   déplacé. Aucune modification de la visionneuse. */
+function revealUnifiedDetailsOnMobile() {
+  if (!window.matchMedia("(max-width: 760px)").matches) return;
+  const details = $("viewerDocumentDetails");
+  if (!details || details.hidden) return;
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (details.hidden || $("documentUnifiedLayout").classList.contains("is-details-collapsed")) return;
+    const rect = details.getBoundingClientRect();
+    const header = document.querySelector(".topbar");
+    const headerBottom = header && getComputedStyle(header).position === "sticky"
+      ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
+    /* Visible = à partir du bas de l'en-tête sticky et suffisamment haut dans
+       le viewport pour laisser voir le titre. */
+    if (rect.top >= headerBottom - 2 && rect.top <= window.innerHeight - 64) return;
+    window.scrollBy({ top: rect.top - headerBottom, behavior: reduceMotion ? "auto" : "smooth" });
+  }));
 }
 
 /** Vrai quand la page Document dédiée est la vue affichée. */
@@ -12449,7 +12492,12 @@ else if (typeof viewerPdfMedia.addListener === "function") viewerPdfMedia.addLis
    Informations) et repli desktop — plus d'onglet supérieur (lot G), plus de
    modal ni de close listener. */
 $("documentPageBackBtn").addEventListener("click", returnFromDocumentPage);
-$("viewerDetailsBtn").onclick = () => setUnifiedDetailsCollapsed(!$("documentUnifiedLayout").classList.contains("is-details-collapsed"));
+$("viewerDetailsBtn").onclick = () => {
+  const expanding = $("documentUnifiedLayout").classList.contains("is-details-collapsed");
+  setUnifiedDetailsCollapsed(!expanding);
+  /* Uniquement à l'ouverture : le repli ne provoque aucun défilement. */
+  if (expanding) revealUnifiedDetailsOnMobile();
+};
 const pdfPanelsMedia = window.matchMedia("(max-width: 760px)");
 const onPdfPanelsMediaChange = () => { if (viewerPdfState) arrangePdfChrome(); };
 if (typeof pdfPanelsMedia.addEventListener === "function") pdfPanelsMedia.addEventListener("change", onPdfPanelsMediaChange);

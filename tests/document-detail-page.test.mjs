@@ -297,8 +297,43 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.infoHidden, true, "volet replié à l'ouverture à 320px");
     assert.equal(await page.locator("#viewerImage").isVisible(), true, "le lecteur reste affiché à 320px");
     assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "libellé « Original » masqué sur mobile (lot corrections)");
-    await page.click("#viewerDetailsBtn");
+    /* Correctif : le dépliage « Informations » amène le titre et le début du
+       contenu dans la zone utile de l'écran, sans défilement manuel. La bascule
+       est d'abord positionnée en bas pour reproduire un contenu ouvert sous la
+       ligne de flottaison ; si le contenu est déjà visible, aucun déplacement
+       n'est provoqué. */
+    await page.evaluate(() => {
+      window.scrollTo({ top: 0, behavior: "instant" });
+      const toggle = document.getElementById("viewerDetailsBtn").getBoundingClientRect();
+      window.scrollBy({ top: toggle.bottom - (window.innerHeight - 8), behavior: "instant" });
+    });
+    const preReveal = await page.evaluate(() => {
+      const toggle = document.getElementById("viewerDetailsBtn").getBoundingClientRect();
+      return { scrollY: window.scrollY, toggleBottom: Math.round(toggle.bottom), viewport: innerHeight };
+    });
+    await page.evaluate(() => document.getElementById("viewerDetailsBtn").click());
     assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "la bascule ouvre le volet Informations à 320px");
+    await page.waitForFunction(() => {
+      const panel = document.getElementById("viewerDocumentDetails");
+      if (!panel || panel.hidden) return false;
+      const header = document.querySelector(".topbar");
+      const stickyBottom = header && getComputedStyle(header).position === "sticky" ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
+      const top = panel.getBoundingClientRect().top;
+      return top >= stickyBottom - 2 && top <= window.innerHeight - 64;
+    }, undefined, { timeout: 4000 });
+    const reveal = await page.evaluate(() => {
+      const panel = document.getElementById("viewerDocumentDetails");
+      const header = document.querySelector(".topbar");
+      const stickyBottom = header && getComputedStyle(header).position === "sticky" ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
+      return { scrollY: window.scrollY, panelTop: Math.round(panel.getBoundingClientRect().top), stickyBottom: Math.round(stickyBottom), viewport: innerHeight };
+    });
+    assert.ok(reveal.panelTop >= reveal.stickyBottom - 2, `titre « Informations » sous l’en-tête sticky (${reveal.panelTop} ≥ ${reveal.stickyBottom})`);
+    assert.ok(reveal.panelTop <= reveal.viewport - 64, `début du contenu visible sans défilement manuel (${reveal.panelTop} ≤ ${reveal.viewport - 64})`);
+    if (preReveal.toggleBottom > preReveal.viewport - 64) {
+      assert.ok(reveal.scrollY > preReveal.scrollY, `défilement automatique vers le contenu sous la flottaison (${preReveal.scrollY} → ${reveal.scrollY})`);
+    } else if (preReveal.toggleBottom <= preReveal.viewport - 76) {
+      assert.equal(reveal.scrollY, preReveal.scrollY, "aucun déplacement lorsque le début du contenu est déjà visible");
+    }
     const longPersonChip = await page.locator("#viewerDocumentDetails .document-unified-people .person-chip-consult").evaluate(button => {
       const name = button.querySelector("span");
       const style = getComputedStyle(button);
@@ -389,8 +424,17 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "aucun débordement en déplié");
     await page.click(".document-unified-filename");
     assert.equal(await page.locator(".document-unified-filename").first().getAttribute("aria-expanded"), "false", "nom replié au second clic");
-    await page.click("#viewerDetailsBtn");
+    /* Fermeture : aucun saut superflu — seul le recalage natif du défilement
+       (si le volet occupait le bas de la page) reste admis. */
+    const scrollBeforeDetailsClose = await page.evaluate(() => window.scrollY);
+    await page.evaluate(() => document.getElementById("viewerDetailsBtn").click());
     assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "la bascule referme le volet à 320px");
+    const detailsCloseState = await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+      scrollY: window.scrollY,
+      maxScroll: Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+    })))));
+    assert.ok(Math.abs(detailsCloseState.scrollY - Math.min(scrollBeforeDetailsClose, detailsCloseState.maxScroll)) <= 1,
+      `fermeture sans saut de défilement (${scrollBeforeDetailsClose} → ${detailsCloseState.scrollY}, max ${detailsCloseState.maxScroll})`);
     assert.equal(state.subtitleAbsent, true, "aucun sous-titre résiduel à 320px");
     assert.equal(state.titleLineClamp, "2", "titre limité à deux lignes à 320px");
     assert.equal(state.titleLabel, state.title, "titre complet accessible à 320px");

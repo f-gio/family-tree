@@ -2693,7 +2693,26 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-breadcrumb-link { display: inline-flex; align-items: center; justify-content: flex-start; flex: 0 0 auto; min-width: var(--control-touch); min-height: var(--control-touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-brand); font: inherit; text-align: left; cursor: pointer; }
 .transcription-workshop-breadcrumb-link:hover { text-decoration: underline; }
 .transcription-workshop-breadcrumb-link:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
-.btn.transcription-workshop-return { flex: 0 0 auto; min-height: var(--control-touch); margin-inline-start: auto; color: var(--color-text-muted); }
+/* Retour : véritable bouton secondaire (fond clair, bordure discrète) sur la
+   ligne du fil d'Ariane — jamais un simple lien. */
+.btn.transcription-workshop-return {
+  flex: 0 0 auto;
+  height: var(--control-touch);
+  min-height: var(--control-touch);
+  gap: var(--space-1);
+  margin-inline-start: auto;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: none;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-align: center;
+}
+.btn.transcription-workshop-return:hover { border-color: var(--color-border-strong); background: var(--color-surface-raised); box-shadow: none; color: var(--color-text); text-decoration: none; }
+.btn.transcription-workshop-return:focus-visible { border-color: var(--color-brand); box-shadow: none; }
 .transcription-workshop-breadcrumb-document { display: -webkit-box; flex: 0 1 auto; min-width: 0; max-width: min(32rem, 50vw); overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .transcription-workshop-heading #workshopPageHeading { margin: 0; font: 700 clamp(1.05rem, 2.4vw, 1.5rem)/var(--leading-tight) var(--font-display); }
 .transcription-workshop-heading h2 { margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font: 700 clamp(1.05rem, 2.4vw, 1.5rem)/var(--leading-tight) var(--font-display); }
@@ -2707,8 +2726,8 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-save-status.is-failed { color: var(--color-danger); }
 .transcription-workshop-save-status.is-synced { color: var(--color-success); }
 .transcription-workshop-save-status.is-conflict { color: var(--color-warning); }
-.transcription-workshop-autosave-hint { min-width: 0; color: var(--color-text-muted); font-size: var(--text-xs); }
-.transcription-workshop-remote-status { min-width: 0; color: var(--color-text-muted); font-size: var(--text-xs); }
+.transcription-workshop-autosave-hint { min-width: 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; text-overflow: ellipsis; }
+.transcription-workshop-remote-status { min-width: 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; text-overflow: ellipsis; }
 .transcription-workshop-remote-status.is-failed { color: var(--color-danger); }
 .transcription-workshop-remote-status.is-conflict { color: var(--color-warning); }
 .transcription-workshop-remote-status.is-synced { color: var(--color-success); }
@@ -2716,7 +2735,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
    du séparateur sur desktop et après la zone de saisie sur mobile — jamais au
    dessus du document, jamais en position fixe ou flottante. */
 .transcription-workshop-footer { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); flex: 0 0 auto; min-width: 0; margin-top: auto; padding-top: var(--space-2); border-top: var(--border-subtle); }
-.transcription-workshop-footer-status { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.transcription-workshop-footer-status { display: flex; align-items: center; flex-wrap: nowrap; gap: var(--space-2); min-width: 0; }
 .transcription-workshop-footer-status .transcription-workshop-save-status { min-width: 0; }
 .transcription-workshop-footer-actions { display: flex; align-items: center; flex: 0 0 auto; gap: var(--space-2); min-width: 0; margin-inline-start: auto; }
 /* Résolution de conflit : comparaison côte à côte sur desktop, empilée et
@@ -2871,9 +2890,6 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-compare-block strong { font-size: var(--text-md); }
 @media (min-width: 981px) {
   .transcription-workshop-layout { height: clamp(380px, calc(100dvh - 13rem), 900px); }
-  .transcription-workshop-passage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; column-gap: var(--space-3); }
-  .transcription-workshop-passage-head { grid-column: 1 / -1; }
-  .transcription-workshop-passage textarea { align-self: start; }
 }
 @media (min-width: 761px) and (max-width: 980px) {
   .transcription-workshop-layout { grid-template-columns: minmax(0, 1fr); height: auto; }
@@ -2889,6 +2905,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .transcription-workshop-heading { width: calc(100% - 5rem); max-width: calc(100% - 5rem); }
   .transcription-workshop-breadcrumb { position: static; flex-wrap: nowrap; padding-inline-end: 0; }
   .transcription-workshop-return { position: absolute; inset-inline-end: 0; inset-block-start: 0; margin: 0; min-width: var(--control-touch); min-height: var(--control-touch); }
+  .btn.transcription-workshop-return { margin-inline-start: 0; }
   .transcription-workshop-head-status { grid-column: auto; grid-row: auto; justify-self: auto; flex: 0 0 auto; max-width: none; }
   /* Cibles tactiles : `.btn.small` (32px) prime sur le minimum mobile — les
      actions du pied de transcription repassent à 44 px. */

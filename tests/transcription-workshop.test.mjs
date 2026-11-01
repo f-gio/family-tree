@@ -364,6 +364,13 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.ok(html.indexOf('id="workshopCancelEditBtn"') > html.indexOf('id="workshopPassageList"'), "« Annuler » déplacé dans le pied");
   assert.ok(html.indexOf('id="workshopValidateBtn"') > html.indexOf('id="workshopPassageList"'), "« Valider » déplacé dans le pied");
   assert.ok(html.indexOf('id="workshopModeBtn"') > html.indexOf('id="workshopPassageList"'), "« Modifier » rejoint le pied");
+  /* Pied harmonisé : les trois boutons partagent la même règle ; le contrôle
+     segmenté est masqué par défaut (état de consultation). */
+  assert.match(html, /class="btn small transcription-workshop-edit-cta"[^>]*id="workshopModeBtn"/, "« Modifier » partage le style des actions du pied");
+  assert.match(html, /class="transcription-workshop-mode"[^>]*hidden/, "contrôle segmenté masqué par défaut (consultation)");
+  assert.match(app, /querySelector\("\.transcription-workshop-mode"\)/, "contrôle segmenté piloté depuis l’état d’édition");
+  assert.match(app, /modeSwitch\.hidden = !inEditSession/, "segmenté visible uniquement pendant l’édition");
+  assert.match(app, /modeButton\.hidden = inEditSession \|\| !hasOfficial/, "« Modifier » réservé à la consultation");
   /* Barre d’outils de la visionneuse : même grammaire que la fiche Document,
      calée à gauche, texte « Ajusté » retiré. */
   const imageTools = html.match(/<div class="transcription-workshop-tools viewer-image-controls" id="workshopImageTools">[\s\S]*?<\/div><div class="genealogy-inline-actions" id="workshopPageNav">/)?.[0] || "";
@@ -401,6 +408,8 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.doesNotMatch(css, /#workshopValidateLabel \{ display: none;/, "libellé Valider visible sur mobile");
   assert.match(css, /\.transcription-workshop-footer-actions \.transcription-workshop-edit-cta \{[^}]*min-height: var\(--control-touch\)/, "cibles tactiles égales pour Annuler/Valider");
   assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour à la fiche d’origine"[^>]*title="Retour à la fiche d’origine"/, "retour contextuel accessible et discret");
+  assert.match(css, /\.btn\.transcription-workshop-return \{[^}]*height: var\(--control-touch\)/, "Retour en bouton secondaire de 44 px");
+  assert.match(css, /\.btn\.transcription-workshop-return \{[^}]*border: 1px solid var\(--color-border\)[^}]*background: var\(--color-surface\)/, "Retour avec bordure discrète et fond clair");
   assert.match(app, /function teardownTranscriptionWorkshop\(\)/, "nettoyage du lecteur à la sortie");
   for (const tab of ["Original", "Italien", "Français"]) assert.ok(html.includes(`>${tab}</button>`), `onglet ${tab} présent`);
   assert.match(html, /id="workshopPassagePills"/, "pastilles de navigation des passages présentes");
@@ -430,6 +439,8 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   }
   // Deux panneaux sur ordinateur, onglets et filtres de champs sur mobile.
   assert.match(css, /grid-template-columns: minmax\(0, var\(--workshop-split, 55%\)\) auto minmax\(0, 1fr\)/, "deux zones de travail 55/45 redimensionnables");
+  assert.doesNotMatch(css, /\.transcription-workshop-passage \{ display: grid;/, "sections de passage toujours empilées, jamais sur deux colonnes");
+  assert.doesNotMatch(css, /\.transcription-workshop-passage \{[^}]*grid-template-columns/, "aucune largeur de colonne imposée aux sections italien/français");
   assert.match(css, /\.transcription-workshop-menu-panel \{/, "menu secondaire d’en-tête");
   assert.match(css, /\.btn\.transcription-workshop-return \{[^}]*margin-inline-start: auto/, "Retour aligné à droite du fil d’Ariane");
   assert.match(css, /\.transcription-workshop-heading h2 \{[^}]*-webkit-line-clamp: 2/, "titre Atelier lisible sur deux lignes maximum");
