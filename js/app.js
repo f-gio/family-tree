@@ -71,6 +71,7 @@ import {
   transcriptionDraftRemoteKey,
   transcriptionDraftNowIso,
   transcriptionDraftSnapshotFromDraft,
+  transcriptionDraftSnapshotsEqual,
   parseTranscriptionDraftRemoteData,
   buildTranscriptionDraftRemotePayload,
   reconcileTranscriptionDraftOnOpen,
@@ -5054,6 +5055,7 @@ let transcriptionDraftSyncInFlight = new Set();
 /* Clé du conflit dont le dialogue est ouvert (résolution en cours). */
 let transcriptionDraftOpenConflictKey = null;
 const TRANSCRIPTION_DRAFT_REMOTE_BASE_PREFIX = "familyTreeTranscriptionDraftRemote:";
+const TRANSCRIPTION_DRAFT_SYNCED_PREFIX = "familyTreeTranscriptionDraftSynced:";
 const TRANSCRIPTION_DRAFT_SYNC_FAILURE_MESSAGE = "La synchronisation entre appareils a échoué. Vos modifications restent conservées sur cet appareil.";
 const TRANSCRIPTION_DRAFT_SYNC_CONFLICT_MESSAGE = "Conflit de brouillon : deux versions existent. Choisissez celle à conserver — rien n’est effacé.";
 const TRANSCRIPTION_DRAFT_SYNC_UNREADABLE_MESSAGE = "Le brouillon distant n’a pas pu être relu : rien n’a été remplacé, ni sur cet appareil ni sur le compte.";
@@ -5111,10 +5113,12 @@ function transcriptionDraftRemoteTarget(ownerUid, documentId, pageId) {
   return validateTranscriptionDraftTarget({ ownerUid, documentId, pageId });
 }
 
-/* Référence de version conservée entre les sessions (localStorage) : elle
-   évite un faux conflit après rechargement quand le distant n'a pas bougé, et
-   n'est jamais prise pour une autorisation d'écrasement — seule la comparaison
-   avec l'état réel de la base décide, dans la transaction. */
+/* Référence de version ET dernier contenu publié, conservés entre les sessions
+   (localStorage, par propriétaire) : la version évite un faux conflit après
+   rechargement, le snapshot prouve qu'une copie locale est inchangée depuis
+   notre dernier envoi (adoption de la version distante plus récente au lieu
+   d'un conflit). Rien de ces deux marqueurs n'autorise un écrasement : seule la
+   comparaison avec l'état réel de la base décide, dans la transaction. */
 function transcriptionDraftRemoteBaseStorageKey(target) {
   return `${TRANSCRIPTION_DRAFT_REMOTE_BASE_PREFIX}${encodeURIComponent(target.ownerUid)}|${target.documentId}|${target.pageId}`;
 }
@@ -5142,10 +5146,42 @@ function storeTranscriptionDraftRemoteBase(target, version) {
   }
 }
 
+function transcriptionDraftSyncedStorageKey(target) {
+  return `${TRANSCRIPTION_DRAFT_SYNCED_PREFIX}${encodeURIComponent(target.ownerUid)}|${target.documentId}|${target.pageId}`;
+}
+
+function readTranscriptionDraftSyncedSnapshot(target) {
+  const storage = transcriptionWorkshopDraftStorage();
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(transcriptionDraftSyncedStorageKey(target));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeTranscriptionDraftSyncedSnapshot(target, snapshot) {
+  const storage = transcriptionWorkshopDraftStorage();
+  if (!storage) return;
+  try {
+    const key = transcriptionDraftSyncedStorageKey(target);
+    if (snapshot == null) storage.removeItem(key);
+    else storage.setItem(key, JSON.stringify(snapshot));
+  } catch {
+    /* Best effort : sans stockage, le dernier contenu publié reste en mémoire. */
+  }
+}
+
 function ensureTranscriptionDraftBaseLoaded(target, remoteState) {
   if (remoteState.baseLoaded) return;
   remoteState.baseLoaded = true;
   remoteState.baseVersion = readTranscriptionDraftRemoteBase(target);
+  if (remoteState.lastSyncedSnapshot == null) {
+    remoteState.lastSyncedSnapshot = readTranscriptionDraftSyncedSnapshot(target);
+  }
 }
 
 function transcriptionDraftRemoteRef(target) {
@@ -5166,17 +5202,17 @@ async function readTranscriptionDraftRemote(target) {
     calculé contre la version observée, puis l'écriture incrémente la version —
     deux appareils concurrents ne peuvent pas s'écraser silencieusement, et le
     refus remonte comme « conflict » avec la version distante intacte. */
-async function writeTranscriptionDraftRemote(target, localSnapshot, baseVersion) {
+async function writeTranscriptionDraftRemote(target, localSnapshot, baseVersion, lastSyncedSnapshot) {
   const validated = transcriptionDraftRemoteTarget(target.ownerUid, target.documentId, target.pageId);
   const substitute = window.__transcriptionDraftRemoteBackend;
-  if (substitute) return substitute.write(validated, localSnapshot, baseVersion);
+  if (substitute) return substitute.write(validated, localSnapshot, baseVersion, lastSyncedSnapshot);
   let outcome = null;
   try {
     await runTransaction(db, async transaction => {
       const ref = transcriptionDraftRemoteRef(validated);
       const snapshot = await transaction.get(ref);
       const remote = snapshot.exists() ? parseTranscriptionDraftRemoteData(snapshot.data(), validated) : null;
-      const plan = planTranscriptionDraftWrite({ localSnapshot, remote, baseVersion });
+      const plan = planTranscriptionDraftWrite({ localSnapshot, remote, baseVersion, lastSyncedSnapshot });
       if (plan.operation === "conflict") {
         outcome = { outcome: "conflict", remote };
         throw new Error("Conflit de brouillon détecté : écriture annulée");
@@ -5228,7 +5264,7 @@ function scheduleTranscriptionDraftRemoteSync(draft, { delay = TRANSCRIPTION_DRA
   const target = transcriptionDraftRemoteTarget(ownerUid, draft.documentId, draft.pageId);
   ensureTranscriptionDraftBaseLoaded(target, remoteState);
   const snapshot = transcriptionDraftSnapshotFromDraft(draft);
-  if (snapshot != null && remoteState.lastSyncedSnapshot === JSON.stringify(snapshot)) return;
+  if (snapshot != null && remoteState.lastSyncedSnapshot && transcriptionDraftSnapshotsEqual(remoteState.lastSyncedSnapshot, snapshot)) return;
   if (snapshot == null && remoteState.baseVersion == null) return;
   if (remoteState.status === "synced") remoteState.status = "pending";
   const pendingTimer = transcriptionDraftSyncTimers.get(key);
@@ -5246,6 +5282,30 @@ function scheduleTranscriptionDraftRemoteSync(draft, { delay = TRANSCRIPTION_DRA
       syncTranscriptionDraftNow(draft, { reason: "debounce" });
     }, delay)
   });
+}
+
+/** Applique la version distante la plus récente à l'espace de cet appareil
+    (restauration à l'ouverture ou adoption d'une copie prouvée inchangée) :
+    le brouillon est remplacé par la version du compte, écrit localement et
+    rendu. Jamais utilisé sur une modification locale non synchronisée. */
+function applyTranscriptionDraftRemoteVersion(key, remote, ownerUid) {
+  let restored = null;
+  try {
+    restored = restoreTranscriptionWorkshopDraft(remote.snapshot);
+  } catch {
+    restored = null;
+  }
+  if (!restored || !restored.dirty) return false;
+  stampTranscriptionDraftOwner(restored, ownerUid);
+  transcriptionWorkshopDrafts.set(key, restored);
+  const applyHere = transcriptionWorkshopDraft
+    && transcriptionWorkshopDraftKey(transcriptionWorkshopDraft.documentId, transcriptionWorkshopDraft.pageId) === key;
+  if (applyHere) {
+    transcriptionWorkshopDraft = restored;
+    persistTranscriptionWorkshopDraft(restored);
+    if (isTranscriptionWorkshopActive()) renderTranscriptionWorkshop();
+  }
+  return true;
 }
 
 /** Envoi immédiat (bouton « Enregistrer », différé écoulé, reconnexion,
@@ -5272,12 +5332,12 @@ async function syncTranscriptionDraftNow(draft, { reason = "auto" } = {}) {
   const target = transcriptionDraftRemoteTarget(ownerUid, draft.documentId, draft.pageId);
   ensureTranscriptionDraftBaseLoaded(target, remoteState);
   if (snapshot == null && remoteState.baseVersion == null) return;
-  if (snapshot != null && remoteState.lastSyncedSnapshot === JSON.stringify(snapshot)) return;
+  if (snapshot != null && remoteState.lastSyncedSnapshot && transcriptionDraftSnapshotsEqual(remoteState.lastSyncedSnapshot, snapshot)) return;
   transcriptionDraftSyncInFlight.add(key);
   remoteState.status = "syncing";
   updateWorkshopDraftIndicators();
   try {
-    const result = await writeTranscriptionDraftRemote(target, snapshot, remoteState.baseVersion);
+    const result = await writeTranscriptionDraftRemote(target, snapshot, remoteState.baseVersion, remoteState.lastSyncedSnapshot);
     if (ownerUid !== transcriptionDraftSyncOwnerUid()) {
       /* Compte changé pendant l'envoi : le résultat appartient au compte
          précédent, il n'est appliqué ni à l'état ni à l'interface. */
@@ -5292,7 +5352,10 @@ async function syncTranscriptionDraftNow(draft, { reason = "auto" } = {}) {
       /* Suppression distante observée : le dernier contenu connu n'est plus
          référencé à distance — le dédoublonnage doit être levé pour qu'un
          choix explicite de republication passe réellement. */
-      if (!result.remote) remoteState.lastSyncedSnapshot = null;
+      if (!result.remote) {
+        remoteState.lastSyncedSnapshot = null;
+        storeTranscriptionDraftSyncedSnapshot(target, null);
+      }
       updateWorkshopDraftIndicators();
       if (!remoteState.notifiedConflict) {
         remoteState.notifiedConflict = true;
@@ -5312,17 +5375,25 @@ async function syncTranscriptionDraftNow(draft, { reason = "auto" } = {}) {
       storeTranscriptionDraftRemoteBase(target, null);
     }
     remoteState.baseLoaded = true;
-    /* Contenu modifié pendant l'envoi : la référence avance, l'envoi repart. */
     const settled = transcriptionDraftSnapshotFromDraft(transcriptionWorkshopDrafts.get(key) || currentDraft);
-    const pushed = JSON.stringify(snapshot ?? null);
-    if (JSON.stringify(settled ?? null) !== pushed) {
-      remoteState.lastSyncedSnapshot = settled ? JSON.stringify(settled) : remote ? JSON.stringify(remote.snapshot) : null;
+    /* Contenu modifié pendant l'envoi : le contenu publié devient la nouvelle
+       référence (il est réellement sur le compte), l'envoi repart ensuite. */
+    if (settled != null && snapshot != null && !transcriptionDraftSnapshotsEqual(settled, snapshot)) {
+      if (remote) {
+        remoteState.lastSyncedSnapshot = snapshot;
+        storeTranscriptionDraftSyncedSnapshot(target, snapshot);
+      }
       remoteState.status = "pending";
       updateWorkshopDraftIndicators();
       scheduleTranscriptionDraftRemoteSync(transcriptionWorkshopDrafts.get(key) || currentDraft);
       return;
     }
-    remoteState.lastSyncedSnapshot = settled ? JSON.stringify(settled) : null;
+    /* Publication confirmée pour la version courante (ou nettoyage distant) :
+       le dernier contenu publié est conservé en mémoire ET entre les sessions
+       — il distingue une copie locale inchangée d'une véritable modification
+       concurrente (adoption au lieu de conflit). */
+    remoteState.lastSyncedSnapshot = remote ? remote.snapshot : null;
+    storeTranscriptionDraftSyncedSnapshot(target, remoteState.lastSyncedSnapshot);
     remoteState.status = remote ? "synced" : "idle";
     remoteState.conflictRemote = null;
     remoteState.conflictLocalSnapshot = null;
@@ -5330,6 +5401,13 @@ async function syncTranscriptionDraftNow(draft, { reason = "auto" } = {}) {
     remoteState.notifiedConflict = false;
     remoteState.notifiedFailure = false;
     updateWorkshopDraftIndicators();
+    /* Le compte a avancé (autre appareil) alors que notre copie locale était
+       inchangée depuis notre dernier envoi : adoption de la version la plus
+       récente, sans conflit ni écriture. */
+    if (remote && settled != null && transcriptionWorkshopDrafts.get(key)?.dirty
+      && !transcriptionDraftSnapshotsEqual(remote.snapshot, settled)) {
+      applyTranscriptionDraftRemoteVersion(key, remote, ownerUid);
+    }
   } catch {
     if (ownerUid !== transcriptionDraftSyncOwnerUid()) {
       if (transcriptionDraftRemoteStates.get(key) === remoteState) transcriptionDraftRemoteStates.delete(key);
@@ -5377,7 +5455,12 @@ async function loadTranscriptionDraftRemote(documentId, pageId, draftAtOpen) {
      localStorage) pour que le conflit survive à un rechargement. */
   ensureTranscriptionDraftBaseLoaded(target, remoteState);
   const knownBase = remoteState.baseVersion;
-  const plan = reconcileTranscriptionDraftOnOpen({ localSnapshot, remote, baseVersion: knownBase });
+  const plan = reconcileTranscriptionDraftOnOpen({
+    localSnapshot,
+    remote,
+    baseVersion: knownBase,
+    lastSyncedSnapshot: remoteState.lastSyncedSnapshot
+  });
   remoteState.baseLoaded = true;
   remoteState.baseVersion = remote ? remote.version : knownBase;
   storeTranscriptionDraftRemoteBase(target, remote ? remote.version : knownBase);
@@ -5395,12 +5478,17 @@ async function loadTranscriptionDraftRemote(documentId, pageId, draftAtOpen) {
     return;
   }
   if (plan.operation === "confirm") {
-    remoteState.lastSyncedSnapshot = localSnapshot ? JSON.stringify(localSnapshot) : null;
+    remoteState.lastSyncedSnapshot = localSnapshot;
+    storeTranscriptionDraftSyncedSnapshot(target, localSnapshot);
     remoteState.status = "synced";
     updateWorkshopDraftIndicators();
     return;
   }
-  if (plan.operation === "restore") {
+  if (plan.operation === "restore" || plan.operation === "upgrade") {
+    /* Restore : aucun brouillon du compte, la version distante devient le
+       brouillon de cet appareil. Upgrade : la copie locale est prouvée
+       inchangée depuis notre dernier envoi — la version distante plus récente
+       l'emporte, sans conflit ni écriture. */
     if (!stillLoaded) return;
     let restored = null;
     try {
@@ -5419,15 +5507,13 @@ async function loadTranscriptionDraftRemote(documentId, pageId, draftAtOpen) {
       updateWorkshopDraftIndicators();
       return;
     }
-    const restoredSnapshot = transcriptionDraftSnapshotFromDraft(restored);
-    remoteState.lastSyncedSnapshot = restoredSnapshot ? JSON.stringify(restoredSnapshot) : null;
+    remoteState.lastSyncedSnapshot = remote.snapshot;
+    storeTranscriptionDraftSyncedSnapshot(target, remote.snapshot);
     remoteState.status = "synced";
-    stampTranscriptionDraftOwner(restored, ownerUid);
-    transcriptionWorkshopDrafts.set(key, restored);
-    const applyHere = transcriptionWorkshopDraft === draftAtOpen;
-    if (applyHere) transcriptionWorkshopDraft = restored;
-    persistTranscriptionWorkshopDraft(restored);
-    if (applyHere && isTranscriptionWorkshopActive()) renderTranscriptionWorkshop();
+    applyTranscriptionDraftRemoteVersion(key, remote, ownerUid);
+    if (plan.operation === "upgrade") {
+      toast("Version la plus récente du compte appliquée sur cet appareil.", "info");
+    }
     updateWorkshopDraftIndicators();
     return;
   }
@@ -5436,7 +5522,10 @@ async function loadTranscriptionDraftRemote(documentId, pageId, draftAtOpen) {
     remoteState.conflictRemote = remote;
     remoteState.conflictLocalSnapshot = localSnapshot;
     remoteState.conflictTarget = { documentId, pageId };
-    if (!remote) remoteState.lastSyncedSnapshot = null;
+    if (!remote) {
+      remoteState.lastSyncedSnapshot = null;
+      storeTranscriptionDraftSyncedSnapshot(target, null);
+    }
     updateWorkshopDraftIndicators();
     if (!stillLoaded) {
       toast(TRANSCRIPTION_DRAFT_SYNC_CONFLICT_MESSAGE, "error");
@@ -5474,7 +5563,7 @@ function openTranscriptionDraftConflictDialog(key) {
     ? transcriptionDraftSnapshotPreview(remote.snapshot)
     : "(aucun brouillon distant)";
   $("transcriptionDraftConflictLocalMeta").textContent = local
-    ? `Enregistré localement le ${transcriptionDraftConflictDateLabel(transcriptionDraftSaveStates.get(key)?.savedAt)}`
+    ? `Enregistré sur cet appareil le ${transcriptionDraftConflictDateLabel(transcriptionDraftSaveStates.get(key)?.savedAt)}`
     : "Aucune copie locale : l’annulation de cet appareil est en conflit avec le compte.";
   $("transcriptionDraftConflictRemoteMeta").textContent = remote
     ? `Modifié le ${transcriptionDraftConflictDateLabel(remote.updatedAt)} sur le compte (version ${remote.version})`
@@ -5529,6 +5618,7 @@ function resolveTranscriptionDraftConflict(choice) {
       remoteState.baseVersion = null;
       remoteState.baseLoaded = true;
       remoteState.lastSyncedSnapshot = null;
+      storeTranscriptionDraftSyncedSnapshot(target, null);
       remoteState.conflictRemote = null;
       remoteState.conflictLocalSnapshot = null;
       remoteState.conflictTarget = null;
@@ -5557,7 +5647,8 @@ function resolveTranscriptionDraftConflict(choice) {
     remoteState.baseLoaded = true;
     storeTranscriptionDraftRemoteBase(target, remote.version);
     const restoredSnapshot = transcriptionDraftSnapshotFromDraft(restored);
-    remoteState.lastSyncedSnapshot = restoredSnapshot ? JSON.stringify(restoredSnapshot) : null;
+    remoteState.lastSyncedSnapshot = restoredSnapshot;
+    storeTranscriptionDraftSyncedSnapshot(target, restoredSnapshot);
     remoteState.status = "synced";
     remoteState.conflictRemote = null;
     remoteState.conflictLocalSnapshot = null;
@@ -6681,7 +6772,14 @@ function updateWorkshopDraftIndicators() {
   const conflict = remoteState?.status === "conflict";
   const offline = remoteState?.status === "offline";
   const syncing = remoteState?.status === "syncing";
-  const synced = remoteState?.status === "synced";
+  /* « Synchronisé entre appareils » n'apparaît QUE si le contenu courant est
+     exactement la dernière version confirmée (ou s'il n'y a aucune
+     modification) : un contenu modifié mais pas encore renvoyé reste « Enregistré
+     sur cet appareil », jamais une réussite prématurée. */
+  const currentSnapshot = draft.dirty ? transcriptionDraftSnapshotFromDraft(draft) : null;
+  const synced = remoteState?.status === "synced"
+    && (!draft.dirty || (remoteState.lastSyncedSnapshot != null && currentSnapshot != null
+      && transcriptionDraftSnapshotsEqual(remoteState.lastSyncedSnapshot, currentSnapshot)));
   const failed = localFailed || offline;
   const status = conflict ? TRANSCRIPTION_DRAFT_SYNC_LABELS.conflict
     : localFailed ? "Échec de sauvegarde"
@@ -6689,11 +6787,12 @@ function updateWorkshopDraftIndicators() {
         : pending ? "Enregistrement…"
           : syncing ? TRANSCRIPTION_DRAFT_SYNC_LABELS.syncing
             : synced ? TRANSCRIPTION_DRAFT_SYNC_LABELS.synced
-              : draft.dirty ? (state?.status === "saved" ? "Enregistré localement" : "Enregistrement…")
+              : draft.dirty ? (state?.status === "saved" ? "Enregistré sur cet appareil" : "Enregistrement…")
                 : "Brouillon local";
   const dirty = failed || pending || conflict || syncing || (draft.dirty && state?.status !== "saved");
   const statusElement = $("workshopSaveStatus");
   statusElement.textContent = status;
+  statusElement.title = status;
   statusElement.classList.toggle("is-dirty", dirty);
   statusElement.classList.toggle("is-failed", failed);
   statusElement.classList.toggle("is-synced", synced && !failed && !conflict);
@@ -6835,9 +6934,9 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     const draft = transcriptionWorkshopDraft;
     if (!draft || !draft.dirty) return;
     /* Écriture immédiate : le minuteur d'autosauvegarde différée est annulé
-       pour ne pas attendre les 400 ms — succès comme échec sont annoncés
-       (persistTranscriptionWorkshopDraft gère l'échec), sans jamais créer
-       de transcription officielle. */
+       pour ne pas attendre les 400 ms. Aucune notification de réussite : le
+       pied de l'atelier porte l'état (« Enregistré sur cet appareil » puis
+       synchronisation) ; seules les erreurs notifient. */
     const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
     const pendingTimer = transcriptionDraftSaveTimers.get(key);
     if (pendingTimer) {
@@ -6845,9 +6944,8 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
       transcriptionDraftSaveTimers.delete(key);
     }
     if (persistTranscriptionWorkshopDraft(draft)) {
-      toast("Brouillon enregistré localement.", "success");
-      /* Écriture distante immédiate (sans attendre les 5 s) : le libellé local
-         reste affiché tant que l'envoi n'a pas abouti. */
+      /* Écriture distante immédiate (sans attendre les 5 s) : le pied affiche
+         l'état réel, jamais une réussite prématurée. */
       syncTranscriptionDraftNow(draft, { reason: "manual" });
     }
     closeTranscriptionWorkshopMenu();
@@ -6996,6 +7094,16 @@ window.addEventListener("online", () => {
     syncTranscriptionDraftNow(draft, { reason: "online" });
   }
   if (retriggered) updateWorkshopDraftIndicators();
+});
+/* Retour sur l'onglet : une seule lecture distante pour l'atelier ouvert (pas
+   d'abonnement permanent) — le statut et le brouillon suivent la dernière
+   version du compte, adoption automatique si la copie est inchangée. */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (!isTranscriptionWorkshopActive()) return;
+  const draft = transcriptionWorkshopDraft;
+  if (!draft) return;
+  loadTranscriptionDraftRemote(draft.documentId, draft.pageId, draft).catch(() => {});
 });
 
 /* Retour système du navigateur : l'entrée d'historique réelle de l'atelier est

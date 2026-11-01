@@ -22,7 +22,7 @@ export const TRANSCRIPTION_DRAFT_SYNC_DELAY_MS = 5000;
 export const TRANSCRIPTION_DRAFT_SYNC_LABELS = Object.freeze({
   syncing: "Synchronisation en cours…",
   synced: "Synchronisé entre appareils",
-  offline: "Synchronisation impossible",
+  offline: "Synchronisation impossible — brouillon conservé sur cet appareil",
   conflict: "Conflit à résoudre"
 });
 
@@ -152,9 +152,12 @@ export function buildTranscriptionDraftRemotePayload({ target, snapshot, version
     - "push"    : aucun distant ET aucune référence connue : migration du local ;
     - "restore" : distant sans local : charger sa version ;
     - "confirm" : contenus identiques : seule la version de référence change ;
-    - "conflict": divergences OU suppression distante d'une version connue :
-      jamais republiée silencieusement, choix explicite requis. */
-export function reconcileTranscriptionDraftOnOpen({ localSnapshot = null, remote = null, baseVersion = null } = {}) {
+    - "upgrade" : la copie locale est EXACTEMENT le dernier contenu publié par
+      cet appareil (inchangée depuis) : la version distante plus récente est
+      adoptée automatiquement — pas un conflit ;
+    - "conflict": divergences réelles OU suppression distante d'une version
+      connue : jamais republiée silencieusement, choix explicite requis. */
+export function reconcileTranscriptionDraftOnOpen({ localSnapshot = null, remote = null, baseVersion = null, lastSyncedSnapshot = null } = {}) {
   if (!remote) {
     if (!localSnapshot) return { operation: "none" };
     if (baseVersion != null) return { operation: "conflict" };
@@ -162,6 +165,11 @@ export function reconcileTranscriptionDraftOnOpen({ localSnapshot = null, remote
   }
   if (!localSnapshot) return { operation: "restore" };
   if (transcriptionDraftSnapshotsEqual(remote.snapshot, localSnapshot)) return { operation: "confirm" };
+  /* Copie locale inchangée depuis notre dernier envoi connu : la version
+     distante a simplement avancé (autre appareil) — adoption, pas conflit. */
+  if (lastSyncedSnapshot != null && transcriptionDraftSnapshotsEqual(lastSyncedSnapshot, localSnapshot)) {
+    return { operation: "upgrade" };
+  }
   return { operation: "conflict" };
 }
 
@@ -169,12 +177,15 @@ export function reconcileTranscriptionDraftOnOpen({ localSnapshot = null, remote
     Aucune base inconnue ni version dépassée ne donne un écrasement :
     - "create" / "update" : versions strictement croissantes (vérifiées aussi
       côté Firestore) — create seulement sans aucune référence connue ;
-    - "adopt"  : le distant porte déjà ce contenu : seule la référence bouge ;
+    - "adopt"  : le distant porte déjà ce contenu, OU la copie locale est
+      exactement le dernier contenu publié par cet appareil (inchangée depuis,
+      le distant a simplement avancé) : aucune écriture, seule la référence
+      bouge — l'application applique alors la version distante plus récente ;
     - "delete" : nettoyage explicite SANS perte (version de référence connue) ;
-    - "conflict": divergences, base inconnue, version dépassée OU suppression
-      distante d'une version connue — jamais écrit ;
+    - "conflict": divergences réelles, base inconnue, version dépassée OU
+      suppression distante d'une version connue — jamais écrit ;
     - "none"   : rien à écrire. */
-export function planTranscriptionDraftWrite({ localSnapshot = null, remote = null, baseVersion = null } = {}) {
+export function planTranscriptionDraftWrite({ localSnapshot = null, remote = null, baseVersion = null, lastSyncedSnapshot = null } = {}) {
   if (localSnapshot == null) {
     if (!remote) return { operation: "none" };
     if (baseVersion == null) return { operation: "none" };
@@ -190,6 +201,11 @@ export function planTranscriptionDraftWrite({ localSnapshot = null, remote = nul
   }
   if (baseVersion != null && remote.version === baseVersion) return { operation: "update", version: baseVersion + 1 };
   if (transcriptionDraftSnapshotsEqual(remote.snapshot, localSnapshot)) return { operation: "adopt", version: remote.version };
+  /* Copie inchangée depuis notre dernier envoi connu : le distant a avancé
+     (autre appareil) — adoption de la version distante, jamais conflit. */
+  if (lastSyncedSnapshot != null && transcriptionDraftSnapshotsEqual(lastSyncedSnapshot, localSnapshot)) {
+    return { operation: "adopt", version: remote.version };
+  }
   return { operation: "conflict" };
 }
 

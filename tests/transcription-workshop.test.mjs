@@ -460,7 +460,7 @@ test("les brouillons sont persistés localement et repris sans toucher aux modul
   assert.equal((app.match(/transcriptionWorkshopDrafts\.clear\(\)/g) || []).length, 1, "la mémoire des brouillons n'est vidée qu'à la fermeture de l'atelier");
   assert.match(app, /function resetTranscriptionWorkshopState[\s\S]{0,400}transcriptionWorkshopDrafts\.clear\(\)/, "effacement réservé à la fermeture de l'atelier, jamais après un échec");
   // États affichés discrètement sur le badge.
-  for (const label of ["Enregistrement…", "Enregistré localement", "Échec de sauvegarde"]) {
+  for (const label of ["Enregistrement…", "Enregistré sur cet appareil", "Échec de sauvegarde"]) {
     assert.ok(app.includes(`"${label}"`), `état de sauvegarde affiché : ${label}`);
   }
   // Fermeture / rechargement : écriture avant jugement, confirmation seulement si non conservé.
@@ -632,7 +632,7 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     /* Saisie puis autosauvegarde : état écrit réellement. */
     await page.fill('[data-workshop-field="textIt"]', "Anno millenovecentosedici");
     await page.fill('[data-workshop-field="translationFr"]', "L’année mille neuf cent seize");
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré localement", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
     let stored = await page.evaluate(() => window.__repro.stored());
     assert.equal(stored.length, 1, "une copie locale écrite");
     assert.equal(JSON.parse(stored[0][1]).snapshot.passages[0].textIt, "Anno millenovecentosedici", "texte présent en local");
@@ -645,7 +645,7 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     stored = await page.evaluate(() => window.__repro.stored());
     assert.equal(JSON.parse(stored[0][1]).snapshot.passages[0].textIt, "Anno senza attesa", "écriture immédiate au clic, avant le délai d’autosauvegarde");
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "le menu « … » reste fermé");
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré localement", undefined, { timeout: 1500 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 1500 });
     assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), false, "action Enregistrer réutilisable après de nouvelles modifications");
 
     /* Position du Retour : modèle de la fiche Document — à droite, sous le menu « … ». */
@@ -723,7 +723,7 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     let fields = await page.evaluate(() => window.__repro.fields());
     assert.equal(fields.find(f => f.k === "textIt" && f.p === "p-1")?.v, "Anno senza attesa", "texte italien restauré à la réouverture");
     assert.equal(fields.find(f => f.k === "translationFr" && f.p === "p-1")?.v, "L’année mille neuf cent seize", "traduction restaurée à la réouverture");
-    assert.equal(await page.evaluate(() => window.__repro.badge()), "Enregistré localement", "état enregistré restauré");
+    assert.equal(await page.evaluate(() => window.__repro.badge()), "Enregistré sur cet appareil", "état enregistré restauré");
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "menu fermé à la réouverture");
 
     /* Rechargement complet : le brouillon survit. */
@@ -955,10 +955,10 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               assert.equal(failure.firstField, "Anno sotto errore", "brouillon conservé en mémoire malgré l’échec");
               await page.evaluate(() => { Storage.prototype.setItem = window.__nativeSetItem; });
               await page.click("#workshopSaveDraftBtn");
-              await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré localement", undefined, { timeout: 3000 });
+              await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 3000 });
               const recovered = await page.evaluate(() => ({ stored: window.__repro.stored().length, status: document.getElementById("workshopSaveStatus").textContent }));
               assert.ok(recovered.stored >= 1, "récupération écrite après rétablissement du stockage");
-              assert.equal(recovered.status, "Enregistré localement", "retour à un état de succès réel");
+              assert.equal(recovered.status, "Enregistré sur cet appareil", "retour à un état de succès réel");
 
               /* Sortie sans friction (brouillon enregistré), retours nets. */
               await page.click("#workshopBackBtn");

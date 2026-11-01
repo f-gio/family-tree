@@ -104,8 +104,8 @@ window.__transcriptionDraftRemoteBackend = {
     if (!response.ok) throw new Error(response.error);
     return response.remote;
   },
-  async write(target, localSnapshot, baseVersion) {
-    const response = await window.__draftRemoteServerWrite(transcriptionDraftRemoteKey(target), JSON.stringify(target), localSnapshot, baseVersion);
+  async write(target, localSnapshot, baseVersion, lastSyncedSnapshot) {
+    const response = await window.__draftRemoteServerWrite(transcriptionDraftRemoteKey(target), JSON.stringify(target), localSnapshot, baseVersion, lastSyncedSnapshot);
     if (!response.ok) throw new Error(response.error);
     await new Promise(resolve => setTimeout(resolve, 200));
     return { outcome: response.outcome, remote: response.remote };
@@ -150,12 +150,12 @@ async function openRemoteHarness(t) {
       if (!raw) return { ok: true, remote: null };
       return { ok: true, remote: parseTranscriptionDraftRemoteData(raw, JSON.parse(targetJson)) };
     });
-    await context.exposeFunction("__draftRemoteServerWrite", (key, targetJson, localSnapshot, baseVersion) => {
+    await context.exposeFunction("__draftRemoteServerWrite", (key, targetJson, localSnapshot, baseVersion, lastSyncedSnapshot) => {
       if (serverState.offline) return { ok: false, error: "réseau indisponible" };
       const target = JSON.parse(targetJson);
       const raw = serverState.entries[key] || null;
       const remote = raw ? parseTranscriptionDraftRemoteData(raw, target) : null;
-      const plan = planTranscriptionDraftWrite({ localSnapshot, remote, baseVersion });
+      const plan = planTranscriptionDraftWrite({ localSnapshot, remote, baseVersion, lastSyncedSnapshot });
       if (plan.operation === "conflict") return { ok: true, outcome: "conflict", remote };
       if (plan.operation === "adopt" || plan.operation === "none") return { ok: true, outcome: "synced", remote };
       if (plan.operation === "delete") {
@@ -240,7 +240,7 @@ test("brouillons synchronisés : migration de l'ordinateur, délai ~5 s et repri
        envoi distant immédiat (sans attendre les 5 s). L'échantillonnage
        rapide capte la chaîne complète des libellés du pied. */
     await page.fill('[data-workshop-field="textIt"]', "Anno sotto computer");
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré localement", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
     const labelBeforeSave = await page.evaluate(() => window.__draftRemote.badge());
     await page.click("#workshopSaveDraftBtn");
     const samples = await page.evaluate(async () => {
@@ -253,7 +253,7 @@ test("brouillons synchronisés : migration de l'ordinateur, délai ~5 s et repri
       }
       return [...seen];
     });
-    assert.equal(labelBeforeSave, "Enregistré localement", "état local atteint avant l'envoi");
+    assert.equal(labelBeforeSave, "Enregistré sur cet appareil", "état local atteint avant l'envoi");
     assert.ok(samples.includes("Synchronisation en cours…"), `état « Synchronisation en cours… » observé (${samples.join(" / ")})`);
     assert.ok(samples.includes("Synchronisé entre appareils"), `état « Synchronisé entre appareils » observé (${samples.join(" / ")})`);
 
@@ -266,9 +266,9 @@ test("brouillons synchronisés : migration de l'ordinateur, délai ~5 s et repri
 
     /* Délai ~5 s : une nouvelle frappe n'écrit pas à distance immédiatement. */
     await page.fill('[data-workshop-field="textIt"]', "Anno sotto computer, variante");
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré localement", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
     await page.waitForTimeout(1200);
-    assert.equal(await page.evaluate(() => window.__draftRemote.badge()), "Enregistré localement", "avant les 5 s : local seulement");
+    assert.equal(await page.evaluate(() => window.__draftRemote.badge()), "Enregistré sur cet appareil", "avant les 5 s : local seulement");
     assert.equal(serverState.entries[key].version, 1, "aucune écriture à la frappe");
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 9000 });
     assert.equal(serverState.entries[key].version, 2, "synchronisation automatique après ~5 s");
@@ -361,7 +361,7 @@ test("brouillons synchronisés : conflits à choix explicite, hors ligne et réc
     serverState.offline = true;
     await page.fill('[data-workshop-field="textIt"]', "Texte saisi hors ligne");
     await page.click("#workshopSaveDraftBtn");
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisation impossible", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisation impossible — brouillon conservé sur cet appareil", undefined, { timeout: 5000 });
     assert.equal(await page.evaluate(() => window.__draftRemote.fieldValue()), "Texte saisi hors ligne", "contenu en mémoire intact");
     assert.equal(await page.evaluate(() => !!localStorage.getItem("familyTreeTranscriptionDraft:compte-remote-1|doc-remote|page-remote-1")), true, "copie locale conservée malgré l'échec distant");
     assert.equal(serverState.entries[key].version, 4, "le distant n'a pas bougé pendant l'échec");
@@ -485,7 +485,7 @@ test("scénario 4 : retour en ligne après modification distante = conflit, jama
     serverState.offline = true;
     await page.fill('[data-workshop-field="textIt"]', "Texte hors ligne");
     await page.click("#workshopSaveDraftBtn");
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisation impossible", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisation impossible — brouillon conservé sur cet appareil", undefined, { timeout: 5000 });
     assert.equal(serverState.entries[key].version, 2, "hors ligne : le distant modifié n'est pas touché");
     assert.equal(await page.evaluate(k => localStorage.getItem(k).includes("Texte hors ligne"), localKey), true, "version locale enregistrée localement");
 
@@ -526,7 +526,7 @@ test("scénario 5 : changement de compte pendant une écriture en attente = envo
     await page.fill('[data-workshop-field="textIt"]', "Contenu du premier compte");
     /* Autosauvegarde locale confirmée : le minuteur d'envoi (~5 s) est armé,
        aucun envoi immédiat. */
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré localement", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
     assert.deepEqual(serverState.entries, {}, "aucun envoi avant le délai");
 
     /* Changement de compte avant le déclenchement : l'envoi du compte
@@ -534,7 +534,7 @@ test("scénario 5 : changement de compte pendant une écriture en attente = envo
     await page.evaluate(() => { window.__draftRemoteUid = "compte-remote-2"; });
     await page.waitForTimeout(6500);
     assert.deepEqual(serverState.entries, {}, "aucun envoi du compte précédent sous le compte suivant");
-    assert.equal(await page.evaluate(() => window.__draftRemote.badge()), "Enregistré localement", "statut local seul : aucun « Synchronisé entre appareils »");
+    assert.equal(await page.evaluate(() => window.__draftRemote.badge()), "Enregistré sur cet appareil", "statut local seul : aucun « Synchronisé entre appareils »");
     assert.equal(await page.evaluate(k => localStorage.getItem(k).includes("Contenu du premier compte"), localKey), true, "copie locale du premier compte intacte");
 
     /* Retour au compte original : publication sous le BON compte (local
@@ -568,9 +568,9 @@ test("isolation locale : deux comptes sur le même navigateur, brouillon non syn
     await openWorkshopOn(page);
     serverState.offline = true;
     await page.fill('[data-workshop-field="textIt"]', "Brouillon du premier compte");
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré localement", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
     await page.click("#workshopSaveDraftBtn");
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisation impossible", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisation impossible — brouillon conservé sur cet appareil", undefined, { timeout: 5000 });
     assert.deepEqual(serverState.entries, {}, "hors ligne : rien publié");
     assert.equal(await page.evaluate(k => localStorage.getItem(k).includes("Brouillon du premier compte"), localA), true, "copie locale du compte 1 enregistrée");
     serverState.offline = false;
@@ -608,6 +608,90 @@ test("isolation locale : deux comptes sur le même navigateur, brouillon non syn
     assert.ok(serverKeys.some(entry => entry.includes("|compte-remote-1|")), "distant du compte 1 présent");
     assert.ok(serverKeys.some(entry => entry.includes("|compte-remote-2|")), "distant du compte 2 présent");
     assert.equal(serverState.entries[key].snapshot.passages[0].textIt, "Brouillon du premier compte", "contenu du compte 1 publié sous le compte 1");
+
+    assertNoWorkshopPageErrors(pageErrors);
+  } finally {
+    for (const context of contexts) await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
+});
+
+test("PC → iPhone → PC sans modification concurrente : adoption automatique, aucun conflit", { timeout: 120000 }, async t => {
+  const harness = await openRemoteHarness(t);
+  if (!harness) return;
+  const { browser, server, serverState, contexts, pageErrors, createDevice } = harness;
+  try {
+    const key = serverKey();
+
+    /* PC publie la version 1. */
+    const pc = await createDevice();
+    await openWorkshopOn(pc);
+    await pc.fill('[data-workshop-field="textIt"]', "Version ordinateur");
+    await pc.click("#workshopSaveDraftBtn");
+    await pc.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
+    assert.equal(serverState.entries[key].version, 1, "version 1 publiée");
+
+    /* iPhone restaure puis publie la version 2. */
+    const phone = await createDevice();
+    await openWorkshopOn(phone);
+    await phone.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 8000 });
+    await phone.fill('[data-workshop-field="textIt"]', "Version iPhone");
+    await phone.click("#workshopSaveDraftBtn");
+    await phone.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
+    assert.equal(serverState.entries[key].version, 2, "version 2 publiée par le téléphone");
+
+    /* Retour PC, réouverture de l'atelier (mémoire de session conservée) :
+       la copie PC est inchangée depuis son dernier envoi → adoption. */
+    await exitWorkshop(pc);
+    await openWorkshopOn(pc);
+    await pc.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 8000 });
+    assert.equal(await pc.evaluate(() => window.__draftRemote.fieldValue()), "Version iPhone", "version iPhone adoptée automatiquement");
+    assert.equal(await pc.locator("#transcriptionDraftConflictDialog").isVisible(), false, "aucune fenêtre de conflit");
+
+    /* Retour PC après RECHARGEMENT (mémoire perdue, marqueurs persistés) :
+       la persistance du dernier contenu publié évite le faux conflit. */
+    await pc.reload();
+    await pc.waitForFunction(() => typeof window.__draftRemote === "object");
+    await pc.evaluate(() => { window.__draftRemote.show(); window.__draftRemote.seed(); });
+    await openWorkshopOn(pc);
+    await pc.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 8000 });
+    assert.equal(await pc.evaluate(() => window.__draftRemote.fieldValue()), "Version iPhone", "après rechargement : adoption toujours sans conflit");
+    assert.equal(await pc.locator("#transcriptionDraftConflictDialog").isVisible(), false, "aucune fenêtre de conflit après rechargement");
+    assert.equal(serverState.entries[key].version, 2, "aucune écriture inutile (adoption sans écriture)");
+
+    assertNoWorkshopPageErrors(pageErrors);
+  } finally {
+    for (const context of contexts) await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
+});
+
+test("statut du pied : un contenu modifié n'est jamais présenté comme synchronisé", { timeout: 120000 }, async t => {
+  const harness = await openRemoteHarness(t);
+  if (!harness) return;
+  const { browser, server, serverState, contexts, pageErrors, createDevice } = harness;
+  try {
+    const key = serverKey();
+    const page = await createDevice();
+    await openWorkshopOn(page);
+    assert.equal(await page.evaluate(() => window.__draftRemote.badge()), "Brouillon local", "état initial");
+
+    /* Saisie : état local immédiat, jamais « Synchronisé ». */
+    await page.fill('[data-workshop-field="textIt"]', "Première saisie");
+    assert.equal(await page.evaluate(() => window.__draftRemote.badge()), "Enregistrement…", "pendant la frappe : état local, jamais synchronisé");
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
+    assert.deepEqual(serverState.entries, {}, "aucun envoi avant le délai (~5 s)");
+
+    /* Nouvelle saisie dans la fenêtre de synchronisation : le statut repasse
+       au local et « Synchronisé » ne réapparaît qu'après le nouvel envoi. */
+    await page.fill('[data-workshop-field="textIt"]', "Deuxième saisie");
+    assert.equal(await page.evaluate(() => window.__draftRemote.badge()), "Enregistrement…", "saisie pendant la fenêtre d'envoi");
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
+    assert.equal(await page.evaluate(() => window.__draftRemote.badge()), "Enregistré sur cet appareil", "contenu modifié : local seulement");
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 9000 });
+    assert.equal(serverState.entries[key].snapshot.passages[0].textIt, "Deuxième saisie", "seule la dernière version du contenu est publiée");
 
     assertNoWorkshopPageErrors(pageErrors);
   } finally {

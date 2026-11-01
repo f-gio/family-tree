@@ -72,7 +72,7 @@ test("constantes du lot : collection privée, délai ~5 s, versions strictes, li
   assert.equal(TRANSCRIPTION_DRAFT_SYNC_DELAY_MS, 5000, "synchronisation différée d'environ 5 secondes");
   assert.equal(TRANSCRIPTION_DRAFT_SYNC_LABELS.syncing, "Synchronisation en cours…");
   assert.equal(TRANSCRIPTION_DRAFT_SYNC_LABELS.synced, "Synchronisé entre appareils");
-  assert.equal(TRANSCRIPTION_DRAFT_SYNC_LABELS.offline, "Synchronisation impossible");
+  assert.equal(TRANSCRIPTION_DRAFT_SYNC_LABELS.offline, "Synchronisation impossible — brouillon conservé sur cet appareil");
   assert.equal(TRANSCRIPTION_DRAFT_SYNC_LABELS.conflict, "Conflit à résoudre");
   assert.equal(TRANSCRIPTION_DRAFT_CONFLICT_LABELS.local, "Version de cet appareil");
   assert.equal(TRANSCRIPTION_DRAFT_CONFLICT_LABELS.remote, "Version distante");
@@ -190,6 +190,50 @@ test("scénarios 1-2 : une suppression distante n'est jamais republiée silencie
      (rappel : la purge automatique n'a jamais lieu sans référence). */
   assert.deepEqual(planTranscriptionDraftWrite({ localSnapshot: null, remote, baseVersion: 1 }), { operation: "delete" }, "version de référence correspondante : purge autorisée");
   assert.deepEqual(planTranscriptionDraftWrite({ localSnapshot: null, remote, baseVersion: 2 }), { operation: "conflict" }, "purge d'une version dépassée refusée");
+});
+
+test("scénario PC → iPhone → PC : copie locale inchangée = adoption, modification réelle = conflit", () => {
+  /* Distant avancé à la version 2 (publié par un autre appareil). */
+  const remote = remoteFixture();
+  remote.version = 2;
+  remote.snapshot = JSON.parse(JSON.stringify(snapshotFixture()));
+  remote.snapshot.passages[0].textIt = "Anno 1892, version iPhone";
+  const localUnchanged = JSON.parse(JSON.stringify(snapshotFixture())); // identique au dernier envoi de cet appareil
+  const localModified = JSON.parse(JSON.stringify(snapshotFixture()));
+  localModified.passages[0].textIt = "Anno 1892, modifié localement";
+  const lastSynced = JSON.parse(JSON.stringify(snapshotFixture()));
+
+  /* Copie inchangée depuis le dernier envoi connu : la version distante plus
+     récente (autre appareil) est adoptée — pas un conflit, ni une écriture. */
+  assert.deepEqual(
+    reconcileTranscriptionDraftOnOpen({ localSnapshot: localUnchanged, remote, baseVersion: 1, lastSyncedSnapshot: lastSynced }),
+    { operation: "upgrade" },
+    "ouverture : copie inchangée + distant avancé = adoption"
+  );
+  assert.deepEqual(
+    planTranscriptionDraftWrite({ localSnapshot: localUnchanged, remote, baseVersion: 1, lastSyncedSnapshot: lastSynced }),
+    { operation: "adopt", version: 2 },
+    "écriture : copie inchangée = adoption (jamais un conflit)"
+  );
+  /* Modification locale réelle (différente du dernier envoi) : conflit
+     explicite, les deux versions sont conservées. */
+  assert.deepEqual(
+    reconcileTranscriptionDraftOnOpen({ localSnapshot: localModified, remote, baseVersion: 1, lastSyncedSnapshot: lastSynced }),
+    { operation: "conflict" },
+    "ouverture : modification locale réelle = conflit"
+  );
+  assert.deepEqual(
+    planTranscriptionDraftWrite({ localSnapshot: localModified, remote, baseVersion: 1, lastSyncedSnapshot: lastSynced }),
+    { operation: "conflict" },
+    "écriture : modification locale réelle = conflit"
+  );
+  /* Version de référence inconnue + contenu différent : conflit (jamais de
+     décision sur une seule date). */
+  assert.deepEqual(
+    reconcileTranscriptionDraftOnOpen({ localSnapshot: localModified, remote, baseVersion: null, lastSyncedSnapshot: null }),
+    { operation: "conflict" },
+    "base inconnue et contenu différent : conflit"
+  );
 });
 
 test("plan d'écriture : versions strictement croissantes, aucune date prise pour décision", () => {
