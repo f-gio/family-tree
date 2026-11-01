@@ -2927,6 +2927,25 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .transcription-workshop-breadcrumb [data-workshop-breadcrumb="documents"],
   .transcription-workshop-breadcrumb [data-workshop-breadcrumb="documents"] + span { display: none; }
   .transcription-workshop-breadcrumb-document { max-width: min(100%, 70vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* A3 : en-tête mobile dédié — le fil d'Ariane est remplacé par la flèche de
+     retour contextuelle, le titre tronqué et le libellé de page (chevrons et
+     étape « Transcription » masqués ; le titre SR-only reste annoncé). */
+  .transcription-workshop-breadcrumb > span { display: none; }
+  /* A3 : navigation générale masquée uniquement dans l'atelier mobile — portée
+     bornée à cette vue par :has(), préservée sur toutes les autres pages. */
+  body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav { display: none !important; }
+  body:has(#transcriptionWorkshopView:not([hidden])) .topbar .brand p { display: none; }
+  /* A3 : un seul passage visible à la fois — plus de pile de cartes ; la
+     sélection est pilotée par les pastilles et conservée entre les onglets. */
+  .transcription-workshop-passage:not(.is-selected) { display: none; }
+  /* A3 : pied respectant la safe area inférieure de l'iPhone, puis compacté
+     pendant le clavier virtuel (classe pilotée par visualViewport depuis
+     l'atelier — statut de sauvegarde conservé, actions restaurées ensuite). */
+  .transcription-workshop-footer { padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px)); }
+  #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-layout { height: var(--workshop-keyboard-height, clamp(300px, calc(100dvh - 16rem), calc(100dvh - 6rem))); }
+  #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-footer-actions { display: none; }
+  #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-autosave-hint { display: none; }
+  #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-footer { padding-bottom: var(--space-1); }
 }
 /* Le retour reste sur la ligne du fil d'Ariane, à son extrémité droite sur desktop. */
 @media (min-width: 981px) {

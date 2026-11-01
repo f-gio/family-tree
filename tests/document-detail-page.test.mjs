@@ -475,8 +475,11 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       if (width >= 981) {
         assert.equal(state.workshopNavigationDisplay, "none", "méga-menu masqué dans l’atelier desktop");
         assert.notEqual(state.workshopBrandDisplay, "none", "identité de marque conservée dans l’atelier desktop");
+      } else if (width <= 760) {
+        assert.equal(state.workshopNavigationDisplay, "none", `navigation générale masquée dans l’atelier mobile A3 (${width}px)`);
+        assert.notEqual(state.workshopBrandDisplay, "none", `identité de marque conservée dans l’atelier mobile (${width}px)`);
       } else {
-        assert.notEqual(state.workshopNavigationDisplay, "none", `navigation générale préservée hors desktop A1 (${width}px)`);
+        assert.notEqual(state.workshopNavigationDisplay, "none", `navigation générale préservée hors atelier A3 (${width}px)`);
       }
       if (width >= 981) {
         await page.click("[data-workshop-breadcrumb='document']");

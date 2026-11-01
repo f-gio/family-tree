@@ -6756,6 +6756,7 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
   if (!setView("transcriptionWorkshop")) return;
   markTranscriptionWorkshopHistory();
   bindTranscriptionWorkshopMenu();
+  bindWorkshopVirtualKeyboard();
   createWorkshopImageViewer();
   syncWorkshopZone();
   scheduleTranscriptionWorkshopScrollTop();
@@ -7153,8 +7154,11 @@ function refreshWorkshopPassageBadges(passageId) {
 function syncWorkshopSelectionClasses() {
   const draft = transcriptionWorkshopDraft;
   if (!draft) return;
+  /* La sélection affichée est celle de la liste courante (le brouillon peut
+     différer en version officielle) : un seul bloc « actif » à la fois. */
+  const displayedSelection = transcriptionWorkshopDisplayedSelectedPassageId();
   for (const article of $("workshopPassageList").children) {
-    article.classList.toggle("is-selected", article.dataset.workshopPassage === draft.selectedPassageId);
+    article.classList.toggle("is-selected", article.dataset.workshopPassage === displayedSelection);
   }
 }
 
@@ -7601,12 +7605,100 @@ function unbindTranscriptionWorkshopMenu() {
   closeTranscriptionWorkshopMenu();
 }
 
+/* ---- A3 : clavier virtuel mobile (visualViewport) --------------------------
+   Atelier mobile uniquement (≤ 760 px, vue atelier active) : quand le clavier
+   virtuel réduit le viewport visible, le pied est compacté (statut conservé,
+   actions masquées) et la hauteur du panneau est bornée au viewport réellement
+   visible pour que le pied ne recouvre jamais le champ en cours de saisie.
+   Les listeners sont attachés à l'ouverture de l'atelier et retirés à la
+   fermeture ; aucun effet sur desktop (contrôle de largeur à chaque sync). */
+let workshopVirtualKeyboardCleanup = null;
+let workshopViewportBaseline = 0;
+
+function isWorkshopMobileViewport() {
+  return window.matchMedia("(max-width: 760px)").matches;
+}
+
+function applyWorkshopKeyboardLayout(keyboardOpen, viewport) {
+  const view = $("transcriptionWorkshopView");
+  if (!view) return;
+  const layout = $("workshopLayout");
+  if (!keyboardOpen) {
+    view.classList.remove("is-keyboard-open");
+    layout?.style.removeProperty("--workshop-keyboard-height");
+    return;
+  }
+  const height = Math.round(viewport?.height || window.innerHeight);
+  view.classList.add("is-keyboard-open");
+  const footer = document.querySelector(".transcription-workshop-footer");
+  if (layout && footer && layout.getClientRects().length) {
+    const top = layout.getBoundingClientRect().top;
+    const visualBottom = (viewport?.offsetTop || 0) + height;
+    const available = Math.round(visualBottom - top - footer.offsetHeight - 12);
+    const next = Math.max(160, available);
+    const current = parseFloat(layout.style.getPropertyValue("--workshop-keyboard-height")) || 0;
+    /* Seuil anti-rebond : aucun repositionnement répété pendant un
+       défilement ou une animation de focus. */
+    if (!current || Math.abs(next - current) > 16) {
+      layout.style.setProperty("--workshop-keyboard-height", `${next}px`);
+    }
+  }
+}
+
+function syncWorkshopKeyboardState(viewport = window.visualViewport) {
+  if (!isTranscriptionWorkshopActive() || !isWorkshopMobileViewport()) {
+    workshopViewportBaseline = 0;
+    applyWorkshopKeyboardLayout(false);
+    return;
+  }
+  const height = Math.round(viewport?.height || window.innerHeight);
+  if (!workshopViewportBaseline) workshopViewportBaseline = Math.max(height, window.innerHeight);
+  /* Le clavier réduit le viewport visible par rapport à la référence relevée
+     hors clavier (fonctionne sur iOS, layout inchangé, comme sur Android). */
+  applyWorkshopKeyboardLayout(workshopViewportBaseline - height > 120, viewport);
+}
+
+function bindWorkshopVirtualKeyboard() {
+  unbindWorkshopVirtualKeyboard();
+  const visualViewport = window.visualViewport;
+  workshopViewportBaseline = Math.round(visualViewport?.height || window.innerHeight);
+  if (!visualViewport) return;
+  const onViewportChange = () => {
+    if (isTranscriptionWorkshopActive()) syncWorkshopKeyboardState(visualViewport);
+  };
+  const onContextChange = () => {
+    if (!isTranscriptionWorkshopActive()) return;
+    workshopViewportBaseline = 0;
+    syncWorkshopKeyboardState(visualViewport);
+  };
+  const orientation = window.matchMedia("(orientation: portrait)");
+  const mobileMedia = window.matchMedia("(max-width: 760px)");
+  visualViewport.addEventListener("resize", onViewportChange);
+  visualViewport.addEventListener("scroll", onViewportChange);
+  orientation.addEventListener?.("change", onContextChange);
+  mobileMedia.addEventListener?.("change", onContextChange);
+  workshopVirtualKeyboardCleanup = () => {
+    visualViewport.removeEventListener("resize", onViewportChange);
+    visualViewport.removeEventListener("scroll", onViewportChange);
+    orientation.removeEventListener?.("change", onContextChange);
+    mobileMedia.removeEventListener?.("change", onContextChange);
+  };
+}
+
+function unbindWorkshopVirtualKeyboard() {
+  workshopVirtualKeyboardCleanup?.();
+  workshopVirtualKeyboardCleanup = null;
+  workshopViewportBaseline = 0;
+  applyWorkshopKeyboardLayout(false);
+}
+
 function resetTranscriptionWorkshopState() {
   /* Dernière écriture avant effacement mémoire : la fermeture de l'atelier
      conserve les brouillons, elle ne les détruit pas. */
   flushTranscriptionWorkshopDraftSaves();
   unbindTranscriptionWorkshopMenu();
   transcriptionWorkshopDraft = null;
+  unbindWorkshopVirtualKeyboard();
   transcriptionWorkshopContext = null;
   transcriptionWorkshopEditing = false;
   transcriptionWorkshopViewingOfficial = false;

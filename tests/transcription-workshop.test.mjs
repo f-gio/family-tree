@@ -441,6 +441,20 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(css, /grid-template-columns: minmax\(0, var\(--workshop-split, 55%\)\) auto minmax\(0, 1fr\)/, "deux zones de travail 55/45 redimensionnables");
   assert.doesNotMatch(css, /\.transcription-workshop-passage \{ display: grid;/, "sections de passage toujours empilées, jamais sur deux colonnes");
   assert.doesNotMatch(css, /\.transcription-workshop-passage \{[^}]*grid-template-columns/, "aucune largeur de colonne imposée aux sections italien/français");
+  /* A3 mobile : toutes les nouvelles règles sont bornées au bloc atelier
+     ≤ 760 px — desktop strictement inchangé au-delà de ce seuil. */
+  const workshopMobileStart = css.indexOf("/* En-tête mobile compact");
+  const workshopMobileEnd = css.indexOf("@media (min-width: 981px)", workshopMobileStart);
+  assert.ok(workshopMobileStart >= 0 && workshopMobileEnd > workshopMobileStart, "bloc atelier mobile localisé");
+  const workshopMobileA3 = css.slice(workshopMobileStart, workshopMobileEnd);
+  assert.ok(workshopMobileA3.includes(".transcription-workshop-breadcrumb > span { display: none; }"), "fil d’Ariane mobile remplacé par l’en-tête dédié");
+  assert.ok(workshopMobileA3.includes("body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav { display: none !important; }"), "navigation générale masquée uniquement dans l’atelier mobile");
+  assert.ok(workshopMobileA3.includes(".transcription-workshop-passage:not(.is-selected) { display: none; }"), "un seul passage visible à la fois sur mobile");
+  assert.ok(workshopMobileA3.includes("padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px))"), "safe area inférieure du pied mobile");
+  assert.ok(workshopMobileA3.includes(".transcription-workshop-footer-actions { display: none; }"), "actions compactées pendant le clavier virtuel");
+  assert.match(app, /function bindWorkshopVirtualKeyboard\(\)/, "cycle de vie du clavier virtuel");
+  assert.match(app, /visualViewport\.addEventListener\("resize", onViewportChange\)/, "écoute de visualViewport");
+  assert.match(app, /removeEventListener\("resize", onViewportChange\)/, "nettoyage des listeners du clavier");
   assert.match(css, /\.transcription-workshop-menu-panel \{/, "menu secondaire d’en-tête");
   assert.match(css, /\.btn\.transcription-workshop-return \{[^}]*margin-inline-start: auto/, "Retour aligné à droite du fil d’Ariane");
   assert.match(css, /\.transcription-workshop-heading h2 \{[^}]*-webkit-line-clamp: 2/, "titre Atelier lisible sur deux lignes maximum");
@@ -592,7 +606,13 @@ window.__repro = {
      après le seed : ce rappel rétablit explicitement l'administrateur simulé. */
   useAdminProfile() { currentUserProfile = { role: "admin" }; updateWorkshopDraftIndicators(); },
   fields() { return [...document.querySelectorAll("[data-workshop-field]")].map(f => ({ p: f.dataset.workshopPassage, k: f.dataset.workshopField, v: f.value })); },
-  stored() { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith("familyTreeTranscriptionDraft:")) out.push([k, localStorage.getItem(k)]); } return out; }
+  stored() { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith("familyTreeTranscriptionDraft:")) out.push([k, localStorage.getItem(k)]); } return out; },
+  /* A3 : simulation du clavier virtuel — mêmes fonctions que le cycle de vie
+     réel (visualViewport), pilotées depuis le scope du module applicatif. */
+  keyboard: {
+    setBaseline(value) { workshopViewportBaseline = value; },
+    sync(viewport) { syncWorkshopKeyboardState(viewport); }
+  }
 };`;
 
 /* Harnais d'auth du test mobile : sans utilisateur connecté, le callback
@@ -1075,6 +1095,91 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               const recovered = await page.evaluate(() => ({ stored: window.__repro.stored().length, status: document.getElementById("workshopSaveStatus").textContent }));
               assert.ok(recovered.stored >= 1, "récupération écrite après rétablissement du stockage");
               assert.equal(recovered.status, "Enregistré sur cet appareil", "retour à un état de succès réel");
+
+              /* A3 mobile : en-tête dédié, navigation générale masquée, un seul
+                 passage visible, contrôle segmenté contenu. */
+              const a3State = await page.evaluate(() => {
+                const visibleCards = [...document.querySelectorAll(".transcription-workshop-passage")].filter(card => card.getClientRects().length > 0);
+                const crumbSpans = [...document.querySelectorAll(".transcription-workshop-breadcrumb > span")];
+                const mode = document.querySelector(".transcription-workshop-mode");
+                return {
+                  navHidden: getComputedStyle(document.querySelector(".topbar .main-nav")).display === "none",
+                  brandTaglineHidden: getComputedStyle(document.querySelector(".topbar .brand p")).display === "none",
+                  crumbSpansHidden: crumbSpans.length > 0 && crumbSpans.every(span => getComputedStyle(span).display === "none"),
+                  titleVisible: document.getElementById("workshopDocumentTitle").getClientRects().length > 0,
+                  backHeight: Math.round(document.getElementById("workshopBackBtn").getBoundingClientRect().height),
+                  pageLabelVisible: document.getElementById("workshopPageLabel").getClientRects().length > 0,
+                  visibleCards: visibleCards.length,
+                  modeScroll: mode ? mode.scrollWidth - mode.clientWidth : null,
+                  horizontalOverflow: document.documentElement.scrollWidth > innerWidth
+                };
+              });
+              assert.equal(a3State.navHidden, true, "navigation générale masquée dans l’atelier mobile");
+              assert.equal(a3State.brandTaglineHidden, true, "sous-titre de marque masqué pour l’espace compact");
+              assert.equal(a3State.crumbSpansHidden, true, "fil d’Ariane remplacé par l’en-tête dédié (chevrons et étape masqués)");
+              assert.equal(a3State.titleVisible, true, "titre du document visible");
+              assert.ok(a3State.backHeight >= 44, `retour contextuel ≥ 44 px (${a3State.backHeight})`);
+              assert.equal(a3State.pageLabelVisible, true, "contexte de page visible");
+              assert.equal(a3State.visibleCards, 1, "un seul passage visible à la fois");
+              assert.ok(a3State.modeScroll <= 1, `contrôle segmenté sans débordement horizontal (${a3State.modeScroll}px)`);
+              assert.equal(a3State.horizontalOverflow, false, "aucun débordement horizontal de la page");
+              /* Conservation de la sélection entre onglets et changement de passage. */
+              await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
+              const afterPill = await page.evaluate(() => ({
+                activePill: document.querySelector("#workshopPassagePills [aria-current='step']")?.textContent,
+                visibleCards: [...document.querySelectorAll(".transcription-workshop-passage")].filter(card => card.getClientRects().length > 0).map(card => card.dataset.workshopPassage),
+                activePanel: document.getElementById("workshopLayout").dataset.activePanel
+              }));
+              assert.equal(afterPill.activePill, "2", "pastille 2 sélectionnée");
+              assert.deepEqual(afterPill.visibleCards, ["p-2"], "seul le passage sélectionné reste affiché");
+              assert.equal(afterPill.activePanel, "italian", "onglet Italien conservé lors du changement de passage");
+              await page.click("#workshopTabFrench");
+              const afterTab = await page.evaluate(() => {
+                const card = [...document.querySelectorAll(".transcription-workshop-passage")].find(element => element.getClientRects().length > 0);
+                return {
+                  activePill: document.querySelector("#workshopPassagePills [aria-current='step']")?.textContent,
+                  visibleCards: [...document.querySelectorAll(".transcription-workshop-passage")].filter(element => element.getClientRects().length > 0).map(element => element.dataset.workshopPassage),
+                  frVisible: !!card && [...card.querySelectorAll(".workshop-field-fr")].some(field => field.getClientRects().length > 0),
+                  itHidden: !!card && [...card.querySelectorAll(".workshop-field-it")].every(field => field.getClientRects().length === 0)
+                };
+              });
+              assert.equal(afterTab.activePill, "2", "sélection conservée après changement d’onglet");
+              assert.deepEqual(afterTab.visibleCards, ["p-2"], "seul le passage sélectionné reste affiché sur l’onglet Français");
+              assert.equal(afterTab.frVisible, true, "traduction française affichée sur l’onglet Français");
+              assert.equal(afterTab.itHidden, true, "transcription italienne masquée sur l’onglet Français");
+              /* Clavier virtuel simulé via visualViewport : pied compacté
+                 (statut conservé, actions masquées), panneau borné au viewport
+                 visible, puis restauration complète à la fermeture. */
+              const keyboardTarget = await page.evaluate(() => {
+                window.__repro.keyboard.setBaseline(window.innerHeight);
+                const height = window.innerHeight - 300;
+                window.__repro.keyboard.sync({ height, offsetTop: 0 });
+                const footer = document.querySelector(".transcription-workshop-footer");
+                return {
+                  height,
+                  open: document.getElementById("transcriptionWorkshopView").classList.contains("is-keyboard-open"),
+                  actionsHidden: document.querySelector(".transcription-workshop-footer-actions").getClientRects().length === 0,
+                  statusVisible: document.getElementById("workshopSaveStatus").getClientRects().length > 0,
+                  footerBottom: Math.round(footer.getBoundingClientRect().bottom),
+                  keyboardHeight: parseFloat(document.getElementById("workshopLayout").style.getPropertyValue("--workshop-keyboard-height"))
+                };
+              });
+              assert.equal(keyboardTarget.open, true, "clavier virtuel simulé : état compact activé");
+              assert.equal(keyboardTarget.actionsHidden, true, "actions masquées pendant la saisie");
+              assert.equal(keyboardTarget.statusVisible, true, "statut de sauvegarde conservé pendant la saisie");
+              assert.ok(keyboardTarget.keyboardHeight >= 160, `hauteur de panneau adaptée au viewport visible (${keyboardTarget.keyboardHeight}px)`);
+              assert.ok(keyboardTarget.footerBottom <= keyboardTarget.height + 2, `pied compacté au-dessus du clavier (${keyboardTarget.footerBottom} ≤ ${keyboardTarget.height})`);
+              const restoredKeyboard = await page.evaluate(() => {
+                window.__repro.keyboard.sync(window.visualViewport);
+                return {
+                  open: document.getElementById("transcriptionWorkshopView").classList.contains("is-keyboard-open"),
+                  actionsVisible: document.querySelector(".transcription-workshop-footer-actions").getClientRects().length > 0,
+                  keyboardHeight: document.getElementById("workshopLayout").style.getPropertyValue("--workshop-keyboard-height")
+                };
+              });
+              assert.equal(restoredKeyboard.open, false, "état compact retiré à la fermeture du clavier");
+              assert.equal(restoredKeyboard.actionsVisible, true, "actions restaurées à la fermeture du clavier");
+              assert.equal(restoredKeyboard.keyboardHeight, "", "hauteur forcée nettoyée à la fermeture");
 
               /* Sortie sans friction (brouillon enregistré), retours nets. */
               await page.click("#workshopBackBtn");
