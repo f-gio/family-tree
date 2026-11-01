@@ -309,7 +309,7 @@ test("périmètre applicatif : branchement distant reporté à l'application, r�
   /* Balises d'interface présentes. */
   assert.match(htmlSource, /id="transcriptionDraftConflictDialog"/, "dialog de conflit dans le balisage");
   assert.match(htmlSource, /id="transcriptionDraftRecoveryDialog"/, "dialog de reprise d'un brouillon hérité dans le balisage");
-  assert.match(htmlSource, /id="workshopConflictBtn"/, "réouverture du conflit en pied d'atelier");
+  assert.match(htmlSource, /id="workshopConflictBtn"/, "réouverture du conflit depuis le menu « … » du panneau");
   assert.match(htmlSource, /id="workshopSaveStatus" role="status">Brouillon local</, "statut local inchangé");
   /* Reprise des brouillons hérités : offerte explicitement, jamais automatique. */
   assert.match(appSource, /function offerTranscriptionDraftLegacyRecovery\(/, "offre de reprise dédiée dans l'application");

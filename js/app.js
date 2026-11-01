@@ -6800,6 +6800,13 @@ function captureTranscriptionWorkshopReturn() {
     transcriptionWorkshopReturn = null;
   }
   setDedicatedPageBackLabel("workshopBackBtn", transcriptionWorkshopReturn);
+  /* Sur les écrans qui affichent le fil d'Ariane, la flèche de retour vers le
+     Document y est redondante ; elle reste pour les retours vers une Source ou
+     une fiche que le fil ne peut pas exprimer. */
+  document.querySelector(".transcription-workshop-head-status")?.classList.toggle(
+    "is-breadcrumb-redundant",
+    transcriptionWorkshopReturn?.kind === "document"
+  );
   if ($("genealogyItemDialog").open) $("genealogyItemDialog").close();
   closeDocumentPage();
 }
@@ -6823,12 +6830,16 @@ function navigateTranscriptionWorkshopBreadcrumb(destination) {
       activeView = previousView;
       return toast("Le document associé n’est plus disponible.", "error");
     }
-    transcriptionWorkshopReturn = {
-      kind: "document",
-      documentId,
-      returnContext: "documents",
-      pageContext: null
-    };
+    /* Conserve le contexte d'origine lorsqu'il pointe déjà sur ce document :
+       le Retour de la fiche Document reprend alors son contexte appelant. */
+    if (!(previousTarget?.kind === "document" && previousTarget.documentId === documentId)) {
+      transcriptionWorkshopReturn = {
+        kind: "document",
+        documentId,
+        returnContext: "documents",
+        pageContext: null
+      };
+    }
   } else {
     transcriptionWorkshopReturn = null;
   }
@@ -7163,7 +7174,12 @@ function setWorkshopTab(view, { silent = false } = {}) {
     $(tabId).classList.toggle("is-active", active);
     $(tabId).setAttribute("aria-selected", String(active));
   }
-  if (!silent) setWorkshopCompare(false);
+  if (!silent) {
+    /* Le menu « … » vit dans le panneau de transcription : un changement
+       d'onglet le referme pour ne pas le rouvrir dans un autre état. */
+    closeTranscriptionWorkshopMenu();
+    setWorkshopCompare(false);
+  }
 }
 
 function applyWorkshopCompare() {
@@ -7258,7 +7274,7 @@ function renderWorkshopPassageNavigation(displayedPassages, selectedPassageId) {
     const passage = displayedPassages[index];
     const active = passage.id === selectedPassageId;
     const line = passage.lineLabel ? ` · ${passage.lineLabel}` : "";
-    entries.push(`<button class="transcription-workshop-passage-pill${active ? " is-active" : ""}" type="button" data-workshop-passage-select="${esc(passage.id)}" aria-label="Passage ${index + 1}${esc(line)}"${active ? ' aria-current="step"' : ""}>${index + 1}</button>`);
+    entries.push(`<button class="btn small transcription-workshop-passage-pill${active ? " is-active" : ""}" type="button" data-workshop-passage-select="${esc(passage.id)}" aria-label="Passage ${index + 1}${esc(line)}"${active ? ' aria-current="step"' : ""}>${index + 1}</button>`);
     previousIndex = index;
   }
   container.innerHTML = entries.join("");
@@ -7387,10 +7403,17 @@ function updateWorkshopDraftIndicators() {
   if (addPassageButton) addPassageButton.hidden = officialReadOnly;
   const resetButton = $("workshopResetBtn");
   if (resetButton) resetButton.hidden = officialReadOnly || !transcriptionWorkshopHasUnsavedChanges();
-  /* Conflit refermé sans choix : le bouton du pied permet de rouvrir la
-     comparaison — l'état reste visible tant qu'aucune décision n'est prise. */
+  /* Conflit refermé sans choix : la commande « Résoudre » du menu permet de
+     rouvrir la comparaison — l'état reste visible tant qu'aucune décision
+     n'est prise. */
   const conflictButton = $("workshopConflictBtn");
   if (conflictButton) conflictButton.hidden = !conflict;
+  /* Actions secondaires du menu « … » : affichées seulement si elles sont
+     réellement disponibles dans le contexte courant. */
+  const compareMenuButton = $("workshopCompareMenuBtn");
+  if (compareMenuButton) compareMenuButton.hidden = !draft.selectedPassageId;
+  const historyButton = $("workshopHistoryBtn");
+  if (historyButton) historyButton.hidden = !transcriptionWorkshopHead();
   /* Badge d'état officiel près de la barre du panneau : Brouillon,
      Validée · vN ou Révision en cours · vN (comparaison au contenu officiel). */
   const officialState = transcriptionWorkshopOfficialState();
@@ -7420,19 +7443,6 @@ function updateWorkshopDraftIndicators() {
     const hasContent = hasTranscriptionContent(draft.passages);
     validateButton.disabled = !hasContent;
     validateButton.title = hasContent ? targetLabel : "La transcription italienne est vide : rien à valider";
-  }
-  /* Enregistrer : actif seulement si un contenu local diffère du dernier
-     contenu sauvegardé localement (ou si la sauvegarde locale a échoué) —
-     jamais lié à la synchronisation distante (~5 s). */
-  const saveButton = $("workshopSaveDraftBtn");
-  if (saveButton) {
-    saveButton.hidden = officialReadOnly;
-    const localFailed = state?.status === "failed" || state?.status === "conflict";
-    const hasUnsavedLocalChanges = draft.dirty && state?.status !== "saved";
-    saveButton.disabled = !localFailed && !hasUnsavedLocalChanges;
-    saveButton.title = saveButton.disabled
-      ? (draft.dirty ? "Les modifications sont déjà enregistrées sur cet appareil" : "Le brouillon n’a aucune modification à enregistrer")
-      : "Écrire le brouillon dans le stockage local de ce navigateur";
   }
   syncWorkshopUnloadGuard();
   updateWorkshopNavigation();
@@ -7536,7 +7546,6 @@ function resetTranscriptionWorkshopState() {
     $("workshopRemoteStatus").hidden = true;
     $("workshopRemoteStatus").textContent = "";
   }
-  if ($("workshopSaveDraftBtn")) $("workshopSaveDraftBtn").disabled = true;
   if ($("workshopConflictBtn")) $("workshopConflictBtn").hidden = true;
   if ($("transcriptionDraftConflictDialog")?.open) $("transcriptionDraftConflictDialog").close();
   transcriptionDraftOpenConflictKey = null;
@@ -7592,26 +7601,11 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     closeTranscriptionWorkshopMenu();
     return;
   }
-  if (event.target.closest("#workshopSaveDraftBtn")) {
-    const draft = transcriptionWorkshopDraft;
-    if (!draft || !draft.dirty || transcriptionWorkshopIsReadOnly()) return;
-    /* Écriture immédiate : le minuteur d'autosauvegarde différée est annulé
-       pour ne pas attendre les 3 secondes. Aucune notification de réussite : le
-       pied de l'atelier porte l'état (« Enregistré sur cet appareil » puis
-       synchronisation) ; seules les erreurs notifient. */
-    const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
-    const pendingTimer = transcriptionDraftSaveTimers.get(key);
-    if (pendingTimer) {
-      clearTimeout(pendingTimer);
-      transcriptionDraftSaveTimers.delete(key);
-    }
-    if (persistTranscriptionWorkshopDraft(draft)) {
-      /* Écriture distante immédiate (sans attendre les 5 s) : le pied affiche
-         l'état réel, jamais une réussite prématurée. */
-      syncTranscriptionDraftNow(draft, { reason: "manual" });
-    }
+  if (event.target.closest("#workshopCompareMenuBtn")) {
+    /* Action secondaire du menu « … » : compare le passage sélectionné avec
+       le même moteur que le bouton « Comparer » de la carte de passage. */
     closeTranscriptionWorkshopMenu();
-    return;
+    return setWorkshopCompare(true);
   }
   const photoButton = event.target.closest("[data-workshop-photo]");
   if (photoButton && transcriptionWorkshopContext) {
@@ -7714,6 +7708,8 @@ $("transcriptionWorkshopView").addEventListener("input", event => {
 $("transcriptionDraftConflictKeepLocalBtn").addEventListener("click", () => resolveTranscriptionDraftConflict("local"));
 $("transcriptionDraftConflictKeepRemoteBtn").addEventListener("click", () => resolveTranscriptionDraftConflict("remote"));
 $("workshopConflictBtn").addEventListener("click", () => {
+  /* Commande du menu « … » : le menu se ferme avant l'ouverture du dialogue. */
+  closeTranscriptionWorkshopMenu();
   const draft = transcriptionWorkshopDraft;
   const key = draft
     ? transcriptionWorkshopDraftKey(draft.documentId, draft.pageId)
@@ -7735,7 +7731,11 @@ $("workshopCancelContinueHeaderBtn").addEventListener("click", () => resolveTran
 $("workshopCancelKeepBtn").addEventListener("click", () => resolveTranscriptionWorkshopCancel("keep"));
 $("workshopCancelDiscardBtn").addEventListener("click", () => resolveTranscriptionWorkshopCancel("discard"));
 $("transcriptionEditCancelDialog").addEventListener("close", () => { transcriptionWorkshopCancelTarget = null; });
-$("workshopHistoryBtn").addEventListener("click", () => openTranscriptionHistoryDialog());
+$("workshopHistoryBtn").addEventListener("click", () => {
+  /* Commande du menu « … » : le menu se ferme avant l'ouverture du dialogue. */
+  closeTranscriptionWorkshopMenu();
+  openTranscriptionHistoryDialog();
+});
 $("transcriptionHistoryList").addEventListener("click", event => {
   const row = event.target.closest("[data-history-revision]");
   if (row) openTranscriptionHistoryDetail(row.dataset.historyRevision);

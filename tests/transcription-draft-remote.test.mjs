@@ -112,7 +112,16 @@ window.__draftRemote = {
   openDoc() { setView("directory"); openStoredDocument(documents[0], "directory"); },
   transcribe() { const button = document.querySelector("#viewerDocumentDetails [data-transcribe-document]"); if (button) button.click(); },
   badge() { return $("workshopSaveStatus").textContent; },
-  fieldValue() { return document.querySelector('[data-workshop-field="textIt"]')?.value || ""; }
+  fieldValue() { return document.querySelector('[data-workshop-field="textIt"]')?.value || ""; },
+  /* Sans bouton manuel, le chemin normal reste autosauvegarde (3 s) puis
+     synchronisation (~5 s). Ce harnais rejoue le même chemin écriture locale
+     puis envoi immédiat, pour vérifier la synchronisation sans attendre. */
+  flushNow() {
+    const draft = transcriptionWorkshopDraft;
+    if (!draft || !draft.dirty) return;
+    flushTranscriptionWorkshopDraftSaves();
+    if (persistTranscriptionWorkshopDraft(draft)) syncTranscriptionDraftNow(draft, { reason: "manual" });
+  }
 };
 
 /* Compte connecté simulé + backend distant branché sur le serveur Node. */
@@ -226,7 +235,7 @@ async function openWorkshopOn(page) {
 }
 
 async function exitWorkshop(page) {
-  await page.click("#workshopBackBtn");
+  await page.click('[data-workshop-breadcrumb="document"]');
   await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden);
 }
 
@@ -239,18 +248,12 @@ function assertNoWorkshopPageErrors(pageErrors) {
   assert.deepEqual(relevant, [], `aucune erreur applicative liée à la synchronisation (${relevant.join(" | ")})`);
 }
 
-/* « Enregistrer » n'est actif que si un contenu local diffère du dernier
-   contenu enregistré (incrément 2) : une saisie (même valeur) réarme le
-   bouton, puis le clic déclenche l'écriture immédiate. */
+/* Le bouton manuel « Enregistrer » a été retiré de l'interface : la suite
+   vérifie le chemin réel (autosauvegarde puis synchronisation) en rejouant
+   l'écriture locale puis l'envoi distant immédiat via le harnais `flushNow`,
+   afin de ne pas attendre les fenêtres de 3 s et 5 s à chaque échange. */
 async function clickSave(page) {
-  if (await page.locator("#workshopSaveDraftBtn").isDisabled()) {
-    await page.evaluate(() => {
-      const field = document.querySelector('[data-workshop-field="textIt"]');
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await page.waitForFunction(() => !document.getElementById("workshopSaveDraftBtn").disabled, undefined, { timeout: 3000 });
-  }
-  await page.click("#workshopSaveDraftBtn");
+  await page.evaluate(() => window.__draftRemote.flushNow());
 }
 
 /* Attente côté Node (le « serveur » simulé vit dans ce processus). */
@@ -366,7 +369,7 @@ test("brouillons synchronisés : conflits à choix explicite, hors ligne et réc
     await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Conflit à résoudre", undefined, { timeout: 5000 });
     assert.equal(await page.locator("#transcriptionDraftConflictDialog").isVisible(), true, "dialogue de conflit ouvert");
-    assert.equal(await page.locator("#workshopConflictBtn").isVisible(), true, "bouton « Résoudre » visible en pied");
+    assert.equal(await page.locator("#workshopConflictBtn").evaluate(button => button.hidden), false, "« Résoudre » disponible dans le menu « … »");
     const localText = await page.locator("#transcriptionDraftConflictLocalText").inputValue();
     const remoteText = await page.locator("#transcriptionDraftConflictRemoteText").inputValue();
     assert.ok(localText.includes("Version ordinateur A modifiée"), "version locale présentée");

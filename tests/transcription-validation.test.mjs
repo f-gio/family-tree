@@ -77,6 +77,9 @@ window.__inc2 = {
   openDoc() { setView("directory"); openStoredDocument(documents[0], "directory"); },
   emptyTranscriptionPage() { documents[0].pages[0].passages = []; },
   useMemberProfile() { currentUserProfile = { role: "member", status: "approved" }; updateWorkshopDraftIndicators(); },
+  /* Le callback d'authentification du harnais peut réinitialiser le profil après
+     le seed : ce rappel rétablit explicitement l'administrateur simulé. */
+  useAdminProfile() { currentUserProfile = { role: "admin", status: "approved" }; updateWorkshopDraftIndicators(); },
   transcribe() { const button = document.querySelector("#viewerDocumentDetails [data-transcribe-document]"); if (button) button.click(); },
   badge() { return $("workshopSaveStatus").textContent; },
   officialBadge() { const el = $("workshopOfficialBadge"); return { hidden: el.hidden, text: el.textContent }; },
@@ -142,6 +145,14 @@ function assertNoInc2PageErrors(pageErrors) {
   assert.deepEqual(relevant, [], `aucune erreur applicative (${relevant.join(" | ")})`);
 }
 
+/* Le menu « … » est le seul accès aux actions secondaires : il doit être
+   ouvert avant d'activer l'une de ses entrées. */
+async function clickWorkshopMenuAction(page, buttonSelector) {
+  const menu = page.locator("#workshopActionsMenu");
+  if (!(await menu.evaluate(element => element.open))) await page.click("#workshopActionsMenu > summary");
+  await page.click(buttonSelector);
+}
+
 test("badges et états : Brouillon, Validée · vN, Révision en cours · vN — Enregistrer armé/désarmé", { timeout: 120000 }, async t => {
   const harness = await openInc2Harness(t);
   if (!harness) return;
@@ -164,12 +175,13 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
     assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").evaluate(button => button.classList.contains("primary")), false, "CTA ivoire sans style principal vert");
     await openInc2Workshop(page, pageErrors);
     await page.waitForFunction(() => window.__inc2.officialBadge().text !== "", undefined, { timeout: 5000 });
+    await page.evaluate(() => window.__inc2.useAdminProfile());
     const initial = await page.evaluate(() => ({
       badge: window.__inc2.officialBadge(),
       validateHidden: document.getElementById("workshopValidateBtn").hidden,
       validateLabel: document.getElementById("workshopValidateLabel").textContent,
       validateDisabled: document.getElementById("workshopValidateBtn").disabled,
-      saveDisabled: document.getElementById("workshopSaveDraftBtn").disabled,
+      saveButtonCount: document.querySelectorAll("#workshopSaveDraftBtn").length,
       autoSaveHintHidden: document.getElementById("workshopAutosaveHint").hidden,
       editorDisabled: document.querySelector('[data-workshop-field="textIt"]').disabled,
       collapsed: document.getElementById("workshopLayout").classList.contains("is-document-collapsed")
@@ -179,14 +191,14 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
     assert.equal(initial.validateHidden, false, "validation visible pour l'administrateur");
     assert.equal(initial.validateLabel, "Valider", "libellé court de validation dans le groupe d’édition");
     assert.equal(initial.validateDisabled, false, "validation active (texte italien non vide)");
-    assert.equal(initial.saveDisabled, true, "Enregistrer inactif sans modification non sauvegardée");
+    assert.equal(initial.saveButtonCount, 0, "aucun bouton manuel « Enregistrer »");
     assert.equal(initial.autoSaveHintHidden, false, "autosauvegarde annoncée en édition");
     assert.equal(initial.editorDisabled, false, "brouillon sans version officielle directement éditable");
     assert.equal(initial.collapsed, false, "vue partagée par défaut");
 
-    /* Modification locale : Enregistrer réarmé immédiatement. */
+    /* Modification locale : l'autosauvegarde reprend seule, sans commande. */
     await page.fill('[data-workshop-field="textIt"]', "Anno millenovecento modificato");
-    assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), false, "Enregistrer réarmé dès la saisie");
+    assert.equal(await page.locator("#workshopSaveStatus").textContent(), "Enregistrement…", "modification en attente d’autosauvegarde");
     assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Brouillon",
       "sans officiel, la modification reste un simple brouillon");
     await page.click("#workshopCancelEditBtn");
@@ -254,6 +266,7 @@ test("validation : confirmation précise, échec réseau sans perte du brouillon
   try {
     await bootInc2(page);
     await openInc2Workshop(page, pageErrors);
+    await page.evaluate(() => window.__inc2.useAdminProfile());
     await page.fill('[data-workshop-field="textIt"]', "Anno della conferma");
 
     /* Dialogue : version, historique et distinction avec Enregistrer/Comparer. */
@@ -327,16 +340,18 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Validée · v2", "contenu officiel : Validée · v2");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "officiel en lecture seule");
     assert.equal(await page.locator("#workshopAddPassageBtn").isHidden(), true, "ajout masqué en lecture seule");
-    assert.equal(await page.locator("#workshopSaveDraftBtn").isHidden(), true, "Enregistrer masqué en lecture seule");
+    assert.equal(await page.locator("#workshopSaveDraftBtn").count(), 0, "aucun bouton « Enregistrer »");
     assert.equal(await page.locator("#workshopValidateBtn").isHidden(), true, "Valider masqué en lecture seule");
     assert.equal(await page.locator(".transcription-workshop-passage-menu").count(), 0, "aucun menu destructif sur les passages officiels");
-    assert.equal(await page.locator("#workshopActionsMenu").isHidden(), true, "menu ⋯ masqué sans action secondaire disponible");
-    assert.equal(await page.locator("#workshopActionsMenu").isHidden(), true, "⋯ masqué en consultation officielle sans action secondaire");
+    assert.equal(await page.locator("#workshopActionsMenu").isHidden(), false, "menu ⋯ présent avec ses actions de consultation");
+    assert.equal(await page.locator("#workshopActionsMenu #workshopHistoryBtn").evaluate(button => button.hidden), false, "Historique disponible en lecture seule");
+    assert.equal(await page.locator("#workshopActionsMenu #workshopCompareMenuBtn").evaluate(button => button.hidden), false, "Comparer disponible en lecture seule");
+    assert.equal(await page.locator("#workshopActionsMenu #workshopHelpBtn").evaluate(button => button.hidden), true, "aide masquée en lecture seule");
     assert.equal(await page.locator(".transcription-workshop-header #workshopValidateBtn").count(), 0, "aucun doublon de validation dans l’en-tête supérieur");
     assert.equal(await page.locator("#workshopModeBtn").textContent(), "Modifier", "action explicite pour entrer en édition");
     await page.click("#workshopModeBtn");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), false, "édition activée explicitement");
-    assert.equal(await page.locator("#workshopSaveDraftBtn").isDisabled(), true, "pas de brouillon créé par l'activation seule");
+    assert.equal(await page.locator("#workshopSaveDraftBtn").count(), 0, "pas de commande manuelle créée par l'activation seule");
     assert.equal(await page.locator("#workshopAutosaveHint").isVisible(), true, "autosauvegarde annoncée en édition");
     assert.equal(await page.locator("#workshopActionsMenu").isHidden(), false, "menu ⋯ visible dès qu’une aide secondaire est disponible");
     assert.equal(await page.locator("#workshopModeBtn").isHidden(), true, "Modifier remplacé en mode édition");
@@ -373,7 +388,7 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     assert.equal(await page.locator("#workshopModeBtn").textContent(), "Reprendre la révision", "le brouillon conservé reste reprenable");
     await page.click("#workshopModeBtn");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Révision à conserver", "le brouillon sauvegardé est conservé");
-    await page.click("#workshopBackBtn");
+    await page.click('[data-workshop-breadcrumb="document"]');
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     const revisionCard = await page.locator(".document-transcription-card").textContent();
     assert.match(revisionCard, /Révision en cours · v3/, "carte Document indique la révision locale");
@@ -414,7 +429,7 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     await page.click("#workshopCancelEditBtn");
 
     /* Historique consultable sans quitter l'atelier. */
-    await page.click("#workshopHistoryBtn");
+    await clickWorkshopMenuAction(page, "#workshopHistoryBtn");
     await page.waitForFunction(() => document.getElementById("transcriptionHistoryDialog").open, undefined, { timeout: 5000 });
     const rows = await page.locator("[data-history-revision]").count();
     assert.equal(rows, 2, "les versions sont listées");
@@ -494,7 +509,7 @@ test("historique : versions listées avec auteur et date, consultation en lectur
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.click("#workshopTabItalian");
-    await page.click("#workshopHistoryBtn");
+    await clickWorkshopMenuAction(page, "#workshopHistoryBtn");
     await page.waitForFunction(() => document.getElementById("transcriptionHistoryDialog").open);
     await page.click('[data-history-revision="tx-seed-rev2"]');
     await page.waitForFunction(() => !document.getElementById("transcriptionHistoryDetail").hidden);
@@ -588,7 +603,7 @@ test("repli du volet Document : vue étendue, contenu et défilement conservés,
     assert.equal(expanded.field, before.field, "texte toujours conservé");
 
     /* Une nouvelle session d'atelier repart en vue partagée. */
-    await page.click("#workshopBackBtn");
+    await page.click('[data-workshop-breadcrumb="document"]');
     await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden);
     await openInc2Workshop(page, pageErrors);
     const reopened = await page.evaluate(() => document.getElementById("workshopLayout").classList.contains("is-document-collapsed"));

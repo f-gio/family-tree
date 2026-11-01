@@ -125,7 +125,8 @@ window.__documentPageTest = {
       readerOverflowY: getComputedStyle($("viewerImageViewport")).overflowY,
       workshopBackHeight: $("workshopBackBtn").getBoundingClientRect().height,
       workshopBackLabel: $("workshopBackBtn").getAttribute("aria-label"),
-      workshopMenuHeight: document.querySelector("#workshopActionsMenu > summary").getBoundingClientRect().height,
+      workshopMenuInPanel: !!document.querySelector("#workshopPanelRight #workshopActionsMenu"),
+      workshopBackRedundant: !!document.querySelector(".transcription-workshop-head-status")?.classList.contains("is-breadcrumb-redundant"),
       workshopTitle: $("workshopDocumentTitle").textContent,
       workshopTitleLabel: $("workshopDocumentTitle").getAttribute("aria-label"),
       workshopTitleLineClamp: getComputedStyle($("workshopDocumentTitle")).webkitLineClamp,
@@ -257,11 +258,13 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.pageVisible, false, "l'atelier remplace la page");
     assert.equal(state.workshopBackLabel, "Retour au document", "Retour de l’Atelier précise le Document appelant");
     assert.equal(await page.locator("#workshopBackBtn .dedicated-page-back-label").textContent(), "Retour au document", "Retour Atelier nomme sa destination en clair");
-    assert.ok(state.workshopBackHeight >= 44 && state.workshopMenuHeight >= 44, "Retour et menu Atelier ≥44px");
+    assert.equal(state.workshopBackHeight, 0, "flèche de retour masquée sur desktop : le fil d’Ariane suffit");
+    assert.equal(state.workshopBackRedundant, true, "retour vers le Document marqué redondant avec le fil d’Ariane");
+    assert.equal(state.workshopMenuInPanel, true, "menu « … » unique dans le panneau de transcription");
     assert.ok(state.workshopHeaderClass.includes("dedicated-page-header"), "en-tête partagé de l’Atelier");
     assert.equal(state.workshopTitleLabel, state.workshopTitle, "titre Atelier complet accessible");
     assert.equal(state.workshopLossBannerPresent, false, "aucun bandeau rouge redondant dans l’Atelier");
-    await page.click("#workshopBackBtn");
+    await page.click('[data-workshop-breadcrumb="document"]');
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, true, "retour à la page Document depuis l'atelier");
@@ -415,7 +418,12 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
       state = await page.evaluate(() => window.__documentPageTest.state());
       assert.equal(state.workshopHorizontalOverflow, false, `Atelier sans débordement à ${width}px`);
-      assert.ok(state.workshopBackHeight >= 44 && state.workshopMenuHeight >= 44, `Retour et menu Atelier ≥44px à ${width}px`);
+      if (width >= 761) {
+        assert.equal(state.workshopBackHeight, 0, `flèche de retour masquée derrière le fil d’Ariane à ${width}px`);
+      } else {
+        assert.ok(state.workshopBackHeight >= 44, `Retour ≥44px à ${width}px`);
+      }
+      assert.equal(state.workshopMenuInPanel, true, `menu « … » unique dans le panneau à ${width}px`);
       assert.equal(state.workshopTitleLineClamp, "2", `titre Atelier limité à deux lignes à ${width}px`);
       assert.match(state.workshopBreadcrumb, width >= 761
         ? /Documents.*Transcription/
