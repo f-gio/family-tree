@@ -323,20 +323,18 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /\$\("transcriptionWorkshopView"\)\.hidden = view !== "transcriptionWorkshop"/, "vue commutée par setView");
   assert.match(app, /if \(view !== "transcriptionWorkshop" && isTranscriptionWorkshopActive\(\)\)/, "confirmation exigée pour quitter via la navigation");
   assert.match(app, /function exitTranscriptionWorkshop\(\)/, "action Retour gérée");
-  assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour"/, "action Retour dans l’en-tête");
+  assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour à la fiche d’origine"/, "action Retour contextuelle dans le fil d’Ariane");
   assert.match(html, /class="dedicated-page-header transcription-workshop-header"/, "l’atelier réutilise l’en-tête commun");
   assert.match(html, /aria-label="Fil d’Ariane"[\s\S]*?data-workshop-breadcrumb="documents"[\s\S]*?data-workshop-breadcrumb="document"[\s\S]*?aria-current="page">Transcription/, "fil d’Ariane vers les routes Documents, Document et Transcription");
   assert.match(app, /function navigateTranscriptionWorkshopBreadcrumb\(destination\)/, "retours du fil d’Ariane branchés sur des vues réelles");
   assert.match(css, /body:has\(#transcriptionWorkshopView:not\(\[hidden\]\)\) \.topbar \.main-nav \{ display: none !important; \}/, "méga-menu masqué uniquement quand l’atelier est actif sur desktop");
-  assert.match(html, /class="btn dedicated-page-back"[^>]*id="workshopBackBtn"/, "Retour Atelier utilise la cible tactile partagée");
-  /* Le fil d'Ariane porte le retour vers le Document ; la flèche contextuelle
-     reste dans la colonne d'actions pour les destinations qu'il ne couvre pas
-     (Source, fiche). Le menu « … » est unique, dans le panneau. */
-  const headStatus = html.match(/<div class="dedicated-page-actions dedicated-page-side transcription-workshop-head-status">[\s\S]*?<\/header>/)?.[0] || "";
-  assert.ok(headStatus, "colonne d’actions de l’en-tête présente");
-  assert.ok(headStatus.includes('id="workshopBackBtn"'), "retour contextuel conservé dans la colonne d’actions");
-  assert.ok(!headStatus.includes('id="workshopActionsMenu"'), "menu « … » retiré de l’en-tête général");
-  assert.ok(!headStatus.includes('id="workshopSaveStatus"'), "statut de sauvegarde retiré de l’en-tête");
+  assert.match(html, /class="btn small dedicated-page-back transcription-workshop-return"[^>]*id="workshopBackBtn"/, "Retour discret intégré à la ligne du fil d’Ariane");
+  /* Le retour contextuel est placé à droite du fil d’Ariane ; le menu « … »
+     et le statut restent dans le panneau de transcription. */
+  const breadcrumb = html.slice(html.indexOf('aria-label="Fil d’Ariane"'), html.indexOf('</nav>', html.indexOf('aria-label="Fil d’Ariane"')));
+  assert.ok(breadcrumb.includes('id="workshopBackBtn"'), "Retour intégré sur la ligne du fil d’Ariane");
+  assert.ok(!breadcrumb.includes('id="workshopActionsMenu"'), "menu « … » retiré du fil d’Ariane");
+  assert.ok(!breadcrumb.includes('id="workshopSaveStatus"'), "statut de sauvegarde retiré du fil d’Ariane");
   assert.doesNotMatch(html, /class="dedicated-page-return"/, "aucune ligne Retour indépendante ne subsiste");
   assert.ok(html.indexOf('id="workshopActionsMenu"') > html.indexOf('id="workshopPanelRight"'), "menu « … » unique déplacé dans le panneau de transcription");
   assert.ok(html.indexOf('id="workshopActionsMenu"') < html.indexOf('id="workshopPassageList"'), "menu « … » placé avant la liste des passages");
@@ -359,9 +357,9 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /TRANSCRIPTION_DRAFT_SAVE_DELAY_MS = 3000/, "autosauvegarde à 3 secondes conservée");
   assert.match(html, />Afficher l’aide</, "accès à l’aide du brouillon conservé dans le menu");
   assert.match(html, />Annuler les changements</, "« Annuler les changements » conservé dans le menu");
-  assert.match(html, />Comparer</, "comparaison accessible depuis le menu « … »");
+  assert.match(html, /data-workshop-mode="draft"[^>]*>Mon brouillon</, "mode brouillon accessible depuis le contrôle segmenté");
   assert.match(app, /event\.target\.closest\("#workshopHelpBtn"\)/, "divulgateur de l’aide rebranché sur le menu");
-  assert.match(app, /event\.target\.closest\("#workshopCompareMenuBtn"\)/, "comparaison branchée sur le menu « … »");
+  assert.match(app, /event\.target\.closest\("\[data-workshop-mode\]"\)/, "les trois modes sont pilotés par le contrôle segmenté");
   assert.match(app, /some\(button => !button\.hidden && !button\.disabled\)/, "menu ⋯ limité aux actions secondaires disponibles");
   assert.ok(html.indexOf('id="workshopCancelEditBtn"') > html.indexOf('id="workshopPassageList"'), "« Annuler » déplacé dans le pied");
   assert.ok(html.indexOf('id="workshopValidateBtn"') > html.indexOf('id="workshopPassageList"'), "« Valider » déplacé dans le pied");
@@ -383,7 +381,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(html, /id="workshopCancelEditBtn"[^>]*aria-label="Annuler la révision"[^>]*hidden/, "annulation disponible en mode édition seulement");
   assert.match(html, /id="workshopValidateBtn"[^>]*aria-label="Valider la révision"[^>]*hidden/, "validation en ligne, masquée en lecture seule");
   assert.ok(html.indexOf('id="workshopCancelEditBtn"') < html.indexOf('id="workshopValidateBtn"'), "ordre Annuler puis Valider");
-  assert.match(html, /id="workshopViewOfficialMenuBtn"[^>]*hidden/, "consultation de l'officiel préservée dans le menu d'actions");
+  assert.doesNotMatch(html, /id="workshopViewOfficialMenuBtn"/, "accès officiel redondant retiré du menu après ajout du contrôle principal");
   assert.doesNotMatch(html, /dedicated-page-actions-row">\s*<button[^>]*id="workshopValidateBtn"/, "aucune validation officielle dans l'en-tête supérieur");
   assert.match(html, /id="transcriptionValidationDialog"/, "dialogue de confirmation de validation");
   assert.match(html, /id="workshopOfficialBadge"[^>]*hidden/, "badge d'état officiel dans la barre du panneau");
@@ -402,12 +400,18 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(css, /\.transcription-workshop-layout\.is-document-collapsed \{ grid-template-columns: minmax\(0, 1fr\); \}/, "état de repli : transcription seule");
   assert.doesNotMatch(css, /#workshopValidateLabel \{ display: none;/, "libellé Valider visible sur mobile");
   assert.match(css, /\.transcription-workshop-footer-actions \.transcription-workshop-edit-cta \{[^}]*min-height: var\(--control-touch\)/, "cibles tactiles égales pour Annuler/Valider");
-  assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour"[^>]*><span class="dedicated-page-back-arrow"/, "flèche décorative et libellé de destination");
+  assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour à la fiche d’origine"[^>]*title="Retour à la fiche d’origine"/, "retour contextuel accessible et discret");
   assert.match(app, /function teardownTranscriptionWorkshop\(\)/, "nettoyage du lecteur à la sortie");
   for (const tab of ["Original", "Italien", "Français"]) assert.ok(html.includes(`>${tab}</button>`), `onglet ${tab} présent`);
   assert.match(html, /id="workshopPassagePills"/, "pastilles de navigation des passages présentes");
   assert.doesNotMatch(html, /id="workshopPrevBtn"|id="workshopNextBtn"/, "commandes Précédent/Suivant retirées");
-  assert.ok(html.includes("Comparer"), "mode Comparer accessible depuis les passages");
+  assert.match(html, /data-workshop-mode="official"[^>]*>Version officielle</, "mode officiel dans le contrôle segmenté");
+  assert.match(html, /data-workshop-mode="diff"[^>]*>Différences</, "mode différences dans le contrôle segmenté");
+  assert.match(app, /comparePageTextRevisions\([\s\S]{0,260}official\.passages[\s\S]{0,180}draft\.passages/, "comparaison fondée sur les versions officielles et brouillon réellement disponibles");
+  assert.match(app, /transcription-workshop-diff-added/, "ajouts différenciés en ligne");
+  assert.match(app, /transcription-workshop-diff-removed/, "suppressions différenciées en ligne");
+  assert.match(app, /Aucune comparaison possible : il n’existe pas encore de version officielle/, "état explicite sans version comparable");
+  assert.doesNotMatch(html, /data-workshop-compare=|id="workshopCompareMenuBtn"|>Comparer</, "actions de comparaison redondantes retirées des cartes et du menu");
   assert.match(html, /id="workshopSaveStatus"[^>]*role="status"[^>]*>Brouillon local</, "statut compact « Brouillon local » annoncé comme statut");
   assert.doesNotMatch(html, /id="workshopDraftBadge"/, "l’ancienne pastille de remplacement a disparu");
   assert.match(css, /\.transcription-workshop-save-status \{[^}]*font-size: var\(--text-xs\)/, "statut compact en texte discret");
@@ -427,10 +431,10 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   // Deux panneaux sur ordinateur, onglets et filtres de champs sur mobile.
   assert.match(css, /grid-template-columns: minmax\(0, var\(--workshop-split, 55%\)\) auto minmax\(0, 1fr\)/, "deux zones de travail 55/45 redimensionnables");
   assert.match(css, /\.transcription-workshop-menu-panel \{/, "menu secondaire d’en-tête");
-  assert.match(css, /\.dedicated-page-back \{[^}]*min-width: var\(--control-touch\)[^}]*min-height: var\(--control-touch\)/, "Retour commun ≥44px");
+  assert.match(css, /\.btn\.transcription-workshop-return \{[^}]*margin-inline-start: auto/, "Retour aligné à droite du fil d’Ariane");
   assert.match(css, /\.transcription-workshop-heading h2 \{[^}]*-webkit-line-clamp: 2/, "titre Atelier lisible sur deux lignes maximum");
   assert.match(css, /\.transcription-workshop-passage\.is-selected \{ flex: 1 0 auto; min-height: 0;/, "le passage actif utilise la hauteur disponible");
-  assert.match(css, /\.transcription-workshop-passage textarea \{ width: 100%; flex: 1 1 auto; min-height: clamp\(8rem, 24dvh, 16rem\)/, "champs de transcription agrandis selon la hauteur d’écran");
+  assert.match(css, /\.transcription-workshop-passage textarea \{ width: 100%; flex: 1 1 auto; min-height: clamp\(8rem, 24dvh, 16rem\)[^}]*field-sizing: content/, "champs de hauteur adaptée au contenu avec plafond anti-scroll imbriqué");
   assert.match(css, /\.transcription-workshop-passage-menu-panel \{/, "menu discret des actions de passage");
   assert.match(css, /\.transcription-workshop-image-viewport > img \{ position: absolute/, "zone d’ancrage suivant les offsets du lecteur");
   // Brouillons multipages : conservation pendant la session, confirmation seulement à la fermeture.
@@ -453,9 +457,9 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(css, /\.transcription-workshop-passage-pill\.btn \{[^}]*color: var\(--color-text\)/, "numéro des pastilles inactives en fond foncé lisible");
   /* Bloc mobile atelier : en-tête empilé + onglets dépliés. Extrait tel quel
      pour rester insensible aux longueurs de commentaires de style. */
-  const workshopMobileBlock = css.match(/@media \(max-width: 760px\) \{\s*\/\* En-tête atelier[\s\S]*?\.transcription-workshop-tabs \{ display: flex; \}/)?.[0] || "";
+  const workshopMobileBlock = css.match(/@media \(max-width: 760px\) \{\s*\/\* En-tête mobile compact[\s\S]*?\.transcription-workshop-tabs \{ display: flex; \}/)?.[0] || "";
   assert.ok(workshopMobileBlock, "bloc mobile de l’atelier présent");
-  assert.match(workshopMobileBlock, /grid-template-columns: minmax\(0, 1fr\)/, "en-tête atelier empilé sur mobile");
+  assert.match(workshopMobileBlock, /\.transcription-workshop-header \{ display: block;/, "en-tête atelier empilé sur mobile");
   assert.match(workshopMobileBlock, /\.transcription-workshop-tabs \{ display: flex; \}/, "onglets mobiles");
   assert.match(css, /\.transcription-workshop-passage\.is-selected/, "sélection de passage visible");
   assert.match(css, /--control-touch/, "cibles tactiles via le token existant");
@@ -493,7 +497,7 @@ test("les brouillons sont persistés localement et repris sans toucher aux modul
   assert.match(app, /Vos modifications restent en mémoire dans l’atelier\./, "conservation en mémoire en cas d'échec");
   assert.match(app, /function markTranscriptionWorkshopDraftSaveFailure\(key, status, message\)/, "état d'échec marqué par brouillon");
   assert.equal((app.match(/transcriptionWorkshopDrafts\.clear\(\)/g) || []).length, 1, "la mémoire des brouillons n'est vidée qu'à la fermeture de l'atelier");
-  assert.match(app, /function resetTranscriptionWorkshopState[\s\S]{0,400}transcriptionWorkshopDrafts\.clear\(\)/, "effacement réservé à la fermeture de l'atelier, jamais après un échec");
+  assert.match(app, /function resetTranscriptionWorkshopState[\s\S]{0,650}transcriptionWorkshopDrafts\.clear\(\)/, "effacement réservé à la fermeture de l'atelier, jamais après un échec");
   // États affichés discrètement sur le badge.
   for (const label of ["Enregistrement…", "Enregistré sur cet appareil", "Échec de sauvegarde"]) {
     assert.ok(app.includes(`"${label}"`), `état de sauvegarde affiché : ${label}`);
@@ -711,12 +715,12 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
         menu: [menu.top, menu.right, menu.width, menu.height],
         panel: [panel.top, panel.right, panel.bottom],
         duplicates: document.querySelectorAll("#workshopBackBtn").length,
-        redundant: document.querySelector(".transcription-workshop-head-status").classList.contains("is-breadcrumb-redundant")
+        redundant: false
       };
     });
     assert.equal(layout.duplicates, 1, "un seul bouton Retour dans le DOM");
-    assert.equal(layout.redundant, true, "flèche marquée redondante avec le fil d’Ariane");
-    assert.equal(layout.back[2] + layout.back[3], 0, "flèche de retour masquée sur desktop");
+    assert.equal(layout.redundant, false, "retour visible même lorsque le fil d’Ariane mène au Document");
+    assert.ok(layout.back[2] >= 44 && layout.back[3] >= 44, "Retour accessible à droite du fil d’Ariane");
     assert.ok(layout.menu[1] <= layout.panel[1] + 1, "menu « … » dans le panneau de transcription");
     assert.ok(layout.menu[0] >= layout.panel[0] && layout.menu[0] <= layout.panel[2], "menu contenu dans le panneau");
     assert.ok(layout.menu[3] >= 44, "menu « … » ≥ 44 px");
@@ -916,6 +920,8 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                   headingRight: Math.round(heading.right),
                   headingBottom: heading.bottom,
                   headerHeight: header.height,
+                  headerMarkup: [...document.querySelector(".transcription-workshop-header").children].map(element => ({ tag: element.tagName, className: element.className, height: Math.round(element.getBoundingClientRect().height), display: getComputedStyle(element).display })),
+                  breadcrumbHeight: Math.round(breadcrumb.getBoundingClientRect().height),
                   labelWhiteSpace: getComputedStyle(label).whiteSpace,
                   labelHeight: Math.round(labelRect.height),
                   backLeft: Math.round(back.left), backTop: back.top, backRight: back.right, backWidth: Math.round(back.width), backHeight: Math.round(back.height),
@@ -941,7 +947,7 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               /* En-tête réellement compact, sur le modèle de la fiche Document :
                  203 px à 390 et 208 px à 320 avant correction, 121 px pour la
                  fiche Document — l'atelier doit désormais rester en dessous. */
-              assert.ok(layout.headerHeight <= 130, `en-tête mobile compact (${layout.headerHeight}px ≤ 130px, jusqu'à 211px avant)`);
+              assert.ok(layout.headerHeight <= 130, `en-tête mobile compact (${layout.headerHeight}px ≤ 130px, jusqu'à 211px avant) ${JSON.stringify({ headerMarkup: layout.headerMarkup, breadcrumbHeight: layout.breadcrumbHeight })}`);
               /* Modèle fiche Document : titre à gauche, flèche de retour
                  contextuelle à droite sur la même rangée — sans chevauchement
                  horizontal ni cible réduite. Le menu « … » vit dans le panneau

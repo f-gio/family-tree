@@ -2688,11 +2688,12 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-view > .transcription-workshop-header { padding-bottom: var(--space-2); }
 .transcription-workshop-header { min-width: 0; }
 .transcription-workshop-heading { min-width: 0; }
-.transcription-workshop-breadcrumb { display: flex; align-items: center; gap: var(--space-1); min-width: 0; margin: 0 0 var(--space-1); color: var(--color-text-muted); font-size: var(--text-xs); }
+.transcription-workshop-breadcrumb { display: flex; align-items: center; gap: var(--space-1); min-width: 0; margin: 0 0 var(--space-1); color: var(--color-text-label); font-size: 14px; }
 .transcription-workshop-breadcrumb > span { flex: 0 0 auto; }
 .transcription-workshop-breadcrumb-link { display: inline-flex; align-items: center; justify-content: flex-start; flex: 0 0 auto; min-width: var(--control-touch); min-height: var(--control-touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-brand); font: inherit; text-align: left; cursor: pointer; }
 .transcription-workshop-breadcrumb-link:hover { text-decoration: underline; }
 .transcription-workshop-breadcrumb-link:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.btn.transcription-workshop-return { flex: 0 0 auto; min-height: var(--control-touch); margin-inline-start: auto; color: var(--color-text-muted); }
 .transcription-workshop-breadcrumb-document { display: -webkit-box; flex: 0 1 auto; min-width: 0; max-width: min(32rem, 50vw); overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .transcription-workshop-heading #workshopPageHeading { margin: 0; font: 700 clamp(1.05rem, 2.4vw, 1.5rem)/var(--leading-tight) var(--font-display); }
 .transcription-workshop-heading h2 { margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font: 700 clamp(1.05rem, 2.4vw, 1.5rem)/var(--leading-tight) var(--font-display); }
@@ -2736,7 +2737,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 #workshopImageTools { justify-content: flex-start; gap: var(--space-2); }
 .transcription-workshop-head-end { display: flex; align-items: center; flex: 0 0 auto; gap: var(--space-2); min-width: 0; margin-inline-start: auto; }
 .transcription-workshop-head-end .transcription-workshop-badge { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.transcription-workshop-footer-actions .transcription-workshop-edit-cta { display: inline-flex; flex: 0 0 5.5rem; align-items: center; justify-content: center; width: 5.5rem; min-width: 5.5rem; min-height: var(--control-touch); padding-inline: var(--space-2); text-align: center; }
+.transcription-workshop-footer-actions .transcription-workshop-edit-cta { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: auto; min-width: 0; min-height: var(--control-touch); padding-inline: var(--space-3); border-radius: var(--radius-md); font-size: var(--text-sm); font-weight: var(--weight-semibold); text-align: center; }
 .transcription-workshop-edit-cta.btn.danger { border-color: var(--color-danger); background: var(--color-danger); color: var(--color-surface-raised); }
 .transcription-workshop-edit-cta.btn.danger:hover { border-color: var(--color-danger-hover); background: var(--color-danger-hover); color: var(--color-surface-raised); }
 .transcription-workshop-menu { position: relative; }
@@ -2764,6 +2765,11 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-panel { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 0; }
 .transcription-workshop-panel-head { position: relative; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .transcription-workshop-panel-head h4 { margin: 0; font: 700 var(--text-lg)/var(--leading-tight) var(--font-display); }
+.transcription-workshop-mode { display: flex; align-self: flex-start; gap: 2px; padding: 3px; border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface-muted); }
+.transcription-workshop-mode-button { min-height: 36px; padding: 0 var(--space-3); border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-label); font: 600 var(--text-sm)/1.2 var(--font-ui); cursor: pointer; }
+.transcription-workshop-mode-button:hover { background: var(--color-surface); }
+.transcription-workshop-mode-button.is-active { border-color: var(--color-border); background: var(--color-surface); color: var(--color-brand); box-shadow: var(--shadow-soft); }
+.transcription-workshop-mode-button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .transcription-workshop-tools { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
 .transcription-workshop-passage-nav { display: flex; align-items: center; flex: 0 1 auto; gap: var(--space-2); min-width: 0; }
 .transcription-workshop-passage-pills { display: flex; align-items: center; gap: var(--space-1); min-width: 0; max-width: min(28rem, 48vw); overflow-x: auto; scrollbar-width: none; }
@@ -2790,7 +2796,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-passage.is-modified { border-inline-start: 4px solid var(--color-accent); }
 .transcription-workshop-passage-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .transcription-workshop-passage-head strong { flex: 0 0 auto; font-size: var(--text-md); }
-.transcription-workshop-passage textarea { width: 100%; flex: 1 1 auto; min-height: clamp(8rem, 24dvh, 16rem); padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text); font-family: var(--font-display); font-size: 16px; line-height: var(--leading-body); resize: vertical; }
+.transcription-workshop-passage textarea { width: 100%; flex: 1 1 auto; min-height: clamp(8rem, 24dvh, 16rem); max-height: 52dvh; overflow: auto; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text); font-family: var(--font-display); font-size: 16px; line-height: var(--leading-body); resize: vertical; field-sizing: content; }
 .transcription-workshop-passage textarea:focus { border-color: var(--color-brand); outline: none; box-shadow: var(--shadow-focus); }
 .transcription-workshop-passage textarea:disabled { background: var(--color-surface-muted); color: var(--color-text-muted); }
 .transcription-workshop-badges { display: flex; gap: var(--space-1); flex-wrap: wrap; }
@@ -2855,10 +2861,19 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-compare-crop { position: relative; overflow: hidden; max-width: 100%; border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface-muted); }
 .transcription-workshop-compare-crop img { position: absolute; max-width: none; display: block; }
 .transcription-workshop-compare-text { margin: 0; padding: var(--space-3); border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface-soft); font-family: var(--font-display); white-space: pre-wrap; }
+.transcription-workshop-diff-added { border-radius: 2px; background: var(--color-success-soft); color: var(--color-success); text-decoration: none; }
+.transcription-workshop-diff-removed { border-radius: 2px; background: var(--color-danger-soft); color: var(--color-danger); text-decoration: line-through; }
+.transcription-workshop-diff-empty { color: var(--color-text-muted); font-style: italic; }
+.transcription-workshop-diff-passage { display: grid; gap: var(--space-2); padding: var(--space-3); border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface); }
+.transcription-workshop-diff-passage + .transcription-workshop-diff-passage { margin-top: var(--space-2); }
+.transcription-workshop-diff-passage h4 { margin: 0; color: var(--color-text-label); font: 600 var(--text-sm)/var(--leading-tight) var(--font-ui); }
 .transcription-workshop-compare-block { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
 .transcription-workshop-compare-block strong { font-size: var(--text-md); }
 @media (min-width: 981px) {
   .transcription-workshop-layout { height: clamp(380px, calc(100dvh - 13rem), 900px); }
+  .transcription-workshop-passage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; column-gap: var(--space-3); }
+  .transcription-workshop-passage-head { grid-column: 1 / -1; }
+  .transcription-workshop-passage textarea { align-self: start; }
 }
 @media (min-width: 761px) and (max-width: 980px) {
   .transcription-workshop-layout { grid-template-columns: minmax(0, 1fr); height: auto; }
@@ -2867,10 +2882,13 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .transcription-workshop-list { max-height: 65dvh; }
 }
 @media (max-width: 760px) {
-  /* En-tête atelier sur le modèle de la fiche Document : titre à gauche,
-     flèche de retour contextuelle à droite — le fil d'Ariane n'est pas
-     affiché sur cet écran. */
-  .transcription-workshop-header { gap: var(--space-2); grid-template-columns: minmax(0, 1fr) auto; row-gap: 0; padding-bottom: var(--space-1); }
+  /* En-tête mobile compact : le retour reste accessible à droite et le fil
+     d'Ariane conserve le document courant sans la racine Documents. */
+  .transcription-workshop-header { display: block; gap: var(--space-2); padding-bottom: var(--space-1); }
+  .transcription-workshop-header { position: relative; }
+  .transcription-workshop-heading { width: calc(100% - 5rem); max-width: calc(100% - 5rem); }
+  .transcription-workshop-breadcrumb { position: static; flex-wrap: nowrap; padding-inline-end: 0; }
+  .transcription-workshop-return { position: absolute; inset-inline-end: 0; inset-block-start: 0; margin: 0; min-width: var(--control-touch); min-height: var(--control-touch); }
   .transcription-workshop-head-status { grid-column: auto; grid-row: auto; justify-self: auto; flex: 0 0 auto; max-width: none; }
   /* Cibles tactiles : `.btn.small` (32px) prime sur le minimum mobile — les
      actions du pied de transcription repassent à 44 px. */
@@ -2878,6 +2896,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .transcription-workshop-passage-pills { flex: 1 1 auto; max-width: none; }
   .transcription-workshop-heading #workshopPageLabel { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .transcription-workshop-tabs { display: flex; }
+  .transcription-workshop-mode-button { min-height: var(--control-touch); }
   .transcription-workshop-divider { display: none; }
   .transcription-workshop-layout { grid-template-columns: minmax(0, 1fr); height: clamp(300px, calc(100dvh - 16rem), calc(100dvh - 6rem)); }
   .transcription-workshop-layout #workshopPanelOriginal,
@@ -2890,16 +2909,9 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .transcription-workshop-heading h2 { max-width: none; }
   .transcription-workshop-breadcrumb [data-workshop-breadcrumb="documents"],
   .transcription-workshop-breadcrumb [data-workshop-breadcrumb="documents"] + span { display: none; }
-  .transcription-workshop-breadcrumb-document { max-width: min(100%, 70vw); }
+  .transcription-workshop-breadcrumb-document { max-width: min(100%, 70vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
-/* Fil d'Ariane : dès qu'il exprime le retour vers le Document, la flèche de
-   retour et l'ancien menu d'en-tête sont redondants — la colonne d'actions
-   disparaît sans laisser d'espace vide. Sur mobile, la flèche reste car le
-   fil d'Ariane n'est pas affiché. */
-@media (min-width: 761px) {
-  .transcription-workshop-head-status.is-breadcrumb-redundant { display: none; }
-  .transcription-workshop-header:has(.transcription-workshop-head-status.is-breadcrumb-redundant) { grid-template-columns: minmax(0, 1fr); }
-}
+/* Le retour reste sur la ligne du fil d'Ariane, à son extrémité droite sur desktop. */
 @media (min-width: 981px) {
   body:has(#transcriptionWorkshopView:not([hidden])) .topbar { position: static; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding-block: var(--space-2); }
   body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav { display: none !important; }

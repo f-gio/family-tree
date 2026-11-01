@@ -5887,6 +5887,7 @@ function resolveTranscriptionDraftLegacyRecovery(choice) {
 let transcriptionWorkshopDocumentCollapsed = false;
 let transcriptionWorkshopEditing = false;
 let transcriptionWorkshopViewingOfficial = false;
+let transcriptionWorkshopDisplayMode = "draft";
 let transcriptionWorkshopCancelTarget = null;
 let transcriptionValidationTarget = null;
 let transcriptionHistoryRevisionId = null;
@@ -5920,15 +5921,45 @@ function transcriptionWorkshopOfficialState() {
 }
 
 function transcriptionWorkshopIsReadOnly() {
-  return Boolean(transcriptionWorkshopHead() && (!transcriptionWorkshopEditing || transcriptionWorkshopViewingOfficial));
+  return transcriptionWorkshopDisplayMode === "official" || transcriptionWorkshopDisplayMode === "diff"
+    || Boolean(transcriptionWorkshopHead() && (!transcriptionWorkshopEditing || transcriptionWorkshopViewingOfficial));
 }
 
 function transcriptionWorkshopDisplayedPassages() {
-  if (transcriptionWorkshopViewingOfficial) {
+  if (transcriptionWorkshopDisplayMode === "official" || transcriptionWorkshopViewingOfficial) {
     const passages = genealogyRecordData(transcriptionWorkshopHead() || {}).passages;
     if (Array.isArray(passages)) return passages;
+    return [];
   }
   return transcriptionWorkshopDraft?.passages || [];
+}
+
+function transcriptionWorkshopDisplayTextDiff(before, after) {
+  const previous = String(before ?? "");
+  const current = String(after ?? "");
+  if (previous === current) return esc(current) || "<span class=\"transcription-workshop-diff-empty\">Texte absent</span>";
+  let prefix = 0;
+  const sharedLimit = Math.min(previous.length, current.length);
+  while (prefix < sharedLimit && previous[prefix] === current[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < previous.length - prefix && suffix < current.length - prefix
+    && previous[previous.length - suffix - 1] === current[current.length - suffix - 1]) suffix++;
+  const unchangedStart = previous.slice(0, prefix);
+  const unchangedEnd = suffix ? previous.slice(previous.length - suffix) : "";
+  const deleted = previous.slice(prefix, previous.length - suffix);
+  const added = current.slice(prefix, current.length - suffix);
+  return `${esc(unchangedStart)}${deleted ? `<del class="transcription-workshop-diff-removed">${esc(deleted)}</del>` : ""}${added ? `<ins class="transcription-workshop-diff-added">${esc(added)}</ins>` : ""}${esc(unchangedEnd)}`
+    || "<span class=\"transcription-workshop-diff-empty\">Texte absent</span>";
+}
+
+function setTranscriptionWorkshopDisplayMode(mode) {
+  if (!transcriptionWorkshopDraft || !["draft", "official", "diff"].includes(mode)) return;
+  flushTranscriptionWorkshopDraftSaves();
+  transcriptionWorkshopDisplayMode = mode;
+  transcriptionWorkshopViewingOfficial = mode === "official";
+  transcriptionWorkshopCompare = mode === "diff";
+  closeTranscriptionWorkshopMenu();
+  renderTranscriptionWorkshop();
 }
 
 function transcriptionWorkshopDisplayedSelectedPassageId() {
@@ -5945,6 +5976,7 @@ function setTranscriptionWorkshopMode({ editing, viewingOfficial = false } = {})
   flushTranscriptionWorkshopDraftSaves();
   transcriptionWorkshopEditing = Boolean(editing || !transcriptionWorkshopHead());
   transcriptionWorkshopViewingOfficial = Boolean(viewingOfficial && transcriptionWorkshopHead());
+  transcriptionWorkshopDisplayMode = transcriptionWorkshopViewingOfficial ? "official" : "draft";
   if (transcriptionWorkshopViewingOfficial) transcriptionWorkshopEditing = true;
   renderTranscriptionWorkshop();
 }
@@ -6153,6 +6185,7 @@ function applyTranscriptionValidation({ headId, content, revisionId, eventId, fr
   if (transcriptionWorkshopDraft === previousDraft) transcriptionWorkshopDraft = rebuilt;
   transcriptionWorkshopEditing = false;
   transcriptionWorkshopViewingOfficial = false;
+  transcriptionWorkshopDisplayMode = "draft";
   /* Brouillon redevenu identique au officiel : la copie locale est retirée
      (nettoyage nominal) et le badge repasse à « Validée ». */
   persistTranscriptionWorkshopDraft(rebuilt);
@@ -6698,6 +6731,7 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
   const officialHead = transcriptionOfficialHeadForPage(context.documentId, page.id);
   transcriptionWorkshopEditing = !officialHead || Boolean(existing?.dirty);
   transcriptionWorkshopViewingOfficial = false;
+  transcriptionWorkshopDisplayMode = "draft";
   transcriptionWorkshopCompare = false;
   transcriptionWorkshopView = "original";
   /* Vue partagée par défaut à chaque nouvelle session d'atelier ; le mode
@@ -6799,14 +6833,15 @@ function captureTranscriptionWorkshopReturn() {
   } else {
     transcriptionWorkshopReturn = null;
   }
-  setDedicatedPageBackLabel("workshopBackBtn", transcriptionWorkshopReturn);
+  const workshopBackButton = $("workshopBackBtn");
+  if (workshopBackButton) {
+    const destination = `Retour ${dedicatedPageReturnDestination(transcriptionWorkshopReturn)}`;
+    workshopBackButton.setAttribute("aria-label", destination);
+    workshopBackButton.title = destination;
+  }
   /* Sur les écrans qui affichent le fil d'Ariane, la flèche de retour vers le
      Document y est redondante ; elle reste pour les retours vers une Source ou
      une fiche que le fil ne peut pas exprimer. */
-  document.querySelector(".transcription-workshop-head-status")?.classList.toggle(
-    "is-breadcrumb-redundant",
-    transcriptionWorkshopReturn?.kind === "document"
-  );
   if ($("genealogyItemDialog").open) $("genealogyItemDialog").close();
   closeDocumentPage();
 }
@@ -6949,6 +6984,11 @@ function renderTranscriptionWorkshop() {
   $("workshopDocumentTitle").title = context.title;
   const displayedPassages = transcriptionWorkshopDisplayedPassages();
   $("workshopPageLabel").textContent = `Page ${context.pages.indexOf(page) + 1}${pageLabel} · ${displayedPassages.length} passage${displayedPassages.length > 1 ? "s" : ""}`;
+  for (const button of document.querySelectorAll("[data-workshop-mode]")) {
+    const active = button.dataset.workshopMode === transcriptionWorkshopDisplayMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
   const editorState = transcriptionWorkshopEditorState();
   const stateBox = $("workshopState");
   const emptyInfo = !editorState && !draft.passages.length
@@ -7048,13 +7088,20 @@ function renderWorkshopPassageList(editable) {
   const draft = transcriptionWorkshopDraft;
   const displayedPassages = transcriptionWorkshopDisplayedPassages();
   const list = $("workshopPassageList");
+  if (transcriptionWorkshopDisplayMode === "diff") {
+    list.innerHTML = "";
+    return;
+  }
+  if (transcriptionWorkshopDisplayMode === "official" && !transcriptionWorkshopHead()) {
+    list.innerHTML = `<p class="transcription-workshop-empty">Aucune version officielle n’est disponible pour cette page.</p>`;
+    return;
+  }
   if (transcriptionWorkshopEditorState()) {
     list.innerHTML = "";
     return;
   }
   const displayedSelection = transcriptionWorkshopDisplayedSelectedPassageId();
   list.innerHTML = displayedPassages.map((passage, index) => {
-    const label = transcriptionWorkshopPassageLabel(passage, index);
     const selected = passage.id === displayedSelection;
     const changed = !transcriptionWorkshopViewingOfficial && isTranscriptionWorkshopPassageChanged(draft, passage.id);
     const itId = `workshopField-it-${passage.id}`;
@@ -7065,8 +7112,8 @@ function renderWorkshopPassageList(editable) {
     const deleteMenu = editable && isTranscriptionWorkshopPassageCreated(draft, passage.id)
       ? `<details class="transcription-workshop-passage-menu"><summary aria-label="Plus d’actions du passage" title="Plus d’actions">⋯</summary><div class="transcription-workshop-passage-menu-panel"><button class="btn danger" type="button" data-workshop-delete-passage="${esc(passage.id)}">Supprimer ce passage</button></div></details>`
       : "";
-    return `<article class="transcription-workshop-passage${selected ? " is-selected" : ""}${changed ? " is-modified" : ""}" data-workshop-passage="${esc(passage.id)}">
-<div class="transcription-workshop-passage-head"><strong>${esc(label)}</strong><div class="transcription-workshop-badges">${transcriptionWorkshopViewingOfficial ? "" : workshopPassageBadges(passage, draft)}</div><div class="transcription-workshop-passage-actions"><button class="btn small" type="button" data-workshop-compare="${esc(passage.id)}">Comparer</button>${deleteMenu}</div></div>
+    return `<article class="transcription-workshop-passage${selected ? " is-selected" : ""}${changed ? " is-modified" : ""}" data-workshop-passage="${esc(passage.id)}"${selected ? ' aria-current="true"' : ""}>
+<div class="transcription-workshop-passage-head"><span class="sr-only">Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</span><div class="transcription-workshop-badges">${transcriptionWorkshopViewingOfficial ? "" : workshopPassageBadges(passage, draft)}</div><div class="transcription-workshop-passage-actions">${deleteMenu}</div></div>
 <div class="transcription-workshop-field-block workshop-field-it"><label class="transcription-workshop-field-label" for="${esc(itId)}">Transcription italienne</label><textarea id="${esc(itId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="textIt"${editable ? "" : " disabled"}>${esc(passage.textIt ?? "")}</textarea>${hypotheses}</div>
 <div class="transcription-workshop-field-block workshop-field-fr"><label class="transcription-workshop-field-label" for="${esc(frId)}">Traduction française</label><textarea id="${esc(frId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="translationFr"${editable ? "" : " disabled"}>${esc(passage.translationFr ?? "")}</textarea><p class="transcription-workshop-meta transcription-workshop-fr-state">${esc(transcriptionWorkshopTranslationBadge(draft, passage))}</p></div>
 </article>`;
@@ -7141,6 +7188,7 @@ function selectWorkshopPassage(passageId, { scroll = true } = {}) {
   syncWorkshopSelectionClasses();
   syncWorkshopZone();
   updateWorkshopNavigation();
+  if (transcriptionWorkshopCompare) renderWorkshopCompareContent();
   if (scroll) scrollWorkshopSelectionIntoView(passageId);
 }
 
@@ -7189,35 +7237,58 @@ function applyWorkshopCompare() {
 function setWorkshopCompare(active) {
   const draft = transcriptionWorkshopDraft;
   transcriptionWorkshopCompare = Boolean(active && draft?.selectedPassageId);
+  if (transcriptionWorkshopCompare) {
+    transcriptionWorkshopDisplayMode = "diff";
+    transcriptionWorkshopViewingOfficial = false;
+  } else if (transcriptionWorkshopDisplayMode === "diff") {
+    transcriptionWorkshopDisplayMode = "draft";
+  }
   applyWorkshopCompare();
+  for (const button of document.querySelectorAll("[data-workshop-mode]")) {
+    const selected = button.dataset.workshopMode === transcriptionWorkshopDisplayMode;
+    button.classList.toggle("is-active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  }
   if (transcriptionWorkshopCompare) renderWorkshopCompareContent();
 }
 
 function renderWorkshopCompareContent() {
   const draft = transcriptionWorkshopDraft;
-  const context = transcriptionWorkshopContext;
   const container = $("workshopCompareContent");
-  const selectedPassageId = transcriptionWorkshopDisplayedSelectedPassageId();
-  const passage = transcriptionWorkshopDisplayedPassages().find(item => item.id === selectedPassageId);
-  if (!passage) {
-    container.innerHTML = `<p class="transcription-workshop-empty">Aucun passage n’est sélectionné.</p>`;
+  const head = transcriptionWorkshopHead();
+  const official = head ? genealogyRecordData(head) : null;
+  if (!official || !Array.isArray(official.passages)) {
+    container.innerHTML = `<p class="transcription-workshop-empty">Aucune comparaison possible : il n’existe pas encore de version officielle pour cette page.</p>`;
     return;
   }
-  const label = transcriptionWorkshopPassageLabel(passage, draft.passages.indexOf(passage));
-  const imageBlock = context.imageSrc
-    ? passage.anchor
-      ? `<div class="transcription-workshop-compare-crop" id="workshopCompareCrop"><img id="workshopCompareImage" src="${esc(context.imageSrc)}" alt="Zone de ${esc(label)}"></div>`
-      : `<img src="${esc(context.imageSrc)}" alt="${esc(label)}" style="display:block;max-width:100%;max-height:40dvh">`
-    : `<p class="transcription-workshop-empty">${context.photos.length ? "Les photos sont référencées, mais leur stockage durable n’est pas disponible dans cette application." : "Aucune photographie n’est associée à cette page."}</p>`;
-  const anchorNote = passage.anchor ? "" : `<p class="transcription-workshop-meta">Aucun ancrage : la page complète est affichée.</p>`;
-  const translationBlock = passage.translationFr != null && passage.translationFr !== ""
-    ? `<p class="transcription-workshop-compare-text">${esc(passage.translationFr)}</p>`
-    : `<p class="transcription-workshop-empty">Traduction non disponible</p>`;
-  container.innerHTML = `${imageBlock}${anchorNote}
-<div class="transcription-workshop-compare-block"><strong>${esc(label)} — transcription italienne</strong><p class="transcription-workshop-compare-text">${esc(passage.textIt || "Lecture indéchiffrable")}</p></div>
-<div class="transcription-workshop-compare-block"><strong>Traduction française</strong>${translationBlock}</div>`;
-  const cropImage = $("workshopCompareImage");
-  if (cropImage) positionWorkshopCompareCrop(cropImage, passage.anchor);
+  let comparison;
+  try {
+    comparison = comparePageTextRevisions(
+      { documentId: official.documentId, pageId: official.pageId, passages: official.passages },
+      { documentId: draft.documentId, pageId: draft.pageId, passages: draft.passages }
+    );
+  } catch {
+    container.innerHTML = `<p class="transcription-workshop-empty">Aucune comparaison possible : les deux versions ne peuvent pas être rapprochées.</p>`;
+    return;
+  }
+  if (!comparison.passageChanges.length) {
+    container.innerHTML = `<p class="transcription-workshop-empty">Aucune différence : les textes du brouillon et de la version officielle sont identiques.</p>`;
+    return;
+  }
+  const officialById = new Map(official.passages.map(passage => [passage.id, passage]));
+  const draftById = new Map(draft.passages.map(passage => [passage.id, passage]));
+  const changedIds = new Set(comparison.passageChanges.map(item => item.passageId));
+  const passageIds = [...new Set([...official.passages.map(passage => passage.id), ...draft.passages.map(passage => passage.id)])]
+    .filter(id => changedIds.has(id));
+  const renderField = (title, before, after) => `<div class="transcription-workshop-compare-block"><strong>${title}</strong><p class="transcription-workshop-compare-text">${transcriptionWorkshopDisplayTextDiff(before, after)}</p></div>`;
+  container.innerHTML = `<p class="transcription-workshop-meta">Ajouts en vert, suppressions en rouge ; le texte inchangé reste neutre.</p>${passageIds.map(id => {
+    const previous = officialById.get(id);
+    const current = draftById.get(id);
+    const index = current ? draft.passages.indexOf(current) : official.passages.indexOf(previous);
+    const lineLabel = (current || previous)?.lineLabel;
+    const change = previous && current ? "Modifié" : current ? "Ajouté au brouillon" : "Supprimé du brouillon";
+    return `<article class="transcription-workshop-diff-passage"><h4>Passage ${index + 1}${lineLabel ? ` · ${esc(lineLabel)}` : ""} · ${change}</h4>${renderField("Transcription italienne", previous?.textIt, current?.textIt)}${renderField("Traduction française", previous?.translationFr, current?.translationFr)}</article>`;
+  }).join("")}`;
 }
 
 function positionWorkshopCompareCrop(image, anchor) {
@@ -7344,8 +7415,10 @@ function updateWorkshopDraftIndicators() {
       && transcriptionDraftSnapshotsEqual(remoteState.lastSyncedSnapshot, currentSnapshot)));
   const failed = localFailed || offline;
   const officialReadOnly = transcriptionWorkshopIsReadOnly();
-  const status = transcriptionWorkshopViewingOfficial
-    ? `Version officielle · v${transcriptionWorkshopHead()?.version || 1}`
+  const status = transcriptionWorkshopDisplayMode === "diff"
+    ? "Comparaison en lecture seule"
+    : transcriptionWorkshopViewingOfficial
+      ? (transcriptionWorkshopHead() ? `Version officielle · v${transcriptionWorkshopHead()?.version || 1}` : "Aucune version officielle")
     : officialReadOnly ? `Consultation officielle · v${transcriptionWorkshopHead()?.version || 1}`
       : conflict ? TRANSCRIPTION_DRAFT_SYNC_LABELS.conflict
     : localFailed ? "Échec de sauvegarde"
@@ -7391,8 +7464,6 @@ function updateWorkshopDraftIndicators() {
       : "Modifier";
     modeButton.setAttribute("aria-label", modeButton.textContent);
   }
-  const viewOfficialButton = $("workshopViewOfficialMenuBtn");
-  if (viewOfficialButton) viewOfficialButton.hidden = !transcriptionWorkshopHead() || officialReadOnly || !draft.dirty;
   const cancelEditButton = $("workshopCancelEditBtn");
   if (cancelEditButton) cancelEditButton.hidden = officialReadOnly;
   const helpButton = $("workshopHelpBtn");
@@ -7410,8 +7481,6 @@ function updateWorkshopDraftIndicators() {
   if (conflictButton) conflictButton.hidden = !conflict;
   /* Actions secondaires du menu « … » : affichées seulement si elles sont
      réellement disponibles dans le contexte courant. */
-  const compareMenuButton = $("workshopCompareMenuBtn");
-  if (compareMenuButton) compareMenuButton.hidden = !draft.selectedPassageId;
   const historyButton = $("workshopHistoryBtn");
   if (historyButton) historyButton.hidden = !transcriptionWorkshopHead();
   /* Badge d'état officiel près de la barre du panneau : Brouillon,
@@ -7520,6 +7589,7 @@ function resetTranscriptionWorkshopState() {
   transcriptionWorkshopContext = null;
   transcriptionWorkshopEditing = false;
   transcriptionWorkshopViewingOfficial = false;
+  transcriptionWorkshopDisplayMode = "draft";
   transcriptionWorkshopDrafts.clear();
   transcriptionDraftSaveTimers.clear();
   transcriptionDraftSaveStates.clear();
@@ -7576,19 +7646,10 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     return;
   }
   if (event.target.closest("#workshopCancelEditBtn")) return cancelTranscriptionWorkshopEdit();
-  if (event.target.closest("#workshopViewOfficialMenuBtn")) {
-    closeTranscriptionWorkshopMenu();
-    setTranscriptionWorkshopMode({ editing: true, viewingOfficial: true });
-    return;
-  }
+  const modeButton = event.target.closest("[data-workshop-mode]");
+  if (modeButton) return setTranscriptionWorkshopDisplayMode(modeButton.dataset.workshopMode);
   const tab = event.target.closest("[data-workshop-tab]");
   if (tab) return setWorkshopTab(tab.dataset.workshopTab);
-  const compareButton = event.target.closest("[data-workshop-compare]");
-  if (compareButton) {
-    selectWorkshopPassage(compareButton.dataset.workshopCompare, { scroll: false });
-    return setWorkshopCompare(true);
-  }
-  if (event.target.closest("#workshopCompareCloseBtn")) return setWorkshopCompare(false);
   if (event.target.closest("#workshopBackBtn")) return exitTranscriptionWorkshop();
   if (event.target.closest("#workshopHelpBtn")) {
     const button = $("workshopHelpBtn");
@@ -7600,12 +7661,6 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
        reste affichée. */
     closeTranscriptionWorkshopMenu();
     return;
-  }
-  if (event.target.closest("#workshopCompareMenuBtn")) {
-    /* Action secondaire du menu « … » : compare le passage sélectionné avec
-       le même moteur que le bouton « Comparer » de la carte de passage. */
-    closeTranscriptionWorkshopMenu();
-    return setWorkshopCompare(true);
   }
   const photoButton = event.target.closest("[data-workshop-photo]");
   if (photoButton && transcriptionWorkshopContext) {

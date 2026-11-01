@@ -257,9 +257,9 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, false, "l'atelier remplace la page");
     assert.equal(state.workshopBackLabel, "Retour au document", "Retour de l’Atelier précise le Document appelant");
-    assert.equal(await page.locator("#workshopBackBtn .dedicated-page-back-label").textContent(), "Retour au document", "Retour Atelier nomme sa destination en clair");
-    assert.equal(state.workshopBackHeight, 0, "flèche de retour masquée sur desktop : le fil d’Ariane suffit");
-    assert.equal(state.workshopBackRedundant, true, "retour vers le Document marqué redondant avec le fil d’Ariane");
+    assert.equal((await page.locator("#workshopBackBtn .dedicated-page-back-label").textContent()).trim(), "Retour", "Retour discret sur la ligne du fil d’Ariane");
+    assert.ok(state.workshopBackHeight >= 44, "Retour accessible et visible à droite du fil d’Ariane");
+    assert.equal(state.workshopBackRedundant, false, "le retour contextuel reste disponible avec le fil d’Ariane");
     assert.equal(state.workshopMenuInPanel, true, "menu « … » unique dans le panneau de transcription");
     assert.ok(state.workshopHeaderClass.includes("dedicated-page-header"), "en-tête partagé de l’Atelier");
     assert.equal(state.workshopTitleLabel, state.workshopTitle, "titre Atelier complet accessible");
@@ -419,7 +419,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       state = await page.evaluate(() => window.__documentPageTest.state());
       assert.equal(state.workshopHorizontalOverflow, false, `Atelier sans débordement à ${width}px`);
       if (width >= 761) {
-        assert.equal(state.workshopBackHeight, 0, `flèche de retour masquée derrière le fil d’Ariane à ${width}px`);
+        assert.ok(state.workshopBackHeight >= 44, `Retour visible sur la ligne du fil d’Ariane à ${width}px`);
       } else {
         assert.ok(state.workshopBackHeight >= 44, `Retour ≥44px à ${width}px`);
       }
