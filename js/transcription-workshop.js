@@ -482,9 +482,8 @@ export function findSourcePageForDocument(source, documentId) {
 /* Construit la prochaine source (brouillon de révision) : une page portant une
    photographie qui référence le JPEG existant. Aucun octet du fichier n'est
    recopié ; le SHA-256 fourni atteste du contenu référencé. */
-export function prepareLegacyDocumentPage({ source, documentItem, sha256, pageId, photographId, importedAt = null, pageLabel = "" } = {}) {
-  if (!source || typeof source !== "object" || Array.isArray(source)) throw new TypeError("source doit être un objet source");
-  if (!Array.isArray(source.pages)) throw new TypeError("source.pages doit être un tableau");
+function prepareLegacyDocumentPageAssets({ pages, documentItem, sha256, pageId, photographId, importedAt = null, pageLabel = "" } = {}) {
+  if (!Array.isArray(pages)) throw new TypeError("pages doit être un tableau");
   if (!documentItem || typeof documentItem !== "object" || Array.isArray(documentItem)) throw new TypeError("documentItem doit être un document historique");
   if (typeof pageId !== "string" || !pageId.trim()) throw new TypeError("pageId doit être une chaîne non vide");
   if (typeof photographId !== "string" || !photographId.trim()) throw new TypeError("photographId doit être une chaîne non vide");
@@ -497,7 +496,7 @@ export function prepareLegacyDocumentPage({ source, documentItem, sha256, pageId
     throw new Error("La taille du fichier est inconnue : la page ne peut pas être initialisée.");
   }
   if (typeof pageLabel !== "string") throw new TypeError("pageLabel doit être une chaîne");
-  const withPage = addDocumentPage(source, { id: pageId, label: pageLabel });
+  const withPage = addDocumentPage({ pages }, { id: pageId, label: pageLabel });
   const prepared = addPhotographsToPage(withPage, pageId, [{
     id: photographId,
     originalFileName: fileName,
@@ -509,7 +508,25 @@ export function prepareLegacyDocumentPage({ source, documentItem, sha256, pageId
   }]);
   const page = prepared.pages.find(value => value.id === pageId);
   if (!page) throw new Error("La page préparée est introuvable après construction");
-  const validation = validateSourceDocument(prepared);
+  return { pages: prepared.pages, page };
+}
+
+/* Prépare une page portant le fichier existant, sans créer de source. Cette
+   variante réutilise le champ pages déjà pris en charge par les documents. */
+export function prepareLegacyDocumentPageForDocument({ documentItem, sha256, pageId, photographId, importedAt = null, pageLabel = "" } = {}) {
+  const prepared = prepareLegacyDocumentPageAssets({
+    pages: Array.isArray(documentItem?.pages) ? documentItem.pages : [],
+    documentItem, sha256, pageId, photographId, importedAt, pageLabel
+  });
+  return { document: { ...documentItem, pages: prepared.pages }, page: prepared.page };
+}
+
+export function prepareLegacyDocumentPage({ source, documentItem, sha256, pageId, photographId, importedAt = null, pageLabel = "" } = {}) {
+  if (!source || typeof source !== "object" || Array.isArray(source)) throw new TypeError("source doit être un objet source");
+  if (!Array.isArray(source.pages)) throw new TypeError("source.pages doit être un tableau");
+  const prepared = prepareLegacyDocumentPageAssets({ pages: source.pages, documentItem, sha256, pageId, photographId, importedAt, pageLabel });
+  const nextSource = { ...source, pages: prepared.pages };
+  const validation = validateSourceDocument(nextSource);
   if (!validation.valid) throw new TypeError(`La source préparée est invalide : ${validation.errors.join("; ")}`);
-  return { source: prepared, page, validation };
+  return { source: nextSource, page: prepared.page, validation };
 }

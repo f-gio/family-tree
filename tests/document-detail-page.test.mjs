@@ -71,6 +71,13 @@ window.__documentPageTest = {
     const button = document.querySelector("#viewerDocumentDetails [data-transcribe-document]");
     if (button) button.click();
   },
+  standalone(withPages = false) {
+    documents[0].pages = withPages ? [{ id: "doc-page-direct", label: "Page 1", photographs: [{ id: "doc-photo-direct", preview: { dataUrl: "${svg}" } }] }] : [];
+    genealogyRecords.sourceDocuments = [];
+    genealogyRecords.genealogyProofs = [];
+    genealogyCollectionErrors.delete("sourceDocuments");
+    openStoredDocument(documents[0], "directory");
+  },
   state() {
     return {
       view: activeView,
@@ -82,6 +89,9 @@ window.__documentPageTest = {
       archiveVisible: !$("genealogyView").hidden,
       directoryVisible: !$("directoryView").hidden,
       title: $("viewerTitle").textContent,
+      documentPageCount: documents[0]?.pages?.length || 0,
+      sourceCount: genealogyRecords.sourceDocuments.length,
+      proofCount: genealogyRecords.genealogyProofs.length,
       returnContext: documentPageReturnContext ? { ...documentPageReturnContext } : null,
       search: $("genealogySearch").value,
       filter: $("genealogyKindFilter").value,
@@ -513,10 +523,10 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     const headerMeasure = viewId => page.evaluate(id => {
       const view = document.getElementById(id);
       const header = view.querySelector(".dedicated-page-header");
-      const actions = header.querySelector(".dedicated-page-actions-row").getBoundingClientRect();
+      const actions = header.querySelector(".dedicated-page-actions-row")?.getBoundingClientRect() || null;
       const back = header.querySelector(".dedicated-page-back").getBoundingClientRect();
       const rect = header.getBoundingClientRect();
-      return { actionBackGap: back.y - actions.bottom, rightInset: rect.right - back.right, height: rect.height };
+      return { actionBackGap: actions ? back.y - actions.bottom : null, rightInset: rect.right - back.right, height: rect.height };
     }, viewId);
     for (const width of [390, 1440]) {
       await page.setViewportSize({ width, height: 900 });
@@ -531,16 +541,17 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       await page.evaluate(() => window.__documentPageTest.settle());
       const documentGeometry = await headerMeasure("documentDetailView");
       for (const [name, geometry] of [["Source", sourceGeometry], ["Preuve", proofGeometry]]) {
-        assert.ok(Math.abs(documentGeometry.actionBackGap - geometry.actionBackGap) <= 1, `${width}px : espacement Retour/actions identique à ${name}`);
         assert.ok(Math.abs(documentGeometry.rightInset - geometry.rightInset) <= 1, `${width}px : alignement droit identique à ${name}`);
       }
+      assert.equal(await page.locator("#documentPageActions").count(), 0, `${width}px : aucun menu ⋯ dans l’en-tête Document`);
+      assert.equal(await page.locator("#viewerEditBtn").count(), 1, `${width}px : action Modifier unique dans les informations`);
       const categoryState = await page.evaluate(() => ({
-        kicker: document.querySelector("#documentDetailView .document-detail-kicker").textContent.trim(),
+        kicker: document.querySelector("#documentDetailView .document-detail-breadcrumb > span").textContent.trim(),
         title: document.getElementById("viewerTitle").getBoundingClientRect(),
         badge: document.getElementById("viewerCategoryBadge").getBoundingClientRect(),
         header: document.querySelector("#documentDetailView .document-detail-header").getBoundingClientRect()
       }));
-      assert.equal(categoryState.kicker, "Document", `${width}px : « DOCUMENT » seul au-dessus du titre`);
+      assert.equal(categoryState.kicker, "Documents", `${width}px : fil d’Ariane compact de la fiche Document`);
       assert.ok(categoryState.badge.y >= categoryState.title.bottom, `${width}px : « Autre » sous le titre`);
       assert.ok(categoryState.badge.bottom <= categoryState.header.bottom, `${width}px : badge contenu dans l'en-tête`);
       assert.ok(documentGeometry.height <= (width <= 390 ? 175 : 180), `${width}px : en-tête Document reste compact (${documentGeometry.height}px)`);
@@ -556,6 +567,21 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       assert.equal(state.categoryBadgeRowHidden, true, `${width}px : rangée masquée sans catégorie`);
       assert.equal(state.categoryBadgeRowRect.height, 0, `${width}px : aucun espace réservé sans catégorie`);
     }
+    /* Document autonome : sans Source ni Preuve, l'initialisation propose une
+       page portée par le Document; une page directe existante ouvre l'atelier. */
+    await page.evaluate(() => window.__documentPageTest.standalone(false));
+    await page.click("#viewerDocumentDetails [data-transcribe-document]");
+    await page.waitForSelector("#transcriptionPageInitDialog[open]");
+    assert.equal(await page.locator("#transcriptionPageInitSourceField").isHidden(), true, "aucune Source à choisir pour un Document autonome");
+    assert.equal(await page.locator("#transcriptionPageInitConfirmBtn").isDisabled(), false, "initialisation directe disponible après calcul de l’empreinte");
+    assert.match(await page.locator("#transcriptionPageInitNotice").textContent(), /ajoutée à la fiche Document/);
+    assert.equal((await page.evaluate(() => window.__documentPageTest.state())).documentPageCount, 0, "l’ouverture du dialogue ne modifie rien avant confirmation");
+    await page.click('[data-close="transcriptionPageInitDialog"]');
+    await page.evaluate(() => window.__documentPageTest.standalone(true));
+    await page.click("#viewerDocumentDetails [data-transcribe-document]");
+    await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+    const standaloneState = await page.evaluate(() => window.__documentPageTest.state());
+    assert.deepEqual([standaloneState.sourceCount, standaloneState.proofCount], [0, 0], "l’atelier fonctionne sans Source ni Preuve");
     assert.deepEqual(errors, [], `erreurs JavaScript : ${errors.join(" | ")}`);
   } finally {
     await context.close();

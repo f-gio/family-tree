@@ -56,6 +56,7 @@ import {
   canInitializeLegacyJpegPage,
   findSourcePageForDocument,
   prepareLegacyDocumentPage,
+  prepareLegacyDocumentPageForDocument,
   isLegacyDocumentPhotograph,
   LEGACY_DOCUMENT_IMAGE_PREFIX,
   isTranscriptionPdfDocument,
@@ -3864,22 +3865,6 @@ function bindModalActionMenu(dialogId, buttonId, menuId) {
 const taskActionMenu = bindModalActionMenu("taskDialog", "taskMenuBtn", "taskActionMenu");
 const documentActionMenu = bindModalActionMenu("documentDialog", "documentMenuBtn", "documentActionMenu");
 const procedureActionMenu = bindModalActionMenu("procedureActionDialog", "procedureActionMenuBtn", "procedureActionMenu");
-const viewerActionsPanel = $("documentPageActions");
-const viewerActionMenu = {
-  close: () => { if (viewerActionsPanel) viewerActionsPanel.open = false; }
-};
-if (viewerActionsPanel) {
-  viewerActionsPanel.addEventListener("toggle", () => {
-    viewerActionsPanel.querySelector("summary")?.setAttribute("aria-expanded", String(viewerActionsPanel.open));
-  });
-  viewerActionsPanel.addEventListener("keydown", event => {
-    if (event.key !== "Escape" || !viewerActionsPanel.open) return;
-    event.preventDefault();
-    event.stopPropagation();
-    viewerActionsPanel.open = false;
-    viewerActionsPanel.querySelector("summary")?.focus();
-  });
-}
 const genealogyItemActionMenu = bindModalActionMenu("genealogyItemDialog", "genealogyItemMenuBtn", "genealogyItemActionsMenu");
 $("genealogyItemActionsMenu").addEventListener("click", event => {
   const itemButton = event.target.closest('[role="menuitem"]');
@@ -3888,10 +3873,6 @@ $("genealogyItemActionsMenu").addEventListener("click", event => {
   performArchiveCardAction(activeGenealogyItem.record.id, itemButton.dataset.genealogyItemAction);
 });
 $("viewerDetailsExpandBtn").addEventListener("click", () => setUnifiedDetailsCollapsed(!$("documentUnifiedLayout").classList.contains("is-details-collapsed")));
-$("viewerEditBtn").addEventListener("click", () => {
-  viewerActionMenu.close();
-  openUnifiedDocumentEditor(activeViewerDocumentId);
-});
 window.addEventListener("resize", () => {
   viewerImageState?.fit();
 });
@@ -6574,11 +6555,14 @@ function openTranscriptionWorkshopForDocument(documentItem, preferredPageId = ""
       || directPages[0];
     return openTranscriptionWorkshopFor(buildTranscriptionWorkshopDocumentContext(documentItem, directPages), targetPage.id, "");
   }
-  if (!genealogyCollectionsLoaded.has("sourceDocuments")) return toast("Les sources sont en cours de chargement. Réessayez dans un instant.", "info");
-  if (genealogyCollectionErrors.has("sourceDocuments")) return toast("Les sources associées sont temporairement indisponibles.", "error");
-  const linkedSources = documentLinkedSources(documentItem.id);
+  if (!genealogyCollectionsLoaded.has("sourceDocuments") && !genealogyCollectionErrors.has("sourceDocuments")) return toast("Les sources sont en cours de chargement. Réessayez dans un instant.", "info");
+  const linkedSources = genealogyCollectionErrors.has("sourceDocuments") ? [] : documentLinkedSources(documentItem.id);
   if (!linkedSources.length) {
-    return toast("Rattachez d’abord ce document à une source officielle depuis sa fiche, puis lancez à nouveau « Transcrire ».", "error");
+    if (!isTranscriptionJpegDocument(documentItem) && !isTranscriptionPdfDocument(documentItem)) {
+      return toast("Seuls les documents JPEG ou PDF peuvent initialiser une nouvelle page de transcription.", "error");
+    }
+    if (!isAdminUser()) return toast("L’initialisation de la page de transcription est réservée aux administrateurs.", "error");
+    return openTranscriptionPageInitDialog(documentItem, []);
   }
   /* Page existante : réutilisée quelle que soit la source liée qui la porte —
      aucun choix de source n'a lieu sur ce chemin. */
@@ -6645,15 +6629,20 @@ function renderTranscriptionPageInitDetails() {
   if (!state) return;
   const sourceRecord = transcriptionPageInitSourceRecord();
   const sourceData = sourceRecord ? genealogyRecordData(sourceRecord) : null;
-  const sourceTitle = sourceData ? (sourceData.title || sourceData.cote || sourceData.category || "Source sans titre") : "Source à choisir";
-  $("transcriptionPageInitSubtitle").textContent = `${documentDisplayLabel(state.documentItem)} vers « ${sourceTitle} »`;
+  const sourceTitle = state.directDocument ? "Document" : sourceData ? (sourceData.title || sourceData.cote || sourceData.category || "Source sans titre") : "Source à choisir";
+  $("transcriptionPageInitSubtitle").textContent = state.directDocument
+    ? `${documentDisplayLabel(state.documentItem)} · nouvelle page de transcription`
+    : `${documentDisplayLabel(state.documentItem)} vers « ${sourceTitle} »`;
+  $("transcriptionPageInitNotice").textContent = state.directDocument
+    ? "Une page sera ajoutée à la fiche Document existante. Le fichier ne sera pas dupliqué ; sa référence et son empreinte SHA-256 seront conservées."
+    : "Cette action crée une page officielle dans la source : le fichier du document n’est pas dupliqué, seule une référence vers le document existant et son empreinte SHA-256 sont enregistrées. Une nouvelle révision de la source sera écrite.";
   const facts = $("transcriptionPageInitFacts");
   if (!state.sha256) {
     facts.innerHTML = `<p class="hint">Lecture du fichier et calcul de l’empreinte SHA-256…</p>`;
     return;
   }
   facts.innerHTML = [
-    ["Source", sourceTitle],
+    ...(!state.directDocument ? [["Source", sourceTitle]] : []),
     ["Document", documentDisplayLabel(state.documentItem)],
     ["Fichier", state.documentItem.fileName || "Non renseigné"],
     ["Format", state.documentItem.mimeType || "Non renseigné"],
@@ -6662,13 +6651,12 @@ function renderTranscriptionPageInitDetails() {
   ].map(([label, value]) => `<div class="document-unified-fact"><strong>${esc(label)}</strong><span>${esc(String(value))}</span></div>`).join("");
 }
 
-/* Dialog d'initialisation : affiche le résumé du document, la source cible et
-   l'empreinte, puis attend la validation explicite de l'utilisateur. */
+/* Dialog d'initialisation : affiche le résumé de la cible (Document ou Source)
+   et l'empreinte, puis attend la validation explicite de l'utilisateur. */
 async function openTranscriptionPageInitDialog(documentItem, activeSources) {
   if (!isAdminUser()) return toast("L’initialisation de la page de transcription est réservée aux administrateurs.", "error");
-  if (!Array.isArray(activeSources) || !activeSources.length) {
-    return toast("Aucune source active n’est disponible pour initialiser cette page.", "error");
-  }
+  const directDocument = !Array.isArray(activeSources) || !activeSources.length;
+  if (directDocument && !canInitializeLegacyJpegPage(documentItem)) return toast("Ce document ne peut pas initialiser une page de transcription sans source.", "error");
   const errorBox = $("transcriptionPageInitError");
   errorBox.hidden = true;
   errorBox.textContent = "";
@@ -6678,17 +6666,18 @@ async function openTranscriptionPageInitDialog(documentItem, activeSources) {
      et les faits. Plusieurs : aucune option présélectionnée, choix obligatoire. */
   const sourceField = $("transcriptionPageInitSourceField");
   const sourceSelect = $("transcriptionPageInitSource");
-  const multipleSources = activeSources.length > 1;
+  const multipleSources = !directDocument && activeSources.length > 1;
   sourceField.hidden = !multipleSources;
   sourceSelect.innerHTML = (multipleSources ? `<option value="">Choisir la source…</option>` : "")
-    + activeSources.map(record => {
+    + (activeSources || []).map(record => {
       const data = genealogyRecordData(record);
       return `<option value="${esc(record.id)}">${esc(data.title || data.cote || data.category || "Source sans titre")}</option>`;
     }).join("");
-  sourceSelect.value = multipleSources ? "" : activeSources[0].id;
+  sourceSelect.value = directDocument || multipleSources ? "" : activeSources[0].id;
   transcriptionPageInitState = {
     documentItem,
-    selectedSourceId: multipleSources ? null : activeSources[0].id,
+    selectedSourceId: directDocument || multipleSources ? null : activeSources[0].id,
+    directDocument,
     sha256: null
   };
   renderTranscriptionPageInitDetails();
@@ -6699,7 +6688,7 @@ async function openTranscriptionPageInitDialog(documentItem, activeSources) {
     if (!dialog.open || !transcriptionPageInitState) return;
     transcriptionPageInitState.sha256 = sha256;
     renderTranscriptionPageInitDetails();
-    confirmButton.disabled = !(transcriptionPageInitState.selectedSourceId && sha256);
+    confirmButton.disabled = !(sha256 && (transcriptionPageInitState.directDocument || transcriptionPageInitState.selectedSourceId));
   } catch (error) {
     transcriptionPageInitState = null;
     if (dialog.open) close("transcriptionPageInitDialog");
@@ -6707,8 +6696,8 @@ async function openTranscriptionPageInitDialog(documentItem, activeSources) {
   }
 }
 
-/* Écrit la page via la révision admin existante, puis ouvre l'atelier sur la
-   page nouvellement créée. Aucune écriture sans validation de l'utilisateur. */
+/* Écrit la page au Document ou via la révision admin de la Source, puis ouvre
+   l'atelier. Aucune écriture sans validation explicite de l'utilisateur. */
 async function confirmTranscriptionPageInit() {
   const state = transcriptionPageInitState;
   if (!state) return;
@@ -6723,21 +6712,53 @@ async function confirmTranscriptionPageInit() {
   /* Re-vérification de la source choisie et des droits au moment exact de la
      confirmation : l'état affiché peut être périmé (archivage, retrait d'une
      association, perte des droits pendant la session). */
-  if (!state.selectedSourceId) return fail("Choisissez la source qui recevra la page avant de confirmer.");
-  const sourceRecord = genealogyRecords.sourceDocuments.find(record => record.id === state.selectedSourceId);
-  if (!sourceRecord) return fail("La source sélectionnée n’est plus disponible. Fermez le dialogue et réessayez.");
-  const sourceData = genealogyRecordData(sourceRecord);
-  if ((sourceData.status || "active") === "archived") {
-    return fail("La source sélectionnée a été archivée. Restaurez-la avant d’initialiser sa page.");
-  }
-  if (!(sourceData.documentIds || []).includes(state.documentItem.id)) {
-    return fail("La source sélectionnée n’est plus associée à ce document. Fermez le dialogue et réessayez.");
-  }
+  if (!state.directDocument && !state.selectedSourceId) return fail("Choisissez la source qui recevra la page avant de confirmer.");
   if (!state.sha256) return fail("L’empreinte du fichier n’est pas disponible. Fermez le dialogue et réessayez.");
   confirmButton.disabled = true;
   errorBox.hidden = true;
   const { documentItem, sha256 } = state;
   try {
+    if (state.directDocument) {
+      const documentRef = doc(db, "documents", documentItem.id);
+      const pageId = createGenealogyId(refs.documents);
+      const photographId = createGenealogyId(refs.documents);
+      let prepared;
+      await runTransaction(db, async transaction => {
+        const snapshot = await transaction.get(documentRef);
+        if (!snapshot.exists()) throw new Error("Ce document n’est plus disponible.");
+        const freshDocument = { id: snapshot.id, ...snapshot.data() };
+        if (Array.isArray(freshDocument.pages) && freshDocument.pages.length) {
+          throw new Error("Ce document possède maintenant des pages. Fermez le dialogue et relancez la transcription.");
+        }
+        prepared = prepareLegacyDocumentPageForDocument({
+          documentItem: freshDocument,
+          sha256,
+          pageId,
+          photographId,
+          importedAt: new Date().toISOString()
+        });
+        transaction.update(documentRef, { pages: prepared.document.pages, updatedAt: serverTimestamp() });
+      });
+      const currentDocument = documents.find(value => value.id === documentItem.id);
+      if (currentDocument) currentDocument.pages = prepared.document.pages;
+      close("transcriptionPageInitDialog");
+      transcriptionPageInitState = null;
+      toast("Page initialisée dans la fiche Document. L’atelier est prêt.");
+      return openTranscriptionWorkshopFor(
+        buildTranscriptionWorkshopDocumentContext({ ...documentItem, pages: prepared.document.pages }, prepared.document.pages),
+        prepared.page.id,
+        ""
+      );
+    }
+    const sourceRecord = genealogyRecords.sourceDocuments.find(record => record.id === state.selectedSourceId);
+    if (!sourceRecord) return fail("La source sélectionnée n’est plus disponible. Fermez le dialogue et réessayez.");
+    const sourceData = genealogyRecordData(sourceRecord);
+    if ((sourceData.status || "active") === "archived") {
+      return fail("La source sélectionnée a été archivée. Restaurez-la avant d’initialiser sa page.");
+    }
+    if (!(sourceData.documentIds || []).includes(state.documentItem.id)) {
+      return fail("La source sélectionnée n’est plus associée à ce document. Fermez le dialogue et réessayez.");
+    }
     const pageId = createGenealogyId(refs.sourceDocuments);
     const photographId = createGenealogyId(refs.sourceDocuments);
     const prepared = prepareLegacyDocumentPage({
@@ -10872,7 +10893,6 @@ async function openStoredDocument(item, returnContext = "previous") {
      affichage, leur contexte étant déjà capturé pour le retour. */
   if ($("genealogyItemDialog").open) close("genealogyItemDialog");
   if ($("personDialog").open) close("personDialog");
-  $("viewerEditBtn").hidden = false;
   renderUnifiedDocumentDetails(item);
   /* Lot G : volets mobiles fermés par défaut (Miniatures et Informations),
      Informations dépliées sur ordinateur. */
@@ -11863,7 +11883,6 @@ function setView(view) {
   $("proofDetailView").hidden = view !== "proofDetail";
   if (view !== "proofDetail") $("proofPageActions").open = false;
   $("documentDetailView").hidden = view !== "documentDetail";
-  if (view !== "documentDetail") $("documentPageActions").open = false;
   $("tasksView").hidden = view !== "tasks";
   $("dossiersView").hidden = view !== "dossiers";
   $("transcriptionWorkshopView").hidden = view !== "transcriptionWorkshop";
@@ -12908,8 +12927,8 @@ $("viewerDocumentDetails").addEventListener("click", event => {
     filenameButton.classList.toggle("is-expanded", !expanded);
     return;
   }
-  const editDocument = event.target.closest("[data-unified-document-edit]");
-  if (editDocument) return openUnifiedDocumentEditor(editDocument.dataset.unifiedDocumentEdit);
+  const editDocument = event.target.closest("[data-unified-document-edit], #viewerEditBtn");
+  if (editDocument) return openUnifiedDocumentEditor(editDocument.dataset.unifiedDocumentEdit || activeViewerDocumentId);
   const personButton = event.target.closest("[data-unified-person]");
   if (personButton) {
     const personItem = person(personButton.dataset.unifiedPerson);

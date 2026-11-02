@@ -26,6 +26,7 @@ import {
   canInitializeLegacyJpegPage,
   findSourcePageForDocument,
   prepareLegacyDocumentPage,
+  prepareLegacyDocumentPageForDocument,
   legacyDocumentResourceRef
 } from "../js/transcription-workshop.js";
 import { createTranscriptionPassage } from "../js/document-transcription.js";
@@ -377,6 +378,24 @@ test("l’initialisation prépare une page référençant le JPEG sans dupliquer
   assert.equal(withPages.page.order, 2, "order = max + 1 sur source déjà paginée");
 });
 
+test("l’initialisation directe ajoute une page au Document sans créer de Source ni dupliquer le fichier", () => {
+  const documentItem = { ...jpegDocument, pages: [] };
+  const { document, page } = prepareLegacyDocumentPageForDocument({
+    documentItem,
+    sha256: "a".repeat(64),
+    pageId: "document-page-1",
+    photographId: "document-photo-1",
+    importedAt: "2026-11-02T00:00:00.000Z"
+  });
+  assert.equal(document.pages.length, 1, "une page est portée directement par le Document");
+  assert.equal(page.id, "document-page-1");
+  assert.equal(page.photographs[0].original.resourceRef, legacyDocumentResourceRef(documentItem.id));
+  assert.equal(page.photographs[0].original.sha256, "a".repeat(64));
+  assert.equal(page.photographs[0].preview, null, "aucun octet du fichier n’est dupliqué");
+  assert.equal(documentItem.pages.length, 0, "l’objet d’entrée n’est pas muté");
+  assert.ok(!JSON.stringify(document.pages).includes("fileData"));
+});
+
 test("l’initialisation refuse une ressource non vérifiable et les entrées invalides", () => {
   const baseSource = createSourceDocument({ id: "src-1", title: "S" });
   const args = overrides => ({ source: baseSource, documentItem: { ...jpegDocument, ...overrides }, sha256: "e".repeat(64), pageId: "page-9", photographId: "photo-9" });
@@ -404,21 +423,21 @@ test("l’accès direct aux JPEG applique les portes JPEG, admin et révision ex
   // Sources : actives seulement, jamais la « première » trouvée.
   assert.match(app, /const activeSources = linkedSources\.filter\(/, "filtrage des seules sources actives");
   assert.match(app, /Toutes les sources liées à ce document sont archivées/, "blocage explicite si toutes archivées");
-  assert.match(app, /Aucune source active n’est disponible pour initialiser cette page/, "blocage explicite si aucune source valide");
+  assert.match(app, /if \(!linkedSources\.length\) \{[\s\S]{0,500}openTranscriptionPageInitDialog\(documentItem, \[\]\)/, "initialisation directe sans source associée");
   assert.doesNotMatch(app, /\|\| linkedSources\[0\]/, "aucun repli silencieux sur la première source");
   assert.doesNotMatch(app, /const sourceRecord = linkedSources\.find/, "aucune pré-sélection silencieuse d'une source");
   // Une seule source active → auto-sélection affichée ; plusieurs → choix exigé.
-  assert.match(app, /const multipleSources = activeSources\.length > 1/, "détection du nombre de sources actives");
-  assert.match(app, /selectedSourceId: multipleSources \? null : activeSources\[0\]\.id/, "auto-seulement quand une seule source active");
+  assert.match(app, /const multipleSources = !directDocument && activeSources\.length > 1/, "détection du nombre de sources actives");
+  assert.match(app, /selectedSourceId: directDocument \|\| multipleSources \? null : activeSources\[0\]\.id/, "choix de source omis sur le chemin Document direct");
   assert.match(html, /id="transcriptionPageInitSourceField"/, "champ de sélection de source présent");
   assert.match(html, /id="transcriptionPageInitSource"/, "sélecteur de source présent");
   assert.match(app, /Choisir la source…/, "aucune option présélectionnée si plusieurs sources");
   assert.match(app, /\$\("transcriptionPageInitSource"\)\.onchange/, "choix explicite de l'utilisateur");
   assert.match(app, /function renderTranscriptionPageInitDetails\(\)/, "affichage du nom de la source cible");
-  assert.match(app, /\["Source", sourceTitle\]/, "source affichée dans les faits du dialogue");
-  assert.match(app, /\$\("transcriptionPageInitConfirmBtn"\)\.disabled = !\(state\.selectedSourceId && state\.sha256\)/, "confirmation bloquée tant que la source n'est pas choisie");
+  assert.match(app, /!state\.directDocument \? \[\["Source", sourceTitle\]\] : \[\]/, "source affichée uniquement lorsque la page va dans une source");
+  assert.match(app, /confirmButton\.disabled = !\(sha256 && \(transcriptionPageInitState\.directDocument \|\| transcriptionPageInitState\.selectedSourceId\)\)/, "confirmation directe sans source après calcul de l’empreinte");
   // Re-vérification source + droits au moment de la confirmation.
-  assert.match(app, /async function confirmTranscriptionPageInit[\s\S]{0,700}if \(!state\.selectedSourceId\) return fail\(/, "choix re-vérifié à la confirmation");
+  assert.match(app, /async function confirmTranscriptionPageInit[\s\S]{0,800}if \(!state\.directDocument && !state\.selectedSourceId\) return fail\(/, "choix re-vérifié uniquement pour le parcours Source");
   assert.match(app, /La source sélectionnée n’est plus disponible/, "source disparue détectée");
   assert.match(app, /La source sélectionnée a été archivée/, "archivage pendant la session détecté");
   assert.match(app, /La source sélectionnée n’est plus associée à ce document/, "retrait d'association détecté");

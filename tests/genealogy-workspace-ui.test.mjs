@@ -599,8 +599,8 @@ test("le formulaire guidé de preuve remplace le JSON pour les créations offici
 });
 
 test("la fiche unifiée permet de modifier document, source et naviguer vers les personnes", () => {
-  assert.match(html, /id="viewerEditBtn"[^>]*>[^<]*<svg class="ui-icon"[^>]*><use href="#icon-edit"><\/use><\/svg><span>Modifier les informations<\/span>/, "la modification reste accessible depuis le menu, avec l'icône crayon commune");
-  assert.match(app, /closest\("\[data-unified-document-edit\]"\)/, "ancien chemin conservé pour compatibilité");
+  assert.match(html, /id="viewerEditBtn"[^>]*type="button"[^>]*>[^<]*<svg class="ui-icon"[^>]*><use href="#icon-edit"><\/use><\/svg><span>Modifier les informations<\/span>/, "la modification reste dans le panneau Informations avec l'icône crayon commune");
+  assert.match(app, /closest\("\[data-unified-document-edit\], #viewerEditBtn"\)/, "action contextuelle déléguée depuis les informations");
   assert.match(app, /data-unified-person=/);
   assert.match(app, /function openUnifiedDocumentEditor\(documentId\)/);
   assert.match(app, /function openUnifiedSource\(documentId, sourceId, revise = false\)/);
@@ -613,11 +613,10 @@ test("la fiche unifiée permet de modifier document, source et naviguer vers les
   assert.match(css, /\.document-detail-view \.document-unified-layout \{ grid-template-columns: minmax\(0, 1fr\)/);
 });
 
-test("le visualiseur branche le zoom image et réserve le menu d’actions du header", () => {
+test("le visualiseur branche le zoom image sans menu d’actions dans l’en-tête", () => {
   assert.match(app, /import \{ createDocumentImageViewer, selectInitialDocumentImageMode \} from "\.\/document-image-viewer\.js"/);
   assert.match(app, /initialMode: selectInitialDocumentImageMode\(\{ naturalWidth: image\.naturalWidth, naturalHeight: image\.naturalHeight \}\)/);
-  assert.match(html, /id="viewerActionsBtn"[^>]*aria-haspopup="menu"/);
-  assert.match(html, /id="viewerActionsMenu"[^>]*role="menu"/);
+  assert.doesNotMatch(html, /id="viewerActions(?:Btn|Menu)"/);
   assert.match(html, /id="viewerImageControls"[^>]*role="group"/);
   assert.match(app, /function setupViewerImage\(item\)[\s\S]*?createDocumentImageViewer\(/);
   assert.match(app, /zoomIndicator: \$\("viewerZoomIndicator"\)/);

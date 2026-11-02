@@ -3919,10 +3919,6 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .settings-actions .btn { min-height: var(--control-touch); }
 }
 
-@media (max-width: 560px) {
-  .document-detail-view #viewerEditBtn { flex: 0 0 auto; padding-inline: var(--space-2); white-space: normal; }
-}
-
 /* Vue Arbre : le canvas prend l'espace libre quand la page tient dans le viewport.
    Le body et #appMain gardent un flux visible pour laisser le document grandir
    et défiler naturellement lorsque le contenu dépasse (notamment en paysage). */
@@ -5443,16 +5439,12 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 #documentDetailView { min-height: calc(100dvh - 8rem); padding-bottom: max(var(--space-5), calc(var(--space-5) + env(safe-area-inset-bottom))); }
 .document-detail-header { margin-bottom: 0; }
 .document-detail-heading { min-width: 0; }
-.document-detail-heading .page-kicker { margin-top: 0; }
+.document-detail-breadcrumb { display: flex; align-items: center; gap: var(--space-1); min-width: 0; margin: 0; color: var(--color-text-label); font-size: 14px; }
+.document-detail-breadcrumb > span { flex: 0 0 auto; }
+.document-detail-title { display: -webkit-box; flex: 0 1 auto; min-width: 0; max-width: min(42rem, 70vw); margin: 0; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font: 700 clamp(1.05rem, 2.4vw, 1.5rem)/var(--leading-tight) var(--font-display); }
 /* Badge de catégorie sous le titre Document : valeur métier existante du document. */
-.document-detail-kicker { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; margin: 0 0 4px; }
-.document-detail-heading .document-detail-kicker .page-kicker { margin: 0; }
+.document-detail-category-row { margin-top: var(--space-1); }
 .document-detail-category { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.document-detail-actions { position: relative; }
-.document-detail-actions > summary { display: inline-flex; align-items: center; justify-content: center; min-width: var(--control-touch); min-height: var(--control-touch); cursor: pointer; list-style: none; }
-.document-detail-actions > summary::-webkit-details-marker { display: none; }
-.document-detail-actions-menu { position: absolute; z-index: 40; top: calc(100% + var(--space-1)); right: 0; min-width: min(17rem, calc(100vw - 2rem)); padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-medium); }
-.document-detail-actions-menu .btn { justify-content: flex-start; width: 100%; min-height: var(--control-touch); white-space: normal; text-align: left; }
 /* Lot G : les onglets Original/Informations ont disparu — panneaux en flux. */
 #documentDetailView .document-detail-layout { grid-template-columns: minmax(0, 1.45fr) minmax(21rem, .85fr); height: auto; align-items: start; }
 #documentDetailView .document-detail-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
