@@ -10756,7 +10756,8 @@ function arrangePdfChrome() {
     viewerBody.after(pagination);
     pagination.after(toggles);
     toggles.after(rail);
-    if ($("viewerDetailsExpandBtn").parentElement !== toggles) toggles.append($("viewerDetailsExpandBtn"));
+    const originalHead = document.querySelector("#documentDetailView .document-original-head");
+    if (originalHead && $("viewerDetailsExpandBtn").parentElement !== originalHead) originalHead.append($("viewerDetailsExpandBtn"));
     for (const id of ["pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn"]) toolbar.append($(id));
     pagination.hidden = false;
     toggles.hidden = false;

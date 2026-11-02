@@ -344,6 +344,8 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
   const appSource = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
   const arrangePdfChromeSource = appSource.match(/function arrangePdfChrome\(\) \{([\s\S]*?)\n\}/)?.[1] || "";
   assert.match(arrangePdfChromeSource, /toolbar\.after\(viewerBody\);\s*viewerBody\.after\(pagination\);\s*pagination\.after\(toggles\);\s*toggles\.after\(rail\);/, "le code de production fixe l’ordre mobile document → pagination → bascules → miniatures");
+  assert.match(arrangePdfChromeSource, /originalHead\.append\(\$\("viewerDetailsExpandBtn"\)\)/, "le dépliant desktop reste dans son en-tête masqué en mode PDF mobile");
+  assert.doesNotMatch(arrangePdfChromeSource, /toggles\.append\(\$\("viewerDetailsExpandBtn"\)\)/, "aucun dépliant redondant ajouté après les deux volets mobile");
   /* Lot D : la visionneuse vit dans la page dédiée, plus dans une modale. */
   const pageDocument = await buildPageDocument();
 
@@ -813,6 +815,49 @@ test("PDF plein écran mobile : viewport complet, commande X unique, gestes et c
     await page.waitForFunction(() => !document.getElementById("documentDetailView").classList.contains("is-viewer-fullscreen"));
     assert.match(await page.locator("#pdfPageStatus").textContent(), /3 \/ 24/, "pagination conservée après deux entrées-sorties");
     assert.equal(await page.evaluate(() => document.documentElement.classList.contains("viewer-fullscreen-active")), false, "le verrou de repli ne fuit pas après plusieurs cycles");
+  } finally {
+    await browser.close();
+  }
+});
+
+test("PDF mobile WebKit : uniquement Miniatures et Informations sous le lecteur", async t => {
+  let browser;
+  try { browser = await webkit.launch({ headless: true }); }
+  catch (error) { t.skip(`WebKit indisponible : ${error.message}`); return; }
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const pageDocument = await buildPageDocument();
+    await page.goto(`${baseUrl}/`, { waitUntil: "domcontentloaded" });
+    await page.setContent(pageDocument, { waitUntil: "load" });
+    await openViewerPage(page);
+    await page.waitForFunction(() => document.getElementById("viewerPdfPageCanvas").width > 0, undefined, { timeout: 15000 });
+    const back = page.locator("#documentPageBackBtn");
+    assert.equal(await back.evaluate(element => getComputedStyle(element).fontSize), "14px", "Retour PDF WebKit en 14 px");
+    await back.hover();
+    const decoration = await back.evaluate(element => ({
+      arrow: getComputedStyle(element.querySelector(".dedicated-page-back-arrow")).textDecorationLine,
+      label: getComputedStyle(element.querySelector(".dedicated-page-back-label")).textDecorationLine
+    }));
+    assert.equal(decoration.arrow, "none", "flèche Retour non soulignée dans WebKit");
+    assert.ok(decoration.label.includes("underline"), "texte Retour souligné au survol dans WebKit");
+    assert.equal(await page.locator(".document-original-head").evaluate(element => getComputedStyle(element).display), "none", "l’en-tête Original et son dépliant ne prennent pas de place en PDF mobile");
+    assert.equal(await page.locator("#viewerDetailsExpandBtn").isVisible(), false, "le dépliant isolé ne paraît pas sous les volets");
+    const toggles = page.locator("#pdfPanelToggles .pdf-panel-toggle");
+    assert.deepEqual(await toggles.evaluateAll(elements => elements.filter(element => getComputedStyle(element).display !== "none").map(element => element.id)), ["pdfThumbnailsBtn", "viewerDetailsBtn"], "les deux seuls volets restent proposés");
+    assert.equal(await page.locator("#pdfPageNav").isVisible(), true, "pagination conservée");
+    assert.equal(await page.locator("#pdfNextPageBtn").isVisible(), true, "navigation PDF conservée");
+    for (const id of ["pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn"]) {
+      assert.equal(await page.locator(`#${id}`).isVisible(), true, `outil PDF conservé : ${id}`);
+    }
+    await page.locator("#pdfThumbnailsBtn").click();
+    await page.waitForFunction(() => !document.getElementById("viewerPdfThumbnails").hidden);
+    await page.locator("#pdfThumbnailsBtn").click();
+    await page.waitForFunction(() => document.getElementById("viewerPdfThumbnails").hidden);
+    await page.locator("#viewerDetailsBtn").click();
+    await page.waitForFunction(() => !document.getElementById("viewerDocumentDetails").hidden);
+    await page.locator("#viewerDetailsBtn").click();
+    await page.waitForFunction(() => document.getElementById("viewerDocumentDetails").hidden);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), "aucun débordement horizontal en WebKit mobile");
   } finally {
     await browser.close();
   }

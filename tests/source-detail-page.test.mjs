@@ -144,6 +144,15 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux archives");
     assert.equal(await page.locator("#sourcePageBackBtn .dedicated-page-back-label").textContent(), "Retour aux archives", "destination réelle affichée en clair (desktop)");
     assert.equal(await page.locator("#sourcePageBackBtn").evaluate(element => getComputedStyle(element).fontSize), "14px", "Retour commun en 14 px");
+    const restingDecoration = await page.locator("#sourcePageBackBtn").evaluate(element => ({ arrow: getComputedStyle(element.querySelector(".dedicated-page-back-arrow")).textDecorationLine, label: getComputedStyle(element.querySelector(".dedicated-page-back-label")).textDecorationLine }));
+    assert.equal(restingDecoration.arrow, "none", "flèche Retour non soulignée au repos");
+    assert.ok(restingDecoration.label.includes("underline"), "texte Retour souligné en permanence");
+    await page.locator("#sourcePageBackBtn").hover();
+    const returnDecoration = await page.locator("#sourcePageBackBtn").evaluate(element => ({ arrow: getComputedStyle(element.querySelector(".dedicated-page-back-arrow")).textDecorationLine, label: getComputedStyle(element.querySelector(".dedicated-page-back-label")).textDecorationLine }));
+    assert.equal(returnDecoration.arrow, "none", "flèche Retour jamais soulignée");
+    assert.ok(returnDecoration.label.includes("underline"), "seul le texte Retour est souligné au survol");
+    await page.locator("#sourcePageBackBtn").focus();
+    assert.equal(await page.locator("#sourcePageBackBtn").evaluate(element => getComputedStyle(element).outlineStyle), "solid", "lien Retour conserve un focus clavier visible");
     assert.equal(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", "navigation masquée dans la fiche Source");
     assert.match(await page.locator("#sourceDetailView .consultation-breadcrumb").innerText(), /Documents[\s\S]*Acte d’essai[\s\S]*Registre paroissial/);
     assert.equal(await page.locator("#sourcePageBreadcrumb [aria-current='page']").count(), 1, "le dernier niveau du fil reste la Source courante, non cliquable");
