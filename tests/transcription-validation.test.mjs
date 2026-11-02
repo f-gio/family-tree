@@ -84,7 +84,41 @@ window.__inc2 = {
   badge() { return $("workshopSaveStatus").textContent; },
   officialBadge() { const el = $("workshopOfficialBadge"); return { hidden: el.hidden, text: el.textContent }; },
   fieldValue() { return document.querySelector('[data-workshop-field="textIt"]')?.value || ""; },
-  localDraftCount() { return [...Array(localStorage.length).keys()].filter(index => localStorage.key(index)?.startsWith("familyTreeTranscriptionDraft:")).length; }
+  localDraftCount() { return [...Array(localStorage.length).keys()].filter(index => localStorage.key(index)?.startsWith("familyTreeTranscriptionDraft:")).length; },
+  versionState() {
+    const head = genealogyRecords.transcriptionHeads[0];
+    return { version: head?.version ?? null, revisions: genealogyRecords.transcriptionRevisions.length };
+  },
+  validationTarget() { return transcriptionValidationTarget ? { ...transcriptionValidationTarget } : null; },
+  validationDuplicateRejections() { return transcriptionValidationDuplicateRejections; },
+  openValidation() { openTranscriptionValidationDialog(); },
+  confirmValidationNoChanges() {
+    const dialog = document.getElementById("transcriptionValidationDialog");
+    if (!dialog.open) dialog.showModal();
+    transcriptionValidationTarget = { headId: "tx-seed-head", documentId: "doc-repro", pageId: "page-repro-1", nextVersion: 3 };
+    return confirmTranscriptionValidation();
+  },
+  confirmValidationRapidly() {
+    if (!transcriptionValidationTarget) {
+      transcriptionValidationTarget = { headId: "tx-seed-head", documentId: "doc-repro", pageId: "page-repro-1", nextVersion: 3 };
+    }
+    const first = confirmTranscriptionValidation();
+    const second = confirmTranscriptionValidation();
+    return Promise.all([first, second]);
+  },
+  applyValidationForTest() {
+    const head = genealogyRecords.transcriptionHeads[0];
+    applyTranscriptionValidation({
+      headId: head.id,
+      content: { documentId: "doc-repro", pageId: "page-repro-1", passages: transcriptionWorkshopDraft.passages },
+      revisionId: "test-revision-validation",
+      eventId: "test-event-validation",
+      freshHead: head,
+      authorUid: "admin-seed"
+    });
+    const updated = genealogyRecords.transcriptionHeads[0];
+    return { version: updated.version, revisions: genealogyRecords.transcriptionRevisions.length };
+  }
 };
 `;
 
@@ -181,6 +215,7 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
       validateHidden: document.getElementById("workshopValidateBtn").hidden,
       validateLabel: document.getElementById("workshopValidateLabel").textContent,
       validateDisabled: document.getElementById("workshopValidateBtn").disabled,
+      validateTitle: document.getElementById("workshopValidateBtn").title,
       saveButtonCount: document.querySelectorAll("#workshopSaveDraftBtn").length,
       autoSaveHintHidden: document.getElementById("workshopAutosaveHint").hidden,
       editorDisabled: document.querySelector('[data-workshop-field="textIt"]').disabled,
@@ -190,7 +225,8 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
     assert.equal(initial.badge.text, "Brouillon", "sans version officielle : « Brouillon »");
     assert.equal(initial.validateHidden, false, "validation visible pour l'administrateur");
     assert.equal(initial.validateLabel, "Valider", "libellé court de validation dans le groupe d’édition");
-    assert.equal(initial.validateDisabled, false, "validation active (texte italien non vide)");
+    assert.equal(initial.validateDisabled, true, "validation désarmée tant qu'aucune différence réelle n'existe");
+    assert.equal(initial.validateTitle, "Aucune modification", "cause du désarmement expliquée discrètement");
     assert.equal(initial.saveButtonCount, 0, "aucun bouton manuel « Enregistrer »");
     assert.equal(initial.autoSaveHintHidden, false, "autosauvegarde annoncée en édition");
     assert.equal(initial.editorDisabled, false, "brouillon sans version officielle directement éditable");
@@ -199,6 +235,7 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
     /* Modification locale : l'autosauvegarde reprend seule, sans commande. */
     await page.fill('[data-workshop-field="textIt"]', "Anno millenovecento modificato");
     assert.equal(await page.locator("#workshopSaveStatus").textContent(), "Enregistrement…", "modification en attente d’autosauvegarde");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopValidateBtn").disabled), false, "validation réarmée dès le premier changement réel");
     assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Brouillon",
       "sans officiel, la modification reste un simple brouillon");
     await page.click("#workshopCancelEditBtn");
@@ -241,13 +278,15 @@ test("la carte Document propose Ajouter quand la page ne contient aucune transcr
     assert.equal(await page.locator("#workshopValidateBtn").isHidden(), true, "aucune validation officielle visible sans droit administrateur");
     assert.equal(await page.locator("#workshopCancelEditBtn").isVisible(), true, "Annuler reste disponible pour le contributeur");
     let desktopStripWidthAtOne = 0;
+    const stripWidthFor = (count, slots) => Math.min(count, slots) * 44 + (Math.min(count, slots) - 1) * 4;
     for (let index = 0; index < 5; index++) {
       await page.click("#workshopAddPassageBtn");
       const count = index + 1;
       const stripWidth = await page.locator("#workshopPassagePills").evaluate(strip => strip.getBoundingClientRect().width);
       if (index === 0) desktopStripWidthAtOne = stripWidth;
-      assert.equal(stripWidth, desktopStripWidthAtOne, `largeur desktop fixe à ${count} passage(s)`);
-      if (count <= 3) {
+      assert.ok(Math.abs(stripWidth - stripWidthFor(count, 5)) <= 1, `largeur desktop = contenu réel à ${count} passage(s) (${Math.round(stripWidth)} ≈ ${stripWidthFor(count, 5)})`);
+      if (count === 1) assert.ok(desktopStripWidthAtOne <= 50, "un seul numéro : bande compacte, aucune case vide avant le +");
+      if (count <= 5) {
         assert.equal(await page.locator("#workshopPassagePills [data-workshop-passage-select]").count(), count, `${count} numéro(s) présents sans emplacement fictif`);
         assert.equal(await page.locator("#workshopPassagePills [data-workshop-passage-select]").evaluateAll(buttons => {
           const strip = buttons[0].parentElement.getBoundingClientRect();
@@ -256,9 +295,15 @@ test("la carte Document propose Ajouter quand la page ne contient aucune transcr
       }
       const plusGap = await page.evaluate(() => {
         const strip = document.getElementById("workshopPassagePills").getBoundingClientRect();
-        return document.getElementById("workshopAddPassageBtn").getBoundingClientRect().left - strip.right;
+        const pills = document.querySelectorAll("#workshopPassagePills [data-workshop-passage-select]");
+        const last = pills[pills.length - 1].getBoundingClientRect();
+        return {
+          strip: document.getElementById("workshopAddPassageBtn").getBoundingClientRect().left - strip.right,
+          lastPill: document.getElementById("workshopAddPassageBtn").getBoundingClientRect().left - last.right
+        };
       });
-      assert.ok(plusGap >= 0 && plusGap <= 6, `+ immédiatement à droite du carrousel à ${count} passage(s) (${plusGap}px)`);
+      assert.ok(plusGap.strip >= 0 && plusGap.strip <= 6, `+ immédiatement à droite du carrousel à ${count} passage(s) (${plusGap.strip}px)`);
+      assert.ok(plusGap.lastPill >= 0 && plusGap.lastPill <= 6, `+ collé au dernier numéro à ${count} passage(s) (${plusGap.lastPill}px)`);
     }
     assert.equal(await page.locator("#workshopPassagePills [data-workshop-passage-select]").count(), 5, "cinq passages disponibles");
     const desktopStripWidthAtFive = await page.locator("#workshopPassagePills").evaluate(strip => strip.getBoundingClientRect().width);
@@ -291,8 +336,15 @@ test("la carte Document propose Ajouter quand la page ne contient aucune transcr
     const beforeWheel = await strip.evaluate(element => element.scrollLeft);
     await strip.hover();
     await page.mouse.wheel(0, -80);
+    await page.waitForTimeout(220);
     const afterWheel = await strip.evaluate(element => element.scrollLeft);
     assert.notEqual(afterWheel, beforeWheel, "molette verticale redirigée vers le carrousel horizontal desktop");
+    assert.equal(await strip.evaluate(element => element.scrollLeft % 48), 0, "molette : le carrousel se recale sur la grille des pastilles");
+    const visibleAfterWheel = await page.locator("#workshopPassagePills [data-workshop-passage-select]").evaluateAll(buttons => {
+      const strip = buttons[0].parentElement.getBoundingClientRect();
+      return buttons.filter(button => { const r = button.getBoundingClientRect(); return r.left >= strip.left - 1 && r.right <= strip.right + 1; }).length;
+    });
+    assert.equal(visibleAfterWheel, 5, "après aimantation : exactement cinq numéros entiers visibles, aucun coupé");
     const stripBox = await strip.boundingBox();
     await page.mouse.move(stripBox.x + stripBox.width - 12, stripBox.y + stripBox.height / 2);
     await page.mouse.down();
@@ -300,6 +352,7 @@ test("la carte Document propose Ajouter quand la page ne contient aucune transcr
     await page.mouse.up();
     const afterMouseDrag = await strip.evaluate(element => element.scrollLeft);
     assert.notEqual(afterMouseDrag, afterWheel, "glissement souris déplace les numéros desktop");
+    assert.equal(await strip.evaluate(element => element.scrollLeft % 48), 0, "glissement souris : aimantation sur la grille au relâchement");
     assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "20", "défilement manuel ne change pas la sélection");
     assert.match(await page.locator(".transcription-workshop-passage.is-selected .workshop-field-it label").textContent(), /Transcription italienne — Passage 20/, "titre de transcription italienne indexé sur desktop");
     assert.match(await page.locator(".transcription-workshop-passage.is-selected .workshop-field-fr label").textContent(), /Traduction française — Passage 20/, "titre de traduction française indexé sur desktop");
@@ -346,15 +399,95 @@ test("la carte Document propose Ajouter quand la page ne contient aucune transcr
     });
     assert.equal(centeredMobilePill, true, "passage actif centré sur mobile quand les marges le permettent");
     assert.equal(mobileVisibleCount, 3, "trois numéros visibles autour du passage actif au milieu du carrousel");
+    /* Limites strictes vérifiées à chaque largeur mobile demandée. */
+    for (const width of [320, 375, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const state = await page.evaluate(() => {
+        const strip = document.getElementById("workshopPassagePills");
+        const viewport = strip.getBoundingClientRect();
+        const pills = [...strip.querySelectorAll("[data-workshop-passage-select]")];
+        const add = document.getElementById("workshopAddPassageBtn").getBoundingClientRect();
+        const active = strip.querySelector("[aria-current='step']").getBoundingClientRect();
+        return {
+          visible: pills.filter(pill => { const r = pill.getBoundingClientRect(); return r.left >= viewport.left - 1 && r.right <= viewport.right + 1; }).length,
+          partiallyVisible: pills.filter(pill => {
+            const r = pill.getBoundingClientRect();
+            const inside = r.right > viewport.left + 1 && r.left < viewport.right - 1;
+            const fully = r.left >= viewport.left - 1 && r.right <= viewport.right + 1;
+            return inside && !fully;
+          }).length,
+          stripToPlus: add.left - viewport.right,
+          activeFullyVisible: active.left >= viewport.left - 1 && active.right <= viewport.right + 1,
+          pageOverflow: document.documentElement.scrollWidth > innerWidth + 1
+        };
+      });
+      assert.equal(state.visible, 3, `${width}px : exactement trois numéros entiers visibles`);
+      assert.equal(state.partiallyVisible, 0, `${width}px : aucun numéro partiellement visible`);
+      assert.ok(state.stripToPlus >= 0 && state.stripToPlus <= 6, `${width}px : bouton + accolé à la bande (${state.stripToPlus}px)`);
+      assert.equal(state.activeFullyVisible, true, `${width}px : passage actif visible`);
+      assert.equal(state.pageOverflow, false, `${width}px : aucun débordement horizontal de la page`);
+    }
     await passagePills.first().click();
     assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "1", "clic sur une pastille sélectionne le premier passage");
     const passageIds = await passagePills.evaluateAll(buttons => buttons.map(button => button.dataset.workshopPassageSelect));
-    const removeId = passageIds[0];
-    await page.locator(`[data-workshop-delete-passage="${removeId}"]`).click();
+
+    /* Suppression sur mobile : le bouton inline est masqué, l'action vit dans
+       le menu contextuel ⋯ du passage actif. */
+    assert.equal(await page.locator("[data-workshop-delete-passage]").first().isVisible(), false, "bouton inline masqué sur mobile");
+    const selectedMenuSummary = page.locator(".transcription-workshop-passage.is-selected .transcription-workshop-passage-menu > summary");
+    assert.equal(await selectedMenuSummary.isVisible(), true, "menu ⋯ visible sur le passage actif en édition");
+    const openSelectedMenu = async () => {
+      const summary = page.locator(".transcription-workshop-passage.is-selected .transcription-workshop-passage-menu > summary");
+      if (!(await summary.evaluate(element => element.parentElement.open))) await summary.click();
+      await page.locator(".transcription-workshop-passage.is-selected [data-workshop-delete-passage-menu]").waitFor({ state: "visible" });
+    };
+    /* Confirmation annulée : rien n'est supprimé. */
+    await openSelectedMenu();
+    page.removeAllListeners("dialog");
+    page.on("dialog", dialog => dialog.dismiss().catch(() => {}));
+    await page.locator(".transcription-workshop-passage.is-selected [data-workshop-delete-passage-menu]").click();
+    assert.deepEqual(await passagePills.evaluateAll(buttons => buttons.map(button => button.dataset.workshopPassageSelect)), passageIds, "annulation de la confirmation : aucun passage supprimé");
+    /* Confirmation acceptée : le passage sort du brouillon. */
+    page.removeAllListeners("dialog");
+    page.on("dialog", dialog => dialog.accept().catch(() => {}));
+    await openSelectedMenu();
+    await page.locator(".transcription-workshop-passage.is-selected [data-workshop-delete-passage-menu]").click();
+    await page.waitForFunction(expected => document.querySelectorAll("#workshopPassagePills [data-workshop-passage-select]").length === expected, passageIds.length - 1);
     const remainingIds = await page.locator("#workshopPassagePills [data-workshop-passage-select]").evaluateAll(buttons => buttons.map(button => button.dataset.workshopPassageSelect));
     assert.deepEqual(remainingIds, passageIds.slice(1), "suppression du brouillon uniquement : les dix-neuf autres passages sont conservés");
     assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "1", "après suppression, le passage restant suivant devient actif");
     assert.equal(await page.locator("[data-workshop-delete-passage]").count(), 19, "la commande de suppression demeure pour chaque passage créé restant");
+
+    /* Descente jusqu'à un seul passage : la bande rétrécit au contenu et le +
+       reste collé au dernier numéro visible à chaque étape. */
+    let expectedCount = passageIds.length - 1;
+    while (expectedCount > 1) {
+      await openSelectedMenu();
+      await page.locator(".transcription-workshop-passage.is-selected [data-workshop-delete-passage-menu]").click();
+      expectedCount -= 1;
+      await page.waitForFunction(count => document.querySelectorAll("#workshopPassagePills [data-workshop-passage-select]").length === count, expectedCount);
+      const state = await page.evaluate(() => {
+        const strip = document.getElementById("workshopPassagePills");
+        const pills = strip.querySelectorAll("[data-workshop-passage-select]");
+        const viewport = strip.getBoundingClientRect();
+        const last = pills[pills.length - 1].getBoundingClientRect();
+        const add = document.getElementById("workshopAddPassageBtn").getBoundingClientRect();
+        return {
+          count: pills.length,
+          stripWidth: viewport.width,
+          visible: [...pills].filter(pill => { const r = pill.getBoundingClientRect(); return r.left >= viewport.left - 1 && r.right <= viewport.right + 1; }).length,
+          stripToPlus: add.left - viewport.right,
+          lastToPlus: add.left - last.right
+        };
+      });
+      assert.equal(state.count, expectedCount, `${expectedCount} passage(s) restants dans le carrousel`);
+      assert.ok(state.stripToPlus >= 0 && state.stripToPlus <= 6, `+ collé à la bande après suppression (${state.stripToPlus}px)`);
+      if (expectedCount <= 3) {
+        assert.ok(Math.abs(state.stripWidth - stripWidthFor(expectedCount, 3)) <= 1, `largeur mobile = contenu réel à ${expectedCount} passage(s) (${Math.round(state.stripWidth)} ≈ ${stripWidthFor(expectedCount, 3)})`);
+        assert.equal(state.visible, expectedCount, `${expectedCount} numéro(s) entiers visibles, aucun partiel`);
+        assert.ok(state.lastToPlus >= 0 && state.lastToPlus <= 6, `+ collé au dernier numéro à ${expectedCount} passage(s) (${state.lastToPlus}px)`);
+      }
+    }
     assertNoInc2PageErrors(pageErrors);
   } finally {
     await context.close().catch(() => {});
@@ -398,6 +531,93 @@ test("suppression d'un passage hérité : révision locale, officiel et abandon 
     await page.click("#workshopCancelDiscardBtn");
     await page.waitForFunction(() => document.querySelectorAll("#workshopPassagePills [data-workshop-passage-select]").length === 3);
     assert.equal(await page.locator('[data-workshop-field="textIt"][data-workshop-passage="p-1"]').inputValue(), "Anno millenovecento corrente", "abandon restaure le passage dans le brouillon");
+    assertNoInc2PageErrors(pageErrors);
+  } finally {
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
+});
+
+test("versionnement : +0 sans changement réel, +1 par validation d'un ensemble", { timeout: 120000 }, async t => {
+  const harness = await openInc2Harness(t);
+  if (!harness) return;
+  const { browser, server, context, page, pageErrors } = harness;
+  try {
+    await bootInc2(page);
+    await page.evaluate(() => window.__inc2.seedOfficial());
+    await page.evaluate(() => window.__inc2.openDoc());
+    await page.waitForSelector(".document-transcription-card [data-transcribe-document]");
+    await page.evaluate(() => window.__inc2.transcribe());
+    await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+    await page.evaluate(() => window.__inc2.useAdminProfile());
+    await page.click("#workshopModeBtn");
+
+    /* Ouvrir la révision sans rien changer : v2, Valider désarmé. */
+    const opened = await page.evaluate(() => ({
+      version: window.__inc2.versionState(),
+      disabled: document.getElementById("workshopValidateBtn").disabled,
+      title: document.getElementById("workshopValidateBtn").title
+    }));
+    assert.deepEqual(opened.version, { version: 2, revisions: 2 }, "v2 et ses deux révisions inchangées à l'ouverture");
+    assert.equal(opened.disabled, true, "Valider désarmé sans modification réelle");
+    assert.equal(opened.title, "Aucune modification", "cause du désarmement affichée discrètement");
+
+    /* Ouverture programmatique refusée : aucune cible, dialogue fermé. */
+    const openAttempt = await page.evaluate(() => {
+      window.__inc2.openValidation();
+      return { open: document.getElementById("transcriptionValidationDialog").open, target: window.__inc2.validationTarget() };
+    });
+    assert.equal(openAttempt.open, false, "dialogue de validation fermé sans changement");
+    assert.equal(openAttempt.target, null, "aucune cible de validation sans changement");
+
+    /* Confirmation déclenchée hors de l'interface : même garde, +0 version. */
+    await page.evaluate(() => window.__inc2.confirmValidationNoChanges());
+    await page.waitForFunction(() => !document.getElementById("transcriptionValidationError").hidden);
+    assert.match(await page.locator("#transcriptionValidationError").textContent(), /Aucune modification/, "confirmation hors interface bloquée sans changement");
+    assert.deepEqual(await page.evaluate(() => window.__inc2.versionState()), { version: 2, revisions: 2 }, "+0 version après confirmation sans changement");
+    await page.locator('[data-close="transcriptionValidationDialog"]').first().click();
+    await page.waitForFunction(() => !document.getElementById("transcriptionValidationDialog").open);
+
+    /* Modifier puis remettre exactement le texte initial : +0 version. */
+    await page.locator('[data-workshop-field="textIt"]').first().fill("Anno con modifica temporanea");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopValidateBtn").disabled), false, "validation réarmée dès le changement réel");
+    await page.locator('[data-workshop-field="textIt"]').first().fill("Anno millenovecento corrente");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopValidateBtn").disabled), true, "texte initial restauré : validation désarmée à nouveau");
+
+    /* Ajouter puis supprimer un passage avant validation : +0 version. */
+    await page.click("#workshopAddPassageBtn");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopValidateBtn").disabled), false, "ajout de passage = différence réelle");
+    const countBeforeRemove = await page.locator("#workshopPassagePills [data-workshop-passage-select]").count();
+    const addedId = await page.locator("#workshopPassagePills [data-workshop-passage-select]").last().getAttribute("data-workshop-passage-select");
+    await page.locator(`[data-workshop-delete-passage="${addedId}"]`).click();
+    await page.waitForFunction(expected => document.querySelectorAll("#workshopPassagePills [data-workshop-passage-select]").length === expected, countBeforeRemove - 1);
+    assert.equal(await page.evaluate(() => document.getElementById("workshopValidateBtn").disabled), true, "passage ajouté puis supprimé : validation désarmée");
+    assert.deepEqual(await page.evaluate(() => window.__inc2.versionState()), { version: 2, revisions: 2 }, "+0 version après aller-retour d'ajout");
+
+    /* Ensemble de changements + double confirmation rapide : la seconde est
+       rejetée par la garde mono-instance (l'écriture échoue sur le réseau
+       bloqué du harnais, jamais deux écritures concurrentes). */
+    await page.locator('[data-workshop-field="textIt"]').first().fill("Anno con modifica e aggiunte");
+    await page.click("#workshopAddPassageBtn");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopValidateBtn").disabled), false, "validation réarmée pour un ensemble de changements");
+    await page.evaluate(() => window.__inc2.openValidation());
+    await page.waitForFunction(() => document.getElementById("transcriptionValidationDialog").open);
+    await page.evaluate(() => window.__inc2.confirmValidationRapidly());
+    await page.waitForFunction(() => !document.getElementById("transcriptionValidationError").hidden);
+    const confirmFailure = await page.locator("#transcriptionValidationError").textContent();
+    assert.doesNotMatch(confirmFailure, /Aucune modification/, "avec changements réels, la confirmation part vers l'écriture (échec réseau attendu, pas un blocage métier)");
+    assert.equal(await page.evaluate(() => window.__inc2.validationDuplicateRejections()), 1, "la seconde confirmation rapide est rejetée par la garde mono-instance");
+    assert.deepEqual(await page.evaluate(() => window.__inc2.versionState()), { version: 2, revisions: 2 }, "échec réseau : aucune version créée");
+    await page.locator('[data-close="transcriptionValidationDialog"]').first().click();
+    await page.waitForFunction(() => !document.getElementById("transcriptionValidationDialog").open);
+
+    /* Chemin de succès (application en mémoire) : exactement +1 version pour
+       l'ensemble, brouillon redevenu propre, validation désarmée. */
+    const applied = await page.evaluate(() => window.__inc2.applyValidationForTest());
+    assert.deepEqual(applied, { version: 3, revisions: 3 }, "une validation multi-changements = exactement +1 version");
+    assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Validée · v3", "badge à jour après validation");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopValidateBtn").disabled), true, "brouillon propre : validation désarmée après validation");
     assertNoInc2PageErrors(pageErrors);
   } finally {
     await context.close().catch(() => {});

@@ -217,8 +217,14 @@ export function editTranscriptionWorkshopPassage(draft, passageId, { textIt, tra
   }
   if (translationFr !== undefined) {
     if (translationFr !== null && typeof translationFr !== "string") throw new TypeError("translationFr doit être une chaîne ou null");
-    passage.translationFr = translationFr;
-    if (translationFr !== null && translationFr !== "" && passage.translationState === "not-started") {
+    const cleared = translationFr == null || translationFr === "";
+    passage.translationFr = cleared ? null : translationFr;
+    if (cleared) {
+      /* Effacer la traduction restaure l'état d'ouverture : la comparaison de
+         révision ne voit pas de faux changement quand on revient exactement au
+         texte initial (null + « non commencée »). */
+      passage.translationState = draft.original.find(item => item.id === passageId)?.translationState || "not-started";
+    } else if (passage.translationState === "not-started") {
       passage.translationState = "current";
     }
   }

@@ -335,6 +335,38 @@ async function zoneAlignment(page, passageId) {
   }, passageId);
 }
 
+/** Métriques du groupe « instruction + actions » sous le document. */
+async function zoneGroupMetrics(page) {
+  return page.evaluate(() => {
+    const hintEl = document.getElementById("workshopZoneHint");
+    const hint = hintEl.getBoundingClientRect();
+    const panel = document.getElementById("workshopPanelOriginal").getBoundingClientRect();
+    const actions = document.getElementById("workshopZoneActions").getBoundingClientRect();
+    const cancel = document.getElementById("workshopZoneCancelBtn").getBoundingClientRect();
+    const confirm = document.getElementById("workshopZoneConfirmBtn").getBoundingClientRect();
+    return {
+      panelGap: Math.round(panel.bottom - actions.bottom),
+      textToActions: Math.round(cancel.top - hint.bottom),
+      hintClipped: hintEl.scrollWidth > hintEl.clientWidth + 1 || hintEl.scrollHeight > hintEl.clientHeight + 1,
+      hintText: hintEl.textContent,
+      cancelColor: getComputedStyle(document.getElementById("workshopZoneCancelBtn")).color,
+      confirmBackground: getComputedStyle(document.getElementById("workshopZoneConfirmBtn")).backgroundColor,
+      sameRow: Math.abs(cancel.top - confirm.top) <= 1
+    };
+  });
+}
+
+async function assertZoneGroupCompact(page, label = "") {
+  const group = await zoneGroupMetrics(page);
+  assert.ok(group.panelGap >= 8 && group.panelGap <= 20, `groupe collé sous le document (${group.panelGap}px)${label}`);
+  assert.ok(group.textToActions >= 8 && group.textToActions <= 20, `instruction et actions rapprochées (${group.textToActions}px)${label}`);
+  assert.equal(group.hintClipped, false, `instruction entière, non tronquée${label}`);
+  assert.match(group.hintText, /Déplacez la zone/, `consigne d'ajustement affichée${label}`);
+  assert.equal(group.cancelColor, "rgb(166, 66, 56)", `Annuler en texte rouge${label}`);
+  assert.equal(group.confirmBackground, "rgb(40, 75, 63)", `Confirmer en bouton vert${label}`);
+  assert.equal(group.sameRow, true, `Annuler et Confirmer sur une ligne compacte${label}`);
+}
+
 test("B2 initialisation : un PDF sans transcription ouvre le dialogue puis l’atelier", { timeout: 120000 }, async t => {
   let browser;
   try { browser = await chromium.launch({ headless: true }); }
@@ -441,9 +473,11 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
       const tools = document.getElementById("workshopPdfTools").getBoundingClientRect();
       return { panelLeft: panel.left, headLeft: head.left, headRight: head.right, toolsLeft: tools.left, toolsRight: tools.right,
         toolOffset: tools.left - head.left,
-        pageNavHidden: document.getElementById("workshopPageNav").hidden };
+        pageNavHidden: document.getElementById("workshopPageNav").hidden,
+        photoNavHidden: document.getElementById("workshopPhotoNav").hidden };
     });
     assert.equal(initialPdfChrome.pageNavHidden, true, "navigation photo vide masquée pour le PDF");
+    assert.equal(initialPdfChrome.photoNavHidden, true, "bandeau photo vide masqué : aucun interligne fantôme sous les actions");
     assert.ok(initialPdfChrome.toolsLeft <= initialPdfChrome.headLeft + 2 && initialPdfChrome.toolsRight <= initialPdfChrome.headRight + 2, "commandes PDF alignées dans l'en-tête du volet");
 
     /* Rafales navigation/zoom : un nouveau rendu attend l'annulation effective
@@ -557,6 +591,7 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
     /* Ajustement : déplacement confirmé puis annulation restauratrice. */
     await clickZoneAction(page, "adjust");
     await waitForZoneEditorRect(page);
+    await assertZoneGroupCompact(page);
     const beforeMove = JSON.stringify(await page.evaluate(() => window.__b2.anchors()["p-3"]));
     const rectBox = await page.locator("#workshopPdfZoneEditorRect").boundingBox();
     await page.mouse.move(rectBox.x + rectBox.width / 2, rectBox.y + rectBox.height / 2);
@@ -692,6 +727,7 @@ test("B2 mobile : tracé tactile depuis l’onglet Original, poignées et comman
               await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
               await clickZoneAction(page, "adjust");
               await waitForZoneEditorRect(page);
+              await assertZoneGroupCompact(page, ` à ${width}px`);
               const handleBox = await page.locator('#workshopPdfZoneEditorRect [data-zone-handle="se"]').boundingBox();
               assert.ok(handleBox && handleBox.width >= 16 && handleBox.height >= 16, `poignée tactile visible (${handleBox?.width}px)`);
               await page.click("#workshopZoneCancelBtn");

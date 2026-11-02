@@ -179,6 +179,28 @@ test("la suppression retire du brouillon un passage créé ou hérité sans touc
   assert.deepEqual(draft.createdIds, [], "la réinitialisation vide la liste des passages créés");
 });
 
+test("restauration exacte : textes, traduction et ancre rétablis = brouillon propre", () => {
+  const draft = createTranscriptionWorkshopDraft({ documentId: "doc-1", pageId: "page-1", passages: samplePassages() });
+  /* Texte italien : modifier puis remettre exactement l'initial. */
+  editTranscriptionWorkshopPassage(draft, "p1", { textIt: "Anno millenovecento modificato" });
+  assert.equal(draft.dirty, true, "texte modifié = différence réelle");
+  editTranscriptionWorkshopPassage(draft, "p1", { textIt: "Anno millenovecento" });
+  assert.equal(draft.dirty, false, "texte restauré à l'identique = aucune différence");
+  /* Traduction : renseigner puis effacer restaure null + « non commencée ». */
+  editTranscriptionWorkshopPassage(draft, "p2", { translationFr: "Traduction temporaire" });
+  assert.equal(draft.dirty, true, "traduction ajoutée = différence réelle");
+  assert.equal(draft.passages[1].translationState, "current", "état de traduction suivi pendant la saisie");
+  editTranscriptionWorkshopPassage(draft, "p2", { translationFr: "" });
+  assert.equal(draft.dirty, false, "traduction effacée = retour exact à l'état d'ouverture");
+  assert.equal(draft.passages[1].translationFr, null, "champ de traduction ramené à null");
+  assert.equal(draft.passages[1].translationState, "not-started", "état de traduction restauré");
+  /* Ancre : modifier puis restaurer les coordonnées exactes. */
+  setTranscriptionWorkshopPassageAnchor(draft, "p1", { shape: "rect", photographId: "photo-1", x: 0.4, y: 0.4, width: 0.3, height: 0.2 }, { photographIds: ["photo-1"] });
+  assert.equal(draft.dirty, true, "ancre déplacée = différence réelle");
+  setTranscriptionWorkshopPassageAnchor(draft, "p1", samplePassages()[0].anchor, { photographIds: ["photo-1"] });
+  assert.equal(draft.dirty, false, "ancre restaurée à l'identique = aucune différence");
+});
+
 test("B1 : géométrie des zones et écriture de la zone du passage dans le brouillon", () => {
   const draft = createTranscriptionWorkshopDraft({ documentId: "doc-1", pageId: "page-1", passages: samplePassages() });
   /* Bornes : coordonnées 0..1, jamais hors image, taille minimale. */
@@ -472,7 +494,9 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.doesNotMatch(html, /id="workshopPrevBtn"|id="workshopNextBtn"/, "Précédent/Suivant remplacés par les pastilles");
   assert.match(app, /function renderWorkshopPassageNavigation\(displayedPassages, selectedPassageId\)/, "rendu de la navigation numérotée");
   assert.match(app, /for \(let index = 0; index < displayedPassages\.length; index\+\+\)/, "tous les numéros sont rendus dans la même piste défilante");
-  assert.match(app, /container\.scrollLeft \+= pill\.right - viewport\.right/, "passage sélectionné amené dans le champ visible");
+  assert.match(app, /const target = selectedIndex < half/, "passage actif recentré sur la grille des pastilles");
+  assert.match(app, /container\.scrollLeft = Math\.max\(0, Math\.min\(maximum, target\)\)/, "défilement borné sur la piste");
+  assert.match(app, /function snapWorkshopPassageCarousel\(strip\)/, "aimantation déterministe après molette et glissement souris");
   assert.match(app, /aria-current="step"/, "pastille active exposée aux technologies d’assistance");
   assert.doesNotMatch(html, /id="workshopSaveDraftBtn"/, "bouton manuel « Enregistrer » retiré de l’interface");
   assert.doesNotMatch(app, /event\.target\.closest\("#workshopSaveDraftBtn"\)/, "aucun gestionnaire de sauvegarde manuelle résiduel");
@@ -573,6 +597,11 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.ok(workshopMobileA3.includes("body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav { display: none !important; }"), "navigation générale masquée uniquement dans l’atelier mobile");
   assert.ok(workshopMobileA3.includes(".transcription-workshop-passage:not(.is-selected) { display: none; }"), "un seul passage visible à la fois sur mobile");
   assert.ok(workshopMobileA3.includes("padding-bottom: max(var(--space-1), env(safe-area-inset-bottom, 0px))"), "safe area inférieure respectée sans cumul d'espace superflu");
+  assert.ok(workshopMobileA3.includes("scroll-snap-type: x mandatory"), "aimantation stricte des pastilles sur mobile : aucun numéro coupé à l'arrêt");
+  assert.ok(workshopMobileA3.includes(".transcription-workshop-passage-menu { display: block; }"), "menu ⋯ du passage visible sur mobile");
+  assert.ok(workshopMobileA3.includes(".transcription-workshop-delete-passage { display: none;"), "bouton inline masqué sur mobile au profit du menu ⋯");
+  assert.ok(workshopMobileA3.includes("min-height: 100dvh"), "corps de l'atelier en pleine hauteur de viewport : le pied touche le bas, aucune estimation en rem");
+  assert.ok(workshopMobileA3.includes("#transcriptionWorkshopView.is-keyboard-open .transcription-workshop-layout { flex: 0 0 auto;"), "layout figé au clavier ouvert, pied au-dessus du clavier");
   assert.doesNotMatch(workshopMobileA3, /is-keyboard-open \.transcription-workshop-footer-actions \{ display: none;/, "actions importantes conservées pendant le clavier virtuel");
   assert.match(app, /function bindWorkshopVirtualKeyboard\(\)/, "cycle de vie du clavier virtuel");
   assert.match(app, /visualViewport\.addEventListener\("resize", onViewportChange\)/, "écoute de visualViewport");
@@ -583,6 +612,15 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(css, /\.transcription-workshop-passage\.is-selected \{ flex: 1 0 auto; min-height: 0;/, "le passage actif utilise la hauteur disponible");
   assert.match(css, /\.transcription-workshop-passage textarea \{ width: 100%; flex: 1 1 auto; min-height: clamp\(8rem, 24dvh, 16rem\)[^}]*field-sizing: content/, "champs de hauteur adaptée au contenu avec plafond anti-scroll imbriqué");
   assert.match(app, /class="transcription-workshop-delete-passage"[^>]*data-workshop-delete-passage/, "suppression de passage visible dans son contexte");
+  assert.match(app, /data-workshop-delete-passage-menu=/, "menu ⋯ du passage : suppression accessible sur mobile");
+  assert.match(app, /closest\("\[data-workshop-delete-passage\], \[data-workshop-delete-passage-menu\]"\)/, "inline et menu partagent la même confirmation");
+  assert.match(css, /\.transcription-workshop-passage-menu-panel \{/, "panneau d’actions rattaché au passage");
+  assert.match(css, /max-width: calc\(var\(--control-touch\)/, "carrousel à largeur maximale stable");
+  assert.doesNotMatch(css, /\.transcription-workshop-passage-pills \{[^}]*; width: calc/, "la bande suit le contenu : aucune case vide avant le bouton +");
+  assert.match(app, /function transcriptionWorkshopHasRealChanges\(draft = transcriptionWorkshopDraft\)/, "comparaison de contenu réel pour la validation");
+  assert.match(app, /Aucune modification : rien à valider/, "ouverture de validation bloquée sans changement réel");
+  assert.match(app, /transcriptionValidationPending/, "garde anti double validation");
+  assert.match(app, /transcriptionValidationDuplicateRejections \+= 1/, "double confirmation concurrente comptabilisée et rejetée");
   assert.match(app, /Supprimer le passage \$\{passageIndex \+ 1\} du brouillon \? La zone associée sera supprimée avec lui/, "confirmation précise avant suppression du passage et de sa zone");
   assert.match(css, /\.transcription-workshop-delete-passage \{[^}]*color: var\(--color-danger\)/, "suppression contextuelle discrète et distincte");
   assert.match(app, /transcription-workshop-desktop-passage-number/, "numéro inclus dans les en-têtes de transcription desktop");
@@ -621,6 +659,10 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /window\.addEventListener\("resize", \(\) => \{\s*if \(isTranscriptionWorkshopActive\(\)\) scheduleWorkshopZoneSync\(\);/, "réalignement de la zone sur redimensionnement de fenêtre");
   assert.match(css, /\.transcription-workshop-zone-editor \{ position: absolute; z-index: 12;/, "éditeur superposé à l’image");
   assert.match(css, /\.transcription-workshop-zone-actions \{/, "commandes du tracé sous la photographie");
+  assert.match(css, /\.transcription-workshop-zone-actions \{[^}]*flex-wrap: wrap/, "groupe de délimitation sur deux lignes : instruction puis actions");
+  assert.match(css, /\.transcription-workshop-zone-actions \{[^}]*margin: var\(--space-1\) 0 var\(--space-3\)/, "marges de12 à16 px autour du groupe de délimitation");
+  assert.doesNotMatch(css, /\.transcription-workshop-zone-hint \{[^}]*text-overflow: ellipsis/, "instruction de délimitation jamais tronquée");
+  assert.match(app, /nav\.hidden = empty/, "navigation photo vide masquée : aucun interligne fantôme sous les actions");
   /* B2 : surface PDF de l'atelier — moteur PDF.js partagé, commandes scopées,
      zone épinglée à l'empreinte du fichier. */
   assert.match(html, /id="workshopPdfSurface"[^>]*hidden/, "surface PDF masquée au repos");
@@ -717,8 +759,8 @@ test("les brouillons sont persistés localement et repris sans toucher aux modul
   assert.match(app, /\$\("workshopSaveStatus"\)\.textContent = "Brouillon local"/, "statut réinitialisé à la fermeture");
   // Menu « … » : fermeture extérieure, Échap, action, sortie — périmètre strict.
   assert.match(app, /function onTranscriptionWorkshopMenuOutside\(event\)/, "écouteur de clic extérieur dédié");
-  assert.match(app, /if \(!menu\?\.open \|\| menu\.contains\(event\.target\)\) return;/, "seul un clic hors du menu le ferme");
-  assert.match(app, /function onTranscriptionWorkshopMenuKeydown\(event\)[\s\S]{0,300}menu\.open = false;/, "Échap ferme le menu et rien d'autre");
+  assert.match(app, /if \(menu\?\.open && !menu\.contains\(event\.target\)\) menu\.open = false;/, "seul un clic hors du menu le ferme");
+  assert.match(app, /function onTranscriptionWorkshopMenuKeydown\(event\) \{[\s\S]{0,400}if \(menu\?\.open\) menu\.open = false;/, "Échap ferme le menu et rien d'autre");
   assert.match(app, /bindTranscriptionWorkshopMenu\(\);/, "écouteurs vivant pendant l'atelier actif");
   assert.match(app, /unbindTranscriptionWorkshopMenu\(\);\s*\n\s*transcriptionWorkshopDraft = null;/, "écouteurs détachés à la sortie de l'atelier");
   assert.match(app, /closeTranscriptionWorkshopMenu\(\);\s*\n\s*if \(!transcriptionWorkshopHasUnsavedChanges\(\)\) return;/, "menu fermé après sélection d'une action");
@@ -1091,6 +1133,10 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               await page.waitForTimeout(80);
               const scrolled = await page.evaluate(() => window.scrollY);
               assert.ok(scrolled > 0, `page scrollable avant ouverture (${scrolled})`);
+              /* Le repère de4000 px a prouvé le défilement : il est retiré
+                 avant l'atelier, sinon ses4000 px gonflent le corps sous la
+                 vue et faussent toutes les mesures de hauteur du pied. */
+              await page.evaluate(() => document.getElementById("__scrollProbe")?.remove());
               await page.evaluate(() => window.__repro.transcribe());
               await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
               await page.evaluate(() => window.__repro.useAdminProfile());
@@ -1217,8 +1263,10 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                    view: (() => { const view = document.getElementById("transcriptionWorkshopView"); const r = view.getBoundingClientRect(); const s = getComputedStyle(view); return { top: Math.round(r.top), bottom: Math.round(r.bottom), height: Math.round(r.height), paddingBottom: s.paddingBottom, minHeight: s.minHeight, scrollHeight: view.scrollHeight }; })(),
                    bodyPaddingBottom: getComputedStyle(document.body).paddingBottom,
                    contentGap: Math.round(footer.top - document.querySelector(".transcription-workshop-passage.is-selected").getBoundingClientRect().bottom),
-                   visualViewportHeight: Math.round(window.visualViewport?.height || innerHeight),
+                    visualViewportHeight: Math.round(window.visualViewport?.height || innerHeight),
                   documentHeight: document.documentElement.scrollHeight,
+                  validateBottom: Math.round(validateRect.bottom),
+                  viewportHeight: innerHeight,
                   viewport: innerWidth
                 };
               });
@@ -1244,6 +1292,22 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               assert.ok(footerState.contentGap <= 12, `contenu de saisie proche du footer (${footerState.contentGap}px)`);
               assert.ok(footerState.fieldHeights[0] > 0, `hauteur disponible à la transcription mesurée (${footerState.fieldHeights[0]}px)`);
               assert.ok(footerState.footerRight <= footerState.viewport + 1, "pied contenu sans débordement horizontal");
+              /* Diagnostic du vide sous les actions : le contenu de
+                 l'application doit toucher le bas du viewport — aucune bande
+                 morte — et les boutons sont au ras du bas sans safe-area. */
+              assert.ok(footerState.viewportHeight - footerState.view.bottom <= 2, `aucun espace mort sous l'application (${footerState.viewportHeight - footerState.view.bottom}px)`);
+              assert.ok(footerState.viewportHeight - footerState.validateBottom <= 8, `boutons collés au bas sans safe-area (${footerState.viewportHeight - footerState.validateBottom}px)`);
+              /* Simulation d'iPhone : une safe-area de34 px injectée dans le
+                 pied — le contenu doit toujours toucher le bas et la
+                 compensation reste unique, sous les boutons. */
+              const safeAreaStyle = await page.addStyleTag({ content: ".transcription-workshop-footer { padding-bottom: 34px !important; }" });
+              const simulatedSafeArea = await page.evaluate(() => ({
+                gapApp: Math.round(innerHeight - document.getElementById("transcriptionWorkshopView").getBoundingClientRect().bottom),
+                gapButtons: Math.round(innerHeight - document.getElementById("workshopValidateBtn").getBoundingClientRect().bottom)
+              }));
+              assert.ok(simulatedSafeArea.gapApp <= 2, `safe-area simulée : le contenu touche toujours le bas (${simulatedSafeArea.gapApp}px)`);
+              assert.ok(simulatedSafeArea.gapButtons >= 30 && simulatedSafeArea.gapButtons <= 40, `safe-area simulée : une seule compensation sous les boutons (${simulatedSafeArea.gapButtons}px)`);
+              await safeAreaStyle.evaluate(element => element.remove());
 
               /* Menu contextuel complet en mobile : ouverture, clic extérieur, Échap. */
               await page.click("#workshopActionsMenu > summary");

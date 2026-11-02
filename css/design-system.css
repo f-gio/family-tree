@@ -2849,7 +2849,9 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-mode-button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .transcription-workshop-tools { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
 .transcription-workshop-passage-nav { display: flex; align-items: center; flex: 0 0 auto; gap: var(--space-1); min-width: 0; }
-.transcription-workshop-passage-pills { display: flex; flex: 0 0 auto; flex-wrap: nowrap; align-items: center; gap: var(--space-1); width: calc(var(--control-touch) + var(--control-touch) + var(--control-touch) + var(--control-touch) + var(--control-touch) + var(--space-1) + var(--space-1) + var(--space-1) + var(--space-1)); min-width: 0; max-width: none; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; scroll-snap-type: x proximity; white-space: nowrap; }
+/* Carrousel : largeur = contenu jusqu'à la fenêtre utile (5 numéros desktop),
+   jamais de cases vides entre le dernier numéro et le bouton « + ». */
+.transcription-workshop-passage-pills { display: flex; flex: 0 0 auto; flex-wrap: nowrap; align-items: center; gap: var(--space-1); max-width: calc(var(--control-touch) + var(--control-touch) + var(--control-touch) + var(--control-touch) + var(--control-touch) + var(--space-1) + var(--space-1) + var(--space-1) + var(--space-1)); min-width: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; scroll-snap-type: x proximity; white-space: nowrap; }
 .transcription-workshop-passage-pills::-webkit-scrollbar { display: none; }
 .transcription-workshop-passage-pill.btn { flex: 0 0 var(--control-touch); width: var(--control-touch); height: var(--control-touch); padding: 0; border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font-size: var(--text-md); font-weight: var(--weight-semibold); scroll-snap-align: center; }
 .transcription-workshop-passage-pill.btn:hover { border-color: var(--color-brand); color: var(--color-brand); }
@@ -2875,9 +2877,12 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-zone-handle[data-zone-handle="sw"] { left: 0; bottom: 0; }
 .transcription-workshop-zone-handle[data-zone-handle="se"] { right: 0; bottom: 0; }
 .transcription-workshop-zone-handle::before { content: ""; position: absolute; inset: -16px; }
-/* Commandes du mode tracé : sous la photographie, jamais au-dessus du document. */
-.transcription-workshop-zone-actions { display: flex; align-items: center; flex-wrap: nowrap; gap: var(--space-2); min-width: 0; margin: 0; padding-top: var(--space-1); }
-.transcription-workshop-zone-hint { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-xs); line-height: var(--leading-tight); white-space: nowrap; text-overflow: ellipsis; }
+/* Commandes du mode tracé : un groupe intrinsèque directement sous le
+   document — instruction entière sur sa ligne, puis Annuler (rouge) et
+   Confirmer (vert) sur la ligne suivante, séparés d'environ12 px. Aucune
+   hauteur réservée : le groupe suit son contenu. */
+.transcription-workshop-zone-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); min-width: 0; margin: var(--space-1) 0 var(--space-3); padding-top: 0; }
+.transcription-workshop-zone-hint { flex: 1 1 100%; min-width: 0; margin: 0; color: var(--color-text-muted); font-size: var(--text-xs); line-height: var(--leading-body); }
 .transcription-workshop-zone-actions .btn { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; min-width: var(--control-touch); min-height: var(--control-touch); margin: 0; white-space: nowrap; }
 /* Pendant le tracé, les commandes d'image et de navigation photographique
    figent (aucun conflit avec le pan/pinch) — les gestes du lecteur sont aussi
@@ -2960,6 +2965,14 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-delete-passage { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; min-width: 0; min-height: var(--control-md); margin: 0; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-danger); font: 600 var(--text-xs)/var(--leading-tight) var(--font-ui); white-space: nowrap; cursor: pointer; }
 .transcription-workshop-delete-passage:hover { background: var(--color-danger-soft); color: var(--color-danger-hover); }
 .transcription-workshop-delete-passage:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+/* Menu contextuel ⋯ du passage : action de suppression unique, accessible sur
+   mobile quand le bouton inline est masqué. Desktop : panneau masqué (le bouton
+   inline suffit). */
+.transcription-workshop-passage-menu { position: relative; display: none; }
+.transcription-workshop-passage-menu > summary { display: inline-flex; align-items: center; justify-content: center; min-width: var(--control-touch); min-height: var(--control-touch); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); cursor: pointer; list-style: none; }
+.transcription-workshop-passage-menu > summary::-webkit-details-marker { display: none; }
+.transcription-workshop-passage-menu-panel { position: absolute; inset-inline-end: 0; top: calc(100% + var(--space-1)); z-index: 30; min-width: 13rem; padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-medium); }
+.transcription-workshop-passage-menu-panel .btn { justify-content: flex-start; width: 100%; min-height: var(--control-touch); }
 .transcription-workshop-field-block { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--space-1); min-width: 0; min-height: 0; }
 .transcription-workshop-field-label { color: var(--color-text-label); font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: .05em; }
 .transcription-workshop-meta { margin: 0; color: var(--color-text-muted); font-size: var(--text-sm); white-space: pre-wrap; }
@@ -2999,19 +3012,23 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   /* Cibles tactiles : `.btn.small` (32px) prime sur le minimum mobile — les
      actions du pied de transcription repassent à 44 px. */
   .transcription-workshop-footer .btn { min-height: var(--control-touch); }
-  .transcription-workshop-passage-pills { flex: 0 0 auto; width: calc(var(--control-touch) + var(--control-touch) + var(--control-touch) + var(--space-1) + var(--space-1)); max-width: none; }
+  .transcription-workshop-passage-pills { flex: 0 0 auto; max-width: calc(var(--control-touch) + var(--control-touch) + var(--control-touch) + var(--space-1) + var(--space-1)); scroll-snap-type: x mandatory; }
   .transcription-workshop-passage-nav { flex: 0 0 auto; }
   .transcription-workshop-heading #workshopPageLabel { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .transcription-workshop-desktop-passage-number { display: none; }
   .transcription-workshop-tabs { display: flex; }
   .transcription-workshop-mode-button { min-height: var(--control-touch); }
   .transcription-workshop-divider { display: none; }
-  .transcription-workshop-layout { grid-template-columns: minmax(0, 1fr); height: clamp(300px, calc(100dvh - 14rem), calc(100dvh - 6rem)); }
-  /* Le footer respecte déjà la safe-area. Le padding-bottom générique du body
-     et les 2rem du workspace ajoutaient une seconde zone vide sous le pied.
-     Le layout récupère ces 2rem afin d'ancrer le footer au bas visible. */
-  body:has(#transcriptionWorkshopView:not([hidden])) { padding-bottom: 0; }
-  #transcriptionWorkshopView { padding-bottom: 0; }
+  /* Le flux de l'atelier remplit exactement le viewport (même mécanique que
+     l'arbre, corps en colonne + vue en flex) : fini l'estimation en rem sous
+     l'en-tête qui laissait un vide sous le pied selon la hauteur réelle du
+     topbar, de l'en-tête et de la safe-area. Le pied touche le bas du contenu
+     et la safe-area reste portée une seule fois, par le pied lui-même. */
+  body:has(#transcriptionWorkshopView:not([hidden])) { display: flex; flex-direction: column; min-height: 100dvh; padding-bottom: 0; }
+  body:has(#transcriptionWorkshopView:not([hidden])) > .topbar { flex: 0 0 auto; }
+  #transcriptionWorkshopView { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; padding-bottom: 0; }
+  .transcription-workshop-header { flex: 0 0 auto; }
+  .transcription-workshop-layout { grid-template-columns: minmax(0, 1fr); flex: 1 1 auto; min-height: 0; height: auto; }
   .transcription-workshop-layout #workshopPanelOriginal,
   .transcription-workshop-layout #workshopPanelRight { display: none; }
   .transcription-workshop-layout[data-active-panel="original"] #workshopPanelOriginal { display: flex; }
@@ -3038,7 +3055,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
       pendant le clavier virtuel (classe pilotée par visualViewport depuis
       l'atelier — statut et actions essentielles restent visibles). */
   .transcription-workshop-footer { padding-bottom: max(var(--space-1), env(safe-area-inset-bottom, 0px)); }
-  #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-layout { height: var(--workshop-keyboard-height, clamp(300px, calc(100dvh - 14rem), calc(100dvh - 6rem))); }
+  #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-layout { flex: 0 0 auto; height: var(--workshop-keyboard-height, clamp(300px, calc(100dvh - 14rem), calc(100dvh - 6rem))); }
   #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-autosave-hint { display: none; }
   #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-footer { padding-bottom: max(var(--space-1), env(safe-area-inset-bottom, 0px)); }
   /* Pied compact : un seul statut court sur la première ligne (l'aide
@@ -3050,12 +3067,9 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .transcription-workshop-footer-status { flex: 1 1 auto; min-width: 0; }
   .transcription-workshop-footer-actions { gap: var(--space-1); }
   .transcription-workshop-footer-actions .transcription-workshop-edit-cta { padding-inline: var(--space-2); }
-  .transcription-workshop-zone-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 2px var(--space-1); padding-top: 0; }
-  .transcription-workshop-zone-hint { grid-column: 1 / -1; }
-  #workshopZoneCancelBtn { grid-column: 2; grid-row: 2; }
-  #workshopZoneConfirmBtn { grid-column: 3; grid-row: 2; }
   .transcription-workshop-zone-actions .btn { padding-inline: var(--space-2); }
-  .transcription-workshop-delete-passage { min-height: var(--control-touch); padding-inline: var(--space-1); }
+  .transcription-workshop-delete-passage { display: none; min-height: var(--control-touch); padding-inline: var(--space-1); }
+  .transcription-workshop-passage-menu { display: block; }
   /* B1 mobile : poignées tactiles ≥ 44 px et commandes de zone au doigt. */
   .transcription-workshop-zone-handle { width: 20px; height: 20px; margin: -11px; }
   .transcription-workshop-zone-handle::before { inset: -12px; }
