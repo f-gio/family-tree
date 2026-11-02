@@ -215,11 +215,21 @@ export async function createDocumentPdfViewer({
   async function renderPage({ preservePoint = null } = {}) {
     if (!pdfDocument || destroyed) return;
     const generation = ++renderGeneration;
-    activeRenderTask?.cancel();
-    activeRenderTask = null;
-    /* B2 : début de rendu — l'appelant masque son overlay tant que la page
-       n'est pas confirmée (rendus annulés ou devenus obsolètes ignorés). */
+    /* Masque immédiatement les couches liées à l'ancienne page. En atelier,
+       le callback réinitialise aussi tout tracé temporaire avant la nouvelle
+       génération de rendu. */
     try { onPageRenderStart?.({ page: currentPage }); } catch { /* isole l'appelant */ }
+    if (loadingMessage) loadingMessage.hidden = true;
+    /* PDF.js interdit de réutiliser un canvas tant que la promesse du rendu
+       précédent n'est pas terminée. cancel() est asynchrone : attendre la fin
+       effective avant page.render évite l'erreur « Cannot use the same canvas
+       during multiple render() operations » lors de navigation/zoom rapides. */
+    const previousRenderTask = activeRenderTask;
+    if (previousRenderTask) {
+      previousRenderTask.cancel();
+      try { await previousRenderTask.promise; } catch { /* rendu remplacé/annulé */ }
+    }
+    if (destroyed || generation !== renderGeneration) return;
     const previousRect = pageCanvas.getBoundingClientRect();
     const viewportRect = pageViewport.getBoundingClientRect();
     const point = preservePoint || { x: pageViewport.clientWidth / 2, y: pageViewport.clientHeight / 2 };
@@ -253,6 +263,8 @@ export async function createDocumentPdfViewer({
       if (activeRenderTask === renderTask) activeRenderTask = null;
     }
     if (destroyed || generation !== renderGeneration) return;
+    if (loadingMessage) loadingMessage.hidden = true;
+    fallbackReason = "";
     const nextRect = pageCanvas.getBoundingClientRect();
     pageViewport.scrollLeft = Math.max(0, pageViewport.scrollLeft + ratioX * nextRect.width - (point.x + viewportRect.left - nextRect.left));
     pageViewport.scrollTop = Math.max(0, pageViewport.scrollTop + ratioY * nextRect.height - (point.y + viewportRect.top - nextRect.top));
@@ -265,13 +277,19 @@ export async function createDocumentPdfViewer({
 
   function reportRenderError(error) {
     if (destroyed || error?.name === "RenderingCancelledException") return;
+    fallbackReason = error?.message || "Rendu PDF impossible";
     loadingMessage.textContent = "Impossible de rendre cette page PDF.";
     loadingMessage.hidden = false;
     console.error("Rendu PDF impossible", error);
   }
 
   function startRender(options) {
-    void renderPage(options).catch(reportRenderError);
+    const renderPromise = renderPage(options);
+    const generation = renderGeneration;
+    void renderPromise.catch(error => {
+      if (destroyed || generation !== renderGeneration) return;
+      reportRenderError(error);
+    });
   }
 
   function enqueueThumbnail(pageNumber) {
@@ -400,7 +418,13 @@ export async function createDocumentPdfViewer({
     }
     zoom = next;
     displayZoom();
-    await renderPage({ preservePoint: focalPoint });
+    const renderPromise = renderPage({ preservePoint: focalPoint });
+    const generation = renderGeneration;
+    try { await renderPromise; }
+    catch (error) {
+      if (destroyed || generation !== renderGeneration) return;
+      reportRenderError(error);
+    }
   }
 
   function toggleThumbnails() {
@@ -620,8 +644,13 @@ export async function createDocumentPdfViewer({
   if (typeof win.ResizeObserver === "function") {
     resizeObserver?.observe(pageViewport);
   }
-  try { await renderPage(); }
+  const initialRender = renderPage();
+  const initialGeneration = renderGeneration;
+  try { await initialRender; }
   catch (error) {
+    if (destroyed || initialGeneration !== renderGeneration) {
+      return Object.freeze({ fallback: false, destroy });
+    }
     fallbackReason = error?.message || "Rendu PDF impossible";
     destroyPdfReaderState();
     return Object.freeze({ fallback: true, error: fallbackReason, destroy });

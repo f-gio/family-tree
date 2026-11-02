@@ -82,7 +82,8 @@ function computeTranslationReview(draft) {
 
 function recomputeDraftState(draft) {
   draft.translationReview = computeTranslationReview(draft);
-  draft.dirty = draft.passages.some((passage, index) => !samePassageText(passage, draft.original[index]));
+  draft.dirty = draft.passages.length !== draft.original.length
+    || draft.passages.some((passage, index) => !samePassageText(passage, draft.original[index]));
 }
 
 export function createTranscriptionWorkshopDraft({ documentId, pageId, passages = [] } = {}) {
@@ -246,15 +247,13 @@ export function addTranscriptionWorkshopPassage(draft, { id, textIt = "", transl
   return draft;
 }
 
-/* Supprime un passage du brouillon. Seuls les passages ajoutés dans la session
-   sont supprimables : les passages issus des révisions officielles sont
-   intangibles tant qu'aucune révision n'est écrite. */
+/* Supprime un passage de la copie de travail uniquement. L'original reste
+   intact pour comparaison, abandon et historique ; la suppression d'un
+   passage hérité devient une simple différence de révision, jamais un effacement
+   de l'officiel. */
 export function removeTranscriptionWorkshopPassage(draft, passageId) {
   if (!draft || typeof draft !== "object") throw new TypeError("Le brouillon d’atelier est requis");
   if (typeof passageId !== "string" || !passageId.trim()) throw new TypeError("passageId doit être une chaîne non vide");
-  if (!draft.createdIds.includes(passageId)) {
-    throw new Error("Seul un passage ajouté dans ce brouillon peut être supprimé");
-  }
   const removedIndex = draft.passages.findIndex(passage => passage.id === passageId);
   if (removedIndex < 0) throw new Error("Passage introuvable dans le brouillon");
   draft.passages = draft.passages.filter(passage => passage.id !== passageId);

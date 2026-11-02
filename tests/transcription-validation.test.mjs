@@ -240,46 +240,164 @@ test("la carte Document propose Ajouter quand la page ne contient aucune transcr
     await page.evaluate(() => window.__inc2.useMemberProfile());
     assert.equal(await page.locator("#workshopValidateBtn").isHidden(), true, "aucune validation officielle visible sans droit administrateur");
     assert.equal(await page.locator("#workshopCancelEditBtn").isVisible(), true, "Annuler reste disponible pour le contributeur");
-    for (let index = 0; index < 5; index++) await page.click("#workshopAddPassageBtn");
-    assert.equal(await page.locator("#workshopPassagePills [data-workshop-passage-select]").count(), 5, "cinq passages visibles sans retour à la ligne");
-    for (let index = 5; index < 10; index++) await page.click("#workshopAddPassageBtn");
+    let desktopStripWidthAtOne = 0;
+    for (let index = 0; index < 5; index++) {
+      await page.click("#workshopAddPassageBtn");
+      const count = index + 1;
+      const stripWidth = await page.locator("#workshopPassagePills").evaluate(strip => strip.getBoundingClientRect().width);
+      if (index === 0) desktopStripWidthAtOne = stripWidth;
+      assert.equal(stripWidth, desktopStripWidthAtOne, `largeur desktop fixe à ${count} passage(s)`);
+      if (count <= 3) {
+        assert.equal(await page.locator("#workshopPassagePills [data-workshop-passage-select]").count(), count, `${count} numéro(s) présents sans emplacement fictif`);
+        assert.equal(await page.locator("#workshopPassagePills [data-workshop-passage-select]").evaluateAll(buttons => {
+          const strip = buttons[0].parentElement.getBoundingClientRect();
+          return buttons.filter(button => { const rect = button.getBoundingClientRect(); return rect.left >= strip.left - 1 && rect.right <= strip.right + 1; }).length;
+        }), count, `${count} numéro(s) réellement visibles dans les emplacements desktop`);
+      }
+      const plusGap = await page.evaluate(() => {
+        const strip = document.getElementById("workshopPassagePills").getBoundingClientRect();
+        return document.getElementById("workshopAddPassageBtn").getBoundingClientRect().left - strip.right;
+      });
+      assert.ok(plusGap >= 0 && plusGap <= 6, `+ immédiatement à droite du carrousel à ${count} passage(s) (${plusGap}px)`);
+    }
+    assert.equal(await page.locator("#workshopPassagePills [data-workshop-passage-select]").count(), 5, "cinq passages disponibles");
+    const desktopStripWidthAtFive = await page.locator("#workshopPassagePills").evaluate(strip => strip.getBoundingClientRect().width);
+    assert.equal(await page.locator("#workshopPassagePills [data-workshop-passage-select]").evaluateAll(buttons => buttons.filter(button => {
+      const strip = button.parentElement.getBoundingClientRect();
+      const pill = button.getBoundingClientRect();
+      return pill.left >= strip.left - 1 && pill.right <= strip.right + 1;
+    }).length), 5, "cinq emplacements visibles sur desktop");
+    for (let index = 5; index < 20; index++) await page.click("#workshopAddPassageBtn");
     const passagePills = page.locator("#workshopPassagePills [data-workshop-passage-select]");
-    assert.equal(await passagePills.count(), 10, "tous les numéros restent présents dans la navigation");
+    assert.equal(await passagePills.count(), 20, "tous les numéros restent présents dans la navigation");
     assert.equal(await passagePills.first().textContent(), "1", "première pastille repère le début de la liste");
-    assert.equal(await passagePills.last().textContent(), "10", "dernière pastille reste accessible");
+    assert.equal(await passagePills.last().textContent(), "20", "dernière pastille reste accessible");
     assert.equal(await page.locator("#workshopPassagePills .transcription-workshop-passage-ellipsis").count(), 0, "aucun numéro n'est remplacé par une ellipse");
-    assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "10", "passage actif repéré après les ajouts");
-    assert.equal(await page.locator("[data-workshop-delete-passage]").count(), 10, "suppression contextuelle visible pour les passages créés");
+    assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "20", "passage actif repéré après les ajouts");
+    assert.equal(await page.locator("[data-workshop-delete-passage]").count(), 20, "suppression contextuelle visible pour les passages créés");
+    assert.equal(await page.locator("#workshopPassagePills").evaluate(strip => strip.getBoundingClientRect().width), desktopStripWidthAtFive, "largeur carrousel desktop identique avec cinq ou vingt passages");
+    const desktopCarouselPlusGap = await page.evaluate(() => {
+      const strip = document.getElementById("workshopPassagePills").getBoundingClientRect();
+      return document.getElementById("workshopAddPassageBtn").getBoundingClientRect().left - strip.right;
+    });
+    assert.ok(desktopCarouselPlusGap >= 0 && desktopCarouselPlusGap <= 6, `+ toujours accolé à la bande desktop (${desktopCarouselPlusGap}px)`);
     const activePillVisible = await page.locator("#workshopPassagePills [aria-current='step']").evaluate(button => {
       const viewport = button.parentElement.getBoundingClientRect();
       const pill = button.getBoundingClientRect();
       return pill.left >= viewport.left - 1 && pill.right <= viewport.right + 1;
     });
-    assert.equal(activePillVisible, true, "le passage sélectionné reste visible dans la navigation défilante");
-    assert.match(await page.locator(".transcription-workshop-passage.is-selected .workshop-field-it label").textContent(), /Transcription italienne — Passage 10/, "titre de transcription italienne indexé sur desktop");
-    assert.match(await page.locator(".transcription-workshop-passage.is-selected .workshop-field-fr label").textContent(), /Traduction française — Passage 10/, "titre de traduction française indexé sur desktop");
-    await passagePills.nth(4).click();
-    assert.match(await page.locator(".transcription-workshop-passage.is-selected .workshop-field-it label").textContent(), /Passage 5/, "les titres suivent immédiatement la sélection");
+    assert.equal(activePillVisible, true, "le passage actif à la fin reste dans les cinq positions desktop");
+    const strip = page.locator("#workshopPassagePills");
+    const beforeWheel = await strip.evaluate(element => element.scrollLeft);
+    await strip.hover();
+    await page.mouse.wheel(0, -80);
+    const afterWheel = await strip.evaluate(element => element.scrollLeft);
+    assert.notEqual(afterWheel, beforeWheel, "molette verticale redirigée vers le carrousel horizontal desktop");
+    const stripBox = await strip.boundingBox();
+    await page.mouse.move(stripBox.x + stripBox.width - 12, stripBox.y + stripBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(stripBox.x + stripBox.width - 82, stripBox.y + stripBox.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const afterMouseDrag = await strip.evaluate(element => element.scrollLeft);
+    assert.notEqual(afterMouseDrag, afterWheel, "glissement souris déplace les numéros desktop");
+    assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "20", "défilement manuel ne change pas la sélection");
+    assert.match(await page.locator(".transcription-workshop-passage.is-selected .workshop-field-it label").textContent(), /Transcription italienne — Passage 20/, "titre de transcription italienne indexé sur desktop");
+    assert.match(await page.locator(".transcription-workshop-passage.is-selected .workshop-field-fr label").textContent(), /Traduction française — Passage 20/, "titre de traduction française indexé sur desktop");
+    await passagePills.nth(10).click();
+    assert.match(await page.locator(".transcription-workshop-passage.is-selected .workshop-field-it label").textContent(), /Passage 11/, "les titres suivent immédiatement la sélection");
+    const centeredDesktopPill = await passagePills.nth(10).evaluate(button => {
+      const strip = button.parentElement.getBoundingClientRect();
+      const pill = button.getBoundingClientRect();
+      return Math.abs((pill.left + pill.width / 2) - (strip.left + strip.width / 2)) <= 1;
+    });
+    assert.equal(centeredDesktopPill, true, "passage actif centré sur desktop quand les marges le permettent");
     await passagePills.first().click();
-    assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "1", "clic sur une pastille sélectionne le passage correspondant");
     await page.setViewportSize({ width: 390, height: 844 });
     const mobilePillState = await page.evaluate(() => {
       const strip = document.getElementById("workshopPassagePills");
       const active = strip.querySelector("[aria-current='step']").getBoundingClientRect();
       const viewport = strip.getBoundingClientRect();
+      const add = document.getElementById("workshopAddPassageBtn").getBoundingClientRect();
+      const nav = document.getElementById("workshopPassageNav").getBoundingClientRect();
+      const headEnd = document.querySelector(".transcription-workshop-head-end").getBoundingClientRect();
+      const overlap = nav.left < headEnd.right && nav.right > headEnd.left && nav.top < headEnd.bottom && nav.bottom > headEnd.top;
       return { scrollable: strip.scrollWidth > strip.clientWidth, activeVisible: active.left >= viewport.left - 1 && active.right <= viewport.right + 1,
+        visibleSlots: [...strip.querySelectorAll("[data-workshop-passage-select]")].filter(button => { const r = button.getBoundingClientRect(); return r.left >= viewport.left - 1 && r.right <= viewport.right + 1; }).length,
+        stripWidth: strip.getBoundingClientRect().width, addGap: add.left - viewport.right,
+        noOverlap: !overlap,
         desktopLabelVisible: getComputedStyle(document.querySelector(".workshop-field-it .transcription-workshop-desktop-passage-number")).display !== "none" };
     });
-    assert.equal(mobilePillState.scrollable, true, "navigation de dix passages défilante horizontalement sur mobile");
-    assert.equal(mobilePillState.activeVisible, true, "sélection visible après défilement vers le premier passage");
+    assert.equal(mobilePillState.scrollable, true, "navigation de vingt passages défilante horizontalement sur mobile");
+    assert.equal(mobilePillState.visibleSlots, 3, "exactement trois emplacements de numéros visibles sur mobile");
+    assert.equal(mobilePillState.activeVisible, true, "sélection active visible après centrage mobile");
+    assert.ok(mobilePillState.addGap >= 0 && mobilePillState.addGap <= 6, `bouton + immédiatement à droite du carrousel (${mobilePillState.addGap}px)`);
+    assert.ok(mobilePillState.stripWidth < 200, "carrousel mobile conserve sa largeur fixe compacte");
+    assert.equal(mobilePillState.noOverlap, true, "menu et statut restent dans un groupe distinct du carrousel");
     assert.equal(mobilePillState.desktopLabelVisible, false, "titres de passage desktop masqués sur mobile");
+    await passagePills.nth(10).click();
+    const centeredMobilePill = await passagePills.nth(10).evaluate(button => {
+      const strip = button.parentElement.getBoundingClientRect();
+      const pill = button.getBoundingClientRect();
+      return Math.abs((pill.left + pill.width / 2) - (strip.left + strip.width / 2)) <= 1;
+    });
+    const mobileVisibleCount = await page.locator("#workshopPassagePills [data-workshop-passage-select]").evaluateAll(buttons => {
+      const strip = buttons[0].parentElement.getBoundingClientRect();
+      return buttons.filter(button => { const pill = button.getBoundingClientRect(); return pill.left >= strip.left - 1 && pill.right <= strip.right + 1; }).length;
+    });
+    assert.equal(centeredMobilePill, true, "passage actif centré sur mobile quand les marges le permettent");
+    assert.equal(mobileVisibleCount, 3, "trois numéros visibles autour du passage actif au milieu du carrousel");
+    await passagePills.first().click();
+    assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "1", "clic sur une pastille sélectionne le premier passage");
     const passageIds = await passagePills.evaluateAll(buttons => buttons.map(button => button.dataset.workshopPassageSelect));
     const removeId = passageIds[0];
     await page.locator(`[data-workshop-delete-passage="${removeId}"]`).click();
     const remainingIds = await page.locator("#workshopPassagePills [data-workshop-passage-select]").evaluateAll(buttons => buttons.map(button => button.dataset.workshopPassageSelect));
-    assert.deepEqual(remainingIds, passageIds.slice(1), "suppression du brouillon uniquement : les neuf autres passages sont conservés");
+    assert.deepEqual(remainingIds, passageIds.slice(1), "suppression du brouillon uniquement : les dix-neuf autres passages sont conservés");
     assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "1", "après suppression, le passage restant suivant devient actif");
-    assert.equal(await page.locator("[data-workshop-delete-passage]").count(), 9, "la commande de suppression demeure pour chaque passage créé restant");
+    assert.equal(await page.locator("[data-workshop-delete-passage]").count(), 19, "la commande de suppression demeure pour chaque passage créé restant");
+    assertNoInc2PageErrors(pageErrors);
+  } finally {
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
+});
+
+test("suppression d'un passage hérité : révision locale, officiel et abandon préservés", { timeout: 120000 }, async t => {
+  const harness = await openInc2Harness(t);
+  if (!harness) return;
+  const { browser, server, context, page, pageErrors } = harness;
+  try {
+    await bootInc2(page);
+    await page.evaluate(() => window.__inc2.seedOfficial());
+    await page.evaluate(() => window.__inc2.openDoc());
+    await page.waitForSelector(".document-transcription-card [data-transcribe-document]");
+    await page.evaluate(() => window.__inc2.transcribe());
+    await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+    await page.click("#workshopModeBtn");
+    assert.equal(await page.locator("#workshopPassagePills [data-workshop-passage-select]").count(), 3, "trois passages hérités à l'ouverture de la révision");
+    assert.equal(await page.locator("[data-workshop-delete-passage]").count(), 3, "chaque passage hérité offre la suppression dans le brouillon éditable");
+    const firstPassageId = await page.locator("#workshopPassagePills [data-workshop-passage-select]").first().getAttribute("data-workshop-passage-select");
+    await page.locator(`[data-workshop-delete-passage="${firstPassageId}"]`).click();
+    await page.waitForFunction(() => document.querySelectorAll("#workshopPassagePills [data-workshop-passage-select]").length === 2);
+    assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "1", "le passage voisin suivant devient actif");
+    assert.equal(await page.locator('[data-workshop-field="textIt"]').count(), 2, "seuls les deux passages restants sont dans la révision");
+    await page.click('[data-workshop-mode="diff"]');
+    assert.match(await page.locator("#workshopCompareContent").textContent(), /Supprimé du brouillon/, "la comparaison identifie le passage hérité retiré de la révision");
+
+    /* La version officielle reste consultable inchangée tant que la révision
+       n'est pas validée : le passage supprimé y demeure avec son texte. */
+    await page.click('[data-workshop-mode="official"]');
+    assert.equal(await page.locator(".transcription-workshop-passage").count(), 3, "la version officielle conserve ses trois passages");
+    assert.equal(await page.locator('[data-workshop-passage="p-1"] [data-workshop-field="textIt"]').inputValue(), "Anno millenovecento corrente", "contenu officiel du passage préservé");
+
+    /* Abandonner la révision restaure la copie de travail complète. */
+    await page.click('[data-workshop-mode="draft"]');
+    await page.click("#workshopCancelEditBtn");
+    await page.waitForFunction(() => document.getElementById("transcriptionEditCancelDialog").open);
+    await page.click("#workshopCancelDiscardBtn");
+    await page.waitForFunction(() => document.querySelectorAll("#workshopPassagePills [data-workshop-passage-select]").length === 3);
+    assert.equal(await page.locator('[data-workshop-field="textIt"][data-workshop-passage="p-1"]').inputValue(), "Anno millenovecento corrente", "abandon restaure le passage dans le brouillon");
     assertNoInc2PageErrors(pageErrors);
   } finally {
     await context.close().catch(() => {});

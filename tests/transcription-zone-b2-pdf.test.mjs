@@ -190,12 +190,16 @@ async function createB2Page(browser, server, { width = 1280, height = 900 } = {}
     return url.startsWith(server.baseURL) || url.includes("gstatic.com") ? route.continue() : route.abort("blockedbyclient");
   });
   const pageErrors = [];
+  const pdfRenderErrors = [];
   const page = await context.newPage();
   page.on("pageerror", error => pageErrors.push(error.message));
+  page.on("console", message => {
+    if (message.type() === "error" && message.text().includes("Rendu PDF impossible")) pdfRenderErrors.push(message.text());
+  });
   page.on("dialog", dialog => dialog.accept().catch(() => {}));
   await page.goto(server.baseURL, { waitUntil: "load" });
   await page.waitForFunction(() => typeof window.__b2 === "object");
-  return { context, page, pageErrors };
+  return { context, page, pageErrors, pdfRenderErrors };
 }
 
 function assertNoB2PageErrors(pageErrors) {
@@ -425,12 +429,44 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
   try { browser = await chromium.launch({ headless: true }); }
   catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
   const server = await startStaticServer(ROOT);
-  const { context, page, pageErrors } = await createB2Page(browser, server);
+  const { context, page, pageErrors, pdfRenderErrors } = await createB2Page(browser, server);
   try {
     await openB2Workshop(page, { official: false });
     await waitForPdfReady(page);
     const expectedHash = await page.evaluate(() => window.__b2.pdfState().hash);
     assert.match(expectedHash, /^[a-f0-9]{64}$/, "empreinte SHA-256 du fichier calculée à l’ouverture");
+    const initialPdfChrome = await page.evaluate(() => {
+      const panel = document.getElementById("workshopPanelOriginal").getBoundingClientRect();
+      const head = document.querySelector("#workshopPanelOriginal .transcription-workshop-panel-head").getBoundingClientRect();
+      const tools = document.getElementById("workshopPdfTools").getBoundingClientRect();
+      return { panelLeft: panel.left, headLeft: head.left, headRight: head.right, toolsLeft: tools.left, toolsRight: tools.right,
+        toolOffset: tools.left - head.left,
+        pageNavHidden: document.getElementById("workshopPageNav").hidden };
+    });
+    assert.equal(initialPdfChrome.pageNavHidden, true, "navigation photo vide masquée pour le PDF");
+    assert.ok(initialPdfChrome.toolsLeft <= initialPdfChrome.headLeft + 2 && initialPdfChrome.toolsRight <= initialPdfChrome.headRight + 2, "commandes PDF alignées dans l'en-tête du volet");
+
+    /* Rafales navigation/zoom : un nouveau rendu attend l'annulation effective
+       du précédent avant de réutiliser le canvas. Aucune erreur périmée ne doit
+       rester sous un rendu finalement réussi. */
+    for (const control of ["#workshopPdfNextBtn", "#workshopPdfNextBtn", "#workshopPdfPrevBtn", "#workshopPdfZoomInBtn", "#workshopPdfZoomOutBtn", "#workshopPdfNextBtn"]) {
+      await page.click(control);
+    }
+    await waitForPdfReady(page);
+    assert.equal(await page.locator("#workshopPdfMessage").isHidden(), true, "aucun faux message d'erreur après les rendus concurrents annulés");
+    assert.deepEqual(pdfRenderErrors, [], `aucune erreur de rendu PDF lors des changements rapides (${pdfRenderErrors.join(" | ")})`);
+    const settledPdfChrome = await page.evaluate(() => {
+      const head = document.querySelector("#workshopPanelOriginal .transcription-workshop-panel-head").getBoundingClientRect();
+      const tools = document.getElementById("workshopPdfTools").getBoundingClientRect();
+      return { leftOffset: tools.left - head.left, right: tools.right, headRight: head.right,
+        canvasWidth: document.getElementById("workshopPdfCanvas").width };
+    });
+    assert.ok(settledPdfChrome.leftOffset <= 2 && settledPdfChrome.right <= settledPdfChrome.headRight + 2 && settledPdfChrome.canvasWidth > 0, "rendu et commandes stables après les changements rapides");
+    assert.ok(Math.abs(settledPdfChrome.leftOffset - initialPdfChrome.toolOffset) <= 1, "commandes PDF au même alignement après navigation et zoom rapides");
+    assert.equal(await page.evaluate(() => window.__b2.pdfState().hash), expectedHash, "rendus rapides et zoom ne modifient pas les octets ni leur empreinte");
+    await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(0).click();
+    await page.waitForFunction(() => window.__b2.pdfState().page === 1, undefined, { timeout: 4000 });
+    await waitForPdfReady(page);
 
     /* Entrées sur le passage actif : Ajuster + Supprimer pour une zone valide. */
     assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="adjust"]').count(), 1, "« Ajuster » sur la carte active");
@@ -444,6 +480,16 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
     assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("workshopPdfTools")).pointerEvents), "auto", "pagination utilisable pendant le tracé");
     assert.equal(await page.locator("#workshopZoneActions").isVisible(), true, "Annuler / Confirmer sous la surface PDF");
     assert.equal(await page.locator("#workshopZoneConfirmBtn").isDisabled(), true, "confirmation indisponible sans rectangle");
+    await page.waitForFunction(() => {
+      const editor = document.getElementById("workshopPdfZoneEditor");
+      const canvas = document.getElementById("workshopPdfCanvas");
+      return editor && !editor.hidden && Math.abs(editor.getBoundingClientRect().left - canvas.getBoundingClientRect().left) <= 2;
+    }, undefined, { timeout: 5000 });
+    assert.equal(await page.evaluate(() => {
+      const canvas = document.getElementById("workshopPdfCanvas").getBoundingClientRect();
+      const target = document.elementFromPoint(canvas.left + canvas.width / 2, canvas.top + canvas.height / 2);
+      return Boolean(target?.closest("#workshopPdfZoneEditor"));
+    }), true, "la couche de délimitation reçoit les gestes au-dessus du canvas PDF");
     await dragOnCanvas(page, 0.2, 0.25, 0.6, 0.65);
     await waitForZoneEditorRect(page);
     assert.equal(await page.evaluate(() => window.__b2.anchors()["p-2"]), null, "aucune écriture avant la confirmation");
@@ -544,6 +590,12 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
     await page.waitForTimeout(400);
     alignment = await zoneAlignment(page, "p-1");
     assert.ok(alignment.ok, `zone p-1 alignée après redimensionnement à 1440 px (dx=${alignment.dx}, dy=${alignment.dy})`);
+    const resizedPdfChrome = await page.evaluate(() => {
+      const head = document.querySelector("#workshopPanelOriginal .transcription-workshop-panel-head").getBoundingClientRect();
+      const tools = document.getElementById("workshopPdfTools").getBoundingClientRect();
+      return { leftOffset: tools.left - head.left, right: tools.right, headRight: head.right };
+    });
+    assert.ok(Math.abs(resizedPdfChrome.leftOffset - initialPdfChrome.toolOffset) <= 1 && resizedPdfChrome.right <= resizedPdfChrome.headRight + 2, "commandes PDF alignées après redimensionnement du panneau");
 
     /* Navigation rapide : jamais de zone périmée sur une autre page. */
     await page.click("#workshopPdfNextBtn");

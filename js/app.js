@@ -44,7 +44,6 @@ import {
   editTranscriptionWorkshopPassage,
   addTranscriptionWorkshopPassage,
   removeTranscriptionWorkshopPassage,
-  isTranscriptionWorkshopPassageCreated,
   resetTranscriptionWorkshopDraft,
   selectTranscriptionWorkshopPassage,
   isTranscriptionWorkshopPassageChanged,
@@ -7056,7 +7055,9 @@ function renderTranscriptionWorkshop() {
   if (editorState || emptyInfo) stateBox.textContent = editorState || emptyInfo;
   const readOnly = transcriptionWorkshopIsReadOnly();
   const editable = !editorState && !readOnly;
-  $("workshopPageNav").innerHTML = context.pages.length > 1
+  const pageNav = $("workshopPageNav");
+  pageNav.hidden = Boolean(context.pdf);
+  pageNav.innerHTML = !context.pdf && context.pages.length > 1
     ? `<nav class="genealogy-inline-actions" aria-label="Pages du document">${context.pages.map((value, index) => {
       const pageDraft = transcriptionWorkshopDrafts.get(transcriptionWorkshopDraftKey(context.documentId, value.id));
       const unsaved = pageDraft?.dirty ? `<span class="sr-only">, modifications non enregistrées</span><span aria-hidden="true"> •</span>` : "";
@@ -7220,7 +7221,9 @@ async function createWorkshopPdfViewer() {
            pagination reste utilisable. Un re-render de la même page (zoom,
            mise en page, taille du panneau) masque seulement l'overlay — il
            sera reposé sur le rendu confirmé. */
-        const pageChanged = workshopPdfRenderedPage != null && workshopPdfRenderedPage !== page;
+        const pageChanged = workshopZoneTool
+          ? workshopZoneTool.page !== page
+          : workshopPdfRenderedPage != null && workshopPdfRenderedPage !== page;
         if (pageChanged && workshopZoneTool) resetWorkshopZoneToolForPage(page);
         workshopPdfRenderedPage = null;
         if (isTranscriptionWorkshopActive()) syncWorkshopZone();
@@ -7353,7 +7356,7 @@ function renderWorkshopPassageList(editable) {
     const hypotheses = (passage.hypotheses || []).length
       ? passage.hypotheses.map(hypothesis => `<p class="transcription-workshop-meta">Hypothèse · ${esc(WORKSHOP_CONFIDENCE_LABELS[hypothesis.confidence] || hypothesis.confidence)}${hypothesis.text ? ` : ${esc(hypothesis.text)}` : ""}${hypothesis.note ? ` — ${esc(hypothesis.note)}` : ""}</p>`).join("")
       : "";
-    const deleteAction = editable && isTranscriptionWorkshopPassageCreated(draft, passage.id)
+    const deleteAction = editable
       ? `<button class="transcription-workshop-delete-passage" type="button" data-workshop-delete-passage="${esc(passage.id)}" aria-label="Supprimer le passage ${index + 1} du brouillon">Supprimer le passage</button>`
       : "";
     const zoneActions = workshopZoneEntryMarkup(passage, { selected, editable });
@@ -7524,7 +7527,9 @@ function renderWorkshopZoneEditor() {
   const editor = elements.editor;
   const rectEl = elements.editorRect;
   const display = elements.displayRect;
-  const visible = Boolean(tool && isTranscriptionWorkshopActive() && display);
+  const pdfPageReady = !transcriptionWorkshopContext?.pdf
+    || (workshopPdfRenderedPage != null && tool?.page === workshopPdfRenderedPage);
+  const visible = Boolean(tool && isTranscriptionWorkshopActive() && display && pdfPageReady);
   editor.hidden = !visible;
   if (!visible) {
     rectEl.hidden = true;
@@ -7940,6 +7945,7 @@ function positionWorkshopCompareCrop(image, anchor) {
 function renderWorkshopPassageNavigation(displayedPassages, selectedPassageId) {
   const container = $("workshopPassagePills");
   if (!container) return;
+  const selectedIndex = displayedPassages.findIndex(passage => passage.id === selectedPassageId);
   const entries = [];
   for (let index = 0; index < displayedPassages.length; index++) {
     const passage = displayedPassages[index];
@@ -7952,8 +7958,64 @@ function renderWorkshopPassageNavigation(displayedPassages, selectedPassageId) {
   if (!selected || !container.clientWidth) return;
   const viewport = container.getBoundingClientRect();
   const pill = selected.getBoundingClientRect();
-  if (pill.left < viewport.left) container.scrollLeft -= viewport.left - pill.left;
-  else if (pill.right > viewport.right) container.scrollLeft += pill.right - viewport.right;
+  const slots = window.matchMedia("(max-width: 760px)").matches ? 3 : 5;
+  const half = Math.floor(slots / 2);
+  const maximum = Math.max(0, container.scrollWidth - container.clientWidth);
+  const target = selectedIndex < half
+    ? 0
+    : selectedIndex > displayedPassages.length - half - 1
+      ? maximum
+      : container.scrollLeft + (pill.left + pill.width / 2) - (viewport.left + viewport.width / 2);
+  container.scrollLeft = Math.max(0, Math.min(maximum, target));
+}
+
+function setupWorkshopPassageCarouselInput() {
+  const strip = $("workshopPassagePills");
+  if (!strip || strip.dataset.carouselInputBound === "true") return;
+  strip.dataset.carouselInputBound = "true";
+  let drag = null;
+  let suppressClick = false;
+  let suppressClickTimer = null;
+  const onMouseMove = event => {
+    if (!drag) return;
+    const delta = event.clientX - drag.startX;
+    if (!drag.moved && Math.abs(delta) < 4) return;
+    drag.moved = true;
+    strip.classList.add("is-pointer-dragging");
+    event.preventDefault();
+    strip.scrollLeft = drag.startScrollLeft - delta;
+  };
+  const onMouseUp = () => {
+    if (!drag) return;
+    const wasDragged = drag.moved;
+    drag = null;
+    strip.classList.remove("is-pointer-dragging");
+    window.removeEventListener("mousemove", onMouseMove);
+    window.removeEventListener("mouseup", onMouseUp);
+    if (wasDragged) {
+      suppressClick = true;
+      window.clearTimeout(suppressClickTimer);
+      suppressClickTimer = window.setTimeout(() => { suppressClick = false; }, 0);
+    }
+  };
+  strip.addEventListener("mousedown", event => {
+    if (event.button !== 0 || strip.scrollWidth <= strip.clientWidth) return;
+    drag = { startX: event.clientX, startScrollLeft: strip.scrollLeft, moved: false };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  });
+  strip.addEventListener("click", event => {
+    if (!suppressClick) return;
+    suppressClick = false;
+    window.clearTimeout(suppressClickTimer);
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+  strip.addEventListener("wheel", event => {
+    if (strip.scrollWidth <= strip.clientWidth || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    event.preventDefault();
+    strip.scrollLeft += event.deltaY;
+  }, { passive: false });
 }
 
 function updateWorkshopNavigation() {
@@ -8179,9 +8241,10 @@ function unbindTranscriptionWorkshopMenu() {
 
 /* ---- A3 : clavier virtuel mobile (visualViewport) --------------------------
    Atelier mobile uniquement (≤ 760 px, vue atelier active) : quand le clavier
-   virtuel réduit le viewport visible, le pied est compacté (statut conservé,
-   actions masquées) et la hauteur du panneau est bornée au viewport réellement
-   visible pour que le pied ne recouvre jamais le champ en cours de saisie.
+   virtuel réduit le viewport visible, le pied est compacté (statut et actions
+   essentielles conservés, aide fixe masquée) et la hauteur du panneau est
+   bornée au viewport réellement visible pour que le pied ne recouvre jamais
+   le champ en cours de saisie.
    Les listeners sont attachés à l'ouverture de l'atelier et retirés à la
    fermeture ; aucun effet sur desktop (contrôle de largeur à chaque sync). */
 let workshopVirtualKeyboardCleanup = null;
@@ -8392,9 +8455,8 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     const draft = transcriptionWorkshopDraft;
     if (!draft || transcriptionWorkshopIsReadOnly()) return;
     const passageId = deleteButton.dataset.workshopDeletePassage;
-    if (!isTranscriptionWorkshopPassageCreated(draft, passageId)) return toast("Seul un passage ajouté dans ce brouillon peut être supprimé.", "error");
     const passageIndex = draft.passages.findIndex(passage => passage.id === passageId);
-    if (passageIndex < 0) return;
+    if (passageIndex < 0) return toast("Ce passage n’existe plus dans le brouillon.", "error");
     if (!confirm(`Supprimer le passage ${passageIndex + 1} du brouillon ? La zone associée sera supprimée avec lui ; la version officielle et les autres passages resteront inchangés.`)) return;
     try { removeTranscriptionWorkshopPassage(draft, passageId); }
     catch (error) { return toast(error.message || "Suppression impossible.", "error"); }
@@ -8607,6 +8669,7 @@ function setupWorkshopDivider() {
   });
 }
 setupWorkshopDivider();
+setupWorkshopPassageCarouselInput();
 
 $("transcriptionPageInitConfirmBtn").onclick = () => { void confirmTranscriptionPageInit(); };
 $("transcriptionPageInitSource").onchange = () => {

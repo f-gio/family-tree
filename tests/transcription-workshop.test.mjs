@@ -7,6 +7,7 @@ import {
   addTranscriptionWorkshopPassage,
   removeTranscriptionWorkshopPassage,
   isTranscriptionWorkshopPassageCreated,
+  restoreTranscriptionWorkshopDraft,
   resetTranscriptionWorkshopDraft,
   selectTranscriptionWorkshopPassage,
   isTranscriptionWorkshopPassageChanged,
@@ -136,9 +137,9 @@ test("l’ajout de passage valide ses entrées", () => {
   assert.equal(draft.dirty, false, "aucune entrée invalide n’a modifié le brouillon");
 });
 
-test("seuls les passages ajoutés dans le brouillon sont supprimables", () => {
+test("la suppression retire du brouillon un passage créé ou hérité sans toucher à l'original", () => {
   const draft = createTranscriptionWorkshopDraft({ documentId: "doc-1", pageId: "page-1", passages: samplePassages() });
-  assert.throws(() => removeTranscriptionWorkshopPassage(draft, "p1"), /Seul un passage ajouté/, "passage officiel intangible");
+  const original = draft.original.map(passage => ({ ...passage, anchor: passage.anchor ? { ...passage.anchor } : null }));
   addTranscriptionWorkshopPassage(draft, { id: "nouveau-3", textIt: "Testo aggiunto" });
   draft.passages.find(passage => passage.id === "nouveau-3").anchor = {
     shape: "rect", pdfPage: 3, fileSha256: "a".repeat(64), x: 0.1, y: 0.2, width: 0.3, height: 0.2
@@ -152,12 +153,29 @@ test("seuls les passages ajoutés dans le brouillon sont supprimables", () => {
   assert.equal(draft.selectedPassageId, "p2", "la sélection passe au passage voisin après suppression");
   assert.equal(draft.dirty, false, "retour à l’état initial de la page");
   assert.equal(isTranscriptionWorkshopPassageCreated(draft, "nouveau-3"), false);
-  assert.throws(() => removeTranscriptionWorkshopPassage(draft, "inconnu"), /Seul un passage ajouté/);
-  addTranscriptionWorkshopPassage(draft, { id: "nouveau-4" });
-  editTranscriptionWorkshopPassage(draft, "p1", { textIt: "Anno millenovecentosedici" });
-  removeTranscriptionWorkshopPassage(draft, "nouveau-4");
-  assert.equal(draft.dirty, true, "une correction officielle subsiste après suppression du passage créé");
+  assert.throws(() => removeTranscriptionWorkshopPassage(draft, "inconnu"), /introuvable/);
+
+  selectTranscriptionWorkshopPassage(draft, "p1");
+  removeTranscriptionWorkshopPassage(draft, "p1");
+  assert.deepEqual(draft.original.map(passage => passage.id), ["p1", "p2"], "la base officielle du brouillon demeure intacte");
+  assert.deepEqual(draft.original[0].anchor, original[0].anchor, "l'ancre officielle reste dans l'original historique");
+  assert.deepEqual(draft.passages.map(passage => passage.id), ["p2"], "seul le passage choisi disparaît de la révision active");
+  assert.equal(draft.selectedPassageId, "p2", "suppression sélectionne le passage voisin restant");
+  assert.equal(draft.dirty, true, "suppression d'un passage hérité devient une modification de révision");
+  const restoredRevision = restoreTranscriptionWorkshopDraft({
+    documentId: draft.documentId,
+    pageId: draft.pageId,
+    original: draft.original,
+    passages: draft.passages,
+    createdIds: draft.createdIds,
+    selectedPassageId: draft.selectedPassageId
+  });
+  assert.deepEqual(restoredRevision.original.map(passage => passage.id), ["p1", "p2"], "reprise locale conserve la base officielle historique");
+  assert.deepEqual(restoredRevision.passages.map(passage => passage.id), ["p2"], "reprise locale conserve la suppression comme différence de révision");
+  assert.equal(restoredRevision.dirty, true, "reprise locale ne perd pas le caractère modifié de la révision");
   resetTranscriptionWorkshopDraft(draft);
+  assert.deepEqual(draft.passages.map(passage => passage.id), ["p1", "p2"], "abandon restaure tous les passages officiels");
+  assert.equal(draft.dirty, false, "abandon annule la suppression dans le brouillon");
   assert.deepEqual(draft.createdIds, [], "la réinitialisation vide la liste des passages créés");
 });
 
@@ -623,8 +641,8 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   // Ajout et suppression de passages.
   assert.match(app, /addTranscriptionWorkshopPassage\(draft/, "ajout branché sur le module pur");
   assert.match(app, /removeTranscriptionWorkshopPassage\(draft, passageId\)/, "suppression branchée sur le module pur");
-  assert.match(app, /data-workshop-delete-passage/, "bouton de suppression des passages créés");
-  assert.match(app, /isTranscriptionWorkshopPassageCreated\(draft, passage\.id\)/, "suppression réservée aux passages créés");
+  assert.match(app, /data-workshop-delete-passage/, "bouton de suppression dans chaque passage éditable");
+  assert.match(app, /const deleteAction = editable\s*\?/, "suppression des passages créés ou hérités dans le brouillon");
   assert.match(app, /Ajoutez un passage pour commencer/, "état vide orienté action");
   assert.match(css, /\.transcription-workshop-passage-nav \.btn[^\{]*\{ min-width: var\(--control-touch\)/, "cibles tactiles ≥ 44 px pour navigation des passages");
   assert.match(css, /\.transcription-workshop-passage-pill\.btn\.is-active \{ border-color: var\(--color-brand\); background: var\(--color-brand\); color: var\(--color-surface-raised\); \}/, "pastille active clairement repérée");
@@ -1168,7 +1186,8 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 const cancel = document.getElementById("workshopCancelEditBtn");
                 const cancelRect = cancel.getBoundingClientRect();
                 const validateRect = document.getElementById("workshopValidateBtn").getBoundingClientRect();
-                const footer = document.querySelector(".transcription-workshop-footer").getBoundingClientRect();
+                 const footerElement = document.querySelector(".transcription-workshop-footer");
+                 const footer = footerElement.getBoundingClientRect();
                 return {
                   statusTop: Math.round(status.top),
                   statusHeight: Math.round(status.height),
@@ -1184,9 +1203,23 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                   validateHeight: Math.round(validateRect.height),
                   cancelLeft: Math.round(cancelRect.left),
                   validateLeft: Math.round(validateRect.left),
-                   footerRight: Math.round(footer.right),
-                   footerHeight: Math.round(footer.height),
-                   viewport: innerWidth
+                  footerRight: Math.round(footer.right),
+                  footerHeight: Math.round(footer.height),
+                  footerTop: Math.round(footer.top),
+                  footerBottom: Math.round(footer.bottom),
+                  panel: (() => { const r = document.getElementById("workshopPanelRight").getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), height: Math.round(r.height), scrollHeight: document.getElementById("workshopPanelRight").scrollHeight }; })(),
+                  layout: (() => { const r = document.getElementById("workshopLayout").getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), height: Math.round(r.height) }; })(),
+                  selectedContentBottom: Math.round(document.querySelector(".transcription-workshop-passage.is-selected").getBoundingClientRect().bottom),
+                  fieldHeights: [...document.querySelectorAll(".transcription-workshop-passage.is-selected textarea")].map(field => Math.round(field.getBoundingClientRect().height)),
+                  fieldScrollHeights: [...document.querySelectorAll(".transcription-workshop-passage.is-selected textarea")].map(field => field.scrollHeight),
+                   footerStyle: (() => { const s = getComputedStyle(footerElement); return { height: s.height, minHeight: s.minHeight, flex: s.flex, marginTop: s.marginTop, paddingTop: s.paddingTop, paddingBottom: s.paddingBottom, gap: s.gap }; })(),
+                  panelStyle: (() => { const s = getComputedStyle(document.getElementById("workshopPanelRight")); return { height: s.height, minHeight: s.minHeight, flex: s.flex, gap: s.gap, justifyContent: s.justifyContent }; })(),
+                   view: (() => { const view = document.getElementById("transcriptionWorkshopView"); const r = view.getBoundingClientRect(); const s = getComputedStyle(view); return { top: Math.round(r.top), bottom: Math.round(r.bottom), height: Math.round(r.height), paddingBottom: s.paddingBottom, minHeight: s.minHeight, scrollHeight: view.scrollHeight }; })(),
+                   bodyPaddingBottom: getComputedStyle(document.body).paddingBottom,
+                   contentGap: Math.round(footer.top - document.querySelector(".transcription-workshop-passage.is-selected").getBoundingClientRect().bottom),
+                   visualViewportHeight: Math.round(window.visualViewport?.height || innerHeight),
+                  documentHeight: document.documentElement.scrollHeight,
+                  viewport: innerWidth
                 };
               });
               assert.equal(footerState.inFooter, true, "statut dans le pied d’atelier");
@@ -1201,9 +1234,16 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               assert.equal(footerState.saveButtonCount, 0, "aucun bouton manuel « Enregistrer »");
               assert.equal(footerState.cancelHidden, false, "« Annuler » visible en mode édition");
               assert.ok(footerState.cancelHeight >= 44 && footerState.validateHeight >= 44, `actions d’édition ≥ 44 px (${footerState.cancelHeight}/${footerState.validateHeight})`);
-               assert.ok(footerState.cancelLeft < footerState.validateLeft, "ordre Annuler puis Valider");
-               assert.ok(footerState.footerHeight <= 92, `footer mobile limité à deux lignes compactes (${footerState.footerHeight}px)`);
-               assert.ok(footerState.footerRight <= footerState.viewport + 1, "pied contenu sans débordement horizontal");
+              assert.ok(footerState.cancelLeft < footerState.validateLeft, "ordre Annuler puis Valider");
+              assert.ok(footerState.footerHeight <= 56, `footer mobile intrinsèque sur une ligne (${footerState.footerHeight}px)`);
+              assert.equal(footerState.panel.bottom, footerState.footerBottom, "aucun espace libre sous le footer dans son panneau");
+              assert.equal(footerState.layout.bottom, footerState.footerBottom, "footer au bas de la zone mobile mesurée");
+              assert.equal(footerState.view.bottom, footerState.footerBottom, "aucune réserve vide sous l’atelier en mode footer");
+              assert.equal(footerState.view.paddingBottom, "0px", "aucun padding workspace en double sous le pied");
+              assert.equal(footerState.bodyPaddingBottom, "0px", "safe-area non cumulée dans le body de l’atelier");
+              assert.ok(footerState.contentGap <= 12, `contenu de saisie proche du footer (${footerState.contentGap}px)`);
+              assert.ok(footerState.fieldHeights[0] > 0, `hauteur disponible à la transcription mesurée (${footerState.fieldHeights[0]}px)`);
+              assert.ok(footerState.footerRight <= footerState.viewport + 1, "pied contenu sans débordement horizontal");
 
               /* Menu contextuel complet en mobile : ouverture, clic extérieur, Échap. */
               await page.click("#workshopActionsMenu > summary");
