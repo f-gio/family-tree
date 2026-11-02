@@ -613,7 +613,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   const workshopMobileEnd = css.indexOf("@media (min-width: 981px)", workshopMobileStart);
   assert.ok(workshopMobileStart >= 0 && workshopMobileEnd > workshopMobileStart, "bloc atelier mobile localisé");
   const workshopMobileA3 = css.slice(workshopMobileStart, workshopMobileEnd);
-  assert.ok(workshopMobileA3.includes(".transcription-workshop-breadcrumb > span { display: none; }"), "fil d’Ariane mobile remplacé par l’en-tête dédié");
+  assert.ok(workshopMobileA3.includes(".consultation-breadcrumb-overflow { display: block; }"), "niveau intermédiaire conservé dans un menu accessible sur mobile");
   assert.ok(css.includes("body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav,"), "navigation générale de l’atelier demeure masquée sur mobile");
   assert.ok(workshopMobileA3.includes(".transcription-workshop-passage:not(.is-selected) { display: none; }"), "un seul passage visible à la fois sur mobile");
   assert.ok(workshopMobileA3.includes("padding-bottom: max(var(--space-1), env(safe-area-inset-bottom, 0px))"), "safe area inférieure respectée sans cumul d'espace superflu");
@@ -910,8 +910,14 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
       const list = document.getElementById("workshopPassageList").getBoundingClientRect();
       const divider = document.getElementById("workshopDivider").getBoundingClientRect();
       const panelRight = document.getElementById("workshopPanelRight").getBoundingClientRect();
+      const breadcrumb = document.querySelector(".transcription-workshop-breadcrumb").getBoundingClientRect();
+      const back = document.getElementById("workshopBackBtn").getBoundingClientRect();
       return {
         headerHeight: Math.round(header.height),
+        backFontSize: getComputedStyle(document.getElementById("workshopBackBtn")).fontSize,
+        backRight: Math.round(back.right),
+        headerRight: Math.round(header.right),
+        returnCenterDelta: Math.abs((back.top + back.height / 2) - (breadcrumb.top + breadcrumb.height / 2)),
         statusTop: Math.round(status.top),
         statusLeft: Math.round(status.left),
         statusHeight: Math.round(status.height),
@@ -926,6 +932,9 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
       };
     });
     assert.ok(desktopLayout.headerHeight <= 105, `en-tête desktop compact (${desktopLayout.headerHeight}px ≤ 105px, 109px avant)`);
+    assert.equal(desktopLayout.backFontSize, "14px", "Retour Atelier en 14 px desktop");
+    assert.ok(desktopLayout.backRight <= desktopLayout.headerRight + 1, "Retour à l’extrémité droite du conteneur desktop");
+    assert.ok(desktopLayout.returnCenterDelta <= 1, "Retour centré verticalement sur le fil desktop");
     assert.equal(desktopLayout.inHeader, false, "statut hors de l’en-tête sur desktop");
     assert.equal(desktopLayout.inRightPanel, true, "statut dans le panneau de transcription");
     assert.equal(desktopLayout.inFooter, true, "statut dans le pied d’atelier");
@@ -1183,14 +1192,16 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                   documentCrumbLabel: documentCrumb.getAttribute("aria-label"),
                   currentCrumb: currentCrumb.textContent.trim(),
                   headingWidth: Math.round(heading.width),
-                  headingRight: Math.round(heading.right),
+                  headingRight: Math.round(currentCrumb.getBoundingClientRect().right),
                   headingBottom: heading.bottom,
                   headerHeight: header.height,
                   headerMarkup: [...document.querySelector(".transcription-workshop-header").children].map(element => ({ tag: element.tagName, className: element.className, height: Math.round(element.getBoundingClientRect().height), display: getComputedStyle(element).display })),
                   breadcrumbHeight: Math.round(breadcrumb.getBoundingClientRect().height),
                   labelWhiteSpace: getComputedStyle(label).whiteSpace,
                   labelHeight: Math.round(labelRect.height),
-                  backLeft: Math.round(back.left), backTop: back.top, backRight: back.right, backWidth: Math.round(back.width), backHeight: Math.round(back.height),
+                   backLeft: Math.round(back.left), backTop: back.top, backRight: back.right, backWidth: Math.round(back.width), backHeight: Math.round(back.height),
+                   backFontSize: getComputedStyle(document.getElementById("workshopBackBtn")).fontSize,
+                   returnCenterDelta: Math.abs((back.top + back.height / 2) - (breadcrumb.getBoundingClientRect().top + breadcrumb.getBoundingClientRect().height / 2)),
                   headerRight: header.right,
                   tabs, tools,
                   toolsLeft: Math.round(toolsRect.left),
@@ -1218,9 +1229,11 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                  contextuelle à droite sur la même rangée — sans chevauchement
                  horizontal ni cible réduite. Le menu « … » vit dans le panneau
                  de transcription, jamais dans l'en-tête général. */
-              assert.ok(layout.headingRight <= layout.backLeft + 1, `titre à gauche du retour sans chevauchement (${layout.headingRight} ≤ ${layout.backLeft})`);
-              assert.ok(layout.backRight <= layout.headerRight + 1, "Retour à droite de l’en-tête");
-              assert.ok(layout.backWidth >= 44 && layout.backHeight >= 44, `Retour ≥ 44 px (${layout.backWidth}×${layout.backHeight})`);
+               assert.ok(layout.headingRight <= layout.backLeft + 1, `titre à gauche du retour sans chevauchement (${layout.headingRight} ≤ ${layout.backLeft})`);
+               assert.ok(layout.backRight <= layout.headerRight + 1, "Retour à droite de l’en-tête");
+               assert.ok(layout.backWidth >= 44 && layout.backHeight >= 44, `Retour ≥ 44 px (${layout.backWidth}×${layout.backHeight})`);
+               assert.equal(layout.backFontSize, "14px", "Retour Atelier en 14 px");
+               assert.ok(layout.returnCenterDelta <= 1, `Retour centré sur le fil d’Ariane (${layout.returnCenterDelta}px)`);
               /* Aucun débordement horizontal. */
               assert.ok(layout.pageScroll <= layout.viewport + 1, `sans débordement horizontal à ${width}px (${layout.pageScroll}/${layout.viewport})`);
               /* Onglets et barre d'outils de la photographie. */
@@ -1368,22 +1381,26 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 const field = document.querySelector('[data-workshop-field="textIt"]');
                 field.dispatchEvent(new Event("input", { bubbles: true }));
               });
-              await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré", undefined, { timeout: 6000 });
-              const recovered = await page.evaluate(() => ({ stored: window.__repro.stored().length, status: document.getElementById("workshopSaveStatus").textContent }));
-              assert.ok(recovered.stored >= 1, "récupération écrite après rétablissement du stockage");
-              assert.equal(recovered.status, "Enregistré", "retour à un état de succès réel");
+               await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré", undefined, { timeout: 6000 });
+               const recovered = await page.evaluate(() => ({ stored: window.__repro.stored().length, status: document.getElementById("workshopSaveStatus").textContent }));
+               assert.ok(recovered.stored >= 1, "récupération écrite après rétablissement du stockage");
+               assert.equal(recovered.status, "Enregistré", "retour à un état de succès réel");
 
-              /* A3 mobile : en-tête dédié, navigation générale masquée, un seul
+               /* A3 mobile : en-tête dédié, navigation générale masquée, un seul
                  passage visible, contrôle segmenté contenu. */
               const a3State = await page.evaluate(() => {
                 const visibleCards = [...document.querySelectorAll(".transcription-workshop-passage")].filter(card => card.getClientRects().length > 0);
-                const crumbSpans = [...document.querySelectorAll(".transcription-workshop-breadcrumb > span")];
-                const mode = document.querySelector(".transcription-workshop-mode");
-                return {
-                  navHidden: getComputedStyle(document.querySelector(".topbar .main-nav")).display === "none",
-                  brandTaglineHidden: getComputedStyle(document.querySelector(".topbar .brand p")).display === "none",
-                  crumbSpansHidden: crumbSpans.length > 0 && crumbSpans.every(span => getComputedStyle(span).display === "none"),
-                  titleVisible: document.getElementById("workshopDocumentTitle").getClientRects().length > 0,
+                 const crumbSeparators = [...document.querySelectorAll(".consultation-breadcrumb-separator")];
+                 const mode = document.querySelector(".transcription-workshop-mode");
+                 const documentCrumb = document.getElementById("workshopDocumentTitle");
+                 const overflowCrumb = document.querySelector(".transcription-workshop-breadcrumb .consultation-breadcrumb-overflow > summary");
+                 return {
+                   navHidden: getComputedStyle(document.querySelector(".topbar .main-nav")).display === "none",
+                   brandTaglineHidden: getComputedStyle(document.querySelector(".topbar .brand p")).display === "none",
+                   crumbSeparatorsVisible: crumbSeparators.length > 0 && crumbSeparators.every(span => getComputedStyle(span).display !== "none"),
+                   documentsLevelVisible: document.querySelector('[data-workshop-breadcrumb="documents"]').getClientRects().length > 0,
+                   titleAccessible: documentCrumb.getAttribute("aria-label") === documentCrumb.textContent,
+                   titleOrOverflowVisible: documentCrumb.getClientRects().length > 0 || overflowCrumb.getClientRects().length > 0,
                   backHeight: Math.round(document.getElementById("workshopBackBtn").getBoundingClientRect().height),
                   pageLabelVisible: document.getElementById("workshopPageLabel").getClientRects().length > 0,
                   visibleCards: visibleCards.length,
@@ -1393,8 +1410,10 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               });
               assert.equal(a3State.navHidden, true, "navigation générale masquée dans l’atelier mobile");
               assert.equal(a3State.brandTaglineHidden, true, "sous-titre de marque masqué pour l’espace compact");
-              assert.equal(a3State.crumbSpansHidden, true, "fil d’Ariane remplacé par l’en-tête dédié (chevrons et étape masqués)");
-              assert.equal(a3State.titleVisible, true, "titre du document visible");
+               assert.equal(a3State.crumbSeparatorsVisible, true, "séparateurs du fil conservés dans la vue mobile");
+               assert.equal(a3State.documentsLevelVisible, true, "niveau Documents conservé dans le fil mobile");
+               assert.equal(a3State.titleAccessible, true, "titre complet du document accessible");
+               assert.equal(a3State.titleOrOverflowVisible, true, "titre Document visible ou accessible via le menu intermédiaire");
               assert.ok(a3State.backHeight >= 44, `retour contextuel ≥ 44 px (${a3State.backHeight})`);
               assert.equal(a3State.pageLabelVisible, true, "contexte de page visible");
               assert.equal(a3State.visibleCards, 1, "un seul passage visible à la fois");
@@ -1460,11 +1479,20 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               assert.equal(restoredKeyboard.actionsVisible, true, "actions restaurées à la fermeture du clavier");
               assert.equal(restoredKeyboard.keyboardHeight, "", "hauteur forcée nettoyée à la fermeture");
 
-              /* Sortie sans friction (brouillon enregistré), retours nets. */
-              await page.click("#workshopBackBtn");
-              await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
-              assert.deepEqual(dialogs, [], "sortie sans confirmation");
-              assert.deepEqual(pageErrors, [], `erreurs JavaScript : ${pageErrors.join(" | ")}`);
+               /* Sortie sans friction (brouillon enregistré), retours nets. */
+               await page.click("#workshopBackBtn");
+               await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+               assert.deepEqual(dialogs, [], "sortie sans confirmation");
+               if (width === 320) {
+                 await page.evaluate(() => window.__repro.transcribe());
+                 await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden, undefined, { timeout: 10000 });
+                 await page.locator(".transcription-workshop-breadcrumb .consultation-breadcrumb-overflow > summary").click();
+                 assert.equal(await page.locator(".transcription-workshop-breadcrumb .consultation-breadcrumb-overflow").evaluate(element => element.open), true, "menu des niveaux intermédiaires ouvrable au toucher");
+                 await page.locator("[data-workshop-breadcrumb-overflow='document']").click();
+                 await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden, undefined, { timeout: 10000 });
+                 assert.deepEqual(dialogs, [], "navigation depuis le niveau intermédiaire conserve le parcours enregistré");
+               }
+               assert.deepEqual(pageErrors, [], `erreurs JavaScript : ${pageErrors.join(" | ")}`);
             } finally {
               await context.close();
             }

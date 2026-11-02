@@ -534,22 +534,24 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
         return {
           header: get(".document-detail-header"),
           title: get("#viewerTitle"),
-          titleStyle: { whiteSpace: titleStyle.whiteSpace, textOverflow: titleStyle.textOverflow, overflow: titleStyle.overflow, lineClamp: titleStyle.webkitLineClamp },
+          titleStyle: { whiteSpace: titleStyle.whiteSpace, textOverflow: titleStyle.textOverflow, overflow: titleStyle.overflow },
           close: get("#documentPageBackBtn")
         };
       });
       if (viewport.width <= 390) {
         /* Le Retour vit désormais dans l'en-tête : plafond recalibré (mesuré 141 px). */
         assert.ok(mobileHeader.header.height <= 148, `en-tête mobile contenu avec métadonnées visibles (${mobileHeader.header.height}px)`);
-        assert.equal(mobileHeader.titleStyle.lineClamp, "2", "titre tronqué au-delà de deux lignes");
+        assert.equal(mobileHeader.titleStyle.whiteSpace, "nowrap", "titre sur une ligne sans couper les mots");
+        assert.equal(mobileHeader.titleStyle.textOverflow, "ellipsis", "titre long tronqué par ellipse");
          assert.ok(mobileHeader.title.right <= mobileHeader.close.x + 1, "le titre ne chevauche pas le lien Retour");
          assert.ok(mobileHeader.close.y >= mobileHeader.header.y - 1, "le lien Retour est dans l'en-tête");
          assert.ok(mobileHeader.close.right <= mobileHeader.header.right + 1, "le Retour est aligné à droite de l'en-tête");
          assert.ok(mobileHeader.close.height >= 43.5 && mobileHeader.close.width >= 43.5, "Retour avec cible 44px");
       }
       if (viewport.width === 320) {
-        const truncation = await page.locator("#viewerTitle").evaluate(element => ({ lineClamp: getComputedStyle(element).webkitLineClamp, label: element.getAttribute("aria-label") }));
-        assert.equal(truncation.lineClamp, "2", "titre long tronqué après deux lignes sans déplacer le menu ni la fermeture");
+        const truncation = await page.locator("#viewerTitle").evaluate(element => ({ whiteSpace: getComputedStyle(element).whiteSpace, textOverflow: getComputedStyle(element).textOverflow, label: element.getAttribute("aria-label") }));
+        assert.equal(truncation.whiteSpace, "nowrap", "titre long reste sur une ligne, sans couper les mots");
+        assert.equal(truncation.textOverflow, "ellipsis", "titre long tronqué par ellipse");
         assert.equal(truncation.label, await page.locator("#viewerTitle").textContent(), "titre complet reste accessible");
       }
       assert.ok(mobile.viewerPdfThumbnails != null && !mobile.viewerPdfThumbnails.visible, "miniatures fermées par défaut sur mobile");

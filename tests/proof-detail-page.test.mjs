@@ -151,8 +151,15 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     assert.equal(state.title, "Naissance");
     assert.ok(state.archiveScroll <= 40, `fiche Preuve ouverte depuis son haut malgré Archives défilée (scrollY=${state.archiveScroll}, départ ${archiveScroll})`);
     assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour aux archives");
+    assert.equal(await page.locator("#proofPageBackBtn").evaluate(element => getComputedStyle(element).fontSize), "14px", "Retour commun en 14 px");
     assert.equal(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", "navigation masquée dans la fiche Preuve");
-    assert.match(await page.locator("#proofDetailView .consultation-breadcrumb").innerText(), /Archives[\s\S]*Naissance/);
+    assert.match(await page.locator("#proofDetailView .consultation-breadcrumb").innerText(), /Documents[\s\S]*Registre justificatif[\s\S]*Naissance/);
+    assert.equal(await page.locator("#proofPageBreadcrumb [aria-current='page']").count(), 1, "le dernier niveau reste non cliquable");
+    await page.locator("#proofPageBreadcrumb .consultation-breadcrumb-intermediate[data-consultation-breadcrumb-action='document']").click();
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+    assert.equal(await page.locator("#viewerTitle").textContent(), "Registre justificatif", "Document parent du fil ouvre sa fiche");
+    await page.click("#documentPageBackBtn");
+    await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     assert.equal(await page.locator("#proofPageTitle").getAttribute("aria-label"), state.title, "titre complet accessible");
     assert.ok(await page.locator("#proofDetailView header.dedicated-page-header").count(), "en-tête partagé de page dédiée");
     const revisionHistory = await page.locator("#proofPageContent .source-detail-history").innerText();
@@ -192,7 +199,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.evaluate(() => window.__proofPageTest.openSource());
     await page.locator('#sourcePageContent [data-open-genealogy="proof"]').first().click();
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
-    assert.match(await page.locator("#proofPageBreadcrumb").innerText(), /Archives[\s\S]*Source de référence[\s\S]*Naissance/);
+    assert.match(await page.locator("#proofPageBreadcrumb").innerText(), /Documents[\s\S]*Registre justificatif[\s\S]*Naissance/);
     assert.equal((await page.evaluate(() => window.__proofPageTest.state())).returnContext.kind, "source");
     await page.click("#proofPageBackBtn");
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
@@ -200,7 +207,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     await page.locator("#proofPageContent [data-proof-source-open]").click();
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
-    assert.match(await page.locator("#sourcePageBreadcrumb").innerText(), /Archives[\s\S]*Naissance[\s\S]*Source de référence/);
+    assert.match(await page.locator("#sourcePageBreadcrumb").innerText(), /Documents[\s\S]*Registre justificatif[\s\S]*Source de référence/);
     await page.click("#sourcePageBackBtn");
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     await page.click("#proofPageBackBtn");
@@ -259,10 +266,20 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.evaluate(() => window.__proofPageTest.setRole("admin"));
 
     /* Mobile étroit et courant : aucune barre horizontale, actions tactiles. */
-    for (const width of [320, 390]) {
+    for (const width of [320, 375, 390, 760]) {
       await page.setViewportSize({ width, height: 844 });
       state = await page.evaluate(() => window.__proofPageTest.state());
       assert.equal(state.horizontalOverflow, false, `aucun débordement à ${width}px`);
+      assert.equal(await page.locator("#proofPageTitle").evaluate(element => getComputedStyle(element).whiteSpace), "nowrap", `titre Preuve sans coupe au milieu d’un mot à ${width}px`);
+      if (width <= 480) {
+        assert.equal(await page.locator("#proofPageBreadcrumb .consultation-breadcrumb-intermediate").isVisible(), false, `titre intermédiaire compact à ${width}px`);
+        assert.equal(await page.locator("#proofPageBreadcrumb .consultation-breadcrumb-overflow summary").isVisible(), true, `niveau intermédiaire accessible via … à ${width}px`);
+        await page.locator("#proofPageBreadcrumb .consultation-breadcrumb-overflow summary").click();
+        await page.locator("#proofPageBreadcrumb .consultation-breadcrumb-overflow-menu [data-consultation-breadcrumb-action='document']").click();
+        await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+        await page.click("#documentPageBackBtn");
+        await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
+      }
       assert.ok(state.backHeight >= 44, `Retour ≥ 44 px à ${width}px`);
       assert.ok(state.reviseHeight >= 44, `Réviser ≥ 44 px à ${width}px`);
       assert.ok(state.menuHeight >= 44, `menu ≥ 44 px à ${width}px`);
@@ -274,6 +291,8 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
       assert.ok(state.technicalSummaryHeight >= 44, `Détails techniques ≥ 44 px à ${width}px`);
     }
     await page.evaluate(() => window.__proofPageTest.setUnassociatedProof());
+    assert.equal(await page.locator("#proofPageBreadcrumb .consultation-breadcrumb-root").textContent(), "Archives", "racine adaptée à une Preuve sans Document parent");
+    assert.equal(await page.locator("#proofPageBreadcrumb .consultation-breadcrumb-intermediate").count(), 0, "aucun Document non associé proposé");
     assert.match(await page.locator("#proofPageContent").innerText(), /Aucune personne n’est associée à cette preuve/);
     assert.match(await page.locator("#proofPageContent").innerText(), /Aucun document associé à cette preuve/);
     assert.match(await page.locator("#proofPageContent").innerText(), /Aucun document ou source d’origine n’est indiqué/);

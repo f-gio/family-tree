@@ -50,6 +50,14 @@ window.__sourcePageTest = {
     renderGenealogyWorkspace();
   },
   openSource() { openGenealogyItem("source", "source-page-fixture"); },
+  setSourceTitleToDocument() {
+    genealogyRecords.sourceDocuments[0].data.title = documents[0].title;
+    refreshOpenSourcePage();
+  },
+  removeSourceDocumentAssociation() {
+    genealogyRecords.sourceDocuments[0].data.documentIds = [];
+    refreshOpenSourcePage();
+  },
   setSourceStatus(status) { genealogyRecords.sourceDocuments[0].data.status = status; refreshOpenSourcePage(); },
   async openDocumentThenSource() {
     setView("documents");
@@ -135,8 +143,16 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     assert.equal(await page.locator("#sourcePageContent .source-detail-fact strong", { hasText: "Personnes concernées" }).count(), 0, "plus de fait texte brut pour les personnes");
     assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux archives");
     assert.equal(await page.locator("#sourcePageBackBtn .dedicated-page-back-label").textContent(), "Retour aux archives", "destination réelle affichée en clair (desktop)");
+    assert.equal(await page.locator("#sourcePageBackBtn").evaluate(element => getComputedStyle(element).fontSize), "14px", "Retour commun en 14 px");
     assert.equal(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", "navigation masquée dans la fiche Source");
-    assert.match(await page.locator("#sourceDetailView .consultation-breadcrumb").innerText(), /Archives[\s\S]*Registre paroissial/);
+    assert.match(await page.locator("#sourceDetailView .consultation-breadcrumb").innerText(), /Documents[\s\S]*Acte d’essai[\s\S]*Registre paroissial/);
+    assert.equal(await page.locator("#sourcePageBreadcrumb [aria-current='page']").count(), 1, "le dernier niveau du fil reste la Source courante, non cliquable");
+    assert.ok(await page.locator("#sourcePageBreadcrumb .consultation-breadcrumb-intermediate[data-consultation-breadcrumb-action='document']").isVisible(), "document associé réellement cliquable dans le fil");
+    await page.click("#sourcePageBreadcrumb [data-consultation-breadcrumb-action='document']");
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+    assert.equal(await page.locator("#viewerTitle").textContent(), "Acte d’essai", "le niveau Document ouvre sa fiche réelle");
+    await page.click("#documentPageBackBtn");
+    await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
     /* Retour sur la première ligne, Réviser/actions avec les pastilles sur la seconde. */
     const backGeometry = await page.evaluate(() => {
       const back = document.getElementById("sourcePageBackBtn").getBoundingClientRect();
@@ -148,6 +164,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
       return {
         inside: !!header.querySelector("#sourcePageBackBtn"),
         sameTopLine: Math.abs(back.y - breadcrumb.y) < 2,
+        centerAligned: Math.abs((back.y + back.height / 2) - (breadcrumb.y + breadcrumb.height / 2)) < 1,
         badgesWithActions: Math.abs((badges.y + badges.height / 2) - (actions.y + actions.height / 2)) < 2,
         rightAligned: back.right <= headerRect.right + 1,
         returnRowAbsent: !document.querySelector("#sourceDetailView .dedicated-page-return")
@@ -155,6 +172,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     });
     assert.equal(backGeometry.inside, true, "le Retour est dans l'en-tête");
     assert.ok(backGeometry.sameTopLine, "le Retour est aligné sur le fil d’Ariane");
+    assert.ok(backGeometry.centerAligned, "le Retour est centré verticalement sur le fil");
     assert.ok(backGeometry.badgesWithActions, "pastilles et actions partagent la seconde ligne");
     assert.ok(backGeometry.rightAligned, "le Retour est aligné à droite de l'en-tête");
     assert.equal(backGeometry.returnRowAbsent, true, "aucune ligne Retour résiduelle au-dessus de l'en-tête");
@@ -272,11 +290,21 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.waitForFunction(() => !document.getElementById("genealogyContributionDialog").open);
 
     /* Mobile : pas de débordement horizontal, header/actions atteignent 44 px. */
-    for (const width of [320, 390]) {
+    for (const width of [320, 375, 390, 760]) {
       await page.setViewportSize({ width, height: 844 });
       await page.evaluate(() => window.__sourcePageTest.openSource());
       state = await page.evaluate(() => window.__sourcePageTest.state());
       assert.equal(state.horizontalOverflow, false, `aucun défilement horizontal à ${width}px`);
+      assert.equal(await page.locator("#sourcePageTitle").evaluate(element => getComputedStyle(element).whiteSpace), "nowrap", `titre de Source jamais coupé en milieu de mot à ${width}px`);
+      if (width <= 480) {
+        assert.equal(await page.locator("#sourcePageBreadcrumb .consultation-breadcrumb-intermediate").isVisible(), false, `titre intermédiaire remplacé par … à ${width}px`);
+        assert.equal(await page.locator("#sourcePageBreadcrumb .consultation-breadcrumb-overflow summary").isVisible(), true, `niveau intermédiaire accessible via le menu à ${width}px`);
+        await page.locator("#sourcePageBreadcrumb .consultation-breadcrumb-overflow summary").click();
+        await page.locator("#sourcePageBreadcrumb .consultation-breadcrumb-overflow-menu [data-consultation-breadcrumb-action='document']").click();
+        await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+        await page.click("#documentPageBackBtn");
+        await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
+      }
        assert.ok(state.actionHeight >= 44, `cible tactile menu à ${width}px (${state.actionHeight}px)`);
        assert.ok(state.backHeight >= 44, `cible tactile Retour à ${width}px (${state.backHeight}px)`);
        assert.equal(state.backVisibleLabel, "Retour", `libellé mobile « Retour » seul à ${width}px`);
@@ -289,6 +317,16 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
       assert.ok(state.photoButtonHeight >= 44, `cible tactile navigation photo à ${width}px (${state.photoButtonHeight}px)`);
       assert.ok(state.imageToolHeight >= 44, `cible tactile zoom à ${width}px (${state.imageToolHeight}px)`);
     }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.click("#sourcePageBreadcrumb .consultation-breadcrumb-root");
+    await page.waitForFunction(() => document.getElementById("sourceDetailView").hidden && !document.getElementById("documentsView").hidden);
+    await page.evaluate(() => window.__sourcePageTest.openSource());
+    await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
+    await page.evaluate(() => window.__sourcePageTest.setSourceTitleToDocument());
+    assert.equal(await page.locator("#sourcePageTitle").textContent(), "Source : Acte d’essai", "préfixe Source quand Source et Document portent le même titre");
+    await page.evaluate(() => window.__sourcePageTest.removeSourceDocumentAssociation());
+    assert.equal(await page.locator("#sourcePageBreadcrumb .consultation-breadcrumb-root").textContent(), "Archives", "chemin adapté quand aucun Document associé n’existe");
+    assert.equal(await page.locator("#sourcePageBreadcrumb .consultation-breadcrumb-intermediate").count(), 0, "aucun niveau intermédiaire inventé");
     assert.deepEqual(errors, [], `erreurs JavaScript : ${errors.join(" | ")}`);
   } finally {
     await context.close();

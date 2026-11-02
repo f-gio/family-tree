@@ -4595,46 +4595,131 @@ function proofPageReturnContextFor(item) {
   return { kind: "view", view: activeView, focusId: item.record.id };
 }
 
-function renderConsultationBreadcrumb(navId, titleId, title, context) {
+function renderConsultationBreadcrumb(navId, titleId, { title, root = "Archives", rootView = "genealogy", parent = null, sameTitlePrefix = "" } = {}) {
   const nav = $(navId);
   const heading = $(titleId);
   if (!nav || !heading) return;
-  const path = [];
-  let root = "Archives";
-  if (context?.kind === "document") {
-    const documentItem = documents.find(item => item.id === context.documentId);
-    if (documentItem) {
-      root = "Documents";
-      path.push(documentDisplayLabel(documentItem));
-    }
-  } else if (context?.kind === "source" || context?.kind === "sourcePage") {
-    const source = genealogyRecords.sourceDocuments.find(item => item.id === context.id);
-    if (source) path.push(genealogyRecordData(source).title || "Source sans titre");
-  } else if (context?.kind === "proof") {
-    const proof = genealogyRecords.genealogyProofs.find(item => item.id === context.id);
-    if (proof) {
-      const data = genealogyRecordData(proof);
-      path.push(PROOF_FACT_KIND_LABELS[data.factType] || data.factType || data.factId || "Preuve");
-    }
-  }
-  nav.replaceChildren();
-  const segments = [root, ...path, title];
-  segments.forEach((segment, index) => {
-    if (index === segments.length - 1) {
-      heading.textContent = segment;
-      heading.setAttribute("aria-label", segment);
-      heading.title = segment;
-      nav.append(heading);
-      return;
-    }
-    const text = document.createElement("span");
-    text.textContent = segment;
-    nav.append(text);
+  const addSeparator = () => {
     const separator = document.createElement("span");
+    separator.className = "consultation-breadcrumb-separator";
     separator.setAttribute("aria-hidden", "true");
     separator.textContent = "›";
     nav.append(separator);
-  });
+  };
+  const addLink = (label, action, value, className = "") => {
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = `consultation-breadcrumb-link${className ? ` ${className}` : ""}`;
+    link.dataset.consultationBreadcrumbAction = action;
+    link.dataset.consultationBreadcrumbValue = value;
+    link.textContent = label;
+    link.title = label;
+    nav.append(link);
+    return link;
+  };
+  nav.replaceChildren();
+  addLink(root, "view", rootView, "consultation-breadcrumb-root");
+  if (parent?.id && parent?.label) {
+    addSeparator();
+    addLink(parent.label, parent.action || "document", parent.id, "consultation-breadcrumb-intermediate");
+    const overflow = document.createElement("details");
+    overflow.className = "consultation-breadcrumb-overflow";
+    const summary = document.createElement("summary");
+    summary.textContent = "…";
+    summary.setAttribute("aria-label", "Afficher le niveau intermédiaire du fil d’Ariane");
+    overflow.append(summary);
+    const menu = document.createElement("div");
+    menu.className = "consultation-breadcrumb-overflow-menu";
+    menu.setAttribute("role", "group");
+    menu.setAttribute("aria-label", "Niveaux intermédiaires");
+    const menuLink = document.createElement("button");
+    menuLink.type = "button";
+    menuLink.className = "consultation-breadcrumb-link";
+    menuLink.dataset.consultationBreadcrumbAction = parent.action || "document";
+    menuLink.dataset.consultationBreadcrumbValue = parent.id;
+    menuLink.textContent = parent.label;
+    menu.append(menuLink);
+    overflow.append(menu);
+    nav.append(overflow);
+  }
+  addSeparator();
+  heading.textContent = sameTitlePrefix && parent?.action === "document" && parent.label === title ? `${sameTitlePrefix}${title}` : title;
+  heading.setAttribute("aria-label", heading.textContent);
+  heading.title = title;
+  heading.setAttribute("aria-current", "page");
+  nav.append(heading);
+}
+
+function sourceDocumentParent(data, context) {
+  const linkedIds = [...new Set([data?.documentId, ...(Array.isArray(data?.documentIds) ? data.documentIds : [])].filter(id => typeof id === "string" && id))];
+  const contextualId = context?.kind === "document" && linkedIds.includes(context.documentId) ? context.documentId : "";
+  const candidates = linkedIds.map(id => documents.find(item => item.id === id)).filter(Boolean);
+  const item = contextualId
+    ? documents.find(value => value.id === contextualId)
+    : candidates.length === 1 ? candidates[0] : null;
+  return item ? { id: item.id, label: documentDisplayLabel(item), action: "document" } : null;
+}
+
+function sourceProofParent(sourceRecord, sourceData, context) {
+  if (context?.kind !== "proof") return null;
+  const proof = genealogyRecords.genealogyProofs.find(item => item.id === context.id);
+  if (!proof || !sourceLinkedProofs(sourceRecord, sourceData).some(item => item.id === proof.id)) return null;
+  const data = genealogyRecordData(proof);
+  return { id: proof.id, label: PROOF_FACT_KIND_LABELS[data.factType] || data.factType || data.factId || "Preuve", action: "proof" };
+}
+
+function proofBreadcrumbParent(record, data, context) {
+  const contextualId = context?.kind === "document" && context.documentId === data?.documentId ? context.documentId : "";
+  const item = data?.documentId
+    ? documents.find(value => value.id === (contextualId || data.documentId))
+    : null;
+  if (item) return { id: item.id, label: documentDisplayLabel(item), action: "document" };
+  const linkedSources = sourceRecordsForProof(data);
+  const contextualSource = context?.kind === "source" ? linkedSources.find(value => value.id === context.id) : null;
+  const source = contextualSource || (linkedSources.length === 1 ? linkedSources[0] : null);
+  if (source) {
+    const sourceData = genealogyRecordData(source);
+    return { id: source.id, label: sourceData.title || "Source sans titre", action: "source" };
+  }
+  return null;
+}
+
+function navigateConsultationBreadcrumb(action, value) {
+  const isWorkshop = isTranscriptionWorkshopActive();
+  if (isWorkshop) {
+    return navigateTranscriptionWorkshopBreadcrumb(action === "view" ? "documents" : "document");
+  }
+  if (action === "view") return setView(value);
+  if (action === "source" && !$("proofDetailView").hidden) {
+    const source = genealogyWorkspaceItems().find(item => item.kind === "source" && item.record.id === value);
+    if (!source) return toast("Cette source n’est plus disponible.", "error");
+    return renderSourcePage(source, {
+      kind: "proof",
+      id: activeProofPageItem.record.id,
+      returnContext: proofPageReturnContext ? { ...proofPageReturnContext } : null,
+      view: proofPageReturnContext?.view || "genealogy"
+    });
+  }
+  if (action === "proof" && !$("sourceDetailView").hidden) {
+    const proof = genealogyWorkspaceItems().find(item => item.kind === "proof" && item.record.id === value);
+    if (!proof) return toast("Cette preuve n’est plus disponible.", "error");
+    return renderProofPage(proof, {
+      kind: "source",
+      id: activeSourcePageItem.record.id,
+      sourceReturnContext: sourcePageReturnContext ? { ...sourcePageReturnContext } : null,
+      view: sourcePageReturnContext?.view || "genealogy"
+    });
+  }
+  if (action !== "document") return false;
+  const documentItem = documents.find(item => item.id === value);
+  if (!documentItem) return toast("Ce document n’est plus disponible.", "error");
+  let pageContext = null;
+  if (!$("sourceDetailView").hidden && activeSourcePageItem) {
+    pageContext = { kind: "source", id: activeSourcePageItem.record.id, sourceReturnContext: sourcePageReturnContext ? { ...sourcePageReturnContext } : null, view: sourcePageReturnContext?.view || "genealogy" };
+  } else if (!$("proofDetailView").hidden && activeProofPageItem) {
+    pageContext = { kind: "proof", id: activeProofPageItem.record.id, returnContext: proofPageReturnContext ? { ...proofPageReturnContext } : null, view: proofPageReturnContext?.view || "genealogy" };
+  }
+  return openStoredDocument(documentItem, { returnContext: "documents", view: "documents", pageContext });
 }
 
 function renderProofPage(item, returnContext = null, preserveScroll = false) {
@@ -4649,7 +4734,13 @@ function renderProofPage(item, returnContext = null, preserveScroll = false) {
   setView("proofDetail");
   const { record, data } = item;
   const title = PROOF_FACT_KIND_LABELS[data.factType] || data.factType || data.factId || "Preuve";
-  renderConsultationBreadcrumb("proofPageBreadcrumb", "proofPageTitle", title, proofPageReturnContext);
+  const proofParent = proofBreadcrumbParent(record, data, proofPageReturnContext);
+  renderConsultationBreadcrumb("proofPageBreadcrumb", "proofPageTitle", {
+    title,
+    root: proofParent?.action === "document" ? "Documents" : "Archives",
+    rootView: proofParent?.action === "document" ? "documents" : "genealogy",
+    parent: proofParent
+  });
   const relation = PROOF_RELATION_LABELS[data.relation] || data.relation || "";
   $("proofPageBadges").innerHTML = `${genealogyKindBadgeHtml("proof")}${genealogyStatusBadgeHtml(data.technicalStatus)}${relation ? `<span class="genealogy-status-badge">${esc(relation)}</span>` : ""}`;
   /* Composition en deux zones sur desktop : le fait historique et ses sources
@@ -7152,6 +7243,11 @@ function renderTranscriptionWorkshop() {
   $("workshopDocumentTitle").textContent = context.title;
   $("workshopDocumentTitle").setAttribute("aria-label", context.title);
   $("workshopDocumentTitle").title = context.title;
+  const workshopDocumentOverflow = $("transcriptionWorkshopView").querySelector(".consultation-breadcrumb-overflow [data-workshop-breadcrumb-overflow=\"document\"]");
+  if (workshopDocumentOverflow) {
+    workshopDocumentOverflow.textContent = context.title;
+    workshopDocumentOverflow.title = context.title;
+  }
   const displayedPassages = transcriptionWorkshopDisplayedPassages();
   $("workshopPageLabel").textContent = `Page ${context.pages.indexOf(page) + 1}${pageLabel} · ${displayedPassages.length} passage${displayedPassages.length > 1 ? "s" : ""}`;
   for (const button of document.querySelectorAll("[data-workshop-mode]")) {
@@ -8544,8 +8640,8 @@ function resetTranscriptionWorkshopState() {
 }
 
 $("transcriptionWorkshopView").addEventListener("click", event => {
-  const breadcrumb = event.target.closest("[data-workshop-breadcrumb]");
-  if (breadcrumb) return navigateTranscriptionWorkshopBreadcrumb(breadcrumb.dataset.workshopBreadcrumb);
+  const breadcrumb = event.target.closest("[data-workshop-breadcrumb], [data-workshop-breadcrumb-overflow]");
+  if (breadcrumb) return navigateTranscriptionWorkshopBreadcrumb(breadcrumb.dataset.workshopBreadcrumb || breadcrumb.dataset.workshopBreadcrumbOverflow);
   if (event.target.closest("#workshopModeBtn")) {
     /* Consultation → session d'édition : le contrôle segmenté apparaît avec
        « Mon brouillon » sélectionné par défaut (brouillon existant repris). */
@@ -9122,7 +9218,16 @@ function renderSourcePage(item, returnContext = null, preserveScroll = false) {
   if ($("genealogyItemDialog").open) close("genealogyItemDialog");
   setView("sourceDetail");
   const { record, data } = item;
-  renderConsultationBreadcrumb("sourcePageBreadcrumb", "sourcePageTitle", data.title || "Source sans titre", sourcePageReturnContext);
+  const title = data.title || "Source sans titre";
+  const sourceParent = sourceDocumentParent(data, sourcePageReturnContext)
+    || sourceProofParent(record, data, sourcePageReturnContext);
+  renderConsultationBreadcrumb("sourcePageBreadcrumb", "sourcePageTitle", {
+    title,
+    root: sourceParent?.action === "document" ? "Documents" : "Archives",
+    rootView: sourceParent?.action === "document" ? "documents" : "genealogy",
+    parent: sourceParent,
+    sameTitlePrefix: "Source : "
+  });
   setDedicatedPageBackLabel("sourcePageBackBtn", sourcePageReturnContext);
   $("sourcePageBadges").innerHTML = `${genealogyKindBadgeHtml("source")}${genealogyStatusBadgeHtml(data.status)}${data.category ? `<span class="genealogy-status-badge">${esc(data.category)}</span>` : ""}`;
   /* Composition en deux zones sur desktop : la colonne principale porte la
@@ -10947,9 +11052,11 @@ async function openStoredDocument(item, returnContext = "previous") {
   /* Lot G : volets mobiles fermés par défaut (Miniatures et Informations),
      Informations dépliées sur ordinateur. */
   setUnifiedDetailsCollapsed(window.matchMedia("(max-width: 760px)").matches);
-  $("viewerTitle").textContent = documentDisplayLabel(item);
-  $("viewerTitle").setAttribute("aria-label", documentDisplayLabel(item));
-  $("viewerTitle").title = documentDisplayLabel(item);
+  renderConsultationBreadcrumb("viewerBreadcrumb", "viewerTitle", {
+    title: documentDisplayLabel(item),
+    root: "Documents",
+    rootView: "documents"
+  });
   /* Badge catégorie sous le titre : la valeur métier du document
      (dont « Autre ») quand elle existe, aucun libellé fabriqué sinon.
      Lot G : aucun sous-titre sous le titre — les métadonnées vivent dans le
@@ -13425,6 +13532,12 @@ else if (typeof viewerPdfMedia.addListener === "function") viewerPdfMedia.addLis
 /* Page Document dédiée : Retour, bascules mobiles des volets (Miniatures /
    Informations) et repli desktop — plus d'onglet supérieur (lot G), plus de
    modal ni de close listener. */
+document.addEventListener("click", event => {
+  const link = event.target.closest("[data-consultation-breadcrumb-action]");
+  if (!link) return;
+  link.closest(".consultation-breadcrumb-overflow")?.removeAttribute("open");
+  navigateConsultationBreadcrumb(link.dataset.consultationBreadcrumbAction, link.dataset.consultationBreadcrumbValue);
+});
 $("documentPageBackBtn").addEventListener("click", returnFromDocumentPage);
 $("viewerDetailsBtn").onclick = () => {
   const expanding = $("documentUnifiedLayout").classList.contains("is-details-collapsed");

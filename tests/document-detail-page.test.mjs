@@ -125,7 +125,8 @@ window.__documentPageTest = {
       pageMaxHeight: getComputedStyle($("documentDetailView")).maxHeight,
       pageBorderRadius: getComputedStyle($("documentDetailView")).borderRadius,
       titleLabel: $("viewerTitle").getAttribute("aria-label"),
-      titleLineClamp: getComputedStyle($("viewerTitle")).webkitLineClamp,
+      titleWhiteSpace: getComputedStyle($("viewerTitle")).whiteSpace,
+      titleOverflow: getComputedStyle($("viewerTitle")).textOverflow,
       tabsAbsent: !document.querySelector(".document-detail-tabs"),
       infoToggleVisible: getComputedStyle($("viewerDetailsBtn")).display !== "none",
       infoHidden: $("viewerDocumentDetails").hidden,
@@ -139,7 +140,8 @@ window.__documentPageTest = {
       workshopBackRedundant: !!document.querySelector(".transcription-workshop-head-status")?.classList.contains("is-breadcrumb-redundant"),
       workshopTitle: $("workshopDocumentTitle").textContent,
       workshopTitleLabel: $("workshopDocumentTitle").getAttribute("aria-label"),
-      workshopTitleLineClamp: getComputedStyle($("workshopDocumentTitle")).webkitLineClamp,
+      workshopTitleWhiteSpace: getComputedStyle($("workshopDocumentTitle")).whiteSpace,
+      workshopTitleOverflow: getComputedStyle($("workshopDocumentTitle")).textOverflow,
       workshopBreadcrumb: document.querySelector(".transcription-workshop-breadcrumb")?.textContent || "",
       workshopNavigationDisplay: getComputedStyle(document.querySelector(".topbar .main-nav")).display,
       workshopBrandDisplay: getComputedStyle(document.querySelector(".topbar .brand")).display,
@@ -208,6 +210,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.subtitleAbsent, true, "aucun sous-titre sous le titre Document (lot G)");
     assert.ok(state.headerClass.includes("dedicated-page-header"), "en-tête Document partagé");
     assert.equal(state.imageVisible, true, "aperçu du document chargé");
+    assert.equal(await page.locator("#viewerBreadcrumb [aria-current='page']").count(), 1, "document courant non cliquable");
     await page.click("#documentPageBackBtn");
     await page.waitForFunction(() => document.getElementById("documentDetailView").hidden);
     /* Le scroll se restaure dans un rAF : on attend sa stabilisation. */
@@ -226,6 +229,10 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.search, "registre");
     assert.equal(state.filter, "legacy-documents");
     assert.ok(Math.abs(restoredScroll - archiveScroll) <= 2, `défilement restauré (${restoredScroll}/${archiveScroll})`);
+    await page.evaluate(() => window.__documentPageTest.openFromArchives());
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+    await page.click("#viewerBreadcrumb [data-consultation-breadcrumb-action='view']");
+    await page.waitForFunction(() => document.getElementById("documentDetailView").hidden && !document.getElementById("documentsView").hidden);
 
     /* Personne → Document → retour Personne : section et brouillon restaurés. */
     await page.evaluate(() => window.__documentPageTest.openFromPerson());
@@ -448,7 +455,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.ok(Math.abs(detailsCloseState.scrollY - Math.min(scrollBeforeDetailsClose, detailsCloseState.maxScroll)) <= 1,
       `fermeture sans saut de défilement (${scrollBeforeDetailsClose} → ${detailsCloseState.scrollY}, max ${detailsCloseState.maxScroll})`);
     assert.equal(state.subtitleAbsent, true, "aucun sous-titre résiduel à 320px");
-    assert.equal(state.titleLineClamp, "2", "titre limité à deux lignes à 320px");
+    assert.equal(state.titleWhiteSpace, "nowrap", "titre Document sur une ligne à 320px");
+    assert.equal(state.titleOverflow, "ellipsis", "titre long tronqué sans couper les mots à 320px");
     assert.equal(state.titleLabel, state.title, "titre complet accessible à 320px");
     await page.setViewportSize({ width: 390, height: 844 });
     state = await page.evaluate(() => window.__documentPageTest.state());
@@ -466,7 +474,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "la bascule referme le volet à 390px");
     assert.equal(await page.locator("#viewerImage").isVisible(), true, "le lecteur reste affiché à 390px");
     assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "libellé « Original » masqué jusqu'à 760px");
-    assert.equal(state.titleLineClamp, "2", "titre limité à deux lignes à 390px");
+    assert.equal(state.titleWhiteSpace, "nowrap", "titre Document sur une ligne à 390px");
+    assert.equal(state.titleOverflow, "ellipsis", "titre long tronqué sans couper les mots à 390px");
     assert.equal(state.titleLabel, state.title, "titre complet accessible à 390px");
     for (const [width, height] of [[320, 844], [390, 844], [1440, 900]]) {
       await page.setViewportSize({ width, height });
@@ -480,7 +489,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
         assert.ok(state.workshopBackHeight >= 44, `Retour ≥44px à ${width}px`);
       }
       assert.equal(state.workshopMenuInPanel, true, `menu « … » unique dans le panneau à ${width}px`);
-      assert.equal(state.workshopTitleLineClamp, "2", `titre Atelier limité à deux lignes à ${width}px`);
+      assert.equal(state.workshopTitleWhiteSpace, "nowrap", `titre Atelier sans coupure de mot à ${width}px`);
+      assert.equal(state.workshopTitleOverflow, "ellipsis", `titre Atelier tronqué par ellipse à ${width}px`);
       assert.match(state.workshopBreadcrumb, width >= 761
         ? /Documents.*Transcription/
         : /Registre de consultation paroissial.*Transcription/, `fil d’Ariane compact à ${width}px`);
@@ -520,8 +530,9 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       const header = view.querySelector(".dedicated-page-header");
       const actions = header.querySelector(".dedicated-page-actions-row")?.getBoundingClientRect() || null;
       const back = header.querySelector(".dedicated-page-back").getBoundingClientRect();
+      const crumb = header.querySelector(".consultation-breadcrumb").getBoundingClientRect();
       const rect = header.getBoundingClientRect();
-      return { actionBackGap: actions ? back.y - actions.bottom : null, rightInset: rect.right - back.right, height: rect.height };
+      return { actionBackGap: actions ? back.y - actions.bottom : null, rightInset: rect.right - back.right, returnCenterDelta: Math.abs((back.y + back.height / 2) - (crumb.y + crumb.height / 2)), returnFontSize: getComputedStyle(header.querySelector(".dedicated-page-back")).fontSize, height: rect.height };
     }, viewId);
     for (const width of [320, 375, 390, 820, 1440]) {
       await page.setViewportSize({ width, height: 900 });
@@ -543,11 +554,13 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `aucun débordement horizontal dans Document à ${width}px`);
       for (const [name, geometry] of [["Source", sourceGeometry], ["Preuve", proofGeometry], ["Document", documentGeometry]]) {
         assert.ok(geometry.rightInset >= -1 && geometry.rightInset <= 3, `${width}px : Retour de ${name} aligné à droite (${geometry.rightInset}px)`);
+        assert.ok(geometry.returnCenterDelta <= 1, `${width}px : Retour de ${name} centré sur le fil (${geometry.returnCenterDelta}px)`);
+        assert.equal(geometry.returnFontSize, "14px", `${width}px : Retour de ${name} en 14 px`);
       }
       assert.equal(await page.locator("#documentPageActions").count(), 0, `${width}px : aucun menu ⋯ dans l’en-tête Document`);
       assert.equal(await page.locator("#viewerEditBtn").count(), 1, `${width}px : action Modifier unique dans les informations`);
       const categoryState = await page.evaluate(() => ({
-        kicker: document.querySelector("#documentDetailView .document-detail-breadcrumb > span").textContent.trim(),
+        kicker: document.querySelector("#documentDetailView .document-detail-breadcrumb .consultation-breadcrumb-root").textContent.trim(),
         title: document.getElementById("viewerTitle").getBoundingClientRect(),
         badge: document.getElementById("viewerCategoryBadge").getBoundingClientRect(),
         header: document.querySelector("#documentDetailView .document-detail-header").getBoundingClientRect()
