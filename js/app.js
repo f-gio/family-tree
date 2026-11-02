@@ -59,6 +59,7 @@ import {
   prepareLegacyDocumentPage,
   isLegacyDocumentPhotograph,
   LEGACY_DOCUMENT_IMAGE_PREFIX,
+  isTranscriptionPdfDocument,
   setTranscriptionWorkshopPassageAnchor,
   clampWorkshopZoneRect,
   workshopZoneRectFromDrag,
@@ -6561,15 +6562,17 @@ function openTranscriptionWorkshopForDocument(documentItem, preferredPageId = ""
   return openTranscriptionPageInitDialog(documentItem, activeSources);
 }
 
-async function computeLegacyDocumentSha256(item) {
-  let bytes = null;
-  if (item.chunkCount && item.chunkVersion) {
-    const blob = await readChunkedFile(item);
-    bytes = new Uint8Array(await blob.arrayBuffer());
-  } else if (typeof item.fileData === "string" && item.fileData.startsWith("data:image/")) {
-    bytes = base64ToBytes(item.fileData.slice(item.fileData.indexOf(",") + 1));
-  } else {
-    throw new Error("Cette ressource ne peut pas être vérifiée localement : l’initialisation nécessite le fichier importé dans l’application.");
+async function computeLegacyDocumentSha256(item, localBytes = null) {
+  let bytes = localBytes;
+  if (!bytes) {
+    if (item.chunkCount && item.chunkVersion) {
+      const blob = await readChunkedFile(item);
+      bytes = new Uint8Array(await blob.arrayBuffer());
+    } else if (typeof item.fileData === "string" && item.fileData.startsWith("data:")) {
+      bytes = base64ToBytes(item.fileData.slice(item.fileData.indexOf(",") + 1));
+    } else {
+      throw new Error("Cette ressource ne peut pas être vérifiée localement : l’initialisation nécessite le fichier importé dans l’application.");
+    }
   }
   if (!bytes?.length) throw new Error("Le fichier du document est introuvable ou vide.");
   if (!globalThis.crypto?.subtle?.digest) throw new Error("L’empreinte SHA-256 n’est pas disponible dans ce navigateur.");
@@ -6718,10 +6721,16 @@ async function confirmTranscriptionPageInit() {
   }
 }
 
-function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
+async function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
   /* B1 : (ré)ouverture ou changement de page pendant un tracé = abandon propre
      du rectangle temporaire, avant tout changement de contexte. */
   cancelWorkshopZoneTool();
+  /* B2 : pour un PDF, les octets locaux et leur empreinte sont résolus avant
+     tout montage — la vue n'apparaît qu'une fois le support prêt. */
+  if (!context.pdfResolved) {
+    context.pdfResolved = true;
+    await resolveWorkshopPdfContext(context);
+  }
   const page = context.pages.find(value => value.id === pageId) || context.pages[0];
   const photos = Array.isArray(page?.photographs) ? page.photographs : [];
   const photo = photos.find(value => value.id === photoId) || photos[0] || null;
@@ -6772,7 +6781,12 @@ function openTranscriptionWorkshopFor(context, pageId, photoId = "") {
   markTranscriptionWorkshopHistory();
   bindTranscriptionWorkshopMenu();
   bindWorkshopVirtualKeyboard();
-  createWorkshopImageViewer();
+  if (context.pdf) {
+    await createWorkshopPdfViewer();
+  } else {
+    destroyWorkshopPdfViewer();
+    createWorkshopImageViewer();
+  }
   syncWorkshopZone();
   scheduleTranscriptionWorkshopScrollTop();
   /* Synchronisation entre appareils : lecture ponctuelle du distant à
@@ -6953,6 +6967,7 @@ function restoreTranscriptionWorkshopOrigin(target) {
 
 function teardownTranscriptionWorkshop() {
   destroyWorkshopImageViewer();
+  destroyWorkshopPdfViewer();
   resetTranscriptionWorkshopState();
   transcriptionWorkshopReturn = null;
   /* Retire le marqueur d'entrée d'atelier de l'entrée courante : aucune entrée
@@ -6985,7 +7000,7 @@ async function loadLegacyDocumentImageSource(item) {
 
 async function resolveWorkshopImageSource() {
   const context = transcriptionWorkshopContext;
-  if (!context || context.imageSrc) return;
+  if (!context || context.imageSrc || context.pdf) return;
   const photo = context.photos.find(value => value.id === context.photoId);
   const resourceRef = photo?.original?.resourceRef;
   if (typeof resourceRef !== "string" || !resourceRef.startsWith(LEGACY_DOCUMENT_IMAGE_PREFIX)) return;
@@ -7051,6 +7066,19 @@ function renderWorkshopImageArea() {
   const image = $("workshopPageImage");
   const empty = $("workshopImageEmpty");
   const zone = $("workshopZone");
+  const frame = $("workshopImageFrame");
+  if (context?.pdf) {
+    /* B2 : support PDF — la photographie et son cadre restent masqués, la
+       surface PDF et sa pagination sont pilotées par createWorkshopPdfViewer. */
+    frame.hidden = true;
+    zone.hidden = true;
+    image.hidden = true;
+    image.removeAttribute("src");
+    empty.hidden = true;
+    $("workshopImageTools").hidden = true;
+    return;
+  }
+  frame.hidden = false;
   zone.hidden = true;
   if (!context.imageSrc) {
     image.hidden = true;
@@ -7098,11 +7126,148 @@ function destroyWorkshopImageViewer() {
   workshopImageViewer = null;
 }
 
+/* ---- B2 : surface PDF de l'atelier ---------------------------------------
+   Le fichier est résolu une fois par contexte (octets locaux si possible) ;
+   l'empreinte SHA-256 devient l'identité de l'ancre PDF — un fichier remplacé
+   change d'empreinte et ses anciennes zones ne sont donc plus affichées. Un
+   PDF distant sans octets locaux s'affiche en lecture simple (fallback) mais
+   la délimitation reste indisponible : aucune empreinte n'est inventée. */
+let workshopPdfViewer = null;
+let workshopPdfRenderedPage = null;
+let workshopPdfObjectUrl = null;
+
+async function resolveWorkshopPdfContext(context) {
+  const item = context.kind === "document"
+    ? context.record
+    : documents.find(value => value.id === context.documentId);
+  if (!isTranscriptionPdfDocument(item)) return;
+  const pdf = { available: false, source: "", fileSha256: null, external: false };
+  try {
+    const blob = await readLocallyAvailableDocumentBlob(item);
+    if (blob && blob.size) {
+      if (workshopPdfObjectUrl) URL.revokeObjectURL(workshopPdfObjectUrl);
+      workshopPdfObjectUrl = URL.createObjectURL(blob);
+      pdf.source = workshopPdfObjectUrl;
+      pdf.available = true;
+      /* Octets conservés pour le lecteur (data: au lieu d'une URL objet — le
+         worker PDF.js de WebKit ne peut pas fetcher les blob: URLs) et pour
+         l'empreinte, calculée sur EXACTEMENT les mêmes octets. */
+      pdf.bytes = new Uint8Array(await blob.arrayBuffer());
+      pdf.fileSha256 = await computeLegacyDocumentSha256(item, pdf.bytes);
+    } else if (item.fileUrl || item.externalUrl) {
+      /* Lecture seule possible via le lecteur, mais pas d'identité locale
+         vérifiable : aucune zone ne pourra être tracée. */
+      pdf.source = item.fileUrl || item.externalUrl;
+      pdf.external = true;
+      pdf.available = true;
+    }
+  } catch {
+    /* Source illisible : le message du lecteur restera explicite. */
+  }
+  context.pdf = pdf;
+}
+
+async function createWorkshopPdfViewer() {
+  /* On conserve l'URL objet du contexte : seule la fermeture de l'atelier la
+     révoque (destroyWorkshopPdfViewer sans keepSource). */
+  destroyWorkshopPdfViewer({ keepSource: true });
+  const context = transcriptionWorkshopContext;
+  if (!context?.pdf?.source) return;
+  const surface = $("workshopPdfSurface");
+  const tools = $("workshopPdfTools");
+  const message = $("workshopPdfMessage");
+  surface.hidden = false;
+  tools.hidden = false;
+  message.hidden = false;
+  message.textContent = "Chargement du document…";
+  /* Rendu PDF.js réutilisé : callbacks de page pour l'overlay B1/B2 et
+     commandes scopées (aucun identifiant DOM de la fiche Document). */
+  let result = null;
+  try {
+    result = await createDocumentPdfViewer({
+      source: context.pdf.source,
+      data: context.pdf.bytes || null,
+      viewer: surface,
+      loadingMessage: message,
+      pageViewport: $("workshopPdfViewport"),
+      pageCanvas: $("workshopPdfCanvas"),
+      pageStatus: $("workshopPdfStatus"),
+      previousButton: $("workshopPdfPrevBtn"),
+      nextButton: $("workshopPdfNextBtn"),
+      zoomOutButton: $("workshopPdfZoomOutBtn"),
+      zoomInButton: $("workshopPdfZoomInBtn"),
+      fitModeButton: $("workshopPdfFitModeBtn"),
+      bindingRoot: $("transcriptionWorkshopView"),
+      keyZone: $("workshopPanelOriginal"),
+      onPageRenderStart: ({ page }) => {
+        /* Seul un CHANGEMENT DE PAGE abandonne un tracé en cours (le contexte
+           change) ; un re-render de la même page (zoom, mise en page, taille
+           du panneau) masque seulement l'overlay — il sera reposé sur le rendu
+           confirmé. */
+        const pageChanged = workshopPdfRenderedPage != null && workshopPdfRenderedPage !== page;
+        if (pageChanged && workshopZoneTool) cancelWorkshopZoneTool();
+        workshopPdfRenderedPage = null;
+        if (isTranscriptionWorkshopActive()) syncWorkshopZone();
+      },
+      onPageRenderEnd: ({ page }) => {
+        workshopPdfRenderedPage = page;
+        if (isTranscriptionWorkshopActive()) {
+          syncWorkshopZone();
+          scheduleWorkshopZoneSync();
+        }
+      }
+    });
+  } catch {
+    result = null;
+  }
+  if (!result || result.fallback) {
+    /* PDF.js indisponible ou illisible : message explicite + consultation de
+       secours native si une source existe ; aucune délimitation possible. */
+    workshopPdfViewer = null;
+    workshopPdfRenderedPage = null;
+    context.pdf.viewerError = result?.error || "création du lecteur impossible";
+    tools.hidden = true;
+    surface.hidden = true;
+    const fallback = $("workshopPdfFallback");
+    if (fallback && context.pdf.source) {
+      fallback.src = context.pdf.source;
+      fallback.hidden = false;
+    }
+    if (result?.error) message.textContent = "Le lecteur PDF interactif n’est pas disponible pour cette ressource.";
+    return;
+  }
+  workshopPdfViewer = result;
+}
+
+function destroyWorkshopPdfViewer({ keepSource = false } = {}) {
+  workshopPdfViewer?.destroy();
+  workshopPdfViewer = null;
+  workshopPdfRenderedPage = null;
+  const surface = $("workshopPdfSurface");
+  if (surface) surface.hidden = true;
+  const tools = $("workshopPdfTools");
+  if (tools) tools.hidden = true;
+  const message = $("workshopPdfMessage");
+  if (message) {
+    message.hidden = true;
+    message.textContent = "Chargement du document…";
+  }
+  const fallback = $("workshopPdfFallback");
+  if (fallback) {
+    fallback.hidden = true;
+    fallback.removeAttribute("src");
+  }
+  if (!keepSource && workshopPdfObjectUrl) {
+    URL.revokeObjectURL(workshopPdfObjectUrl);
+    workshopPdfObjectUrl = null;
+  }
+}
+
 function renderWorkshopPhotoNav() {
   const context = transcriptionWorkshopContext;
-  $("workshopPhotoNav").innerHTML = context.photos.length > 1
-    ? `<div class="genealogy-inline-actions" aria-label="Photographies de la page">${context.photos.map((photo, index) => `<button class="btn small${photo.id === context.photoId ? " primary" : ""}" type="button" data-workshop-photo="${esc(photo.id)}">Photo ${index + 1}</button>`).join("")}</div>`
-    : "";
+  $("workshopPhotoNav").innerHTML = context?.pdf || context.photos.length < 2
+    ? ""
+    : `<div class="genealogy-inline-actions" aria-label="Photographies de la page">${context.photos.map((photo, index) => `<button class="btn small${photo.id === context.photoId ? " primary" : ""}" type="button" data-workshop-photo="${esc(photo.id)}">Photo ${index + 1}</button>`).join("")}</div>`;
 }
 
 function workshopPassageBadges(passage, draft) {
@@ -7211,26 +7376,32 @@ function syncWorkshopSelectionClasses() {
 }
 
 function syncWorkshopZone() {
-  const zone = $("workshopZone");
   const context = transcriptionWorkshopContext;
   const draft = transcriptionWorkshopDraft;
-  const image = $("workshopPageImage");
   const passage = draft?.passages.find(item => item.id === draft.selectedPassageId);
   const anchor = passage?.anchor;
-  const visible = Boolean(anchor && context?.imageSrc && anchor.photographId === context.photoId
-    && !image.hidden && image.naturalWidth);
+  const elements = workshopZoneElements();
+  const pdfActive = Boolean(context?.pdf);
+  /* La zone PDF n'apparaît qu'une fois la BONNE page réellement peinte
+     (rendu confirmé) et si l'empreinte du fichier correspond toujours. */
+  const visible = pdfActive
+    ? Boolean(anchor?.pdfPage && workshopPdfRenderedPage === anchor.pdfPage
+      && context.pdf?.fileSha256 && anchor.fileSha256 === context.pdf.fileSha256
+      && workshopPdfViewer)
+    : Boolean(anchor && context?.imageSrc && anchor.photographId === context.photoId
+      && !$("workshopPageImage").hidden && $("workshopPageImage").naturalWidth);
   /* En mode tracé, la zone passive cède la place à l'éditeur temporaire —
      jamais deux rectangles concurrents. */
-  zone.hidden = !visible || Boolean(workshopZoneTool);
-  const display = visible ? workshopImageDisplayRect() : null;
-  if (display) {
-    /* Géométrie calculée sur l'image RÉELLEMENT affichée (getBoundingClientRect
-       du lecteur) : alignée quel que soit le zoom, le pan, le translate du
-       lecteur et le redimensionnement — jamais sur le conteneur. */
-    zone.style.left = `${display.left + anchor.x * display.width}px`;
-    zone.style.top = `${display.top + anchor.y * display.height}px`;
-    zone.style.width = `${anchor.width * display.width}px`;
-    zone.style.height = `${anchor.height * display.height}px`;
+  elements.zone.hidden = !visible || Boolean(workshopZoneTool);
+  const display = visible ? elements.displayRect : null;
+  if (display && anchor) {
+    /* Géométrie calculée sur le support RÉELLEMENT affiché (getBoundingClientRect
+       du canvas ou de l'image) : alignée quel que soit le zoom, le pan, le
+       défilement et le redimensionnement — jamais sur le conteneur. */
+    elements.zone.style.left = `${display.left + anchor.x * display.width}px`;
+    elements.zone.style.top = `${display.top + anchor.y * display.height}px`;
+    elements.zone.style.width = `${anchor.width * display.width}px`;
+    elements.zone.style.height = `${anchor.height * display.height}px`;
   }
   renderWorkshopZoneEditor();
 }
@@ -7247,6 +7418,33 @@ function workshopImageDisplayRect() {
     top: imageRect.top - frameRect.top - frame.clientTop + frame.scrollTop,
     width: imageRect.width,
     height: imageRect.height
+  };
+}
+
+/** B2 : rect du canvas PDF affiché dans le repère de son viewport défilant. */
+function workshopPdfDisplayRect() {
+  const canvas = $("workshopPdfCanvas");
+  const viewport = $("workshopPdfViewport");
+  const canvasRect = canvas.getBoundingClientRect();
+  const viewportRect = viewport.getBoundingClientRect();
+  if (!canvasRect.width || !canvasRect.height) return null;
+  return {
+    left: canvasRect.left - viewportRect.left - viewport.clientLeft + viewport.scrollLeft,
+    top: canvasRect.top - viewportRect.top - viewport.clientTop + viewport.scrollTop,
+    width: canvasRect.width,
+    height: canvasRect.height
+  };
+}
+
+/** Éléments de zone du support actif (photographie JPEG ou page PDF). */
+function workshopZoneElements() {
+  const pdf = Boolean(transcriptionWorkshopContext?.pdf);
+  return {
+    zone: pdf ? $("workshopPdfZone") : $("workshopZone"),
+    editor: pdf ? $("workshopPdfZoneEditor") : $("workshopZoneEditor"),
+    editorRect: pdf ? $("workshopPdfZoneEditorRect") : $("workshopZoneEditorRect"),
+    displayRect: pdf ? workshopPdfDisplayRect() : workshopImageDisplayRect(),
+    media: pdf ? $("workshopPdfCanvas") : $("workshopPageImage")
   };
 }
 
@@ -7274,22 +7472,23 @@ function scheduleWorkshopZoneSync(retry) {
   }));
 }
 
-/** Vrai si la zone passive n'est pas alignée sur l'image affichée (±1 px). */
+/** Vrai si la zone passive n'est pas alignée sur le support affiché (±1 px). */
 function workshopZoneNeedsResync() {
-  const zone = $("workshopZone");
-  const image = $("workshopPageImage");
   const tool = workshopZoneTool;
-  if (!zone || !image || tool || zone.hidden) return false;
+  const elements = workshopZoneElements();
+  const zone = elements.zone;
+  const media = elements.media;
+  if (!zone || !media || tool || zone.hidden) return false;
   const anchor = transcriptionWorkshopDraft?.passages
     .find(passage => passage.id === transcriptionWorkshopDraft.selectedPassageId)?.anchor;
   if (!anchor) return false;
-  const imageRect = image.getBoundingClientRect();
-  if (!imageRect.width || !imageRect.height) return false;
+  const mediaRect = media.getBoundingClientRect();
+  if (!mediaRect.width || !mediaRect.height) return false;
   const bounds = zone.getBoundingClientRect();
-  return Math.abs(bounds.left - (imageRect.left + anchor.x * imageRect.width)) > 1
-    || Math.abs(bounds.top - (imageRect.top + anchor.y * imageRect.height)) > 1
-    || Math.abs(bounds.width - anchor.width * imageRect.width) > 1
-    || Math.abs(bounds.height - anchor.height * imageRect.height) > 1;
+  return Math.abs(bounds.left - (mediaRect.left + anchor.x * mediaRect.width)) > 1
+    || Math.abs(bounds.top - (mediaRect.top + anchor.y * mediaRect.height)) > 1
+    || Math.abs(bounds.width - anchor.width * mediaRect.width) > 1
+    || Math.abs(bounds.height - anchor.height * mediaRect.height) > 1;
 }
 
 /* ---- B1 : délimitation graphique des passages (JPEG) ----------------------
@@ -7304,24 +7503,20 @@ function workshopZonePhotographIds() {
 }
 
 function renderWorkshopZoneEditor() {
-  const editor = $("workshopZoneEditor");
-  const rectEl = $("workshopZoneEditorRect");
-  const image = $("workshopPageImage");
   const tool = workshopZoneTool;
-  const visible = Boolean(tool && isTranscriptionWorkshopActive() && !image.hidden && image.naturalWidth);
+  const elements = workshopZoneElements();
+  const editor = elements.editor;
+  const rectEl = elements.editorRect;
+  const display = elements.displayRect;
+  const visible = Boolean(tool && isTranscriptionWorkshopActive() && display);
   editor.hidden = !visible;
   if (!visible) {
     rectEl.hidden = true;
     return;
   }
-  const display = workshopImageDisplayRect();
-  if (!display) {
-    rectEl.hidden = true;
-    editor.hidden = true;
-    return;
-  }
-  /* L'éditeur épouse l'image affichée : zoom, pan, translate du lecteur et
-     redimensionnement suivis sans recalcul manuel (coordonnées normalisées). */
+  /* L'éditeur épouse le support affiché (image ou canvas PDF) : zoom, pan,
+     défilement et redimensionnement suivis sans recalcul manuel (coordonnées
+     normalisées). */
   editor.style.left = `${display.left}px`;
   editor.style.top = `${display.top}px`;
   editor.style.width = `${display.width}px`;
@@ -7343,9 +7538,13 @@ function updateWorkshopZoneToolUi() {
   const hint = $("workshopZoneHint");
   if (!tool || !confirmButton || !hint) return;
   confirmButton.disabled = !tool.rect;
-  hint.textContent = tool.rect
-    ? "Déplacez la zone ou redimensionnez-la avec ses poignées, puis confirmez."
-    : "Glissez sur la photographie pour tracer la zone.";
+  if (tool.rect) {
+    hint.textContent = "Déplacez la zone ou redimensionnez-la avec ses poignées, puis confirmez.";
+  } else {
+    hint.textContent = transcriptionWorkshopContext?.pdf
+      ? "Glissez sur la page PDF pour tracer la zone."
+      : "Glissez sur la photographie pour tracer la zone.";
+  }
 }
 
 function cancelWorkshopZoneTool() {
@@ -7369,10 +7568,22 @@ function startWorkshopZoneTool(mode) {
   const passageId = draft?.selectedPassageId;
   const passage = draft?.passages.find(item => item.id === passageId);
   if (!draft || !passage || !context) return;
-  if (!context.imageSrc || !context.photoId) return toast("Aucune photographie n’est associée à cette page.", "error");
   if (mode === "adjust" && !passage.anchor) return;
+  if (context.pdf) {
+    /* B2 : tracé PDF uniquement sur une page peinte et sur un fichier dont
+       l'empreinte est vérifiable — jamais d'ancre persistée sur un PDF
+       distant sans identité ni sur un fichier remplacé. */
+    if (!context.pdf.available || !context.pdf.source) return toast("Ce PDF ne peut pas être ouvert dans l’atelier.", "error");
+    if (!context.pdf.fileSha256) return toast("Ce PDF n’est pas stocké localement : son empreinte n’est pas vérifiable, la délimitation est indisponible.", "error");
+    if (!workshopPdfViewer || !workshopPdfRenderedPage) return toast("La page PDF est en cours de chargement. Réessayez dans un instant.", "error");
+    if (mode === "adjust" && passage.anchor.fileSha256 && passage.anchor.fileSha256 !== context.pdf.fileSha256) {
+      return toast("Cette zone vise une version antérieure du fichier : elle n’est plus affichée. Tracez une nouvelle zone si nécessaire.", "error");
+    }
+  } else {
+    if (!context.imageSrc || !context.photoId) return toast("Aucune photographie n’est associée à cette page.", "error");
+  }
   cancelWorkshopZoneTool();
-  if (mode === "adjust") {
+  if (mode === "adjust" && !context.pdf) {
     /* La zone existante est ajustée SA photographie : affichage basculé au
        besoin (le rectangle est normalisé, donc parfaitement réaligné). */
     const anchor = passage.anchor;
@@ -7386,11 +7597,15 @@ function startWorkshopZoneTool(mode) {
       renderWorkshopPhotoNav();
     }
   }
-  /* Le tracé se fait sur la photographie : sur mobile, bascule vers
+  /* Le tracé se fait sur le support affiché : sur mobile, bascule vers
      l'onglet Original (sans effet sur la double colonne desktop). */
   setWorkshopTab("original");
   workshopZoneTool = {
     passageId,
+    /* Page PDF active au démarrage du tracé : figée pour la confirmation —
+       un re-render transitoire de la même page ne doit pas bloquer l'écriture
+       (un changement de page abandonne le tracé avant). */
+    page: context.pdf ? workshopPdfRenderedPage : null,
     rect: mode === "adjust" ? clampWorkshopZoneRect(passage.anchor) : null,
     phase: mode === "adjust" ? "adjusting" : "drawing",
     drag: null
@@ -7399,7 +7614,7 @@ function startWorkshopZoneTool(mode) {
   $("workshopZoneActions").hidden = false;
   updateWorkshopZoneToolUi();
   renderTranscriptionWorkshop();
-  /* État immédiat (l'image est déjà stable) puis repositionnement après la
+  /* État immédiat (le support est déjà stable) puis repositionnement après la
      bascule d'onglet / l'ajustement du lecteur du prochain rendu. */
   syncWorkshopZone();
   scheduleWorkshopZoneSync();
@@ -7410,20 +7625,39 @@ function confirmWorkshopZoneTool() {
   const draft = transcriptionWorkshopDraft;
   const context = transcriptionWorkshopContext;
   if (!tool || !tool.rect || !draft) return;
+  const isPdf = Boolean(context?.pdf);
+  const targetReady = isPdf
+    ? Boolean(tool.page && context.pdf?.fileSha256 && workshopPdfViewer)
+    : Boolean(context?.photoId && context.imageSrc);
   if (transcriptionWorkshopIsReadOnly() || transcriptionWorkshopEditorState()
-    || tool.passageId !== draft.selectedPassageId || !context?.photoId || !context.imageSrc) {
+    || tool.passageId !== draft.selectedPassageId || !targetReady) {
     return cancelWorkshopZoneTool();
   }
   const rect = clampWorkshopZoneRect(tool.rect);
-  try {
-    setTranscriptionWorkshopPassageAnchor(draft, tool.passageId, {
+  /* B2 : l'ancre PDF porte le document cible (via l'empreinte du fichier),
+     la page 1-based figée au tracé et les mêmes coordonnées normalisées que B1. */
+  const anchor = isPdf
+    ? {
+      shape: "rect",
+      pdfPage: tool.page,
+      fileSha256: context.pdf.fileSha256,
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height
+    }
+    : {
       shape: "rect",
       photographId: context.photoId,
       x: rect.x,
       y: rect.y,
       width: rect.width,
       height: rect.height
-    }, { photographIds: workshopZonePhotographIds() });
+    };
+  try {
+    setTranscriptionWorkshopPassageAnchor(draft, tool.passageId, anchor, {
+      photographIds: workshopZonePhotographIds()
+    });
   } catch (error) {
     return toast(error.message || "La zone ne peut pas être enregistrée.", "error");
   }
@@ -7454,7 +7688,7 @@ function deleteWorkshopZone() {
 }
 
 function workshopZonePointerPoint(event) {
-  const bounds = $("workshopZoneEditor").getBoundingClientRect();
+  const bounds = workshopZoneElements().editor.getBoundingClientRect();
   if (!bounds.width || !bounds.height) return null;
   return {
     x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
@@ -7468,10 +7702,10 @@ function onWorkshopZonePointerDown(event) {
   const point = workshopZonePointerPoint(event);
   if (!point) return;
   const handle = event.target.closest?.("[data-zone-handle]");
-  const onRect = Boolean(event.target.closest?.("#workshopZoneEditorRect"));
+  const onRect = Boolean(event.target.closest?.("#workshopZoneEditorRect, #workshopPdfZoneEditorRect"));
   event.preventDefault();
   event.stopPropagation();
-  try { $("workshopZoneEditor").setPointerCapture(event.pointerId); } catch { /* capture best effort */ }
+  try { workshopZoneElements().editor.setPointerCapture(event.pointerId); } catch { /* capture best effort */ }
   const common = { start: point, startX: event.clientX, startY: event.clientY, base: tool.rect ? { ...tool.rect } : null };
   if (handle && tool.rect) tool.drag = { ...common, action: handle.dataset.zoneHandle };
   else if (onRect && tool.rect) tool.drag = { ...common, action: "move" };
@@ -7523,7 +7757,14 @@ function selectWorkshopPassage(passageId, { scroll = true } = {}) {
   catch { return; }
   const passage = draft.passages.find(item => item.id === passageId);
   const context = transcriptionWorkshopContext;
-  if (passage?.anchor?.photographId && passage.anchor.photographId !== context.photoId) {
+  if (context?.pdf) {
+    /* B2 : sélection d'un passage à zone PDF = ouverture automatique de SA
+       page ; la sélection reste intacte lors d'un changement manuel de page. */
+    if (passage?.anchor?.pdfPage && workshopPdfViewer
+      && passage.anchor.pdfPage !== workshopPdfViewer.getState().currentPage) {
+      void workshopPdfViewer.selectPage(passage.anchor.pdfPage);
+    }
+  } else if (passage?.anchor?.photographId && passage.anchor.photographId !== context.photoId) {
     const photo = context.photos.find(value => value.id === passage.anchor.photographId);
     const imageSrc = transcriptionWorkshopImageSource(photo);
     if (photo && imageSrc) {
@@ -8313,22 +8554,27 @@ window.addEventListener("popstate", () => {
    remonte jusqu'au lecteur. Hors tracé, aucun écouteur n'agit. */
 function guardWorkshopZoneViewerGestures(event) {
   if (!workshopZoneTool) return;
-  /* Les cibles dédiées (éditeur, commandes) gèrent leurs propres événements ;
-     seuls les gestes hors de ces zones sont neutralisés avant le lecteur. */
+  /* Les cibles dédiées (éditeur photo ou PDF, commandes) gèrent leurs propres
+     événements ; seuls les gestes hors de ces zones sont neutralisés avant le
+     lecteur. */
   if (event.target.closest?.("#workshopZoneActions")) return;
-  if (event.target.closest?.("#workshopZoneEditor")) return;
+  if (event.target.closest?.("#workshopZoneEditor, #workshopPdfZoneEditor")) return;
   event.stopPropagation();
 }
 ["wheel", "touchstart", "touchmove", "pointerdown"].forEach(type => {
   $("workshopPanelOriginal").addEventListener(type, guardWorkshopZoneViewerGestures, { capture: true, passive: true });
 });
-["touchstart", "touchmove", "touchend", "touchcancel", "wheel"].forEach(type => {
-  $("workshopZoneEditor").addEventListener(type, event => event.stopPropagation(), { passive: true });
-});
-$("workshopZoneEditor").addEventListener("pointerdown", onWorkshopZonePointerDown);
-$("workshopZoneEditor").addEventListener("pointermove", onWorkshopZonePointerMove);
-$("workshopZoneEditor").addEventListener("pointerup", onWorkshopZonePointerEnd);
-$("workshopZoneEditor").addEventListener("pointercancel", onWorkshopZonePointerEnd);
+for (const editorId of ["workshopZoneEditor", "workshopPdfZoneEditor"]) {
+  const editor = $(editorId);
+  if (!editor) continue;
+  ["touchstart", "touchmove", "touchend", "touchcancel", "wheel"].forEach(type => {
+    editor.addEventListener(type, event => event.stopPropagation(), { passive: true });
+  });
+  editor.addEventListener("pointerdown", onWorkshopZonePointerDown);
+  editor.addEventListener("pointermove", onWorkshopZonePointerMove);
+  editor.addEventListener("pointerup", onWorkshopZonePointerEnd);
+  editor.addEventListener("pointercancel", onWorkshopZonePointerEnd);
+}
 /* Alignement de la zone et de l'éditeur sur tout redimensionnement de fenêtre
    (le lecteur recalcule son ajustement via ResizeObserver). */
 window.addEventListener("resize", () => {
@@ -10511,12 +10757,12 @@ async function openStoredDocument(item, returnContext = "previous") {
   try {
     let source = item.fileUrl || item.externalUrl || "";
     let mimeType = item.mimeType || "";
-    if (item.chunkCount && item.chunkVersion) {
-      const blob = await readChunkedFile(item);
-      activeViewerUrl = URL.createObjectURL(blob);
-      source = activeViewerUrl;
-      mimeType = blob.type;
-    } else if (item.fileData) {
+  if (item.chunkCount && item.chunkVersion) {
+    const blob = await readChunkedFile(item);
+    activeViewerUrl = URL.createObjectURL(blob);
+    source = activeViewerUrl;
+    mimeType = blob.type;
+  } else if (item.fileData) {
       const blob = await (await fetch(item.fileData)).blob();
       activeViewerUrl = URL.createObjectURL(blob);
       source = activeViewerUrl;

@@ -2822,12 +2822,22 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-zone-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; padding-top: var(--space-1); }
 .transcription-workshop-zone-hint { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; text-overflow: ellipsis; }
 .transcription-workshop-zone-actions .btn { min-height: var(--control-touch); }
-/* Pendant le tracé, les commandes d'image et de navigation figent (aucun
-   conflit avec le pan/pinch) — les gestes du lecteur sont aussi neutralisés
-   côté JS par la garde de capture. */
+/* Pendant le tracé, les commandes d'image, de pagination PDF et de navigation
+   figent (aucun conflit avec le pan/pinch) — les gestes du lecteur sont aussi
+   neutralisés côté JS par la garde de capture. */
 #workshopPanelOriginal.is-zone-editing #workshopImageTools,
+#workshopPanelOriginal.is-zone-editing #workshopPdfTools,
 #workshopPanelOriginal.is-zone-editing #workshopPageNav,
 #workshopPanelOriginal.is-zone-editing #workshopPhotoNav { pointer-events: none; opacity: .55; }
+/* B2 : surface PDF de l'atelier — réutilise le moteur PDF.js de la fiche
+   Document (rendu d'une page sur canvas) avec sa propre pagination et son
+   propre zoom, sans identifiants DOM partagés. */
+.transcription-workshop-pdf-tools { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; min-width: 0; }
+.transcription-workshop-pdf-status { min-width: 4.5rem; text-align: center; color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.transcription-workshop-pdf-surface { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); flex: 1 1 auto; min-width: 0; min-height: 220px; }
+.transcription-workshop-pdf-viewport { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface-muted); }
+.transcription-workshop-pdf-canvas { display: block; flex: 0 0 auto; max-width: none; margin: auto; background: #fff; box-shadow: var(--shadow-low); }
+.transcription-workshop-pdf-fallback { width: 100%; flex: 1 1 auto; min-height: 220px; border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface); }
 #workshopPanelOriginal.is-viewer-fullscreen { z-index: 130; gap: var(--space-2); background: var(--color-page); padding: max(var(--space-2), env(safe-area-inset-top)) max(var(--space-2), env(safe-area-inset-right)) max(var(--space-2), env(safe-area-inset-bottom)) max(var(--space-2), env(safe-area-inset-left)); }
 #workshopPanelOriginal.is-viewer-fullscreen .transcription-workshop-image-viewport { flex: 1 1 auto; height: auto; max-height: none; border: 0; }
 .transcription-workshop-empty { margin: 0; padding: var(--space-3); border: 1px dashed var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-soft); color: var(--color-text-muted); font-size: var(--text-sm); }

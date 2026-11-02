@@ -21,6 +21,7 @@ import {
   workshopZoneResizeRect,
   setTranscriptionWorkshopPassageAnchor,
   isTranscriptionJpegDocument,
+  isTranscriptionPdfDocument,
   findSourcePageForDocument,
   prepareLegacyDocumentPage,
   legacyDocumentResourceRef
@@ -248,6 +249,14 @@ test("un JPEG est identifié et une page existante est réutilisée", () => {
   assert.equal(findSourcePageForDocument(source, "autre-document"), null, "aucune page pour un autre document");
   assert.equal(findSourcePageForDocument({ id: "src-sans-pages" }, "doc-jpeg"), null, "source sans pages");
   assert.equal(findSourcePageForDocument(null, "doc-jpeg"), null, "source absente");
+});
+
+test("un PDF est identifié par son type ou son extension, jamais par une image", () => {
+  assert.equal(isTranscriptionPdfDocument({ id: "d", fileName: "registre.pdf", mimeType: "application/pdf" }), true, "mimeType application/pdf");
+  assert.equal(isTranscriptionPdfDocument({ id: "d", fileName: "SCAN.PDF" }), true, "extension .PDF majuscule");
+  assert.equal(isTranscriptionPdfDocument({ id: "d", fileName: "registre.jpg", mimeType: "image/jpeg" }), false, "JPEG hors du périmètre PDF");
+  assert.equal(isTranscriptionPdfDocument({ id: "d", fileName: "notes.txt", mimeType: "text/plain" }), false, "autre type");
+  assert.equal(isTranscriptionPdfDocument(null), false, "entrée invalide");
 });
 
 test("l’initialisation prépare une page référençant le JPEG sans dupliquer le fichier", () => {
@@ -518,13 +527,23 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(html, /id="workshopZoneEditor"[^>]*hidden/, "éditeur de zone présent et masqué au repos");
   assert.match(html, /id="workshopZoneActions"[^>]*hidden/, "commandes du mode tracé masquées au repos");
   assert.match(html, /id="workshopZoneConfirmBtn"[^>]*disabled/, "confirmation indisponible sans rectangle tracé");
-  assert.equal((html.match(/data-zone-handle=/g) || []).length, 4, "quatre poignées de redimensionnement");
+  assert.equal((html.match(/data-zone-handle=/g) || []).length, 8, "quatre poignées par éditeur de zone (photographie et PDF)");
   assert.match(app, /function startWorkshopZoneTool\(mode\)/, "mode de tracé piloté par l’application");
   assert.match(app, /function confirmWorkshopZoneTool\(\)/, "écriture de la zone seulement après confirmation");
   assert.match(app, /guardWorkshopZoneViewerGestures/, "gestes du lecteur neutralisés pendant le tracé");
   assert.match(app, /window\.addEventListener\("resize", \(\) => \{\s*if \(isTranscriptionWorkshopActive\(\)\) scheduleWorkshopZoneSync\(\);/, "réalignement de la zone sur redimensionnement de fenêtre");
   assert.match(css, /\.transcription-workshop-zone-editor \{ position: absolute; z-index: 12;/, "éditeur superposé à l’image");
   assert.match(css, /\.transcription-workshop-zone-actions \{/, "commandes du tracé sous la photographie");
+  /* B2 : surface PDF de l'atelier — moteur PDF.js partagé, commandes scopées,
+     zone épinglée à l'empreinte du fichier. */
+  assert.match(html, /id="workshopPdfSurface"[^>]*hidden/, "surface PDF masquée au repos");
+  assert.match(html, /id="workshopPdfTools"[^>]*hidden/, "pagination PDF masquée au repos");
+  assert.match(html, /id="workshopPdfZoneEditor"[^>]*hidden/, "éditeur de zone PDF masqué au repos");
+  assert.match(app, /function resolveWorkshopPdfContext\(context\)/, "résolution PDF de l’atelier");
+  assert.match(app, /function createWorkshopPdfViewer\(\)/, "instance PDF dédiée à l’atelier");
+  assert.match(app, /fileSha256: context\.pdf\.fileSha256/, "ancre PDF épinglée à l’empreinte du fichier");
+  assert.match(app, /onPageRenderStart/, "overlay masqué pendant les rendus PDF asynchrones");
+  assert.match(css, /\.transcription-workshop-pdf-surface \{/, "styles de la surface PDF atelier");
   // Brouillons multipages : conservation pendant la session, confirmation seulement à la fermeture.
   assert.match(app, /transcriptionWorkshopDrafts = new Map\(\)/, "carte de brouillons par page");
   assert.match(app, /function transcriptionWorkshopHasUnsavedChanges\(\)/, "dirty global sur toutes les pages");

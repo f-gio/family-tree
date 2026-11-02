@@ -440,6 +440,14 @@ export function isTranscriptionJpegDocument(documentItem) {
   return /\.jpe?g$/i.test(String(documentItem.fileName || "").trim());
 }
 
+/** Lot B2 : document PDF (mimeType ou extension), comme le JPEG ci-dessus. */
+export function isTranscriptionPdfDocument(documentItem) {
+  if (!documentItem || typeof documentItem !== "object" || Array.isArray(documentItem)) return false;
+  const mimeType = String(documentItem.mimeType || "").trim().toLowerCase();
+  if (mimeType === "application/pdf") return true;
+  return /\.pdf$/i.test(String(documentItem.fileName || "").trim());
+}
+
 /** Le JPEG doit pouvoir être vérifié localement (empreinte exigée) : fichier
     importé en chunks ou encodé en data-URL — un lien distant ne l'est pas. */
 export function canInitializeLegacyJpegPage(documentItem) {

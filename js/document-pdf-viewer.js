@@ -9,6 +9,10 @@ const MAX_THUMBNAILS_RENDERING = 1;
 
 export async function createDocumentPdfViewer({
   source,
+  /* B2 : octets déjà lus en local (atelier) — évite le fetch d'une URL objet
+     dans le worker, non supporté par WebKit ; la fiche Document continue d'utiliser
+     source seul. */
+  data = null,
   viewer,
   loadingMessage,
   thumbnailRail,
@@ -28,6 +32,12 @@ export async function createDocumentPdfViewer({
   zoomIndicator,
   nativeFallbackMessage,
   bindingRoot,
+  /* B2 : zone de raccourcis clavier optionnelle (atelier) et callbacks de
+     rendu — utilisés pour synchroniser l'overlay de zone sur la page
+     réellement peinte ; la fiche Document n'a besoin d'aucun de ces ajouts. */
+  keyZone = null,
+  onPageRenderStart = null,
+  onPageRenderEnd = null,
   maxZoom = 6
 } = {}) {
   if (!source || !viewer || !pageViewport || !pageCanvas) throw new TypeError("Les éléments du lecteur PDF sont requis");
@@ -194,7 +204,7 @@ export async function createDocumentPdfViewer({
     pageStatus.textContent = pageStatus.value;
     previousButton.disabled = currentPage <= 1;
     nextButton.disabled = currentPage >= pdfDocument.numPages;
-    for (const button of thumbnailList.querySelectorAll("[data-pdf-page]")) {
+    for (const button of thumbnailList?.querySelectorAll("[data-pdf-page]") || []) {
       const selected = Number(button.dataset.pdfPage) === currentPage;
       if (selected) button.setAttribute("aria-current", "page");
       else button.removeAttribute("aria-current");
@@ -207,6 +217,9 @@ export async function createDocumentPdfViewer({
     const generation = ++renderGeneration;
     activeRenderTask?.cancel();
     activeRenderTask = null;
+    /* B2 : début de rendu — l'appelant masque son overlay tant que la page
+       n'est pas confirmée (rendus annulés ou devenus obsolètes ignorés). */
+    try { onPageRenderStart?.({ page: currentPage }); } catch { /* isole l'appelant */ }
     const previousRect = pageCanvas.getBoundingClientRect();
     const viewportRect = pageViewport.getBoundingClientRect();
     const point = preservePoint || { x: pageViewport.clientWidth / 2, y: pageViewport.clientHeight / 2 };
@@ -245,6 +258,9 @@ export async function createDocumentPdfViewer({
     pageViewport.scrollTop = Math.max(0, pageViewport.scrollTop + ratioY * nextRect.height - (point.y + viewportRect.top - nextRect.top));
     updatePageControls();
     enqueueThumbnail(currentPage);
+    /* B2 : fin effective du rendu de LA page demandée — seul un rendu de
+       génération courante abouti déclenche ce retour. */
+    try { onPageRenderEnd?.({ page: currentPage, numPages: pdfDocument.numPages }); } catch { /* isole l'appelant */ }
   }
 
   function reportRenderError(error) {
@@ -259,6 +275,7 @@ export async function createDocumentPdfViewer({
   }
 
   function enqueueThumbnail(pageNumber) {
+    if (!thumbnailList) return;
     const button = thumbnailList.querySelector(`[data-pdf-page="${pageNumber}"]`);
     if (!button || button.dataset.rendered === "true" || button.dataset.queued === "true") return;
     if (button.dataset.visible !== "true" && pageNumber !== currentPage) return;
@@ -331,6 +348,7 @@ export async function createDocumentPdfViewer({
   }
 
   function buildThumbnails() {
+    if (!thumbnailList) return;
     const fragment = doc.createDocumentFragment();
     for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber++) {
       const button = doc.createElement("button");
@@ -359,8 +377,8 @@ export async function createDocumentPdfViewer({
   }
 
   function updateThumbnailToggle() {
+    if (!thumbnailsButton || !thumbnailRail) return;
     const expanded = !thumbnailRail.hidden;
-    if (!thumbnailsButton) return;
     thumbnailsButton.setAttribute("aria-expanded", String(expanded));
     thumbnailsButton.setAttribute("aria-label", expanded ? "Masquer les miniatures" : "Afficher les miniatures");
     thumbnailsButton.title = expanded ? "Masquer les miniatures" : "Afficher les miniatures";
@@ -370,7 +388,7 @@ export async function createDocumentPdfViewer({
     if (!pdfDocument || destroyed || pageNumber < 1 || pageNumber > pdfDocument.numPages) return;
     currentPage = pageNumber;
     updatePageControls();
-    thumbnailList.querySelector(`[data-pdf-page="${pageNumber}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    thumbnailList?.querySelector(`[data-pdf-page="${pageNumber}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
     startRender();
   }
 
@@ -386,6 +404,7 @@ export async function createDocumentPdfViewer({
   }
 
   function toggleThumbnails() {
+    if (!thumbnailRail || !thumbnailsButton) return;
     thumbnailRail.hidden = !thumbnailRail.hidden;
     updateThumbnailToggle();
     if (!thumbnailRail.hidden) {
@@ -398,24 +417,45 @@ export async function createDocumentPdfViewer({
     requestAnimationFrame(() => startRender());
   }
 
-  function onDelegatedClick(event) {
-    if (event.target.closest("#pdfPreviousPageBtn")) void selectPage(currentPage - 1);
-    else if (event.target.closest("#pdfNextPageBtn")) void selectPage(currentPage + 1);
-    else if (event.target.closest("#pdfZoomInBtn")) void updateZoom(zoom * 1.25);
-    else if (event.target.closest("#pdfZoomOutBtn")) void updateZoom(zoom / 1.25);
-    else if (event.target.closest("#pdfFitModeBtn")) {
+  /* B2 : les commandes sont branchées directement sur les éléments fournis
+     (plus aucun sélecteur d'identifiant global) — la fiche Document et
+     l'atelier peuvent donc coexister avec des IDs distincts, et les boutons
+     déplacés entre barres et pagination restent opérationnels. Les paires
+     [élément, écouteur] sont conservées pour un retrait propre à destroy(). */
+  const boundControlListeners = [];
+  function bindControl(element, listener) {
+    if (!element) return;
+    element.addEventListener("click", listener);
+    boundControlListeners.push([element, listener]);
+  }
+
+  function bindControls() {
+    bindControl(previousButton, () => void selectPage(currentPage - 1));
+    bindControl(nextButton, () => void selectPage(currentPage + 1));
+    bindControl(zoomOutButton, () => void updateZoom(zoom / 1.25));
+    bindControl(zoomInButton, () => void updateZoom(zoom * 1.25));
+    bindControl(fitModeButton, () => {
       fitMode = fitMode === "page" ? "width" : "page";
       zoom = 1;
       displayZoom();
       setFitModeButton();
       startRender();
-    } else if (event.target.closest("#pdfFullscreenBtn")) void toggleFullscreen();
+    });
+    bindControl(thumbnailsButton, toggleThumbnails);
+    bindControl(fullscreenButton, onFullscreenButtonClick);
+  }
+
+  function isControlTarget(target) {
+    const controlsList = [previousButton, nextButton, zoomOutButton, zoomInButton, fitModeButton, thumbnailsButton, fullscreenButton];
+    if (controlsList.some(button => button && (target === button || button.contains(target)))) return true;
+    return Boolean(target?.closest?.("#pdfPreviousPageBtn,#pdfNextPageBtn,#pdfZoomInBtn,#pdfZoomOutBtn,#pdfFitModeBtn,#pdfThumbnailsBtn,#pdfFullscreenBtn"));
   }
 
   function onDelegatedKeydown(event) {
     const target = event.target instanceof Element ? event.target : null;
-    const inZone = target?.closest("#viewerPdfToolbar,#pdfPageNav,#viewerPdfPageViewport");
-    const isEngineButton = target?.closest("#pdfPreviousPageBtn,#pdfNextPageBtn,#pdfZoomInBtn,#pdfZoomOutBtn,#pdfFitModeBtn,#pdfThumbnailsBtn,#pdfFullscreenBtn");
+    const inZone = target?.closest("#viewerPdfToolbar,#pdfPageNav,#viewerPdfPageViewport")
+      || (keyZone && (target === keyZone || keyZone.contains(target)));
+    const isEngineButton = isControlTarget(target);
     if (!inZone && !isEngineButton) return;
     if (event.key === "ArrowLeft") void selectPage(currentPage - 1);
     else if (event.key === "ArrowRight") void selectPage(currentPage + 1);
@@ -488,9 +528,9 @@ export async function createDocumentPdfViewer({
   function onResize() { startRender(); }
 
   function bindEvents() {
-    delegatedRoot.addEventListener("click", onDelegatedClick);
+    bindControls();
     delegatedRoot.addEventListener("keydown", onDelegatedKeydown);
-    thumbnailsButton?.addEventListener("click", toggleThumbnails);
+    if (keyZone && keyZone !== delegatedRoot) keyZone.addEventListener("keydown", onDelegatedKeydown);
     fullscreenElement?.addEventListener("keydown", onKeydown);
     fullscreenDocument.addEventListener("fullscreenchange", onFullscreenChange);
     fullscreenDocument.addEventListener("webkitfullscreenchange", onFullscreenChange);
@@ -519,9 +559,10 @@ export async function createDocumentPdfViewer({
     if (thumbnailTimer !== null) win.cancelAnimationFrame(thumbnailTimer);
     if (zoomIndicatorTimer !== null) win.clearTimeout(zoomIndicatorTimer);
     zoomIndicator?.classList.remove("is-visible");
-    delegatedRoot.removeEventListener("click", onDelegatedClick);
+    for (const [element, listener] of boundControlListeners) element.removeEventListener("click", listener);
+    boundControlListeners.length = 0;
     delegatedRoot.removeEventListener("keydown", onDelegatedKeydown);
-    thumbnailsButton?.removeEventListener("click", toggleThumbnails);
+    if (keyZone && keyZone !== delegatedRoot) keyZone.removeEventListener("keydown", onDelegatedKeydown);
     fullscreenElement?.removeEventListener("keydown", onKeydown);
     fullscreenDocument.removeEventListener("fullscreenchange", onFullscreenChange);
     fullscreenDocument.removeEventListener("webkitfullscreenchange", onFullscreenChange);
@@ -534,7 +575,7 @@ export async function createDocumentPdfViewer({
     cleanupFullscreen();
     pageCanvas.width = 0;
     pageCanvas.height = 0;
-    thumbnailList.replaceChildren();
+    thumbnailList?.replaceChildren();
     viewer.parentElement?.classList.remove("viewer-pdf-active");
     if (loadingTask) void loadingTask.destroy().catch(() => {});
     else if (pdfDocument) void pdfDocument.destroy().catch(() => {});
@@ -547,8 +588,7 @@ export async function createDocumentPdfViewer({
   try {
     const pdfjs = await import(PDFJS_MODULE_URL.href);
     pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL.href;
-    loadingTask = pdfjs.getDocument({
-      url: source,
+    const documentOptions = {
       cMapUrl: PDFJS_CMAPS_URL,
       cMapPacked: true,
       standardFontDataUrl: PDFJS_FONTS_URL,
@@ -557,7 +597,10 @@ export async function createDocumentPdfViewer({
       isEvalSupported: false,
       useSystemFonts: true,
       canvasMaxAreaInBytes: MAX_CANVAS_PIXELS
-    });
+    };
+    loadingTask = pdfjs.getDocument(data
+      ? { ...documentOptions, data: data.slice() }
+      : { ...documentOptions, url: source });
     pdfDocument = await loadingTask.promise;
   } catch (error) {
     if (destroyed) throw error;

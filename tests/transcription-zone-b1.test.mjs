@@ -286,7 +286,7 @@ test("B1 édition : tracé, confirmation, annulation, ajustement, suppression et
     /* Redimensionnement par poignée + limitation aux bords. */
     await page.click('[data-workshop-zone-action="adjust"]');
     await page.waitForFunction(() => document.getElementById("workshopZoneEditorRect") && !document.getElementById("workshopZoneEditorRect").hidden);
-    const seBox = await page.locator('[data-zone-handle="se"]').boundingBox();
+    const seBox = await page.locator('#workshopZoneEditorRect [data-zone-handle="se"]').boundingBox();
     assert.ok(seBox && seBox.width >= 12, "poignée visible");
     await page.mouse.move(seBox.x + seBox.width / 2, seBox.y + seBox.height / 2);
     await page.mouse.down();
@@ -298,7 +298,7 @@ test("B1 édition : tracé, confirmation, annulation, ajustement, suppression et
     assert.ok(resized.x >= 0 && resized.y >= 0 && norm(resized.x + resized.width) <= 1 && norm(resized.y + resized.height) <= 1, "redimensionnement contenu dans l’image");
     await page.click('[data-workshop-zone-action="adjust"]');
     await page.waitForFunction(() => document.getElementById("workshopZoneEditorRect") && !document.getElementById("workshopZoneEditorRect").hidden);
-    const nwBox = await page.locator('[data-zone-handle="nw"]').boundingBox();
+    const nwBox = await page.locator('#workshopZoneEditorRect [data-zone-handle="nw"]').boundingBox();
     await page.mouse.move(nwBox.x + nwBox.width / 2, nwBox.y + nwBox.height / 2);
     await page.mouse.down();
     await page.mouse.move(imageBox.x - 200, imageBox.y - 200, { steps: 5 });
@@ -398,7 +398,7 @@ test("B1 mobile : tracé au doigt depuis l’onglet Original, poignées et A3 pr
                 const rect = document.getElementById("workshopZoneEditorRect");
                 return rect && !rect.hidden;
               });
-              const handleBox = await page.locator('[data-zone-handle="se"]').boundingBox();
+              const handleBox = await page.locator('#workshopZoneEditorRect [data-zone-handle="se"]').boundingBox();
               assert.ok(handleBox && handleBox.width >= 16 && handleBox.height >= 16, `poignée tactile visible (${handleBox?.width}px)`);
               await page.click("#workshopZoneCancelBtn");
               assert.equal(await page.evaluate(() => window.__b1.toolActive()), false, "annulation propre sur mobile");

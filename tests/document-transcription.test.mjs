@@ -127,6 +127,29 @@ test("une ancre de passage ne peut pas viser une photo d'une autre page", () => 
   }), /photographie absente/);
 });
 
+test("B2 : les ancres PDF sont validées rétrocompatiblement avec les ancres JPEG", () => {
+  const pdfAnchor = { shape: "rect", pdfPage: 2, fileSha256: "a".repeat(64), x: 0.1, y: 0.1, width: 0.3, height: 0.2 };
+  const withPdf = passage("p-pdf", { anchor: pdfAnchor });
+  assert.deepEqual(validateTranscriptionPassage(withPdf, { photographIds: ["photo-page-1"] }).errors, [],
+    "ancre PDF acceptée même avec une liste de photographies (l'appartenance photo ne concerne que les ancres JPEG)");
+  const snapshot = revision("rev-b2-pdf", [withPdf]);
+  assert.equal(snapshot.passages[0].anchor.pdfPage, 2, "l'ancre PDF survit à la création de révision");
+  assert.equal(snapshot.passages[0].anchor.fileSha256, "a".repeat(64), "l'empreinte du fichier est conservée");
+  assert.throws(() => passage("p-both", { anchor: { ...pdfAnchor, photographId: "photo-1" } }), /photographie ou une page PDF/,
+    "jamais de cible double");
+  assert.throws(() => passage("p-none", { anchor: { shape: "rect", x: 0.1, y: 0.1, width: 0.2, height: 0.2 } }), /photographie ou une page PDF/,
+    "jamais de cible absente");
+  assert.throws(() => passage("p-page0", { anchor: { shape: "rect", pdfPage: 0, fileSha256: "a".repeat(64), x: 0.1, y: 0.1, width: 0.2, height: 0.2 } }), /pdfPage/,
+    "page PDF entière 1-based");
+  assert.throws(() => passage("p-hash", { anchor: { shape: "rect", pdfPage: 1, fileSha256: "abc", x: 0.1, y: 0.1, width: 0.2, height: 0.2 } }), /fileSha256/,
+    "empreinte SHA-256 valide exigée");
+  assert.throws(() => passage("p-oob", { anchor: { shape: "rect", pdfPage: 1, fileSha256: "a".repeat(64), x: 0.9, y: 0.1, width: 0.5, height: 0.2 } }), /limites normalisées/,
+    "bornes normalisées identiques à B1");
+  const jpegAnchor = { shape: "rect", photographId: "photo-1", x: 0.1, y: 0.1, width: 0.2, height: 0.2 };
+  const withJpeg = passage("p-jpeg", { anchor: jpegAnchor });
+  assert.deepEqual(validateTranscriptionPassage(withJpeg, { photographIds: ["photo-1"] }).errors, [], "ancre JPEG inchangée");
+});
+
 test("une modification de mise en forme ne demande pas de réexamen de preuve", () => {
   const before = revision("rev-before-format", [passage("stable-passage", { textIt: "Carlo Rossi\nfiglio" })]);
   const after = revision("rev-after-format", [passage("stable-passage", { textIt: "  Carlo   Rossi figlio  " })], { previousRevisionId: before.id, changeKind: "formatting" });

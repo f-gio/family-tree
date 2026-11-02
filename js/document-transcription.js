@@ -34,12 +34,28 @@ function isNormalizedCoordinate(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
+const SHA256_HEX_PATTERN = /^[a-fA-F0-9]{64}$/;
+
+/* Une ancre vise exactement une cible : une photographie JPEG (modèle B1,
+   inchangé) OU une page de document PDF (modèle B2, rétrocompatible — les
+   ancres JPEG existantes n'ont aucun champ PDF). */
 function validateAnchor(anchor) {
   if (anchor == null) return [];
   const errors = [];
   if (!anchor || typeof anchor !== "object" || Array.isArray(anchor)) return ["anchor doit être un rectangle ou null"];
   if (anchor.shape !== "rect") errors.push("anchor.shape doit être rect");
-  if (typeof anchor.photographId !== "string" || !anchor.photographId.trim()) errors.push("anchor.photographId doit identifier une photographie précise");
+  const targetsPhotograph = typeof anchor.photographId === "string" && anchor.photographId.trim().length > 0;
+  const targetsPdf = anchor.pdfPage != null || anchor.fileSha256 != null;
+  if (targetsPhotograph === targetsPdf) {
+    errors.push("anchor doit cibler une photographie ou une page PDF, jamais les deux ni aucune des deux");
+  }
+  if (targetsPhotograph && !anchor.photographId.trim()) errors.push("anchor.photographId doit identifier une photographie précise");
+  if (anchor.pdfPage != null && (!Number.isInteger(anchor.pdfPage) || anchor.pdfPage < 1)) {
+    errors.push("anchor.pdfPage doit être un numéro de page PDF entier positif (1-based)");
+  }
+  if (anchor.fileSha256 != null && (typeof anchor.fileSha256 !== "string" || !SHA256_HEX_PATTERN.test(anchor.fileSha256))) {
+    errors.push("anchor.fileSha256 doit être une empreinte SHA-256 hexadécimale");
+  }
   for (const key of ["x", "y", "width", "height"]) {
     if (!isNormalizedCoordinate(anchor[key])) errors.push(`anchor.${key} doit être une coordonnée normalisée entre 0 et 1`);
   }
@@ -128,7 +144,7 @@ export function validateTranscriptionPassage(passage, { photographIds = null } =
     }
   }
   errors.push(...validateAnchor(passage.anchor));
-  if (passage.anchor && Array.isArray(photographIds) && !photographIds.includes(passage.anchor.photographId)) {
+  if (passage.anchor?.photographId && Array.isArray(photographIds) && !photographIds.includes(passage.anchor.photographId)) {
     errors.push("La zone référence une photographie absente de la page");
   }
   return { valid: errors.length === 0, errors };
