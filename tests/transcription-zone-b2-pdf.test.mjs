@@ -58,6 +58,7 @@ window.__b2 = {
       type: "Registre", date: "1891-05-12",
       fileName: "registre.pdf", mimeType: "application/pdf",
       fileData,
+      fileSize: ${fixturePdfBytes.length},
       personIds: [],
       pages: [{ id: "page-b2-1", label: "Folio 1", photographs: [], passages: window.__b2.passagesFixture() }]
     };
@@ -86,6 +87,45 @@ window.__b2 = {
       updatedAt: new Date("2026-10-20T10:00:00Z"), updatedBy: "admin-seed",
       eventId: "tx-b2-ev1"
     }];
+  },
+  preparePdfInit() {
+    /* Déclenche le chemin d'initialisation : le document PDF n'a aucune page
+       de transcription et seulement une source liée. Aucune écriture réseau
+       ici — la partie locale de la confirmation est rejouée par le hook
+       completeInitLocally (le magasin Firestore est inaccessible dans les
+       tests, cf. le paragraphe non-régression du lot). */
+    const documentWithoutPages = { ...documents[0] };
+    delete documentWithoutPages.pages;
+    documents = [documentWithoutPages];
+    genealogyRecords.sourceDocuments = [createSourceDocument({ id: "src-b2", title: "Source B2", documentIds: ["doc-b2"] })];
+  },
+  /* Rejoue la séquence LOCALE de confirmTranscriptionPageInit (préparation de
+     la page technique + ouverture de l'atelier) — la partie réseau est couverte
+     par le test de confirmation réelle ci-dessus, impossible à faire aboutir
+     sans serveur Firestore dans les tests. */
+  completeInitLocally() {
+    const state = transcriptionPageInitState;
+    const sourceRecord = transcriptionPageInitSourceRecord();
+    if (!state || !sourceRecord) throw new Error("dialogue d’initialisation non actif");
+    const sourceData = genealogyRecordData(sourceRecord);
+    const { documentItem, sha256 } = state;
+    const pageId = createGenealogyId(refs.sourceDocuments);
+    const photographId = createGenealogyId(refs.sourceDocuments);
+    const prepared = prepareLegacyDocumentPage({
+      source: sourceData,
+      documentItem,
+      sha256,
+      pageId,
+      photographId,
+      importedAt: new Date().toISOString()
+    });
+    close("transcriptionPageInitDialog");
+    transcriptionPageInitState = null;
+    return openTranscriptionWorkshopFor(
+      buildTranscriptionWorkshopDocumentContext(documentItem, prepared.source.pages, prepared.source.documentIds),
+      prepared.page.id,
+      ""
+    );
   },
   openDoc() { setView("directory"); openStoredDocument(documents[0], "directory"); },
   transcribe() { const button = document.querySelector("#viewerDocumentDetails [data-transcribe-document]"); if (button) button.click(); },
@@ -213,6 +253,20 @@ async function waitForPdfReady(page) {
 }
 
 async function dragOnCanvas(page, fromX, fromY, toX, toY) {
+  /* L'éditeur rejoint la position du canvas après la bascule d'onglet (double
+     rAF du lecteur) : on attend l'alignement avant de tracer, sinon le pointeur
+     atteindrait le canvas nu (neutralisé par la garde de tracé). */
+  await page.waitForFunction(() => {
+    const editor = document.getElementById("workshopPdfZoneEditor");
+    const canvas = document.getElementById("workshopPdfCanvas");
+    if (!editor || editor.hidden || !canvas) return false;
+    const editorBox = editor.getBoundingClientRect();
+    const canvasBox = canvas.getBoundingClientRect();
+    return editorBox.width > 40
+      && Math.abs(editorBox.x - canvasBox.x) <= 2
+      && Math.abs(editorBox.y - canvasBox.y) <= 2
+      && Math.abs(editorBox.width - canvasBox.width) <= 2;
+  }, undefined, { timeout: 5000 });
   const box = await page.locator("#workshopPdfCanvas").boundingBox();
   assert.ok(box && box.width > 80, "canvas PDF affiché");
   const x0 = box.x + box.width * fromX;
@@ -276,6 +330,52 @@ async function zoneAlignment(page, passageId) {
     return { ok: dx <= 2 && dy <= 2 && dw <= 2, dx, dy, dw };
   }, passageId);
 }
+
+test("B2 initialisation : un PDF sans transcription ouvre le dialogue puis l’atelier", { timeout: 120000 }, async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  const { context, page, pageErrors } = await createB2Page(browser, server);
+  try {
+    await page.evaluate(() => {
+      window.__b2.show();
+      window.__b2.seed();
+      window.__b2.preparePdfInit();
+      window.__b2.openDoc();
+    });
+    await page.waitForFunction(() => {
+      const toggle = document.getElementById("viewerDetailsBtn");
+      if (!toggle) return false;
+      if (toggle.getAttribute("aria-expanded") === "false") {
+        toggle.click();
+        return false;
+      }
+      return Boolean(document.querySelector("#viewerDocumentDetails [data-transcribe-document]"));
+    }, undefined, { timeout: 8000 });
+    assert.match(await page.locator("#viewerDocumentDetails [data-transcribe-document]").textContent(), /Ajouter/, "aucune page de transcription : action Ajouter");
+    await page.evaluate(() => { window.__b2.useAdminProfile(); window.__b2.transcribe(); });
+    /* Le refus JPEG est levé : le dialogue d'initialisation s'ouvre. */
+    await page.waitForFunction(() => document.getElementById("transcriptionPageInitDialog").open, undefined, { timeout: 8000 });
+    await page.waitForFunction(() => !document.getElementById("transcriptionPageInitConfirmBtn").disabled, undefined, { timeout: 8000 });
+    assert.match(await page.locator("#transcriptionPageInitNotice").textContent(), /fichier du document n’est pas dupliqué/, "notice de non-duplication neutre");
+    assert.match(await page.locator("#transcriptionPageInitFacts").textContent(), /application\/pdf/, "format PDF affiché dans les faits du dialogue");
+    /* Partie locale de l'initialisation (préparation de la page technique +
+       ouverture de l'atelier) : mêmes fonctions que la confirmation réelle ;
+       seule l'écriture Firestore, indisponible dans les tests, est omise. */
+    await page.evaluate(() => window.__b2.completeInitLocally());
+    await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden, undefined, { timeout: 8000 });
+    await waitForPdfReady(page);
+    assert.equal(await page.evaluate(() => window.__b2.pdfState().hash), fixturePdfSha256, "atelier PDF sur la page initialisée, empreinte du fichier conservée");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopOfficialBadge").textContent), "Brouillon", "page technique neuve : brouillon, aucune version officielle");
+    assert.equal(await page.locator("#workshopAddPassageBtn").isVisible(), true, "prêt à transcrire : ajout de passage disponible");
+    assertNoB2PageErrors(pageErrors);
+  } finally {
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
+});
 
 test("B2 consultation : zones PDF alignées, navigation multipage, aucun contrôle d’édition", { timeout: 120000 }, async t => {
   let browser;

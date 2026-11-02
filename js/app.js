@@ -6553,8 +6553,11 @@ function openTranscriptionWorkshopForDocument(documentItem, preferredPageId = ""
   if (!activeSources.length) {
     return toast("Toutes les sources liées à ce document sont archivées. Restaurez-en une avant d’initialiser sa page de transcription.", "error");
   }
-  if (!isTranscriptionJpegDocument(documentItem)) {
-    return toast("Seuls les documents JPEG peuvent initialiser une nouvelle page de transcription.", "error");
+  /* B2 correction : l'initialisation accepte les documents JPEG ET PDF
+     exploitables localement (octets vérifiables pour l'empreinte) — le reste
+     du parcours (dialogue, empreinte, page technique, atelier) est identique. */
+  if (!isTranscriptionJpegDocument(documentItem) && !isTranscriptionPdfDocument(documentItem)) {
+    return toast("Seuls les documents JPEG ou PDF peuvent initialiser une nouvelle page de transcription.", "error");
   }
   if (!isAdminUser()) {
     return toast("L’initialisation de la page de transcription est réservée aux administrateurs. Faites rattacher une page à cette source via l’action « Réviser ».", "error");

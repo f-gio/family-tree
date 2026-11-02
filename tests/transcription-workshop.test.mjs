@@ -22,6 +22,7 @@ import {
   setTranscriptionWorkshopPassageAnchor,
   isTranscriptionJpegDocument,
   isTranscriptionPdfDocument,
+  canInitializeLegacyJpegPage,
   findSourcePageForDocument,
   prepareLegacyDocumentPage,
   legacyDocumentResourceRef
@@ -259,6 +260,41 @@ test("un PDF est identifié par son type ou son extension, jamais par une image"
   assert.equal(isTranscriptionPdfDocument(null), false, "entrée invalide");
 });
 
+test("l’initialisation locale accepte les PDF en plus des JPEG, jamais un distant", () => {
+  assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "scan.jpg", mimeType: "image/jpeg", chunkCount: 1, chunkVersion: "v1" }), true, "JPEG en chunks inchangé");
+  assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "scan.jpg", mimeType: "image/jpeg", fileData: "data:image/jpeg;base64,AAAA" }), true, "JPEG en data-URL inchangé");
+  assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "registre.pdf", mimeType: "application/pdf", chunkCount: 2, chunkVersion: "v1" }), true, "PDF en chunks accepté");
+  assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "registre.pdf", mimeType: "application/pdf", fileData: "data:application/pdf;base64,AAAA" }), true, "PDF en data-URL accepté");
+  assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "registre.pdf", mimeType: "application/pdf", externalUrl: "https://exemple.test/registre.pdf" }), false, "PDF distant sans octets locaux refusé (pas d’empreinte)");
+  assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "notes.txt", mimeType: "text/plain", chunkCount: 1, chunkVersion: "v1" }), false, "autres formats refusés");
+  assert.equal(canInitializeLegacyJpegPage(null), false, "entrée invalide");
+});
+
+test("l’initialisation prépare une page référençant un PDF sans dupliquer le fichier", () => {
+  const baseSource = createSourceDocument({ id: "src-pdf", title: "Registre Transactions" });
+  const pdfDocument = { id: "doc-pdf", fileName: "registre.pdf", mimeType: "application/pdf", fileSize: 4321, chunkCount: 1, chunkVersion: "v1" };
+  const { source, page, validation } = prepareLegacyDocumentPage({
+    source: baseSource,
+    documentItem: pdfDocument,
+    sha256: "d".repeat(64),
+    pageId: "page-pdf-init",
+    photographId: "photo-pdf-init",
+    importedAt: "2026-10-28T00:00:00.000Z"
+  });
+  assert.equal(validation.valid, true, "la source préparée passe la validation du modèle");
+  assert.equal(page.id, "page-pdf-init", "page technique créée");
+  assert.equal(page.photographs.length, 1, "une seule référence photographique technique");
+  const photo = page.photographs[0];
+  assert.equal(photo.original.mimeType, "application/pdf", "type MIME PDF conservé");
+  assert.equal(photo.original.resourceRef, legacyDocumentResourceRef("doc-pdf"), "référence legacy vers le document existant");
+  assert.equal(photo.original.sha256, "d".repeat(64), "empreinte du fichier enregistrée");
+  assert.equal(photo.preview, null, "aucun aperçu dupliqué");
+  assert.equal(source.pages.length, 1, "une seule page technique pour tout le PDF (pas de page par folio)");
+  const serialized = JSON.stringify(source);
+  assert.ok(!serialized.includes("fileData"), "aucun octet de fichier recopié");
+  assert.ok(!serialized.includes("chunkCount"), "aucun chunk de fichier recopié");
+});
+
 test("l’initialisation prépare une page référençant le JPEG sans dupliquer le fichier", () => {
   const baseSource = createSourceDocument({ id: "src-1", title: "Transactions Immobilières" });
   const { source, page, validation } = prepareLegacyDocumentPage({
@@ -313,9 +349,9 @@ test("l’accès direct aux JPEG applique les portes JPEG, admin et révision ex
     readFile(new URL("../index.html", import.meta.url), "utf8"),
     readFile(new URL("../js/transcription-workshop.js", import.meta.url), "utf8")
   ]);
-  // Porte JPEG (périmètre de l'étape).
-  assert.match(app, /if \(!isTranscriptionJpegDocument\(documentItem\)\)/, "gate JPEG avant tout traitement");
-  assert.match(app, /Seuls les documents JPEG peuvent initialiser une nouvelle page de transcription/, "une page existante reste consultable quel que soit le format, l’initialisation reste limitée au JPEG");
+  // Porte JPEG/PDF : seuls ces deux formats sont initialisables (empreinte locale exigée).
+  assert.match(app, /if \(!isTranscriptionJpegDocument\(documentItem\) && !isTranscriptionPdfDocument\(documentItem\)\)/, "gate JPEG/PDF avant tout traitement");
+  assert.match(app, /Seuls les documents JPEG ou PDF peuvent initialiser une nouvelle page de transcription/, "une page existante reste consultable quel que soit le format, l’initialisation reste limitée aux formats à empreinte locale");
   // Réutilisation d'une page existante (aucune sélection de source sur ce chemin).
   assert.match(app, /const existingPage = findSourcePageForDocument\(data, documentItem\.id\)/, "réutilisation de la page existante");
   // Sources : actives seulement, jamais la « première » trouvée.
@@ -348,7 +384,7 @@ test("l’accès direct aux JPEG applique les portes JPEG, admin et révision ex
   // Validation explicite de l'utilisateur.
   assert.match(html, /id="transcriptionPageInitDialog"/, "dialog d'initialisation présent");
   assert.match(html, /id="transcriptionPageInitConfirmBtn">Créer la page et transcrire</, "bouton de confirmation explicite");
-  assert.match(html, /fichier JPEG n’est pas dupliqué/, "notice de non-duplication");
+  assert.match(html, /fichier du document n’est pas dupliqué/, "notice de non-duplication, neutre vis-à-vis du format");
   assert.match(html, /aria-label="Fermer"[^>]*data-close="transcriptionPageInitDialog"|data-close="transcriptionPageInitDialog"[^>]*aria-label="Fermer"/, "fermeture conforme à la convention");
   // Écriture uniquement par la révision admin existante.
   assert.match(app, /await genealogyStore\.reviseOfficial\(\{[\s\S]{0,280}fichier référencé, non dupliqué/, "écriture via reviseOfficial avec justification");

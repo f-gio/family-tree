@@ -448,12 +448,14 @@ export function isTranscriptionPdfDocument(documentItem) {
   return /\.pdf$/i.test(String(documentItem.fileName || "").trim());
 }
 
-/** Le JPEG doit pouvoir être vérifié localement (empreinte exigée) : fichier
-    importé en chunks ou encodé en data-URL — un lien distant ne l'est pas. */
+/** JPEG ou PDF exploitables localement (empreinte exigée) : fichier importé
+    en chunks ou encodé en data-URL — un lien distant ne l'est pas. Le PDF
+    rejoint le JPEG pour l'initialisation d'une transcription (lot B2) : même
+    mécanisme de page technique, même vérification d'identité du fichier. */
 export function canInitializeLegacyJpegPage(documentItem) {
-  if (!isTranscriptionJpegDocument(documentItem)) return false;
+  if (!isTranscriptionJpegDocument(documentItem) && !isTranscriptionPdfDocument(documentItem)) return false;
   const hasChunks = Boolean(documentItem.chunkCount && documentItem.chunkVersion);
-  const hasDataUrl = typeof documentItem.fileData === "string" && documentItem.fileData.startsWith("data:image/");
+  const hasDataUrl = typeof documentItem.fileData === "string" && documentItem.fileData.startsWith("data:");
   return hasChunks || hasDataUrl;
 }
 
