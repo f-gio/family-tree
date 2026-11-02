@@ -135,21 +135,27 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     assert.equal(await page.locator("#sourcePageContent .source-detail-fact strong", { hasText: "Personnes concernées" }).count(), 0, "plus de fait texte brut pour les personnes");
     assert.equal(await page.locator("#sourcePageBackBtn").getAttribute("aria-label"), "Retour aux archives");
     assert.equal(await page.locator("#sourcePageBackBtn .dedicated-page-back-label").textContent(), "Retour aux archives", "destination réelle affichée en clair (desktop)");
-    /* Lot corrections : le Retour vit dans l'en-tête, sous le groupe d'actions, aligné à droite. */
+    assert.equal(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", "navigation masquée dans la fiche Source");
+    assert.match(await page.locator("#sourceDetailView .consultation-breadcrumb").innerText(), /Archives[\s\S]*Registre paroissial/);
+    /* Retour sur la première ligne, Réviser/actions avec les pastilles sur la seconde. */
     const backGeometry = await page.evaluate(() => {
       const back = document.getElementById("sourcePageBackBtn").getBoundingClientRect();
       const header = document.querySelector("#sourceDetailView .dedicated-page-header");
       const headerRect = header.getBoundingClientRect();
       const actions = header.querySelector(".dedicated-page-actions-row").getBoundingClientRect();
+      const breadcrumb = header.querySelector(".consultation-breadcrumb").getBoundingClientRect();
+      const badges = header.querySelector("#sourcePageBadges").getBoundingClientRect();
       return {
         inside: !!header.querySelector("#sourcePageBackBtn"),
-        belowActions: back.y >= actions.bottom - 1,
+        sameTopLine: Math.abs(back.y - breadcrumb.y) < 2,
+        badgesWithActions: Math.abs((badges.y + badges.height / 2) - (actions.y + actions.height / 2)) < 2,
         rightAligned: back.right <= headerRect.right + 1,
         returnRowAbsent: !document.querySelector("#sourceDetailView .dedicated-page-return")
       };
     });
     assert.equal(backGeometry.inside, true, "le Retour est dans l'en-tête");
-    assert.ok(backGeometry.belowActions, "le Retour est directement sous le groupe d'actions");
+    assert.ok(backGeometry.sameTopLine, "le Retour est aligné sur le fil d’Ariane");
+    assert.ok(backGeometry.badgesWithActions, "pastilles et actions partagent la seconde ligne");
     assert.ok(backGeometry.rightAligned, "le Retour est aligné à droite de l'en-tête");
     assert.equal(backGeometry.returnRowAbsent, true, "aucune ligne Retour résiduelle au-dessus de l'en-tête");
     const revisionHistory = await page.locator("#sourcePageContent .source-detail-history").innerText();
@@ -159,6 +165,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     assert.equal(await page.locator("#sourcePageContent .source-detail-history time").count(), 5, "dates historiques rendues en éléments time");
     await page.click("#sourcePageBackBtn");
     await page.waitForFunction(() => document.getElementById("sourceDetailView").hidden);
+    assert.notEqual(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", "navigation générale rétablie après le retour aux Archives");
 
     /* Archives → Source → Archives, filtres et défilement inclus. */
     await page.evaluate(() => {

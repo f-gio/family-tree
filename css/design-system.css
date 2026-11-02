@@ -2693,26 +2693,26 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-breadcrumb-link { display: inline-flex; align-items: center; justify-content: flex-start; flex: 0 0 auto; min-width: var(--control-touch); min-height: var(--control-touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-brand); font: inherit; text-align: left; cursor: pointer; }
 .transcription-workshop-breadcrumb-link:hover { text-decoration: underline; }
 .transcription-workshop-breadcrumb-link:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
-/* Retour : véritable bouton secondaire (fond clair, bordure discrète) sur la
-   ligne du fil d'Ariane — jamais un simple lien. */
-.btn.transcription-workshop-return {
-  flex: 0 0 auto;
-  height: var(--control-touch);
-  min-height: var(--control-touch);
-  gap: var(--space-1);
-  margin-inline-start: auto;
-  padding-inline: var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  box-shadow: none;
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  text-align: center;
-}
-.btn.transcription-workshop-return:hover { border-color: var(--color-border-strong); background: var(--color-surface-raised); box-shadow: none; color: var(--color-text); text-decoration: none; }
-.btn.transcription-workshop-return:focus-visible { border-color: var(--color-brand); box-shadow: none; }
+/* Les quatre vues de consultation partagent un Retour textuel sans chrome de
+   bouton ; le contrôle garde une cible tactile confortable sur mobile. */
+.dedicated-page-header .dedicated-page-back,
+.transcription-workshop-return,
+.btn.transcription-workshop-return { flex: 0 0 auto; min-width: var(--control-touch); min-height: var(--control-touch); margin: 0; padding-inline: var(--space-2); border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--color-brand); font: var(--weight-semibold) var(--text-sm)/var(--leading-body) var(--font-ui); text-decoration: none; }
+.dedicated-page-header .dedicated-page-back:hover,
+.transcription-workshop-return:hover,
+.btn.transcription-workshop-return:hover { border: 0; background: transparent; box-shadow: none; color: var(--color-brand); text-decoration: underline; }
+.dedicated-page-header .dedicated-page-back:focus-visible,
+.transcription-workshop-return:focus-visible,
+.btn.transcription-workshop-return:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.dedicated-page-back-label { white-space: nowrap; }
+.detail-page-crumb-row { display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; }
+.consultation-breadcrumb { display: flex; align-items: center; gap: var(--space-1); flex: 1 1 auto; min-width: 0; margin: 0; color: var(--color-text-label); font-size: 14px; line-height: var(--leading-body); }
+.consultation-breadcrumb > span { flex: 0 0 auto; }
+.consultation-breadcrumb > span[aria-hidden="true"] { color: var(--color-text-muted); }
+.consultation-breadcrumb > h2 { display: -webkit-box; flex: 0 1 auto; min-width: 0; max-width: 100%; margin: 0; overflow: hidden; color: var(--color-text); font: var(--weight-semibold) 14px/var(--leading-body) var(--font-ui); overflow-wrap: anywhere; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.detail-page-meta-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-width: 0; }
+.detail-page-meta-row .source-detail-header-badges { min-width: 0; margin: 0; }
+.detail-page-meta-row .dedicated-page-actions { flex: 0 0 auto; }
 .transcription-workshop-breadcrumb-document { display: -webkit-box; flex: 0 1 auto; min-width: 0; max-width: min(32rem, 50vw); overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .transcription-workshop-heading #workshopPageHeading { margin: 0; font: 700 clamp(1.05rem, 2.4vw, 1.5rem)/var(--leading-tight) var(--font-display); }
 .transcription-workshop-heading h2 { margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font: 700 clamp(1.05rem, 2.4vw, 1.5rem)/var(--leading-tight) var(--font-display); }
@@ -2727,6 +2727,27 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-save-status.is-synced { color: var(--color-success); }
 .transcription-workshop-save-status.is-conflict { color: var(--color-warning); }
 .transcription-workshop-autosave-hint { min-width: 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; text-overflow: ellipsis; }
+body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav,
+body:has(#documentDetailView:not([hidden])) .topbar .main-nav,
+body:has(#sourceDetailView:not([hidden])) .topbar .main-nav,
+body:has(#proofDetailView:not([hidden])) .topbar .main-nav { display: none !important; }
+body:has(#transcriptionWorkshopView:not([hidden])) .topbar .brand p,
+body:has(#documentDetailView:not([hidden])) .topbar .brand p,
+body:has(#sourceDetailView:not([hidden])) .topbar .brand p,
+body:has(#proofDetailView:not([hidden])) .topbar .brand p { display: none; }
+.modal-md { width: min(var(--modal-md), calc(100% - var(--space-8))); }
+#transcriptionPageInitDialog { max-height: min(42rem, calc(100dvh - var(--space-8))); }
+#transcriptionPageInitDialog .modal-head { align-items: center; }
+#transcriptionPageInitDialog .modal-head h3 { font-size: var(--text-xl); }
+#transcriptionPageInitDialog .modal-body { display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; }
+.transcription-page-init-content { display: grid; gap: var(--space-3); min-width: 0; }
+#transcriptionPageInitFacts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+#transcriptionPageInitFacts .document-unified-fact { min-width: 0; }
+#transcriptionPageInitFacts .document-unified-fact span { min-width: 0; overflow-wrap: anywhere; }
+#transcriptionPageInitNotice { margin: 0; overflow-wrap: anywhere; }
+#transcriptionPageInitDialog .modal-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex: 0 0 auto; margin-top: auto; }
+#transcriptionPageInitDialog .modal-actions .right { display: flex; justify-content: flex-end; margin-inline-start: auto; }
+#transcriptionPageInitConfirmBtn { min-height: var(--control-touch); white-space: normal; }
 /* Pied d'atelier : le statut vit en bas du panneau de transcription, à droite
    du séparateur sur desktop et après la zone de saisie sur mobile — jamais au
    dessus du document, jamais en position fixe ou flottante. */
@@ -3046,8 +3067,14 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .transcription-workshop-breadcrumb > span { display: none; }
   /* A3 : navigation générale masquée uniquement dans l'atelier mobile — portée
      bornée à cette vue par :has(), préservée sur toutes les autres pages. */
-  body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav { display: none !important; }
-  body:has(#transcriptionWorkshopView:not([hidden])) .topbar .brand p { display: none; }
+   body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav,
+   body:has(#documentDetailView:not([hidden])) .topbar .main-nav,
+   body:has(#sourceDetailView:not([hidden])) .topbar .main-nav,
+   body:has(#proofDetailView:not([hidden])) .topbar .main-nav { display: none !important; }
+   body:has(#transcriptionWorkshopView:not([hidden])) .topbar .brand p,
+   body:has(#documentDetailView:not([hidden])) .topbar .brand p,
+   body:has(#sourceDetailView:not([hidden])) .topbar .brand p,
+   body:has(#proofDetailView:not([hidden])) .topbar .brand p { display: none; }
   /* A3 : un seul passage visible à la fois — plus de pile de cartes ; la
      sélection est pilotée par les pastilles et conservée entre les onglets. */
   .transcription-workshop-passage:not(.is-selected) { display: none; }
@@ -3075,12 +3102,35 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   .transcription-workshop-zone-handle::before { inset: -12px; }
   .transcription-workshop-passage-actions .btn { min-height: var(--control-touch); }
 }
+/* Bandeau compact des fiches et de l’atelier sur les formats desktop et tablette. */
+@media (min-width: 761px) and (max-width: 980px) {
+  body:has(#transcriptionWorkshopView:not([hidden])) .topbar,
+  body:has(#documentDetailView:not([hidden])) .topbar,
+  body:has(#sourceDetailView:not([hidden])) .topbar,
+  body:has(#proofDetailView:not([hidden])) .topbar { position: static; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding-block: var(--space-2); }
+  body:has(#transcriptionWorkshopView:not([hidden])) .topbar .brand-mark,
+  body:has(#documentDetailView:not([hidden])) .topbar .brand-mark,
+  body:has(#sourceDetailView:not([hidden])) .topbar .brand-mark,
+  body:has(#proofDetailView:not([hidden])) .topbar .brand-mark { width: 2rem; height: 2rem; }
+}
 /* Le retour reste sur la ligne du fil d'Ariane, à son extrémité droite sur desktop. */
 @media (min-width: 981px) {
-  body:has(#transcriptionWorkshopView:not([hidden])) .topbar { position: static; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding-block: var(--space-2); }
-  body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav { display: none !important; }
-  body:has(#transcriptionWorkshopView:not([hidden])) .topbar .brand p { display: none; }
-  body:has(#transcriptionWorkshopView:not([hidden])) .topbar .brand-mark { width: 2rem; height: 2rem; }
+  body:has(#transcriptionWorkshopView:not([hidden])) .topbar,
+  body:has(#documentDetailView:not([hidden])) .topbar,
+  body:has(#sourceDetailView:not([hidden])) .topbar,
+  body:has(#proofDetailView:not([hidden])) .topbar { position: static; display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding-block: var(--space-2); }
+   body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav,
+   body:has(#documentDetailView:not([hidden])) .topbar .main-nav,
+   body:has(#sourceDetailView:not([hidden])) .topbar .main-nav,
+   body:has(#proofDetailView:not([hidden])) .topbar .main-nav { display: none !important; }
+   body:has(#transcriptionWorkshopView:not([hidden])) .topbar .brand p,
+   body:has(#documentDetailView:not([hidden])) .topbar .brand p,
+   body:has(#sourceDetailView:not([hidden])) .topbar .brand p,
+   body:has(#proofDetailView:not([hidden])) .topbar .brand p { display: none; }
+   body:has(#transcriptionWorkshopView:not([hidden])) .topbar .brand-mark,
+   body:has(#documentDetailView:not([hidden])) .topbar .brand-mark,
+   body:has(#sourceDetailView:not([hidden])) .topbar .brand-mark,
+   body:has(#proofDetailView:not([hidden])) .topbar .brand-mark { width: 2rem; height: 2rem; }
   body:has(#transcriptionWorkshopView:not([hidden])) #transcriptionWorkshopView { padding-block: var(--space-2); }
 }
 .genealogy-status-badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: var(--color-surface-muted); color: var(--color-text-muted); font-size: var(--text-xs); }
@@ -5365,7 +5415,7 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .dedicated-page-back:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; border-radius: var(--radius-sm); }
 .dedicated-page-back-arrow { font-size: var(--text-lg); line-height: 1; }
 .dedicated-page-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; row-gap: var(--space-1); column-gap: var(--space-3); min-width: 0; padding-bottom: var(--space-4); border-bottom: var(--border-subtle); }
-.source-detail-header { margin-bottom: var(--space-5); }
+.source-detail-header { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); margin-bottom: var(--space-3); }
 .dedicated-page-heading { min-width: 0; }
 .workspace-view .dedicated-page-heading .page-kicker { margin: 0 0 2px; }
 .dedicated-page-heading .page-title { overflow-wrap: anywhere; }
@@ -5439,12 +5489,12 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 #documentDetailView { min-height: calc(100dvh - 8rem); padding-bottom: max(var(--space-5), calc(var(--space-5) + env(safe-area-inset-bottom))); }
 .document-detail-header { margin-bottom: 0; }
 .document-detail-heading { min-width: 0; }
-.document-detail-breadcrumb { display: flex; align-items: center; gap: var(--space-1); min-width: 0; margin: 0; color: var(--color-text-label); font-size: 14px; }
-.document-detail-breadcrumb > span { flex: 0 0 auto; }
-.document-detail-title { display: -webkit-box; flex: 0 1 auto; min-width: 0; max-width: min(42rem, 70vw); margin: 0; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font: 700 clamp(1.05rem, 2.4vw, 1.5rem)/var(--leading-tight) var(--font-display); }
+.document-detail-header { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); padding-bottom: var(--space-2); }
+.document-detail-category-row { align-self: flex-start; }
 /* Badge de catégorie sous le titre Document : valeur métier existante du document. */
 .document-detail-category-row { margin-top: var(--space-1); }
 .document-detail-category { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#documentDetailView .document-original-panel:has(#viewerImageViewport.viewer-pdf-active) .document-original-head { display: none; }
 /* Lot G : les onglets Original/Informations ont disparu — panneaux en flux. */
 #documentDetailView .document-detail-layout { grid-template-columns: minmax(0, 1.45fr) minmax(21rem, .85fr); height: auto; align-items: start; }
 #documentDetailView .document-detail-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
@@ -5457,9 +5507,29 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 #documentDetailView.is-viewer-fullscreen .document-detail-layout { flex: 1 1 auto; height: auto !important; min-height: 0; }
 @media (max-width: 760px) {
   .dedicated-page-header { gap: var(--space-2); }
+  dialog#transcriptionPageInitDialog.modal-mobile-sheet[open] { display: flex; flex-direction: column; height: min(86dvh, calc(100dvh - env(safe-area-inset-top))); max-height: 86dvh; overflow: hidden; padding-bottom: env(safe-area-inset-bottom); }
+  dialog#transcriptionPageInitDialog > .modal-head { align-items: flex-start; gap: var(--space-2); padding: var(--space-3) var(--space-4); }
+  dialog#transcriptionPageInitDialog .modal-head h3 { font-size: var(--text-lg); line-height: var(--leading-tight); }
+  dialog#transcriptionPageInitDialog > .modal-body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; gap: var(--space-2); padding: var(--space-3) var(--space-4) 0; }
+  #transcriptionPageInitDialog .transcription-page-init-content { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-bottom: var(--space-2); }
+  #transcriptionPageInitFacts { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+  #transcriptionPageInitDialog .modal-actions { display: grid; grid-template-columns: minmax(5rem, .65fr) minmax(0, 1.65fr); align-items: stretch; gap: var(--space-2); margin: 0 calc(-1 * var(--space-4)); padding: var(--space-3) var(--space-4) max(var(--space-3), env(safe-area-inset-bottom)); border-top: var(--border-subtle); background: var(--color-surface); }
+  #transcriptionPageInitDialog .modal-actions .right { display: contents; }
+  #transcriptionPageInitDialog .modal-actions > .btn,
+  #transcriptionPageInitDialog .modal-actions .right .btn { width: 100%; min-width: 0; min-height: var(--control-touch); padding-inline: var(--space-2); white-space: normal; line-height: var(--leading-tight); }
+  #transcriptionPageInitDialog .modal-actions > [data-close] { align-self: stretch; justify-self: stretch; }
+  .consultation-breadcrumb { gap: 3px; }
+  .dedicated-page-header .dedicated-page-back { gap: 2px; padding-inline: 2px; }
+  .dedicated-page-back-arrow { font-size: var(--text-md); }
   .workspace-view .dedicated-page-heading > h2 { font-size: clamp(1.35rem, 6vw, 1.9rem); line-height: 1.1; }
   .source-detail-header { margin-bottom: var(--space-4); }
   .document-detail-header { margin-bottom: var(--space-2); }
+  .detail-page-crumb-row { gap: 0; }
+  .detail-page-crumb-row > .dedicated-page-back { padding-inline: var(--space-1); }
+  .detail-page-meta-row { align-items: flex-start; gap: var(--space-2); }
+  .consultation-breadcrumb { font-size: 14px; }
+  .consultation-breadcrumb > h2 { overflow-wrap: anywhere; }
+  .proof-detail-revise { min-height: var(--control-touch); }
   /* Lot corrections : le libellé « Original » de l'en-tête de panneau n'apparaît
      plus sous le titre sur mobile (la visionneuse suit directement l'en-tête ;
      les commandes de ce panneau sont déjà masquées à cette largeur). */

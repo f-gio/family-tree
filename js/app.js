@@ -4158,6 +4158,24 @@ function setDedicatedPageBackLabel(buttonId, context) {
   if (labelNode) labelNode.textContent = window.matchMedia("(max-width: 760px)").matches ? "Retour" : label;
 }
 
+function setTranscriptionWorkshopBackLabel() {
+  const button = $("workshopBackBtn");
+  if (!button) return;
+  const destination = `Retour ${dedicatedPageReturnDestination(transcriptionWorkshopReturn)}`;
+  button.setAttribute("aria-label", destination);
+  button.title = destination;
+  const label = button.querySelector(".dedicated-page-back-label");
+  if (label) label.textContent = window.matchMedia("(max-width: 760px)").matches ? "Retour" : destination;
+}
+
+function refreshDedicatedPageBackLabels() {
+  if (!$("sourceDetailView").hidden) setDedicatedPageBackLabel("sourcePageBackBtn", sourcePageReturnContext);
+  if (!$("proofDetailView").hidden) setDedicatedPageBackLabel("proofPageBackBtn", proofPageReturnContext);
+  if (isDocumentPageVisible()) setDedicatedPageBackLabel("documentPageBackBtn", documentPageReturnContext);
+  if (isTranscriptionWorkshopActive()) setTranscriptionWorkshopBackLabel();
+}
+window.addEventListener("resize", refreshDedicatedPageBackLabels);
+
 /** Formate les horodatages des révisions Firestore et des archives historiques. */
 function formatGenealogyRevisionDate(value) {
   let date = null;
@@ -4577,6 +4595,48 @@ function proofPageReturnContextFor(item) {
   return { kind: "view", view: activeView, focusId: item.record.id };
 }
 
+function renderConsultationBreadcrumb(navId, titleId, title, context) {
+  const nav = $(navId);
+  const heading = $(titleId);
+  if (!nav || !heading) return;
+  const path = [];
+  let root = "Archives";
+  if (context?.kind === "document") {
+    const documentItem = documents.find(item => item.id === context.documentId);
+    if (documentItem) {
+      root = "Documents";
+      path.push(documentDisplayLabel(documentItem));
+    }
+  } else if (context?.kind === "source" || context?.kind === "sourcePage") {
+    const source = genealogyRecords.sourceDocuments.find(item => item.id === context.id);
+    if (source) path.push(genealogyRecordData(source).title || "Source sans titre");
+  } else if (context?.kind === "proof") {
+    const proof = genealogyRecords.genealogyProofs.find(item => item.id === context.id);
+    if (proof) {
+      const data = genealogyRecordData(proof);
+      path.push(PROOF_FACT_KIND_LABELS[data.factType] || data.factType || data.factId || "Preuve");
+    }
+  }
+  nav.replaceChildren();
+  const segments = [root, ...path, title];
+  segments.forEach((segment, index) => {
+    if (index === segments.length - 1) {
+      heading.textContent = segment;
+      heading.setAttribute("aria-label", segment);
+      heading.title = segment;
+      nav.append(heading);
+      return;
+    }
+    const text = document.createElement("span");
+    text.textContent = segment;
+    nav.append(text);
+    const separator = document.createElement("span");
+    separator.setAttribute("aria-hidden", "true");
+    separator.textContent = "›";
+    nav.append(separator);
+  });
+}
+
 function renderProofPage(item, returnContext = null, preserveScroll = false) {
   const samePageVisible = !$('proofDetailView').hidden && activeProofPageItem?.record.id === item.record.id;
   if (!samePageVisible) proofPageReturnContext = returnContext || proofPageReturnContextFor(item);
@@ -4589,9 +4649,7 @@ function renderProofPage(item, returnContext = null, preserveScroll = false) {
   setView("proofDetail");
   const { record, data } = item;
   const title = PROOF_FACT_KIND_LABELS[data.factType] || data.factType || data.factId || "Preuve";
-  $("proofPageTitle").textContent = title;
-  $("proofPageTitle").setAttribute("aria-label", title);
-  $("proofPageTitle").title = title;
+  renderConsultationBreadcrumb("proofPageBreadcrumb", "proofPageTitle", title, proofPageReturnContext);
   const relation = PROOF_RELATION_LABELS[data.relation] || data.relation || "";
   $("proofPageBadges").innerHTML = `${genealogyKindBadgeHtml("proof")}${genealogyStatusBadgeHtml(data.technicalStatus)}${relation ? `<span class="genealogy-status-badge">${esc(relation)}</span>` : ""}`;
   /* Composition en deux zones sur desktop : le fait historique et ses sources
@@ -6949,12 +7007,7 @@ function captureTranscriptionWorkshopReturn() {
   } else {
     transcriptionWorkshopReturn = null;
   }
-  const workshopBackButton = $("workshopBackBtn");
-  if (workshopBackButton) {
-    const destination = `Retour ${dedicatedPageReturnDestination(transcriptionWorkshopReturn)}`;
-    workshopBackButton.setAttribute("aria-label", destination);
-    workshopBackButton.title = destination;
-  }
+  setTranscriptionWorkshopBackLabel();
   /* Sur les écrans qui affichent le fil d'Ariane, la flèche de retour vers le
      Document y est redondante ; elle reste pour les retours vers une Source ou
      une fiche que le fil ne peut pas exprimer. */
@@ -9069,9 +9122,7 @@ function renderSourcePage(item, returnContext = null, preserveScroll = false) {
   if ($("genealogyItemDialog").open) close("genealogyItemDialog");
   setView("sourceDetail");
   const { record, data } = item;
-  $("sourcePageTitle").textContent = data.title || "Source sans titre";
-  $("sourcePageTitle").setAttribute("aria-label", data.title || "Source sans titre");
-  $("sourcePageTitle").title = data.title || "Source sans titre";
+  renderConsultationBreadcrumb("sourcePageBreadcrumb", "sourcePageTitle", data.title || "Source sans titre", sourcePageReturnContext);
   setDedicatedPageBackLabel("sourcePageBackBtn", sourcePageReturnContext);
   $("sourcePageBadges").innerHTML = `${genealogyKindBadgeHtml("source")}${genealogyStatusBadgeHtml(data.status)}${data.category ? `<span class="genealogy-status-badge">${esc(data.category)}</span>` : ""}`;
   /* Composition en deux zones sur desktop : la colonne principale porte la
@@ -10600,8 +10651,7 @@ function arrangePdfChrome() {
     viewerBody.after(pagination);
     pagination.after(toggles);
     toggles.after(rail);
-    const originalHead = document.querySelector("#documentDetailView .document-original-head");
-    if (originalHead && $("viewerDetailsExpandBtn").parentElement !== originalHead) originalHead.append($("viewerDetailsExpandBtn"));
+    if ($("viewerDetailsExpandBtn").parentElement !== toggles) toggles.append($("viewerDetailsExpandBtn"));
     for (const id of ["pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn"]) toolbar.append($(id));
     pagination.hidden = false;
     toggles.hidden = false;

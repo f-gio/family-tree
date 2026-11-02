@@ -489,11 +489,12 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(html, /class="dedicated-page-header transcription-workshop-header"/, "l’atelier réutilise l’en-tête commun");
   assert.match(html, /aria-label="Fil d’Ariane"[\s\S]*?data-workshop-breadcrumb="documents"[\s\S]*?data-workshop-breadcrumb="document"[\s\S]*?aria-current="page">Transcription/, "fil d’Ariane vers les routes Documents, Document et Transcription");
   assert.match(app, /function navigateTranscriptionWorkshopBreadcrumb\(destination\)/, "retours du fil d’Ariane branchés sur des vues réelles");
-  assert.match(css, /body:has\(#transcriptionWorkshopView:not\(\[hidden\]\)\) \.topbar \.main-nav \{ display: none !important; \}/, "méga-menu masqué uniquement quand l’atelier est actif sur desktop");
+  assert.match(css, /body:has\(#transcriptionWorkshopView:not\(\[hidden\]\)\) \.topbar \.main-nav,[\s\S]*?body:has\(#proofDetailView:not\(\[hidden\]\)\) \.topbar \.main-nav \{ display: none !important; \}/, "navigation masquée dans les quatre fiches de consultation uniquement");
   assert.match(html, /class="btn small dedicated-page-back transcription-workshop-return"[^>]*id="workshopBackBtn"/, "Retour discret intégré à la ligne du fil d’Ariane");
   /* Le retour contextuel est placé à droite du fil d’Ariane ; le menu « … »
      et le statut restent dans le panneau de transcription. */
-  const breadcrumb = html.slice(html.indexOf('aria-label="Fil d’Ariane"'), html.indexOf('</nav>', html.indexOf('aria-label="Fil d’Ariane"')));
+  const workshopBreadcrumbStart = html.indexOf('aria-label="Fil d’Ariane"', html.indexOf('id="transcriptionWorkshopView"'));
+  const breadcrumb = html.slice(workshopBreadcrumbStart, html.indexOf('</nav>', workshopBreadcrumbStart));
   assert.ok(breadcrumb.includes('id="workshopBackBtn"'), "Retour intégré sur la ligne du fil d’Ariane");
   assert.ok(!breadcrumb.includes('id="workshopActionsMenu"'), "menu « … » retiré du fil d’Ariane");
   assert.ok(!breadcrumb.includes('id="workshopSaveStatus"'), "statut de sauvegarde retiré du fil d’Ariane");
@@ -573,8 +574,8 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.doesNotMatch(css, /#workshopValidateLabel \{ display: none;/, "libellé Valider visible sur mobile");
   assert.match(css, /\.transcription-workshop-footer-actions \.transcription-workshop-edit-cta \{[^}]*min-height: var\(--control-touch\)/, "cibles tactiles égales pour Annuler/Valider");
   assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour à la fiche d’origine"[^>]*title="Retour à la fiche d’origine"/, "retour contextuel accessible et discret");
-  assert.match(css, /\.btn\.transcription-workshop-return \{[^}]*height: var\(--control-touch\)/, "Retour en bouton secondaire de 44 px");
-  assert.match(css, /\.btn\.transcription-workshop-return \{[^}]*border: 1px solid var\(--color-border\)[^}]*background: var\(--color-surface\)/, "Retour avec bordure discrète et fond clair");
+  assert.match(css, /\.btn\.transcription-workshop-return \{[^}]*min-height: var\(--control-touch\)/, "Retour avec cible tactile de 44 px");
+  assert.match(css, /\.btn\.transcription-workshop-return \{[^}]*border: 0[^}]*background: transparent/, "Retour textuel sans bordure ni fond");
   assert.match(app, /function teardownTranscriptionWorkshop\(\)/, "nettoyage du lecteur à la sortie");
   for (const tab of ["Original", "Italien", "Français"]) assert.ok(html.includes(`>${tab}</button>`), `onglet ${tab} présent`);
   assert.match(html, /id="workshopPassagePills"/, "pastilles de navigation des passages présentes");
@@ -613,7 +614,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.ok(workshopMobileStart >= 0 && workshopMobileEnd > workshopMobileStart, "bloc atelier mobile localisé");
   const workshopMobileA3 = css.slice(workshopMobileStart, workshopMobileEnd);
   assert.ok(workshopMobileA3.includes(".transcription-workshop-breadcrumb > span { display: none; }"), "fil d’Ariane mobile remplacé par l’en-tête dédié");
-  assert.ok(workshopMobileA3.includes("body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav { display: none !important; }"), "navigation générale masquée uniquement dans l’atelier mobile");
+  assert.ok(css.includes("body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav,"), "navigation générale de l’atelier demeure masquée sur mobile");
   assert.ok(workshopMobileA3.includes(".transcription-workshop-passage:not(.is-selected) { display: none; }"), "un seul passage visible à la fois sur mobile");
   assert.ok(workshopMobileA3.includes("padding-bottom: max(var(--space-1), env(safe-area-inset-bottom, 0px))"), "safe area inférieure respectée sans cumul d'espace superflu");
   assert.ok(workshopMobileA3.includes("scroll-snap-type: x mandatory"), "aimantation stricte des pastilles sur mobile : aucun numéro coupé à l'arrêt");
@@ -626,7 +627,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /visualViewport\.addEventListener\("resize", onViewportChange\)/, "écoute de visualViewport");
   assert.match(app, /removeEventListener\("resize", onViewportChange\)/, "nettoyage des listeners du clavier");
   assert.match(css, /\.transcription-workshop-menu-panel \{/, "menu secondaire d’en-tête");
-  assert.match(css, /\.btn\.transcription-workshop-return \{[^}]*margin-inline-start: auto/, "Retour aligné à droite du fil d’Ariane");
+  assert.match(css, /\.consultation-breadcrumb \{[^}]*flex: 1 1 auto/, "le fil d’Ariane réserve l’espace qui aligne le Retour à droite");
   assert.match(css, /\.transcription-workshop-heading h2 \{[^}]*-webkit-line-clamp: 2/, "titre Atelier lisible sur deux lignes maximum");
   assert.match(css, /\.transcription-workshop-passage\.is-selected \{ flex: 1 0 auto; min-height: 0;/, "le passage actif utilise la hauteur disponible");
   assert.match(css, /\.transcription-workshop-passage textarea \{ width: 100%; flex: 1 1 auto; min-height: clamp\(8rem, 24dvh, 16rem\)[^}]*field-sizing: content/, "champs de hauteur adaptée au contenu avec plafond anti-scroll imbriqué");

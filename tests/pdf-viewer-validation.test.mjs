@@ -87,15 +87,15 @@ await new Promise((resolveListen, reject) => {
 });
 const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
-/* Harnais partagé : markup réel de la page Document (dist-recette) + ouverture
+/* Harnais partagé : markup et styles de la page Document du working tree + ouverture
    du lecteur PDF. Utilisé par le test d'organisation et par le test de repli
    plein écran (cas iPhone sans API native). */
 async function buildPageDocument() {
-  const source = await readFile(new URL("../dist-recette/index.html", import.meta.url), "utf8");
+  const source = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const inlineStyles = [...source.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[1]).join("\n");
   const pageStart = source.lastIndexOf("<main", source.indexOf('id="documentDetailView"'));
   const pageEnd = source.indexOf("</main>", pageStart) + "</main>".length;
-  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><link rel="stylesheet" href="${baseUrl}/css/design-system.css"><style>${inlineStyles}</style></head><body>${source.slice(pageStart, pageEnd)}</body></html>`;
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><link rel="stylesheet" href="${baseUrl}/source/css/design-system.css"><style>${inlineStyles}</style></head><body>${source.slice(pageStart, pageEnd)}</body></html>`;
 }
 
 async function openViewerPage(page, useCurrentSource = false) { return page.evaluate(async ({ url, useCurrentSource }) => {
@@ -391,6 +391,7 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     await openViewerPage(page);
     await page.waitForFunction(() => document.getElementById("viewerPdfPageCanvas").width > 0, undefined, { timeout: 15000 });
     assert.equal(await page.locator(".pdf-thumbnail").count(), 24);
+    assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "mention Original absente sous la visionneuse PDF desktop");
     const desktop = await measureAll(page);
     assert.ok(desktop.pdfPageNav != null && !desktop.pdfPageNav.visible, "la navigation dédiée reste masquée sur desktop");
     assert.ok(desktop.pdfPanelToggles != null && !desktop.pdfPanelToggles.visible, "la rangée de bascules reste masquée sur desktop");
@@ -534,8 +535,6 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
           header: get(".document-detail-header"),
           title: get("#viewerTitle"),
           titleStyle: { whiteSpace: titleStyle.whiteSpace, textOverflow: titleStyle.textOverflow, overflow: titleStyle.overflow, lineClamp: titleStyle.webkitLineClamp },
-          actions: get(".document-detail-actions"),
-          menu: get("#viewerActionsBtn"),
           close: get("#documentPageBackBtn")
         };
       });
@@ -543,12 +542,10 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
         /* Le Retour vit désormais dans l'en-tête : plafond recalibré (mesuré 141 px). */
         assert.ok(mobileHeader.header.height <= 148, `en-tête mobile contenu avec métadonnées visibles (${mobileHeader.header.height}px)`);
         assert.equal(mobileHeader.titleStyle.lineClamp, "2", "titre tronqué au-delà de deux lignes");
-        assert.ok(mobileHeader.title.right <= mobileHeader.actions.x + 1, "le titre ne chevauche pas les actions");
-        assert.ok(mobileHeader.close.y >= mobileHeader.header.y - 1, "le lien Retour est dans l'en-tête");
-        assert.ok(mobileHeader.close.right <= mobileHeader.header.right + 1, "le Retour est aligné à droite de l'en-tête");
-        assert.ok(mobileHeader.close.y >= mobileHeader.actions.bottom - 1, "le Retour est directement sous le groupe d'actions");
-        assert.ok(mobileHeader.menu.height >= 43.5 && mobileHeader.menu.width >= 43.5, "menu général avec cible 44px");
-        assert.ok(mobileHeader.close.height >= 43.5 && mobileHeader.close.width >= 43.5, "Retour avec cible 44px");
+         assert.ok(mobileHeader.title.right <= mobileHeader.close.x + 1, "le titre ne chevauche pas le lien Retour");
+         assert.ok(mobileHeader.close.y >= mobileHeader.header.y - 1, "le lien Retour est dans l'en-tête");
+         assert.ok(mobileHeader.close.right <= mobileHeader.header.right + 1, "le Retour est aligné à droite de l'en-tête");
+         assert.ok(mobileHeader.close.height >= 43.5 && mobileHeader.close.width >= 43.5, "Retour avec cible 44px");
       }
       if (viewport.width === 320) {
         const truncation = await page.locator("#viewerTitle").evaluate(element => ({ lineClamp: getComputedStyle(element).webkitLineClamp, label: element.getAttribute("aria-label") }));
@@ -556,6 +553,7 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
         assert.equal(truncation.label, await page.locator("#viewerTitle").textContent(), "titre complet reste accessible");
       }
       assert.ok(mobile.viewerPdfThumbnails != null && !mobile.viewerPdfThumbnails.visible, "miniatures fermées par défaut sur mobile");
+      assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "mention Original retirée de la visionneuse PDF");
       assert.equal(await page.locator(".document-detail-tabs").count(), 0, "plus d'onglets Original/Informations (lot G)");
       assert.ok(mobile.viewerDocumentDetails != null && !mobile.viewerDocumentDetails.visible, "informations fermées par défaut sur mobile");
       assert.equal(await page.locator("#viewerDocumentDetails").evaluate(element => element.hidden), true, "volet Informations replié à l'ouverture");

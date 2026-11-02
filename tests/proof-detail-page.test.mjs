@@ -151,6 +151,8 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     assert.equal(state.title, "Naissance");
     assert.ok(state.archiveScroll <= 40, `fiche Preuve ouverte depuis son haut malgré Archives défilée (scrollY=${state.archiveScroll}, départ ${archiveScroll})`);
     assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour aux archives");
+    assert.equal(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", "navigation masquée dans la fiche Preuve");
+    assert.match(await page.locator("#proofDetailView .consultation-breadcrumb").innerText(), /Archives[\s\S]*Naissance/);
     assert.equal(await page.locator("#proofPageTitle").getAttribute("aria-label"), state.title, "titre complet accessible");
     assert.ok(await page.locator("#proofDetailView header.dedicated-page-header").count(), "en-tête partagé de page dédiée");
     const revisionHistory = await page.locator("#proofPageContent .source-detail-history").innerText();
@@ -190,6 +192,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.evaluate(() => window.__proofPageTest.openSource());
     await page.locator('#sourcePageContent [data-open-genealogy="proof"]').first().click();
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
+    assert.match(await page.locator("#proofPageBreadcrumb").innerText(), /Archives[\s\S]*Source de référence[\s\S]*Naissance/);
     assert.equal((await page.evaluate(() => window.__proofPageTest.state())).returnContext.kind, "source");
     await page.click("#proofPageBackBtn");
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
@@ -197,6 +200,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     await page.locator("#proofPageContent [data-proof-source-open]").click();
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
+    assert.match(await page.locator("#sourcePageBreadcrumb").innerText(), /Archives[\s\S]*Naissance[\s\S]*Source de référence/);
     await page.click("#sourcePageBackBtn");
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     await page.click("#proofPageBackBtn");

@@ -249,12 +249,14 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     await page.evaluate(() => window.__documentPageTest.openSourceFromPage());
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
+    assert.match(await page.locator("#sourcePageBreadcrumb").innerText(), /Documents[\s\S]*Registre[\s\S]*Source du registre/);
     await page.click("#sourcePageBackBtn");
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, true, "retour à la page Source appelante depuis l'origine");
     await page.evaluate(() => window.__documentPageTest.openProofFromPage());
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
+    assert.match(await page.locator("#proofPageBreadcrumb").innerText(), /Documents[\s\S]*Registre[\s\S]*Naissance/);
     await page.click("#proofPageBackBtn");
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     state = await page.evaluate(() => window.__documentPageTest.state());
@@ -267,7 +269,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, false, "l'atelier remplace la page");
     assert.equal(state.workshopBackLabel, "Retour au document", "Retour de l’Atelier précise le Document appelant");
-    assert.equal((await page.locator("#workshopBackBtn .dedicated-page-back-label").textContent()).trim(), "Retour", "Retour discret sur la ligne du fil d’Ariane");
+    assert.equal((await page.locator("#workshopBackBtn .dedicated-page-back-label").textContent()).trim(), "Retour au document", "Retour contextualisé sur desktop");
     assert.ok(state.workshopBackHeight >= 44, "Retour accessible et visible à droite du fil d’Ariane");
     assert.equal(state.workshopBackRedundant, false, "le retour contextuel reste disponible avec le fil d’Ariane");
     assert.equal(state.workshopMenuInPanel, true, "menu « … » unique dans le panneau de transcription");
@@ -482,15 +484,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       assert.match(state.workshopBreadcrumb, width >= 761
         ? /Documents.*Transcription/
         : /Registre de consultation paroissial.*Transcription/, `fil d’Ariane compact à ${width}px`);
-      if (width >= 981) {
-        assert.equal(state.workshopNavigationDisplay, "none", "méga-menu masqué dans l’atelier desktop");
-        assert.notEqual(state.workshopBrandDisplay, "none", "identité de marque conservée dans l’atelier desktop");
-      } else if (width <= 760) {
-        assert.equal(state.workshopNavigationDisplay, "none", `navigation générale masquée dans l’atelier mobile A3 (${width}px)`);
-        assert.notEqual(state.workshopBrandDisplay, "none", `identité de marque conservée dans l’atelier mobile (${width}px)`);
-      } else {
-        assert.notEqual(state.workshopNavigationDisplay, "none", `navigation générale préservée hors atelier A3 (${width}px)`);
-      }
+      assert.equal(state.workshopNavigationDisplay, "none", `navigation générale masquée dans l’atelier (${width}px)`);
+      assert.notEqual(state.workshopBrandDisplay, "none", `identité de marque conservée dans l’atelier (${width}px)`);
       if (width >= 981) {
         await page.click("[data-workshop-breadcrumb='document']");
         await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentDetailView").hidden);
@@ -528,20 +523,26 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       const rect = header.getBoundingClientRect();
       return { actionBackGap: actions ? back.y - actions.bottom : null, rightInset: rect.right - back.right, height: rect.height };
     }, viewId);
-    for (const width of [390, 1440]) {
+    for (const width of [320, 375, 390, 820, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.evaluate(() => window.__documentPageTest.openHeaderSource());
       await page.evaluate(() => window.__documentPageTest.settle());
       const sourceGeometry = await headerMeasure("sourceDetailView");
+      assert.equal(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", `navigation masquée dans Source à ${width}px`);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `aucun débordement horizontal dans Source à ${width}px`);
       await page.evaluate(() => window.__documentPageTest.openHeaderProof());
       await page.evaluate(() => window.__documentPageTest.settle());
       const proofGeometry = await headerMeasure("proofDetailView");
+      assert.equal(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", `navigation masquée dans Preuve à ${width}px`);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `aucun débordement horizontal dans Preuve à ${width}px`);
       await page.evaluate(() => window.__documentPageTest.openHeaderDocument("Autre"));
       await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
       await page.evaluate(() => window.__documentPageTest.settle());
       const documentGeometry = await headerMeasure("documentDetailView");
-      for (const [name, geometry] of [["Source", sourceGeometry], ["Preuve", proofGeometry]]) {
-        assert.ok(Math.abs(documentGeometry.rightInset - geometry.rightInset) <= 1, `${width}px : alignement droit identique à ${name}`);
+      assert.equal(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", `navigation masquée dans Document à ${width}px`);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `aucun débordement horizontal dans Document à ${width}px`);
+      for (const [name, geometry] of [["Source", sourceGeometry], ["Preuve", proofGeometry], ["Document", documentGeometry]]) {
+        assert.ok(geometry.rightInset >= -1 && geometry.rightInset <= 3, `${width}px : Retour de ${name} aligné à droite (${geometry.rightInset}px)`);
       }
       assert.equal(await page.locator("#documentPageActions").count(), 0, `${width}px : aucun menu ⋯ dans l’en-tête Document`);
       assert.equal(await page.locator("#viewerEditBtn").count(), 1, `${width}px : action Modifier unique dans les informations`);
@@ -576,8 +577,25 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(await page.locator("#transcriptionPageInitConfirmBtn").isDisabled(), false, "initialisation directe disponible après calcul de l’empreinte");
     assert.match(await page.locator("#transcriptionPageInitNotice").textContent(), /ajoutée à la fiche Document/);
     assert.equal((await page.evaluate(() => window.__documentPageTest.state())).documentPageCount, 0, "l’ouverture du dialogue ne modifie rien avant confirmation");
+    const mobileInitGeometry = await page.locator("#transcriptionPageInitDialog").evaluate(dialog => {
+      const rect = dialog.getBoundingClientRect();
+      return { width: rect.width, right: rect.right, viewport: innerWidth, contentHeight: dialog.querySelector(".transcription-page-init-content").clientHeight, footerHeight: dialog.querySelector(".modal-actions").getBoundingClientRect().height, footerBottom: dialog.querySelector(".modal-actions").getBoundingClientRect().bottom, dialogBottom: rect.bottom };
+    });
+    assert.ok(mobileInitGeometry.width <= mobileInitGeometry.viewport + 1, "modale mobile sans débordement horizontal");
+    assert.ok(mobileInitGeometry.contentHeight > 0 && mobileInitGeometry.footerHeight >= 44, "contenu défilant et actions tactiles visibles sur mobile");
+    assert.ok(mobileInitGeometry.footerBottom <= mobileInitGeometry.dialogBottom + 1, "footer ancré dans la modale mobile");
     await page.click('[data-close="transcriptionPageInitDialog"]');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.evaluate(() => window.__documentPageTest.standalone(false));
+    await page.click("#viewerDocumentDetails [data-transcribe-document]");
+    await page.waitForSelector("#transcriptionPageInitDialog[open]");
+    const desktopInitWidth = await page.locator("#transcriptionPageInitDialog").evaluate(dialog => dialog.getBoundingClientRect().width);
+    assert.ok(desktopInitWidth >= 560 && desktopInitWidth <= 600, `modale desktop entre 560 et 600px (${desktopInitWidth}px)`);
+    assert.equal(await page.locator("#transcriptionPageInitFacts").evaluate(element => getComputedStyle(element).gridTemplateColumns.split(" ").length), 2, "informations réparties sur deux colonnes desktop");
+    await page.click('[data-close="transcriptionPageInitDialog"]');
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => window.__documentPageTest.standalone(true));
+    await page.click("#viewerDetailsBtn");
     await page.click("#viewerDocumentDetails [data-transcribe-document]");
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
     const standaloneState = await page.evaluate(() => window.__documentPageTest.state());
