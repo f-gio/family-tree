@@ -246,7 +246,7 @@ test("B1 édition : tracé, confirmation, annulation, ajustement, suppression et
     assert.ok(drawn.x >= 0 && drawn.y >= 0 && norm(drawn.x + drawn.width) <= 1 && norm(drawn.y + drawn.height) <= 1, "zone contenue dans l’image normalisée");
     assert.deepEqual(await page.evaluate(() => window.__b1.anchors()["p-1"]), originalAnchors["p-1"], "la zone des autres passages n’a jamais bougé");
     assert.equal(await page.evaluate(() => window.__b1.fields()["textIt:p-2"]), "indici di Orino", "texte du passage conservé");
-    await page.waitForFunction(() => window.__b1.status() === "Enregistré sur cet appareil", undefined, { timeout: 8000 });
+    await page.waitForFunction(() => window.__b1.status() === "Enregistré", undefined, { timeout: 8000 });
     const storedAnchor = await page.evaluate(() => {
       const stored = window.__b1.stored();
       if (!stored.length) return null;

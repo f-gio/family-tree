@@ -567,6 +567,25 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /function startWorkshopZoneTool\(mode\)/, "mode de tracé piloté par l’application");
   assert.match(app, /function confirmWorkshopZoneTool\(\)/, "écriture de la zone seulement après confirmation");
   assert.match(app, /guardWorkshopZoneViewerGestures/, "gestes du lecteur neutralisés pendant le tracé");
+  assert.doesNotMatch(css, /is-zone-editing #workshopPdfTools/, "pagination PDF non figée pendant le tracé (navigation en mode modification)");
+  /* Sortie d'édition : texte raccourci, libellés courts et actions
+     restructurées pour le responsive — mêmes identifiants, mêmes logiques. */
+  assert.match(html, /id="transcriptionEditCancelDescription">Votre révision n’est pas encore validée\./, "texte de sortie d’édition raccourci");
+  assert.match(html, /id="workshopCancelContinueBtn">Continuer</, "libellé « Continuer »");
+  assert.match(html, /id="workshopCancelDiscardBtn">Abandonner</, "libellé « Abandonner »");
+  assert.match(html, /id="workshopCancelKeepBtn">Conserver le brouillon</, "libellé « Conserver le brouillon »");
+  assert.match(html, /class="modal-actions transcription-edit-cancel-actions"/, "actions de sortie structurées pour le responsive");
+  /* Conflit de brouillon : libellés long et court, hiérarchie neutre,
+     comparaison à hauteur adaptée avec plafond de défilement. */
+  assert.match(html, /id="transcriptionDraftConflictKeepLocalBtn"><span class="conflict-label-long">Conserver la version de cet appareil<\/span><span class="conflict-label-short">Version de cet appareil<\/span>/, "libellés long et court du choix local");
+  assert.match(html, /<button class="btn" type="button" id="transcriptionDraftConflictKeepLocalBtn">/, "aucun choix de conflit en action principale (hiérarchie neutre)");
+  assert.match(app, /field\.rows = 1;\s*\r?\n\s*field\.style\.height = "auto";/, "hauteur de comparaison recalculée depuis le contenu");
+  assert.match(css, /\.transcription-draft-conflict-version \.field \{[^}]*max-height: min\(34vh, 18rem\)/, "plafond de défilement pour les comparaisons longues");
+  /* Pied compact : un seul statut (doublon Firestore retiré), libellés courts. */
+  assert.doesNotMatch(html, /id="workshopRemoteStatus"/, "second statut Firestore retiré du pied");
+  assert.match(css, /\.transcription-workshop-autosave-hint \{ display: none; \}/, "aide d’autosauvegarde masquée sur mobile");
+  assert.match(app, /offline \? "Hors ligne"/, "statut hors ligne court");
+  assert.match(app, /localFailed \? "Erreur de sauvegarde"/, "statut d’erreur de sauvegarde court");
   assert.match(app, /window\.addEventListener\("resize", \(\) => \{\s*if \(isTranscriptionWorkshopActive\(\)\) scheduleWorkshopZoneSync\(\);/, "réalignement de la zone sur redimensionnement de fenêtre");
   assert.match(css, /\.transcription-workshop-zone-editor \{ position: absolute; z-index: 12;/, "éditeur superposé à l’image");
   assert.match(css, /\.transcription-workshop-zone-actions \{/, "commandes du tracé sous la photographie");
@@ -642,7 +661,7 @@ test("les brouillons sont persistés localement et repris sans toucher aux modul
   assert.equal((app.match(/transcriptionWorkshopDrafts\.clear\(\)/g) || []).length, 1, "la mémoire des brouillons n'est vidée qu'à la fermeture de l'atelier");
   assert.match(app, /function resetTranscriptionWorkshopState[\s\S]{0,650}transcriptionWorkshopDrafts\.clear\(\)/, "effacement réservé à la fermeture de l'atelier, jamais après un échec");
   // États affichés discrètement sur le badge.
-  for (const label of ["Enregistrement…", "Enregistré sur cet appareil", "Échec de sauvegarde"]) {
+  for (const label of ["Enregistrement…", "Enregistré", "Hors ligne", "Erreur de sauvegarde"]) {
     assert.ok(app.includes(`"${label}"`), `état de sauvegarde affiché : ${label}`);
   }
   // Fermeture / rechargement : écriture avant jugement, confirmation seulement si non conservé.
@@ -838,17 +857,17 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
        l'état du pied reflète le résultat réel de l'écriture locale. */
     await page.fill('[data-workshop-field="textIt"]', "Anno millenovecentosedici");
     await page.fill('[data-workshop-field="translationFr"]', "L’année mille neuf cent seize");
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré", undefined, { timeout: 5000 });
     let stored = await page.evaluate(() => window.__repro.stored());
     assert.equal(stored.length, 1, "une copie locale écrite");
     assert.equal(JSON.parse(stored[0][1]).snapshot.passages[0].textIt, "Anno millenovecentosedici", "texte présent en local");
     assert.equal(await page.locator("#workshopSaveDraftBtn").count(), 0, "aucun bouton manuel « Enregistrer »");
-    assert.equal(await page.locator("#workshopSaveStatus").textContent(), "Enregistré sur cet appareil", "statut local exact");
+    assert.equal(await page.locator("#workshopSaveStatus").textContent(), "Enregistré", "statut local exact");
 
     /* Nouvelle modification : l'autosauvegarde reprend seule, sans action. */
     await page.fill('[data-workshop-field="textIt"]', "Anno senza attesa");
     assert.equal(await page.locator("#workshopSaveStatus").textContent(), "Enregistrement…", "modification en attente affichée sans faux succès");
-    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré", undefined, { timeout: 5000 });
     stored = await page.evaluate(() => window.__repro.stored());
     assert.equal(JSON.parse(stored[0][1]).snapshot.passages[0].textIt, "Anno senza attesa", "écriture automatique du nouveau contenu");
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "le menu « … » reste fermé");
@@ -956,7 +975,7 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     let fields = await page.evaluate(() => window.__repro.fields());
     assert.equal(fields.find(f => f.k === "textIt" && f.p === "p-1")?.v, "Anno senza attesa", "texte italien restauré à la réouverture");
     assert.equal(fields.find(f => f.k === "translationFr" && f.p === "p-1")?.v, "L’année mille neuf cent seize", "traduction restaurée à la réouverture");
-    assert.equal(await page.evaluate(() => window.__repro.badge()), "Enregistré sur cet appareil", "état enregistré restauré");
+    assert.equal(await page.evaluate(() => window.__repro.badge()), "Enregistré", "état enregistré restauré");
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "menu fermé à la réouverture");
 
     /* Rechargement complet : le brouillon survit. */
@@ -1005,7 +1024,7 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
       catch (error) { t.diagnostic(`${engineName} indisponible : ${error.message}`); continue; }
       ranAny = true;
       try {
-        for (const [width, height] of [[320, 780], [390, 844], [760, 900]]) {
+        for (const [width, height] of [[320, 780], [375, 812], [390, 844], [760, 900]]) {
           await t.test(`${engineName} ${width}×${height}`, async () => {
             const context = await browser.newContext({ viewport: { width, height }, locale: "fr-FR" });
             await context.route("**/*", async route => {
@@ -1200,7 +1219,7 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 warningVisible: [...document.querySelectorAll(".toast")].some(toast => toast.textContent.includes("Sauvegarde locale impossible") && toast.classList.contains("show")),
                 firstField: document.querySelector('[data-workshop-field="textIt"]')?.value
               }));
-              assert.equal(failure.status, "Échec de sauvegarde", "état d’échec affiché dans le pied");
+              assert.equal(failure.status, "Erreur de sauvegarde", "état d’échec affiché dans le pied");
               assert.equal(failure.failedClass, true, "état d’échec coloré");
               assert.equal(failure.warningVisible, true, "avertissement immédiat visible via le toast");
               assert.equal(failure.firstField, "Anno sotto errore", "brouillon conservé en mémoire malgré l’échec");
@@ -1209,10 +1228,10 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 const field = document.querySelector('[data-workshop-field="textIt"]');
                 field.dispatchEvent(new Event("input", { bubbles: true }));
               });
-              await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré sur cet appareil", undefined, { timeout: 6000 });
+              await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré", undefined, { timeout: 6000 });
               const recovered = await page.evaluate(() => ({ stored: window.__repro.stored().length, status: document.getElementById("workshopSaveStatus").textContent }));
               assert.ok(recovered.stored >= 1, "récupération écrite après rétablissement du stockage");
-              assert.equal(recovered.status, "Enregistré sur cet appareil", "retour à un état de succès réel");
+              assert.equal(recovered.status, "Enregistré", "retour à un état de succès réel");
 
               /* A3 mobile : en-tête dédié, navigation générale masquée, un seul
                  passage visible, contrôle segmenté contenu. */

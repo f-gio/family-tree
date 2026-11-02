@@ -393,9 +393,31 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     await page.locator('[data-workshop-field="textIt"]').first().fill("Révision à conserver");
     await page.click("#workshopCancelEditBtn");
     await page.waitForFunction(() => document.getElementById("transcriptionEditCancelDialog").open);
+    /* L'entrée des modales (150 ms, scale0.992) fausse les mesures tant
+       qu'elle tourne : on attend la fin de l'animation avant de relever
+       les boîtes. */
+    await page.waitForFunction(() => {
+      const dialog = document.getElementById("transcriptionEditCancelDialog");
+      return dialog.open && getComputedStyle(dialog).transform === "none";
+    }, undefined, { timeout: 3000 });
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), false, "la confirmation laisse l’édition active tant qu’un choix n’est pas fait");
     assert.equal(await page.locator("#workshopCancelKeepBtn").isVisible(), true, "choix de conservation explicite proposé");
     assert.equal(await page.locator("#workshopCancelDiscardBtn").isVisible(), true, "choix d'abandon explicite proposé");
+    assert.equal(await page.locator("#workshopCancelContinueBtn").textContent(), "Continuer", "libellé court de reprise d’édition");
+    assert.equal(await page.locator("#workshopCancelDiscardBtn").textContent(), "Abandonner", "libellé court d’abandon");
+    assert.equal(await page.locator("#workshopCancelKeepBtn").textContent(), "Conserver le brouillon", "libellé de conservation");
+    assert.match(await page.locator("#transcriptionEditCancelDescription").textContent(), /La version officielle reste inchangée/, "texte explicatif raccourci");
+    const desktopCancel = await page.evaluate(() => {
+      const box = id => {
+        const r = document.getElementById(id).getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      };
+      return { keep: box("workshopCancelKeepBtn"), cont: box("workshopCancelContinueBtn"), discard: box("workshopCancelDiscardBtn") };
+    });
+    assert.ok(Math.abs(desktopCancel.keep.y - desktopCancel.cont.y) <= 1 && Math.abs(desktopCancel.discard.y - desktopCancel.cont.y) <= 1, "trois actions sur une ligne en desktop");
+    assert.ok(desktopCancel.cont.x < desktopCancel.discard.x && desktopCancel.discard.x < desktopCancel.keep.x, "ordre Continuer, Abandonner, Conserver");
+    assert.ok(desktopCancel.keep.width >= 130 && desktopCancel.cont.width >= 90 && desktopCancel.discard.width >= 90, "largeurs équilibrées et libellés non coupés");
+    assert.ok(desktopCancel.keep.height >= 44, "cibles tactiles ≥ 44 px en desktop");
     await page.click("#workshopCancelKeepBtn");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "conservation retourne à la consultation officielle");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Anno millenovecento corrente", "annulation affiche l'officiel sans le modifier");
@@ -412,6 +434,30 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Révision à conserver", "la révision reprend sans perte depuis la carte Document");
     await page.click("#workshopCancelEditBtn");
     await page.waitForFunction(() => document.getElementById("transcriptionEditCancelDialog").open);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForFunction(() => {
+      const dialog = document.getElementById("transcriptionEditCancelDialog");
+      return dialog.open && getComputedStyle(dialog).transform === "none";
+    }, undefined, { timeout: 3000 });
+    const mobileCancel = await page.evaluate(() => {
+      const box = id => {
+        const r = document.getElementById(id).getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      };
+      return {
+        keep: box("workshopCancelKeepBtn"),
+        cont: box("workshopCancelContinueBtn"),
+        discard: box("workshopCancelDiscardBtn"),
+        viewport: innerWidth,
+        overflow: document.documentElement.scrollWidth > innerWidth
+      };
+    });
+    assert.ok(mobileCancel.keep.width >= mobileCancel.viewport * 0.85, "« Conserver le brouillon » pleine largeur sur mobile");
+    assert.ok(mobileCancel.keep.y < mobileCancel.cont.y - 10, "conservation en tête, au-dessus des autres actions");
+    assert.ok(Math.abs(mobileCancel.cont.y - mobileCancel.discard.y) <= 1, "« Continuer » et « Abandonner » côte à côte");
+    assert.ok(mobileCancel.cont.x < mobileCancel.discard.x, "Continuer à gauche, Abandonner à droite");
+    assert.ok(mobileCancel.keep.height >= 44 && mobileCancel.cont.height >= 44 && mobileCancel.discard.height >= 44, "cibles tactiles ≥ 44 px sur mobile");
+    assert.equal(mobileCancel.overflow, false, "fenêtre de sortie sans débordement horizontal à 390 px");
     await page.click("#workshopCancelDiscardBtn");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "abandon explicitement confirmé quitte l'édition");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Anno millenovecento corrente", "l'abandon ne modifie pas l'officiel");

@@ -441,7 +441,7 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
     /* Tracé : aucune écriture avant confirmation. */
     await clickZoneAction(page, "draw");
     assert.equal(await page.evaluate(() => window.__b2.toolActive()), true, "mode de tracé actif");
-    assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("workshopPdfTools")).pointerEvents), "none", "pagination neutralisée pendant le tracé");
+    assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("workshopPdfTools")).pointerEvents), "auto", "pagination utilisable pendant le tracé");
     assert.equal(await page.locator("#workshopZoneActions").isVisible(), true, "Annuler / Confirmer sous la surface PDF");
     assert.equal(await page.locator("#workshopZoneConfirmBtn").isDisabled(), true, "confirmation indisponible sans rectangle");
     await dragOnCanvas(page, 0.2, 0.25, 0.6, 0.65);
@@ -463,7 +463,7 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
     assert.ok(drawn.width >= WORKSHOP_ZONE_MIN_SIZE && drawn.height >= WORKSHOP_ZONE_MIN_SIZE, "taille minimale");
     assert.ok(drawn.x >= 0 && drawn.y >= 0 && drawn.x + drawn.width <= 1 + 1e-9 && drawn.y + drawn.height <= 1 + 1e-9, "bornes normalisées");
     assert.equal(await page.evaluate(() => window.__b2.fields()["textIt:p-2"]), "indici di Orino", "texte du passage conservé");
-    await page.waitForFunction(() => window.__b2.status() === "Enregistré sur cet appareil", undefined, { timeout: 8000 });
+    await page.waitForFunction(() => window.__b2.status() === "Enregistré", undefined, { timeout: 8000 });
     const storedAnchor = await page.evaluate(() => {
       const stored = window.__b2.stored();
       if (!stored.length) return null;
@@ -472,6 +472,34 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
     });
     assert.ok(storedAnchor && storedAnchor.pdfPage === 1 && storedAnchor.fileSha256.length === 64, "ancre PDF dans le brouillon sauvegardé");
     assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("workshopPdfTools")).pointerEvents), "auto", "pagination restaurée après confirmation");
+
+    /* Navigation pendant le mode modification : la pagination reste active,
+       le passage sélectionné est conservé, l'ancre confirmée n'est ni
+       déplacée ni supprimée en changeant de page — seul un nouveau tracé
+       confirmé sur la page affichée remplace l'association. */
+    await clickZoneAction(page, "adjust");
+    await waitForZoneEditorRect(page);
+    await page.click("#workshopPdfNextBtn");
+    await page.waitForFunction(() => window.__b2.pdfState().page === 2, undefined, { timeout: 4000 });
+    assert.equal(await page.evaluate(() => window.__b2.toolActive()), true, "changement de page sans quitter le mode édition");
+    assert.equal(await page.locator("#workshopZoneActions").isVisible(), true, "commandes de délimitation conservées après navigation");
+    assert.equal(await page.locator("#workshopZoneConfirmBtn").isDisabled(), true, "rectangle temporaire retiré : confirmation désarmée");
+    assert.equal(await page.evaluate(() => window.__b2.anchors()["p-2"].pdfPage), 1, "ancre confirmée intacte malgré la navigation");
+    assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "2", "passage sélectionné conservé pendant la navigation");
+    assert.equal(await page.evaluate(() => document.getElementById("workshopPdfZone").hidden), true, "zone de la page 1 masquée tant que sa page n'est pas affichée");
+    await dragOnCanvas(page, 0.25, 0.3, 0.65, 0.7);
+    await waitForZoneEditorRect(page);
+    assert.equal(await page.locator("#workshopZoneConfirmBtn").isEnabled(), true, "nouveau tracé sur la page affichée : confirmation armée");
+    await page.click("#workshopZoneConfirmBtn");
+    const replaced = await page.evaluate(() => window.__b2.anchors()["p-2"]);
+    assert.equal(replaced.pdfPage, 2, "confirmation sur une autre page : l'association existante est remplacée");
+    assert.equal(replaced.fileSha256, expectedHash, "nouvelle ancre toujours épinglée à l'empreinte du fichier");
+    await page.waitForFunction(() => !document.getElementById("workshopPdfZone").hidden, undefined, { timeout: 4000 });
+    const replacedAlignment = await zoneAlignment(page, "p-2");
+    assert.ok(replacedAlignment.ok, `zone p-2 réalignée sur la page 2 (dx=${replacedAlignment.dx}, dy=${replacedAlignment.dy})`);
+    await page.click("#workshopPdfPrevBtn");
+    await page.waitForFunction(() => window.__b2.pdfState().page === 1, undefined, { timeout: 4000 });
+    await page.waitForFunction(() => document.getElementById("workshopPdfZone").hidden, undefined, { timeout: 4000 });
 
     /* Sélection d'une zone d'une autre page : ouverture automatique + alignement. */
     await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(2).click();
@@ -596,7 +624,7 @@ test("B2 mobile : tracé tactile depuis l’onglet Original, poignées et comman
               await clickZoneAction(page, "draw");
               assert.equal(await page.evaluate(() => document.getElementById("workshopLayout").dataset.activePanel), "original", "bascule vers l’onglet Original");
               assert.equal(await page.evaluate(() => window.__b2.toolActive()), true, "mode de tracé actif");
-              assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("workshopPdfTools")).pointerEvents), "none", "pagination neutralisée pendant le tracé");
+              assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("workshopPdfTools")).pointerEvents), "auto", "pagination utilisable pendant le tracé");
               const actionsBox = await page.locator("#workshopZoneActions").boundingBox();
               assert.ok(actionsBox && actionsBox.height > 0 && actionsBox.y + actionsBox.height <= height + 1, "commandes accessibles dans le viewport");
               /* Tracé direct sur le canvas. */

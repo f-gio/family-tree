@@ -2727,10 +2727,6 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-save-status.is-synced { color: var(--color-success); }
 .transcription-workshop-save-status.is-conflict { color: var(--color-warning); }
 .transcription-workshop-autosave-hint { min-width: 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; text-overflow: ellipsis; }
-.transcription-workshop-remote-status { min-width: 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; text-overflow: ellipsis; }
-.transcription-workshop-remote-status.is-failed { color: var(--color-danger); }
-.transcription-workshop-remote-status.is-conflict { color: var(--color-warning); }
-.transcription-workshop-remote-status.is-synced { color: var(--color-success); }
 /* Pied d'atelier : le statut vit en bas du panneau de transcription, à droite
    du séparateur sur desktop et après la zone de saisie sur mobile — jamais au
    dessus du document, jamais en position fixe ou flottante. */
@@ -2743,9 +2739,41 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-draft-conflict-body { display: grid; gap: var(--space-3); align-content: start; }
 .transcription-draft-conflict-version { display: grid; gap: var(--space-1); min-width: 0; }
 .transcription-draft-conflict-version h4 { margin: 0; font-size: var(--text-sm); }
-.transcription-draft-conflict-version .field { min-height: 9rem; resize: vertical; }
+/* Zones de comparaison adaptées au contenu : quelques passages ne laissent
+   pas de vide, un contenu long défile en interne derrière un plafond. */
+.transcription-draft-conflict-version .field { box-sizing: border-box; min-height: 3.5rem; max-height: min(34vh, 18rem); overflow-y: auto; resize: vertical; }
 @media (min-width: 761px) {
   .transcription-draft-conflict-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+/* Choix de conflit : libellés longs sur desktop, libellés courts sur mobile
+   (jamais de préférence automatique pour l'une des deux versions). */
+.conflict-label-short { display: none; }
+@media (max-width: 760px) {
+  .transcription-draft-conflict-actions .conflict-label-long { display: none; }
+  .transcription-draft-conflict-actions .conflict-label-short { display: inline; }
+  /* Sous 480 px, les deux choix s'empilent pleine largeur : aucune étiquette
+     comprimée sur deux lignes, cibles tactiles confortables. */
+  #transcriptionDraftConflictDialog .modal-actions .right { grid-template-columns: minmax(0, 1fr); }
+}
+/* Sortie d'édition : conservation pleine largeur en tête puis reprise et
+   abandon côte à côte (mobile) ; trois colonnes équilibrées (desktop).
+   Grille déterministe — aucun empilement accidentel selon les arrondis. */
+#transcriptionEditCancelDialog .modal-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); align-items: stretch; margin-top: var(--space-3); }
+#transcriptionEditCancelDialog .modal-actions > .btn { width: auto; min-width: 0; min-height: var(--control-touch); }
+#transcriptionEditCancelDialog .modal-actions > .btn.danger { margin-right: 0; }
+/* Lignes explicites : le curseur de placement automatique de la grille ne
+   revient jamais en arrière — la conservation reste en tête, reprise et
+   abandon partagent la seconde ligne. */
+#transcriptionEditCancelDialog #workshopCancelKeepBtn { grid-column: 1 / -1; grid-row: 1; }
+#transcriptionEditCancelDialog #workshopCancelContinueBtn { grid-column: 1; grid-row: 2; }
+#transcriptionEditCancelDialog #workshopCancelDiscardBtn { grid-column: 2; grid-row: 2; }
+@media (min-width: 761px) {
+  /* Colonne de conservation plus large : son libellé le plus long reste sur
+     une ligne dans une modale sm. */
+  #transcriptionEditCancelDialog .modal-actions { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); }
+  #transcriptionEditCancelDialog #workshopCancelContinueBtn { grid-column: 1; grid-row: 1; }
+  #transcriptionEditCancelDialog #workshopCancelDiscardBtn { grid-column: 2; grid-row: 1; }
+  #transcriptionEditCancelDialog #workshopCancelKeepBtn { grid-column: 3; grid-row: 1; }
 }
 .transcription-workshop-help { margin: 0; padding: var(--space-2) var(--space-3); border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface-soft); color: var(--color-text-muted); font-size: var(--text-sm); }
 .transcription-workshop-state { margin: 0; padding: var(--space-3); border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface-soft); color: var(--color-text-muted); font-size: var(--text-sm); }
@@ -2822,11 +2850,12 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-zone-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; padding-top: var(--space-1); }
 .transcription-workshop-zone-hint { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; text-overflow: ellipsis; }
 .transcription-workshop-zone-actions .btn { min-height: var(--control-touch); }
-/* Pendant le tracé, les commandes d'image, de pagination PDF et de navigation
+/* Pendant le tracé, les commandes d'image et de navigation photographique
    figent (aucun conflit avec le pan/pinch) — les gestes du lecteur sont aussi
-   neutralisés côté JS par la garde de capture. */
+   neutralisés côté JS par la garde de capture. La pagination PDF reste active
+   pendant le tracé : changer de page retire seulement le rectangle temporaire
+   (appartenant à l'autre page), sans quitter le mode édition. */
 #workshopPanelOriginal.is-zone-editing #workshopImageTools,
-#workshopPanelOriginal.is-zone-editing #workshopPdfTools,
 #workshopPanelOriginal.is-zone-editing #workshopPageNav,
 #workshopPanelOriginal.is-zone-editing #workshopPhotoNav { pointer-events: none; opacity: .55; }
 /* B2 : surface PDF de l'atelier — réutilise le moteur PDF.js de la fiche
@@ -2978,6 +3007,13 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-footer-actions { display: none; }
   #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-autosave-hint { display: none; }
   #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-footer { padding-bottom: var(--space-1); }
+  /* Pied compact : un seul statut court sur la première ligne (l'aide
+     d'autosauvegarde fixe est masquée, le doublon Firestore retiré du
+     balisage), actions alignées sur la seconde — deux lignes maximum et
+     aucun débordement horizontal aux largeurs 320/375/390 px. */
+  .transcription-workshop-autosave-hint { display: none; }
+  .transcription-workshop-footer { gap: var(--space-1) var(--space-2); padding-top: var(--space-1); }
+  .transcription-workshop-footer-status { flex: 1 1 auto; min-width: 0; }
   /* B1 mobile : poignées tactiles ≥ 44 px et commandes de zone au doigt. */
   .transcription-workshop-zone-handle { width: 20px; height: 20px; margin: -11px; }
   .transcription-workshop-zone-handle::before { inset: -12px; }

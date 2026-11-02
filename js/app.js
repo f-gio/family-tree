@@ -5591,6 +5591,17 @@ function openTranscriptionDraftConflictDialog(key) {
     : "Aucune version sur le compte.";
   const dialog = $("transcriptionDraftConflictDialog");
   if (!dialog.open) dialog.showModal();
+  /* Hauteur des zones de comparaison adaptée au contenu : peu de passages
+     divergents = cadre court sans vide ; contenu long = plafond et défilement
+     interne (le défilement reste porté par le corps du dialogue). */
+  for (const id of ["transcriptionDraftConflictLocalText", "transcriptionDraftConflictRemoteText"]) {
+    const field = $(id);
+    if (!field) continue;
+    field.rows = 1;
+    field.style.height = "auto";
+    const cap = Math.max(140, Math.round(window.innerHeight * 0.34));
+    field.style.height = `${Math.min(Math.max(field.scrollHeight, 56), cap)}px`;
+  }
 }
 
 /** Choix explicite de l'utilisateur : la version retenue est appliquée telle
@@ -7203,12 +7214,14 @@ async function createWorkshopPdfViewer() {
       bindingRoot: $("transcriptionWorkshopView"),
       keyZone: $("workshopPanelOriginal"),
       onPageRenderStart: ({ page }) => {
-        /* Seul un CHANGEMENT DE PAGE abandonne un tracé en cours (le contexte
-           change) ; un re-render de la même page (zoom, mise en page, taille
-           du panneau) masque seulement l'overlay — il sera reposé sur le rendu
-           confirmé. */
+        /* Seul un CHANGEMENT DE PAGE retire le rectangle temporaire du tracé
+           (il appartenait à l'autre page) SANS quitter le mode édition : le
+           passage sélectionné et l'ancre confirmée sont intacts, la
+           pagination reste utilisable. Un re-render de la même page (zoom,
+           mise en page, taille du panneau) masque seulement l'overlay — il
+           sera reposé sur le rendu confirmé. */
         const pageChanged = workshopPdfRenderedPage != null && workshopPdfRenderedPage !== page;
-        if (pageChanged && workshopZoneTool) cancelWorkshopZoneTool();
+        if (pageChanged && workshopZoneTool) resetWorkshopZoneToolForPage(page);
         workshopPdfRenderedPage = null;
         if (isTranscriptionWorkshopActive()) syncWorkshopZone();
       },
@@ -7561,6 +7574,23 @@ function cancelWorkshopZoneTool() {
   syncWorkshopZone();
 }
 
+/* B2 : changement de page PDF pendant le tracé — l'outil et la sélection de
+   passage restent actifs (le mode édition n'est jamais quitté) ; le rectangle
+   temporaire et la page figée sont réinitialisés pour la page affichée :
+   confirmer exige un nouveau tracé sur CETTE page, jamais de coordonnées
+   d'une autre page. L'ancre confirmée n'est pas touchée — seule une nouvelle
+   confirmation explicite la remplace (comportement existant). */
+function resetWorkshopZoneToolForPage(page) {
+  const tool = workshopZoneTool;
+  if (!tool) return;
+  tool.rect = null;
+  tool.drag = null;
+  if (transcriptionWorkshopContext?.pdf) tool.page = page;
+  tool.phase = "drawing";
+  updateWorkshopZoneToolUi();
+  renderWorkshopZoneEditor();
+}
+
 function startWorkshopZoneTool(mode) {
   if (!isTranscriptionWorkshopActive()) return;
   const blockedState = transcriptionWorkshopEditorState();
@@ -7605,9 +7635,9 @@ function startWorkshopZoneTool(mode) {
   setWorkshopTab("original");
   workshopZoneTool = {
     passageId,
-    /* Page PDF active au démarrage du tracé : figée pour la confirmation —
-       un re-render transitoire de la même page ne doit pas bloquer l'écriture
-       (un changement de page abandonne le tracé avant). */
+    /* Page PDF active au démarrage du tracé : suivie à chaque changement de
+       page (le rectangle temporaire est retiré à ce moment-là), jamais
+       désynchronisée de la page réellement affichée. */
     page: context.pdf ? workshopPdfRenderedPage : null,
     rect: mode === "adjust" ? clampWorkshopZoneRect(passage.anchor) : null,
     phase: mode === "adjust" ? "adjusting" : "drawing",
@@ -7983,10 +8013,11 @@ function syncWorkshopUnloadGuard() {
 function updateWorkshopDraftIndicators() {
   const draft = transcriptionWorkshopDraft;
   if (!draft) return;
-  /* Un seul libellé en pied du panneau, toujours après un résultat réel :
-     conflit à résoudre > échec local > synchronisation impossible > écriture
-     locale en attente > synchronisation en cours > synchronisé entre appareils
-     > états locaux. Aucun doublon d'avertissement (toast émis une fois). */
+  /* Un seul libellé court en pied du panneau (le doublon « Firestore : … »
+     a été retiré), toujours après un résultat réel : conflit à résoudre >
+     échec local > synchronisation impossible > écriture locale en attente >
+     synchronisation en cours > synchronisé entre appareils > états locaux.
+     Aucun doublon d'avertissement (toast émis une fois). */
   const key = transcriptionWorkshopDraftKey(draft.documentId, draft.pageId);
   const state = transcriptionDraftSaveStates.get(key);
   const storedRemoteState = transcriptionDraftRemoteStates.get(key);
@@ -8002,8 +8033,8 @@ function updateWorkshopDraftIndicators() {
   const syncing = remoteState?.status === "syncing";
   /* « Synchronisé entre appareils » n'apparaît QUE si le contenu courant est
      exactement la dernière version confirmée (ou s'il n'y a aucune
-     modification) : un contenu modifié mais pas encore renvoyé reste « Enregistré
-     sur cet appareil », jamais une réussite prématurée. */
+     modification) : un contenu modifié mais pas encore renvoyé reste
+     « Enregistré », jamais une réussite prématurée. */
   const currentSnapshot = draft.dirty ? transcriptionDraftSnapshotFromDraft(draft) : null;
   const synced = remoteState?.status === "synced"
     && (!draft.dirty || (remoteState.lastSyncedSnapshot != null && currentSnapshot != null
@@ -8017,12 +8048,12 @@ function updateWorkshopDraftIndicators() {
     : officialReadOnly
       ? (transcriptionWorkshopHead() ? `Consultation officielle · v${transcriptionWorkshopHead()?.version || 1}` : "Aucune version officielle")
       : conflict ? TRANSCRIPTION_DRAFT_SYNC_LABELS.conflict
-    : localFailed ? "Échec de sauvegarde"
-      : offline ? TRANSCRIPTION_DRAFT_SYNC_LABELS.offline
+    : localFailed ? "Erreur de sauvegarde"
+      : offline ? "Hors ligne"
         : pending ? "Enregistrement…"
           : syncing ? TRANSCRIPTION_DRAFT_SYNC_LABELS.syncing
             : synced ? TRANSCRIPTION_DRAFT_SYNC_LABELS.synced
-              : draft.dirty ? (state?.status === "saved" ? "Enregistré sur cet appareil" : "Enregistrement…")
+              : draft.dirty ? (state?.status === "saved" ? "Enregistré" : "Enregistrement…")
                 : "Brouillon local";
   const dirty = !officialReadOnly && (failed || pending || conflict || syncing || (draft.dirty && state?.status !== "saved"));
   const statusElement = $("workshopSaveStatus");
@@ -8036,21 +8067,6 @@ function updateWorkshopDraftIndicators() {
   statusElement.classList.toggle("is-failed", !officialReadOnly && failed);
   statusElement.classList.toggle("is-synced", !officialReadOnly && synced && !failed && !conflict);
   statusElement.classList.toggle("is-conflict", !officialReadOnly && conflict);
-  const remoteStatusElement = $("workshopRemoteStatus");
-  if (remoteStatusElement) {
-    const remoteLabels = {
-      syncing: "Firestore : synchronisation en cours…",
-      synced: "Firestore : synchronisé",
-      offline: "Firestore : indisponible, copie locale conservée",
-      conflict: "Firestore : conflit à résoudre"
-    };
-    const remoteLabel = !officialReadOnly && remoteState ? remoteLabels[remoteState.status] || "" : "";
-    remoteStatusElement.textContent = remoteLabel;
-    remoteStatusElement.hidden = !remoteLabel;
-    remoteStatusElement.classList.toggle("is-failed", remoteState?.status === "offline");
-    remoteStatusElement.classList.toggle("is-conflict", remoteState?.status === "conflict");
-    remoteStatusElement.classList.toggle("is-synced", remoteState?.status === "synced");
-  }
   const inEditSession = transcriptionWorkshopEditing;
   const modeButton = $("workshopModeBtn");
   if (modeButton) {
@@ -8301,10 +8317,6 @@ function resetTranscriptionWorkshopState() {
   if ($("workshopSaveStatus")) {
     $("workshopSaveStatus").classList.remove("is-dirty", "is-failed", "is-synced", "is-conflict");
     $("workshopSaveStatus").textContent = "Brouillon local";
-  }
-  if ($("workshopRemoteStatus")) {
-    $("workshopRemoteStatus").hidden = true;
-    $("workshopRemoteStatus").textContent = "";
   }
   if ($("workshopConflictBtn")) $("workshopConflictBtn").hidden = true;
   if ($("transcriptionDraftConflictDialog")?.open) $("transcriptionDraftConflictDialog").close();
@@ -8557,11 +8569,13 @@ window.addEventListener("popstate", () => {
    remonte jusqu'au lecteur. Hors tracé, aucun écouteur n'agit. */
 function guardWorkshopZoneViewerGestures(event) {
   if (!workshopZoneTool) return;
-  /* Les cibles dédiées (éditeur photo ou PDF, commandes) gèrent leurs propres
-     événements ; seuls les gestes hors de ces zones sont neutralisés avant le
-     lecteur. */
+  /* Les cibles dédiées (éditeur photo ou PDF, commandes du tracé et
+     pagination PDF — utilisable pendant le tracé pour changer de page)
+     gèrent leurs propres événements ; seuls les gestes hors de ces zones
+     sont neutralisés avant le lecteur. */
   if (event.target.closest?.("#workshopZoneActions")) return;
   if (event.target.closest?.("#workshopZoneEditor, #workshopPdfZoneEditor")) return;
+  if (event.target.closest?.("#workshopPdfTools")) return;
   event.stopPropagation();
 }
 ["wheel", "touchstart", "touchmove", "pointerdown"].forEach(type => {
