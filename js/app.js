@@ -7353,14 +7353,14 @@ function renderWorkshopPassageList(editable) {
     const hypotheses = (passage.hypotheses || []).length
       ? passage.hypotheses.map(hypothesis => `<p class="transcription-workshop-meta">Hypothèse · ${esc(WORKSHOP_CONFIDENCE_LABELS[hypothesis.confidence] || hypothesis.confidence)}${hypothesis.text ? ` : ${esc(hypothesis.text)}` : ""}${hypothesis.note ? ` — ${esc(hypothesis.note)}` : ""}</p>`).join("")
       : "";
-    const deleteMenu = editable && isTranscriptionWorkshopPassageCreated(draft, passage.id)
-      ? `<details class="transcription-workshop-passage-menu"><summary aria-label="Plus d’actions du passage" title="Plus d’actions">⋯</summary><div class="transcription-workshop-passage-menu-panel"><button class="btn danger" type="button" data-workshop-delete-passage="${esc(passage.id)}">Supprimer ce passage</button></div></details>`
+    const deleteAction = editable && isTranscriptionWorkshopPassageCreated(draft, passage.id)
+      ? `<button class="transcription-workshop-delete-passage" type="button" data-workshop-delete-passage="${esc(passage.id)}" aria-label="Supprimer le passage ${index + 1} du brouillon">Supprimer le passage</button>`
       : "";
     const zoneActions = workshopZoneEntryMarkup(passage, { selected, editable });
     return `<article class="transcription-workshop-passage${selected ? " is-selected" : ""}${changed ? " is-modified" : ""}" data-workshop-passage="${esc(passage.id)}"${selected ? ' aria-current="true"' : ""}>
-<div class="transcription-workshop-passage-head"><span class="sr-only">Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</span><div class="transcription-workshop-badges">${transcriptionWorkshopViewingOfficial ? "" : workshopPassageBadges(passage, draft)}</div><div class="transcription-workshop-passage-actions"><span class="transcription-workshop-zone-entry">${zoneActions}</span>${deleteMenu}</div></div>
-<div class="transcription-workshop-field-block workshop-field-it"><label class="transcription-workshop-field-label" for="${esc(itId)}">Transcription italienne</label><textarea id="${esc(itId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="textIt"${editable ? "" : " disabled"}>${esc(passage.textIt ?? "")}</textarea>${hypotheses}</div>
-<div class="transcription-workshop-field-block workshop-field-fr"><label class="transcription-workshop-field-label" for="${esc(frId)}">Traduction française</label><textarea id="${esc(frId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="translationFr"${editable ? "" : " disabled"}>${esc(passage.translationFr ?? "")}</textarea><p class="transcription-workshop-meta transcription-workshop-fr-state">${esc(transcriptionWorkshopTranslationBadge(draft, passage))}</p></div>
+<div class="transcription-workshop-passage-head"><span class="sr-only">Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</span><div class="transcription-workshop-badges">${transcriptionWorkshopViewingOfficial ? "" : workshopPassageBadges(passage, draft)}</div><div class="transcription-workshop-passage-actions"><span class="transcription-workshop-zone-entry">${zoneActions}</span>${deleteAction}</div></div>
+<div class="transcription-workshop-field-block workshop-field-it"><label class="transcription-workshop-field-label" for="${esc(itId)}"><span>Transcription italienne</span><span class="transcription-workshop-desktop-passage-number"> — Passage ${index + 1}</span></label><textarea id="${esc(itId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="textIt"${editable ? "" : " disabled"}>${esc(passage.textIt ?? "")}</textarea>${hypotheses}</div>
+<div class="transcription-workshop-field-block workshop-field-fr"><label class="transcription-workshop-field-label" for="${esc(frId)}"><span>Traduction française</span><span class="transcription-workshop-desktop-passage-number"> — Passage ${index + 1}</span></label><textarea id="${esc(frId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="translationFr"${editable ? "" : " disabled"}>${esc(passage.translationFr ?? "")}</textarea><p class="transcription-workshop-meta transcription-workshop-fr-state">${esc(transcriptionWorkshopTranslationBadge(draft, passage))}</p></div>
 </article>`;
   }).join("");
 }
@@ -7940,40 +7940,20 @@ function positionWorkshopCompareCrop(image, anchor) {
 function renderWorkshopPassageNavigation(displayedPassages, selectedPassageId) {
   const container = $("workshopPassagePills");
   if (!container) return;
-  const total = displayedPassages.length;
-  const selectedIndex = displayedPassages.findIndex(passage => passage.id === selectedPassageId);
-  let indexes = [];
-  if (total <= 7) {
-    indexes = Array.from({ length: total }, (_, index) => index);
-  } else {
-    const selected = selectedIndex < 0 ? 0 : selectedIndex;
-    let start;
-    let end;
-    if (selected <= 2) {
-      start = 0;
-      end = 4;
-    } else if (selected >= total - 3) {
-      start = total - 5;
-      end = total - 1;
-    } else {
-      start = selected - 1;
-      end = selected + 1;
-    }
-    indexes = [...new Set([0, ...Array.from({ length: end - start + 1 }, (_, offset) => start + offset), total - 1])].sort((a, b) => a - b);
-  }
-  let previousIndex = -1;
   const entries = [];
-  for (const index of indexes) {
-    if (previousIndex >= 0 && index - previousIndex > 1) {
-      entries.push(`<span class="transcription-workshop-passage-ellipsis" aria-hidden="true">…</span>`);
-    }
+  for (let index = 0; index < displayedPassages.length; index++) {
     const passage = displayedPassages[index];
     const active = passage.id === selectedPassageId;
     const line = passage.lineLabel ? ` · ${passage.lineLabel}` : "";
     entries.push(`<button class="btn small transcription-workshop-passage-pill${active ? " is-active" : ""}" type="button" data-workshop-passage-select="${esc(passage.id)}" aria-label="Passage ${index + 1}${esc(line)}"${active ? ' aria-current="step"' : ""}>${index + 1}</button>`);
-    previousIndex = index;
   }
   container.innerHTML = entries.join("");
+  const selected = container.querySelector('[aria-current="step"]');
+  if (!selected || !container.clientWidth) return;
+  const viewport = container.getBoundingClientRect();
+  const pill = selected.getBoundingClientRect();
+  if (pill.left < viewport.left) container.scrollLeft -= viewport.left - pill.left;
+  else if (pill.right > viewport.right) container.scrollLeft += pill.right - viewport.right;
 }
 
 function updateWorkshopNavigation() {
@@ -8413,7 +8393,9 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     if (!draft || transcriptionWorkshopIsReadOnly()) return;
     const passageId = deleteButton.dataset.workshopDeletePassage;
     if (!isTranscriptionWorkshopPassageCreated(draft, passageId)) return toast("Seul un passage ajouté dans ce brouillon peut être supprimé.", "error");
-    if (!confirm("Supprimer ce passage du brouillon ?")) return;
+    const passageIndex = draft.passages.findIndex(passage => passage.id === passageId);
+    if (passageIndex < 0) return;
+    if (!confirm(`Supprimer le passage ${passageIndex + 1} du brouillon ? La zone associée sera supprimée avec lui ; la version officielle et les autres passages resteront inchangés.`)) return;
     try { removeTranscriptionWorkshopPassage(draft, passageId); }
     catch (error) { return toast(error.message || "Suppression impossible.", "error"); }
     scheduleTranscriptionWorkshopDraftSave(draft);

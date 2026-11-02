@@ -369,6 +369,7 @@ test("brouillons synchronisés : conflits à choix explicite, hors ligne et réc
     await clickSave(page);
     await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Conflit à résoudre", undefined, { timeout: 5000 });
     assert.equal(await page.locator("#transcriptionDraftConflictDialog").isVisible(), true, "dialogue de conflit ouvert");
+    await page.waitForFunction(() => getComputedStyle(document.getElementById("transcriptionDraftConflictDialog")).transform === "none", undefined, { timeout: 3000 });
     assert.equal(await page.locator("#workshopConflictBtn").evaluate(button => button.hidden), false, "« Résoudre » disponible dans le menu « … »");
     const localText = await page.locator("#transcriptionDraftConflictLocalText").inputValue();
     const remoteText = await page.locator("#transcriptionDraftConflictRemoteText").inputValue();
@@ -392,6 +393,33 @@ test("brouillons synchronisés : conflits à choix explicite, hors ligne et réc
       };
     });
     assert.ok(conflictHeights.local <= conflictHeights.cap + 2 && conflictHeights.remote <= conflictHeights.cap + 2, `zones de comparaison plafonnées (${Math.round(conflictHeights.local)}/${Math.round(conflictHeights.remote)} px ≤ ${conflictHeights.cap})`);
+
+    const closeAction = page.locator("#transcriptionDraftConflictDialog .modal-actions > [data-close]");
+    assert.equal(await closeAction.evaluate(button => getComputedStyle(button).borderStyle), "none", "Fermer sans encadrement bouton");
+    assert.equal(await closeAction.evaluate(button => getComputedStyle(button).color), await page.locator("body").evaluate(body => getComputedStyle(body).color), "Fermer en couleur de texte neutre");
+    for (const width of [320, 375, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const mobileActions = await page.evaluate(() => {
+        const dialog = document.getElementById("transcriptionDraftConflictDialog").getBoundingClientRect();
+        const close = document.querySelector("#transcriptionDraftConflictDialog .modal-actions > [data-close]").getBoundingClientRect();
+        const choices = [...document.querySelectorAll("#transcriptionDraftConflictDialog .modal-actions .right .btn")].map(button => {
+          const rect = button.getBoundingClientRect();
+          return { left: rect.left, right: rect.right, height: rect.height };
+        });
+        return { dialog, close, choices, overflow: document.documentElement.scrollWidth > innerWidth,
+          shortLabels: [...document.querySelectorAll("#transcriptionDraftConflictDialog .conflict-label-short")].every(label => getComputedStyle(label).display !== "none") };
+      });
+      assert.equal(mobileActions.shortLabels, true, `libellés courts visibles à ${width}px`);
+      assert.ok(mobileActions.close.width < mobileActions.dialog.width / 2, `Fermer compact à ${width}px`);
+      assert.ok(mobileActions.choices.every(choice => choice.height >= 44 && choice.left >= mobileActions.dialog.left && choice.right <= mobileActions.dialog.right), `deux choix de résolution tactiles et contenus à ${width}px`);
+      assert.equal(mobileActions.overflow, false, `aucun débordement horizontal à ${width}px`);
+    }
+    await closeAction.click();
+    assert.equal(await page.locator("#workshopSaveStatus").textContent(), "Conflit à résoudre", "Fermer ne résout pas le conflit");
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.click("#workshopActionsMenu > summary");
+    await page.click("#workshopConflictBtn");
+    await page.waitForFunction(() => document.getElementById("transcriptionDraftConflictDialog").open);
 
     /* Choix : conserver la version distante — appliquée telle quelle. */
     await page.click("#transcriptionDraftConflictKeepRemoteBtn");

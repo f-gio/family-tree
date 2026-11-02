@@ -255,9 +255,13 @@ export function removeTranscriptionWorkshopPassage(draft, passageId) {
   if (!draft.createdIds.includes(passageId)) {
     throw new Error("Seul un passage ajouté dans ce brouillon peut être supprimé");
   }
+  const removedIndex = draft.passages.findIndex(passage => passage.id === passageId);
+  if (removedIndex < 0) throw new Error("Passage introuvable dans le brouillon");
   draft.passages = draft.passages.filter(passage => passage.id !== passageId);
   draft.createdIds = draft.createdIds.filter(id => id !== passageId);
-  if (draft.selectedPassageId === passageId) draft.selectedPassageId = draft.passages[0]?.id || null;
+  if (draft.selectedPassageId === passageId) {
+    draft.selectedPassageId = draft.passages[Math.min(removedIndex, draft.passages.length - 1)]?.id || null;
+  }
   recomputeDraftState(draft);
   return draft;
 }

@@ -2734,6 +2734,36 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-footer-status { display: flex; align-items: center; flex-wrap: nowrap; gap: var(--space-2); min-width: 0; }
 .transcription-workshop-footer-status .transcription-workshop-save-status { min-width: 0; }
 .transcription-workshop-footer-actions { display: flex; align-items: center; flex: 0 0 auto; gap: var(--space-2); min-width: 0; margin-inline-start: auto; }
+/* Annulations et fermetures de dialogue : action textuelle compacte, distincte
+   des choix de résolution et des confirmations réellement importantes. */
+#transcriptionUnavailableDialog .modal-actions > [data-close],
+#transcriptionPageInitDialog .modal-actions > [data-close],
+#transcriptionValidationDialog .modal-actions > [data-close],
+#transcriptionDraftConflictDialog .modal-actions > [data-close],
+#transcriptionHistoryDialog .modal-actions .right > [data-close] {
+  width: auto;
+  min-width: 0;
+  min-height: var(--control-touch);
+  align-self: flex-start;
+  justify-self: start;
+  padding-inline: var(--space-2);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+#transcriptionUnavailableDialog .modal-actions > [data-close],
+#transcriptionDraftConflictDialog .modal-actions > [data-close],
+#transcriptionHistoryDialog .modal-actions .right > [data-close] { color: var(--color-text); }
+#transcriptionPageInitDialog .modal-actions > [data-close],
+#transcriptionValidationDialog .modal-actions > [data-close] { color: var(--color-danger); }
+#transcriptionUnavailableDialog .modal-actions > [data-close]:hover,
+#transcriptionPageInitDialog .modal-actions > [data-close]:hover,
+#transcriptionValidationDialog .modal-actions > [data-close]:hover,
+#transcriptionDraftConflictDialog .modal-actions > [data-close]:hover,
+#transcriptionHistoryDialog .modal-actions .right > [data-close]:hover { border-color: transparent; background: var(--color-surface-soft); box-shadow: none; }
 /* Résolution de conflit : comparaison côte à côte sur desktop, empilée et
    défilante sur mobile — mêmes boutons, aucun texte fusionné. */
 .transcription-draft-conflict-body { display: grid; gap: var(--space-3); align-content: start; }
@@ -2818,13 +2848,12 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-mode-button.is-active { border-color: var(--color-border); background: var(--color-surface); color: var(--color-brand); box-shadow: var(--shadow-soft); }
 .transcription-workshop-mode-button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .transcription-workshop-tools { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
-.transcription-workshop-passage-nav { display: flex; align-items: center; flex: 0 1 auto; gap: var(--space-2); min-width: 0; }
-.transcription-workshop-passage-pills { display: flex; align-items: center; gap: var(--space-1); min-width: 0; max-width: min(28rem, 48vw); overflow-x: auto; scrollbar-width: none; }
+.transcription-workshop-passage-nav { display: flex; align-items: center; flex: 1 1 0; gap: var(--space-1); min-width: 0; }
+.transcription-workshop-passage-pills { display: flex; flex: 1 1 0; flex-wrap: nowrap; align-items: center; gap: var(--space-1); width: 0; min-width: 0; max-width: none; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; white-space: nowrap; }
 .transcription-workshop-passage-pills::-webkit-scrollbar { display: none; }
 .transcription-workshop-passage-pill.btn { flex: 0 0 var(--control-touch); width: var(--control-touch); height: var(--control-touch); padding: 0; border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font-size: var(--text-md); font-weight: var(--weight-semibold); }
 .transcription-workshop-passage-pill.btn:hover { border-color: var(--color-brand); color: var(--color-brand); }
 .transcription-workshop-passage-pill.btn.is-active { border-color: var(--color-brand); background: var(--color-brand); color: var(--color-surface-raised); }
-.transcription-workshop-passage-ellipsis { flex: 0 0 auto; padding-inline: var(--space-1); color: var(--color-text-muted); }
 .transcription-workshop-add-passage { flex: 0 0 var(--control-touch); width: var(--control-touch); height: var(--control-touch); padding: 0; border-radius: var(--radius-md); font-size: var(--text-lg); }
 .transcription-workshop-tools .btn, .transcription-workshop-passage-nav .btn,
 #workshopPageNav .btn, #workshopPhotoNav .btn { min-width: var(--control-touch); min-height: var(--control-touch); padding: 0; }
@@ -2847,9 +2876,9 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-zone-handle[data-zone-handle="se"] { right: 0; bottom: 0; }
 .transcription-workshop-zone-handle::before { content: ""; position: absolute; inset: -16px; }
 /* Commandes du mode tracé : sous la photographie, jamais au-dessus du document. */
-.transcription-workshop-zone-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; padding-top: var(--space-1); }
-.transcription-workshop-zone-hint { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; text-overflow: ellipsis; }
-.transcription-workshop-zone-actions .btn { min-height: var(--control-touch); }
+.transcription-workshop-zone-actions { display: flex; align-items: center; flex-wrap: nowrap; gap: var(--space-2); min-width: 0; margin: 0; padding-top: var(--space-1); }
+.transcription-workshop-zone-hint { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-xs); line-height: var(--leading-tight); white-space: nowrap; text-overflow: ellipsis; }
+.transcription-workshop-zone-actions .btn { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; min-width: var(--control-touch); min-height: var(--control-touch); margin: 0; white-space: nowrap; }
 /* Pendant le tracé, les commandes d'image et de navigation photographique
    figent (aucun conflit avec le pan/pinch) — les gestes du lecteur sont aussi
    neutralisés côté JS par la garde de capture. La pagination PDF reste active
@@ -2878,7 +2907,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-passage-head strong { flex: 0 0 auto; font-size: var(--text-md); }
 .transcription-workshop-passage textarea { width: 100%; flex: 1 1 auto; min-height: clamp(8rem, 24dvh, 16rem); max-height: 52dvh; overflow: auto; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text); font-family: var(--font-display); font-size: 16px; line-height: var(--leading-body); resize: vertical; field-sizing: content; }
 .transcription-workshop-passage textarea:focus { border-color: var(--color-brand); outline: none; box-shadow: var(--shadow-focus); }
-.transcription-workshop-passage textarea:disabled { background: var(--color-surface-muted); color: var(--color-text-muted); }
+.transcription-workshop-passage textarea:disabled { background: var(--color-surface-muted); color: var(--color-text); opacity: 1; -webkit-text-fill-color: var(--color-text); }
 .transcription-workshop-badges { display: flex; gap: var(--space-1); flex-wrap: wrap; }
 .transcription-workshop-badge { display: inline-flex; align-items: center; padding: 2px var(--space-2); border-radius: var(--radius-pill); background: var(--color-surface-muted); color: var(--color-text-label); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
 .transcription-workshop-badge--review { background: var(--color-warning-soft); color: var(--color-warning); }
@@ -2926,15 +2955,13 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   #workshopPanelCollapseBtn { display: none; }
   .transcription-workshop-restore-row { display: none !important; }
 }
-.transcription-workshop-passage-actions { display: flex; align-items: center; gap: var(--space-2); margin-inline-start: auto; }
+.transcription-workshop-passage-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1); margin-inline-start: auto; }
+.transcription-workshop-delete-passage { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; min-width: 0; min-height: var(--control-md); margin: 0; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-danger); font: 600 var(--text-xs)/var(--leading-tight) var(--font-ui); white-space: nowrap; cursor: pointer; }
+.transcription-workshop-delete-passage:hover { background: var(--color-danger-soft); color: var(--color-danger-hover); }
+.transcription-workshop-delete-passage:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .transcription-workshop-field-block { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--space-1); min-width: 0; min-height: 0; }
 .transcription-workshop-field-label { color: var(--color-text-label); font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: .05em; }
 .transcription-workshop-meta { margin: 0; color: var(--color-text-muted); font-size: var(--text-sm); white-space: pre-wrap; }
-.transcription-workshop-passage-menu { position: relative; }
-.transcription-workshop-passage-menu > summary { display: inline-flex; align-items: center; justify-content: center; min-width: var(--control-touch); min-height: var(--control-touch); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); cursor: pointer; list-style: none; }
-.transcription-workshop-passage-menu > summary::-webkit-details-marker { display: none; }
-.transcription-workshop-passage-menu-panel { position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 30; min-width: 13rem; padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-medium); }
-.transcription-workshop-passage-menu-panel .btn { justify-content: flex-start; width: 100%; min-height: var(--control-touch); }
 .transcription-workshop-compare { display: none; }
 .transcription-workshop-layout[data-compare="true"] #workshopPassageList { display: none; }
 .transcription-workshop-layout[data-compare="true"] #workshopComparePanel { display: flex; flex-direction: column; gap: var(--space-2); flex: 1 1 auto; min-height: 0; overflow: auto; }
@@ -2972,7 +2999,9 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
      actions du pied de transcription repassent à 44 px. */
   .transcription-workshop-footer .btn { min-height: var(--control-touch); }
   .transcription-workshop-passage-pills { flex: 1 1 auto; max-width: none; }
+  .transcription-workshop-passage-nav { flex: 1 1 auto; }
   .transcription-workshop-heading #workshopPageLabel { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .transcription-workshop-desktop-passage-number { display: none; }
   .transcription-workshop-tabs { display: flex; }
   .transcription-workshop-mode-button { min-height: var(--control-touch); }
   .transcription-workshop-divider { display: none; }
@@ -3002,18 +3031,25 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
   /* A3 : pied respectant la safe area inférieure de l'iPhone, puis compacté
      pendant le clavier virtuel (classe pilotée par visualViewport depuis
      l'atelier — statut de sauvegarde conservé, actions restaurées ensuite). */
-  .transcription-workshop-footer { padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px)); }
+  .transcription-workshop-footer { padding-bottom: max(var(--space-1), env(safe-area-inset-bottom, 0px)); }
   #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-layout { height: var(--workshop-keyboard-height, clamp(300px, calc(100dvh - 16rem), calc(100dvh - 6rem))); }
-  #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-footer-actions { display: none; }
   #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-autosave-hint { display: none; }
-  #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-footer { padding-bottom: var(--space-1); }
+  #transcriptionWorkshopView.is-keyboard-open .transcription-workshop-footer { padding-bottom: max(var(--space-1), env(safe-area-inset-bottom, 0px)); }
   /* Pied compact : un seul statut court sur la première ligne (l'aide
      d'autosauvegarde fixe est masquée, le doublon Firestore retiré du
      balisage), actions alignées sur la seconde — deux lignes maximum et
      aucun débordement horizontal aux largeurs 320/375/390 px. */
   .transcription-workshop-autosave-hint { display: none; }
-  .transcription-workshop-footer { gap: var(--space-1) var(--space-2); padding-top: var(--space-1); }
+  .transcription-workshop-footer { gap: var(--space-1); padding-top: var(--space-1); }
   .transcription-workshop-footer-status { flex: 1 1 auto; min-width: 0; }
+  .transcription-workshop-footer-actions { gap: var(--space-1); }
+  .transcription-workshop-footer-actions .transcription-workshop-edit-cta { padding-inline: var(--space-2); }
+  .transcription-workshop-zone-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 2px var(--space-1); padding-top: 0; }
+  .transcription-workshop-zone-hint { grid-column: 1 / -1; }
+  #workshopZoneCancelBtn { grid-column: 2; grid-row: 2; }
+  #workshopZoneConfirmBtn { grid-column: 3; grid-row: 2; }
+  .transcription-workshop-zone-actions .btn { padding-inline: var(--space-2); }
+  .transcription-workshop-delete-passage { min-height: var(--control-touch); padding-inline: var(--space-1); }
   /* B1 mobile : poignées tactiles ≥ 44 px et commandes de zone au doigt. */
   .transcription-workshop-zone-handle { width: 20px; height: 20px; margin: -11px; }
   .transcription-workshop-zone-handle::before { inset: -12px; }

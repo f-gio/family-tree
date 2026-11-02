@@ -240,18 +240,46 @@ test("la carte Document propose Ajouter quand la page ne contient aucune transcr
     await page.evaluate(() => window.__inc2.useMemberProfile());
     assert.equal(await page.locator("#workshopValidateBtn").isHidden(), true, "aucune validation officielle visible sans droit administrateur");
     assert.equal(await page.locator("#workshopCancelEditBtn").isVisible(), true, "Annuler reste disponible pour le contributeur");
-    for (let index = 0; index < 10; index++) await page.click("#workshopAddPassageBtn");
+    for (let index = 0; index < 5; index++) await page.click("#workshopAddPassageBtn");
+    assert.equal(await page.locator("#workshopPassagePills [data-workshop-passage-select]").count(), 5, "cinq passages visibles sans retour à la ligne");
+    for (let index = 5; index < 10; index++) await page.click("#workshopAddPassageBtn");
     const passagePills = page.locator("#workshopPassagePills [data-workshop-passage-select]");
-    assert.ok(await passagePills.count() <= 7, "navigation compacte pour une page avec de nombreux passages");
+    assert.equal(await passagePills.count(), 10, "tous les numéros restent présents dans la navigation");
     assert.equal(await passagePills.first().textContent(), "1", "première pastille repère le début de la liste");
     assert.equal(await passagePills.last().textContent(), "10", "dernière pastille reste accessible");
-    assert.ok(await page.locator("#workshopPassagePills .transcription-workshop-passage-ellipsis").count() > 0, "ellipse les numéros intermédiaires masqués");
+    assert.equal(await page.locator("#workshopPassagePills .transcription-workshop-passage-ellipsis").count(), 0, "aucun numéro n'est remplacé par une ellipse");
     assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "10", "passage actif repéré après les ajouts");
-    assert.equal(await page.locator(".transcription-workshop-passage-menu").count(), 10, "menu ⋯ uniquement sur les passages ajoutés et supprimables");
+    assert.equal(await page.locator("[data-workshop-delete-passage]").count(), 10, "suppression contextuelle visible pour les passages créés");
+    const activePillVisible = await page.locator("#workshopPassagePills [aria-current='step']").evaluate(button => {
+      const viewport = button.parentElement.getBoundingClientRect();
+      const pill = button.getBoundingClientRect();
+      return pill.left >= viewport.left - 1 && pill.right <= viewport.right + 1;
+    });
+    assert.equal(activePillVisible, true, "le passage sélectionné reste visible dans la navigation défilante");
+    assert.match(await page.locator(".transcription-workshop-passage.is-selected .workshop-field-it label").textContent(), /Transcription italienne — Passage 10/, "titre de transcription italienne indexé sur desktop");
+    assert.match(await page.locator(".transcription-workshop-passage.is-selected .workshop-field-fr label").textContent(), /Traduction française — Passage 10/, "titre de traduction française indexé sur desktop");
+    await passagePills.nth(4).click();
+    assert.match(await page.locator(".transcription-workshop-passage.is-selected .workshop-field-it label").textContent(), /Passage 5/, "les titres suivent immédiatement la sélection");
     await passagePills.first().click();
     assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "1", "clic sur une pastille sélectionne le passage correspondant");
-    assert.equal(await page.locator("#workshopPassagePills").evaluate(element => element.scrollWidth <= element.clientWidth), true, "pastilles nombreuses contenues dans le panneau");
-    assert.ok(await page.locator(".transcription-workshop-passage-menu").count() > 0, "⋯ de passage uniquement pour les passages créés et supprimables");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobilePillState = await page.evaluate(() => {
+      const strip = document.getElementById("workshopPassagePills");
+      const active = strip.querySelector("[aria-current='step']").getBoundingClientRect();
+      const viewport = strip.getBoundingClientRect();
+      return { scrollable: strip.scrollWidth > strip.clientWidth, activeVisible: active.left >= viewport.left - 1 && active.right <= viewport.right + 1,
+        desktopLabelVisible: getComputedStyle(document.querySelector(".workshop-field-it .transcription-workshop-desktop-passage-number")).display !== "none" };
+    });
+    assert.equal(mobilePillState.scrollable, true, "navigation de dix passages défilante horizontalement sur mobile");
+    assert.equal(mobilePillState.activeVisible, true, "sélection visible après défilement vers le premier passage");
+    assert.equal(mobilePillState.desktopLabelVisible, false, "titres de passage desktop masqués sur mobile");
+    const passageIds = await passagePills.evaluateAll(buttons => buttons.map(button => button.dataset.workshopPassageSelect));
+    const removeId = passageIds[0];
+    await page.locator(`[data-workshop-delete-passage="${removeId}"]`).click();
+    const remainingIds = await page.locator("#workshopPassagePills [data-workshop-passage-select]").evaluateAll(buttons => buttons.map(button => button.dataset.workshopPassageSelect));
+    assert.deepEqual(remainingIds, passageIds.slice(1), "suppression du brouillon uniquement : les neuf autres passages sont conservés");
+    assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "1", "après suppression, le passage restant suivant devient actif");
+    assert.equal(await page.locator("[data-workshop-delete-passage]").count(), 9, "la commande de suppression demeure pour chaque passage créé restant");
     assertNoInc2PageErrors(pageErrors);
   } finally {
     await context.close().catch(() => {});
@@ -273,6 +301,25 @@ test("validation : confirmation précise, échec réseau sans perte du brouillon
     /* Dialogue : version, historique et distinction avec Enregistrer/Comparer. */
     await page.click("#workshopValidateBtn");
     await page.waitForFunction(() => document.getElementById("transcriptionValidationDialog").open, undefined, { timeout: 5000 });
+    await page.waitForFunction(() => getComputedStyle(document.getElementById("transcriptionValidationDialog")).transform === "none", undefined, { timeout: 3000 });
+    const cancelStyle = await page.locator("#transcriptionValidationDialog .modal-actions > [data-close]").evaluate(button => {
+      const style = getComputedStyle(button);
+      const box = button.getBoundingClientRect();
+      return { color: style.color, borderStyle: style.borderStyle, width: box.width, height: box.height };
+    });
+    assert.equal(cancelStyle.color, "rgb(166, 66, 56)", "Annuler est une action textuelle rouge");
+    assert.equal(cancelStyle.borderStyle, "none", "Annuler sans cadre bouton inutile");
+    assert.ok(cancelStyle.width < 180 && cancelStyle.height >= 44, "Annuler compacte et tactile sur desktop");
+    assert.equal(await page.locator("#transcriptionValidationConfirmBtn").evaluate(button => button.classList.contains("primary")), true, "la confirmation importante reste un vrai CTA");
+    for (const width of [320, 375, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const mobileCancel = await page.locator("#transcriptionValidationDialog .modal-actions > [data-close]").boundingBox();
+      const dialog = await page.locator("#transcriptionValidationDialog").boundingBox();
+      assert.ok(mobileCancel && dialog && mobileCancel.width < dialog.width / 2 && mobileCancel.height >= 44,
+        `Annuler compact et tactile à ${width}px (${mobileCancel?.width}×${mobileCancel?.height})`);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, `aucun débordement de fenêtre à ${width}px`);
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
     const message = await page.locator("#transcriptionValidationMessage").textContent();
     assert.match(message, /version v1/, "numéro de version annoncé");
     assert.match(message, /historique/i, "conservation de l'historique annoncée");
@@ -340,10 +387,16 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     await page.waitForFunction(() => window.__inc2.officialBadge().text !== "", undefined, { timeout: 8000 });
     assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Validée · v2", "contenu officiel : Validée · v2");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "officiel en lecture seule");
+    const readonlyContrast = await page.locator(".transcription-workshop-passage.is-selected textarea").evaluateAll(fields => fields.map(field => {
+      const style = getComputedStyle(field);
+      return { color: style.color, fill: style.webkitTextFillColor, opacity: style.opacity, disabled: field.disabled };
+    }));
+    const bodyTextColor = await page.locator("body").evaluate(body => getComputedStyle(body).color);
+    assert.ok(readonlyContrast.length >= 2 && readonlyContrast.every(field => field.disabled && field.color === bodyTextColor && field.fill === bodyTextColor && field.opacity === "1"), "transcriptions italienne et française lisibles en lecture seule");
     assert.equal(await page.locator("#workshopAddPassageBtn").isHidden(), true, "ajout masqué en lecture seule");
     assert.equal(await page.locator("#workshopSaveDraftBtn").count(), 0, "aucun bouton « Enregistrer »");
     assert.equal(await page.locator("#workshopValidateBtn").isHidden(), true, "Valider masqué en lecture seule");
-    assert.equal(await page.locator(".transcription-workshop-passage-menu").count(), 0, "aucun menu destructif sur les passages officiels");
+    assert.equal(await page.locator("[data-workshop-delete-passage]").count(), 0, "aucune suppression offerte sur les passages officiels intangibles");
     assert.equal(await page.locator("#workshopActionsMenu").isHidden(), false, "menu ⋯ présent avec ses actions de consultation");
     assert.equal(await page.locator("#workshopActionsMenu #workshopHistoryBtn").evaluate(button => button.hidden), false, "Historique disponible en lecture seule");
     assert.equal(await page.locator(".transcription-workshop-mode").isHidden(), true, "contrôle segmenté entièrement masqué en consultation");

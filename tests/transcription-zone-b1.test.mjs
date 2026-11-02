@@ -368,6 +368,15 @@ test("B1 mobile : tracé au doigt depuis l’onglet Original, poignées et A3 pr
               const actionsBox = await page.locator("#workshopZoneActions").boundingBox();
               assert.ok(actionsBox && actionsBox.height > 0, "commandes du tracé accessibles");
               assert.ok(actionsBox.y + actionsBox.height <= height + 1, "commandes sans recouvrir la zone de travail (dans le viewport)");
+              const actionAlignment = await page.evaluate(() => {
+                const cancel = document.getElementById("workshopZoneCancelBtn").getBoundingClientRect();
+                const confirm = document.getElementById("workshopZoneConfirmBtn").getBoundingClientRect();
+                return { cancelY: cancel.y, confirmY: confirm.y, cancelHeight: cancel.height, confirmHeight: confirm.height,
+                  cancelLeft: cancel.left, confirmLeft: confirm.left, confirmRight: confirm.right, viewport: innerWidth };
+              });
+              assert.ok(Math.abs(actionAlignment.cancelY - actionAlignment.confirmY) <= 1, "Annuler et Confirmer alignés sur la même ligne mobile");
+              assert.ok(actionAlignment.cancelHeight >= 44 && actionAlignment.confirmHeight >= 44, "actions de tracé avec cibles tactiles ≥ 44 px");
+              assert.ok(actionAlignment.cancelLeft < actionAlignment.confirmLeft && actionAlignment.confirmRight <= actionAlignment.viewport + 1, "ordre et largeur de la barre de tracé sans débordement");
               /* Tracé direct sur l'image. */
               const imageBox = await page.locator("#workshopPageImage").boundingBox();
               assert.ok(imageBox && imageBox.width > 80, "photographie affichée");
