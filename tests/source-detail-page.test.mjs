@@ -146,7 +146,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     assert.equal(await page.locator("#sourcePageBackBtn").evaluate(element => getComputedStyle(element).fontSize), "14px", "Retour commun en 14 px");
     const restingDecoration = await page.locator("#sourcePageBackBtn").evaluate(element => ({ arrow: getComputedStyle(element.querySelector(".dedicated-page-back-arrow")).textDecorationLine, label: getComputedStyle(element.querySelector(".dedicated-page-back-label")).textDecorationLine }));
     assert.equal(restingDecoration.arrow, "none", "flèche Retour non soulignée au repos");
-    assert.ok(restingDecoration.label.includes("underline"), "texte Retour souligné en permanence");
+    assert.equal(restingDecoration.label, "none", "texte Retour non souligné au repos");
     await page.locator("#sourcePageBackBtn").hover();
     const returnDecoration = await page.locator("#sourcePageBackBtn").evaluate(element => ({ arrow: getComputedStyle(element.querySelector(".dedicated-page-back-arrow")).textDecorationLine, label: getComputedStyle(element.querySelector(".dedicated-page-back-label")).textDecorationLine }));
     assert.equal(returnDecoration.arrow, "none", "flèche Retour jamais soulignée");

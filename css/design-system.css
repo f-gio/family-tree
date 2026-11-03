@@ -2713,11 +2713,13 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-return:hover,
 .btn.transcription-workshop-return:hover { border: 0; background: transparent; box-shadow: none; color: var(--color-brand); text-decoration: none; }
 .dedicated-page-header .dedicated-page-back:hover .dedicated-page-back-label,
-.transcription-workshop-return:hover .dedicated-page-back-label { text-decoration: underline; text-underline-offset: .12em; }
+.transcription-workshop-return:hover .dedicated-page-back-label,
+.dedicated-page-header .dedicated-page-back:active .dedicated-page-back-label,
+.transcription-workshop-return:active .dedicated-page-back-label { text-decoration: underline; text-underline-offset: .12em; }
 .dedicated-page-header .dedicated-page-back:focus-visible,
 .transcription-workshop-return:focus-visible,
 .btn.transcription-workshop-return:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
-.dedicated-page-back-label { white-space: nowrap; text-decoration: underline; text-underline-offset: .12em; }
+.dedicated-page-back-label { white-space: nowrap; text-decoration: none; }
 .dedicated-page-back-arrow { font-size: 14px; line-height: 1; }
 .detail-page-crumb-row { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .detail-page-meta-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-width: 0; }
