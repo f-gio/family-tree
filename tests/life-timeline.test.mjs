@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { lifeTimelineEvents } from "../js/life-timeline.js";
+import { lifeTimelineEvents, lifeEventAgeAt } from "../js/life-timeline.js";
 
 const BASE = { birthDate: "", deathDate: "", place: "", deathPlace: "" };
 
@@ -136,6 +136,46 @@ const BASE = { birthDate: "", deathDate: "", place: "", deathPlace: "" };
   assert.deepEqual(xEvents.map(event => event.id), ["union-F_XY", "union-F_XZ"]);
   assert.equal(xEvents[0].title, "Mariage");
   assert.equal(xEvents[1].title, "PACS / union civile");
+}
+
+// Âges : calcul uniquement lorsque naissance ET événement sont des dates
+// complètes et exactes ; jamais d'âge à la naissance, jamais d'âge négatif.
+{
+  const exact = value => ({ type: "exact", value });
+  const person = { ...BASE, id: "p1", firstName: "Rosa", lastName: "Conti", birthDateInfo: exact("1904-08-25"), deathDateInfo: exact("1931-07-28") };
+  const partner = { ...BASE, id: "p2", firstName: "Émile", lastName: "Conti" };
+  const families = [{ id: "f1", partnerIds: ["p1", "p2"], childIds: [], relationType: "marriage", unionDateInfo: exact("1930-12-06"), endType: "none" }];
+  const [birth, union, death] = lifeTimelineEvents(person, { people: [person, partner], families });
+
+  assert.equal(birth.title, "Naissance");
+  assert.ok(!("age" in birth), "aucun âge à la naissance (jamais « 0 an »)");
+  assert.equal(union.age, 26, "25 août 1904 → 6 décembre 1930 = 26 ans révolus");
+  assert.equal(death.age, 26, "25 août 1904 → 28 juillet 1931 = 26 ans (avant l'anniversaire)");
+
+  // Anniversaire pile et avant l'anniversaire.
+  assert.equal(lifeEventAgeAt({ birthDateInfo: exact("1900-01-01") }, exact("1925-01-01")), 25, "jour d'anniversaire inclus");
+  assert.equal(lifeEventAgeAt({ birthDateInfo: exact("1900-12-25") }, exact("1925-01-01")), 24, "avant l'anniversaire : moins un an");
+  assert.equal(lifeEventAgeAt({ birthDateInfo: exact("1900-08-25") }, exact("1925-08-25")), 25, "anniversaire exact");
+  assert.equal(lifeEventAgeAt({ birthDateInfo: exact("1904-08-25") }, exact("1904-08-25")), 0, "mariage le jour de la naissance : 0 ans, jamais négatif");
+
+  // Dates legacy exactes acceptées.
+  assert.equal(lifeEventAgeAt({ birthDate: "1904-08-25" }, "", "1931-07-28", ""), 26, "dates legacy exactes");
+
+  // Dates partielles, approximatives, estimées ou inconnues : aucun âge.
+  assert.equal(lifeEventAgeAt({ birthDateInfo: exact("1904-08-25") }, { type: "year", year: 1930 }), null, "mariage limité à l'année");
+  assert.equal(lifeEventAgeAt({ birthDateInfo: { type: "year", year: 1904 } }, exact("1930-12-06")), null, "naissance limitée à l'année");
+  assert.equal(lifeEventAgeAt({ birthDateInfo: exact("1904-08-25") }, { type: "about", year: 1930 }), null, "date estimée");
+  assert.equal(lifeEventAgeAt({ birthDateInfo: { type: "between", from: 1900, to: 1910 } }, exact("1930-12-06")), null, "date entre deux années");
+  assert.equal(lifeEventAgeAt({ birthDateInfo: exact("1904-08-25") }, { type: "unknown" }), null, "date inconnue");
+  assert.equal(lifeEventAgeAt({ birthDateInfo: { type: "about", year: 1904 } }, { type: "about", year: 1930 }), null, "toutes deux incertaines");
+
+  // Données incohérentes : jamais d'âge négatif.
+  assert.equal(lifeEventAgeAt({ birthDateInfo: exact("1931-07-28") }, exact("1904-08-25")), null, "décès avant la naissance : aucun âge");
+
+  // Un événement sans naissance exacte reste affichable mais sans âge.
+  const noBirth = { ...BASE, id: "p3", firstName: "Louis", lastName: "Verdi", deathDateInfo: exact("1910-08-14") };
+  const [onlyDeath] = lifeTimelineEvents(noBirth, { people: [noBirth], families: [] });
+  assert.equal(onlyDeath.age, null, "décès sans naissance : pas d'âge");
 }
 
 console.log("life-timeline : OK");

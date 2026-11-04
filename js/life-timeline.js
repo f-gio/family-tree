@@ -1,9 +1,35 @@
-import { formatGenealogyDate, genealogyDateSortValue } from "./genealogy-date.js";
+import { formatGenealogyDate, genealogyDateSortValue, normalizeGenealogyDate } from "./genealogy-date.js";
 import { formatCompactPlace } from "./place-format.js";
 import { normalizeRelationType, normalizeEndType, RELATION_TYPE_LABELS, END_TYPE_LABELS } from "./family-relations.js";
 
 function personName(item) {
   return [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ");
+}
+
+function exactUtcDate(value, legacyExact = "") {
+  const date = normalizeGenealogyDate(value, legacyExact);
+  if (date.type !== "exact") return null;
+  const [year, month, day] = date.value.split("-").map(Number);
+  const utc = new Date(Date.UTC(0, month - 1, day));
+  utc.setUTCFullYear(year);
+  return utc;
+}
+
+/**
+ * Âge en années révolues à un événement. Le calcul n'a lieu que si la date de
+ * naissance ET la date de l'événement sont complètes et exactes : toute date
+ * partielle, approximative ou inconnue renvoie null, tout comme un résultat
+ * négatif. L'âge n'est jamais ajouté à la naissance.
+ */
+export function lifeEventAgeAt(person, eventValue, eventLegacy = "") {
+  const birth = exactUtcDate(person?.birthDateInfo, person?.birthDate);
+  const event = exactUtcDate(eventValue, eventLegacy);
+  if (!birth || !event) return null;
+  let age = event.getUTCFullYear() - birth.getUTCFullYear();
+  const beforeAnniversary = event.getUTCMonth() < birth.getUTCMonth()
+    || (event.getUTCMonth() === birth.getUTCMonth() && event.getUTCDate() < birth.getUTCDate());
+  if (beforeAnniversary) age -= 1;
+  return age >= 0 ? age : null;
 }
 
 /**
@@ -46,12 +72,14 @@ export function lifeTimelineEvents(person, { people = [], families = [] } = {}) 
       const endDate = formatGenealogyDate(family.endDateInfo, family.separationDate || family.divorceDate);
       const endDetail = leading ? (endDate === "—" ? leading : `${leading} · ${endDate}`) : "";
       const unionDate = formatGenealogyDate(family.unionDateInfo, family.marriageDate || family.unionDate);
+      const age = lifeEventAgeAt(person, family.unionDateInfo, family.marriageDate || family.unionDate);
       return {
         id: `union-${family.id}`,
         type: "union",
         title: relationType === "unknown" ? "Union" : RELATION_TYPE_LABELS[relationType],
         date: unionDate,
         detail: [partners.length ? `avec ${partners.join(" et ")}` : "", endDetail].filter(Boolean).join(" · "),
+        age,
         sortValue: genealogyDateSortValue(family.unionDateInfo, family.marriageDate || family.unionDate)
       };
     })
@@ -61,7 +89,15 @@ export function lifeTimelineEvents(person, { people = [], families = [] } = {}) 
   const deathDate = formatGenealogyDate(person.deathDateInfo, person.deathDate);
   const deathPlace = formatCompactPlace(person.deathPlace, person.deathPlaceInfo);
   if (deathDate !== "—" || deathPlace) {
-    events.push({ id: "death", type: "death", title: "Décès", date: deathDate, detail: deathPlace, sortValue: genealogyDateSortValue(person.deathDateInfo, person.deathDate) });
+    events.push({
+      id: "death",
+      type: "death",
+      title: "Décès",
+      date: deathDate,
+      detail: deathPlace,
+      age: lifeEventAgeAt(person, person.deathDateInfo, person.deathDate),
+      sortValue: genealogyDateSortValue(person.deathDateInfo, person.deathDate)
+    });
   }
 
   return events;

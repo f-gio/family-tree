@@ -15,7 +15,7 @@ import { documentDisplayLabel } from "./document-utils.js";
 import { createDocumentImageViewer, selectInitialDocumentImageMode } from "./document-image-viewer.js";
 import { createDocumentPdfViewer } from "./document-pdf-viewer.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
-import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel, DIRECTORY_UNASSIGNED_TREE_FILTER } from "./directory-advanced.js";
+import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel, DIRECTORY_UNASSIGNED_TREE_FILTER, hasDeathInformation } from "./directory-advanced.js";
 import { filterAndSortProcedures, sortProcedureActions, procedureTypeLabel, procedureStatusLabel, procedureActionTypeLabel, isProcedureClosed, DOSSIER_MIN_QUERY_LENGTH } from "./procedures.js";
 import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText, genealogyDateYears } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
@@ -2562,11 +2562,14 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
     ? `<img src="${esc(item.photoUrl)}" alt="Portrait de ${esc([item.firstName, item.middleName, item.lastName].filter(Boolean).join(" "))}">`
     : `<span aria-hidden="true">${esc(personInitials(item))}</span>`;
   $("personPagePortrait").innerHTML = portrait;
+  const branchBadge = item.branch ? `<span class="person-detail-badge person-detail-branch">${esc(item.branch)}</span>` : "";
+  const deathBadge = hasDeathInformation(item) ? `<span class="person-detail-badge person-detail-status">Décédé</span>` : "";
+  const statusBadges = branchBadge || deathBadge ? `<span class="person-detail-badges">${branchBadge}${deathBadge}</span>` : "";
   const essentials = [
     `<span class="person-detail-dates"><strong>Naissance</strong> · ${esc(birthDate === "—" ? "Non renseignée" : birthDate)}${birthPlace ? ` · ${esc(birthPlace)}` : ""}</span>`,
     `<span class="person-detail-dates"><strong>Décès</strong> · ${esc(deathDate === "—" ? "Non renseigné" : deathDate)}${deathPlace ? ` · ${esc(deathPlace)}` : ""}</span>`,
     genderLabel ? `<span class="person-detail-badge person-detail-gender">${esc(genderLabel)}</span>` : "",
-    item.branch ? `<span class="person-detail-badge person-detail-branch">${esc(item.branch)}</span>` : "",
+    statusBadges,
     `<span class="card-meta person-detail-modification person-detail-modification--essentials">${modification ? modification.long : "Dernière modification : Non renseignée"}</span>`
   ].filter(Boolean);
   $("personPageEssentials").innerHTML = essentials.join("");
@@ -2589,6 +2592,7 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
     ? `${identityMarkup}${timelineMarkup}`
     : `${timelineMarkup}${identityMarkup}`;
   $("personPageContent").innerHTML = `<div class="detail-page-main"><div class="person-detail-overview" id="personPageOverview">${overviewMarkup}</div>${personPageFamilyMarkup(item)}${personPageDocumentsMarkup(item)}${personPageResearchMarkup(item)}</div>`;
+  requestAnimationFrame(updatePersonPageAnchorOffset);
   if (!samePageVisible && !preserveScroll) scrollFicheToTop("personDetailView");
   if (restore && Number.isFinite(Number(restore.scrollY))) {
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -2711,6 +2715,15 @@ document.addEventListener("click", event => {
     }
   }, "Suppression de la personne impossible");
 });
+
+function updatePersonPageAnchorOffset() {
+  const nav = $("personPageSectionNav");
+  if (!nav || $("personDetailView").hidden) return;
+  const stickyTop = Number.parseFloat(getComputedStyle(nav).top);
+  const offset = Math.ceil((Number.isFinite(stickyTop) ? stickyTop : 0) + nav.getBoundingClientRect().height) + 18;
+  document.documentElement.style.setProperty("--person-page-anchor-offset", `${offset}px`);
+}
+
 $("personPageSectionNav").addEventListener("click", event => {
   const button = event.target.closest("[data-person-page-section]");
   if (!button) return;
@@ -2729,6 +2742,7 @@ $("personPageSectionNav").addEventListener("click", event => {
     target = $(section === "identity" && window.matchMedia("(min-width: 961px)").matches ? "personPageOverview" : section === "identity" ? "personPageTimeline" : `personPage${section[0].toUpperCase()}${section.slice(1)}`);
   }
   if (!target) return;
+  updatePersonPageAnchorOffset();
   syncPersonPageSectionNav(section);
   target.scrollIntoView({ block: "start", behavior: "smooth" });
 });
@@ -2808,8 +2822,9 @@ function timelineTypeIcon(event) {
 function timelineItemHtml(event) {
   const date = event.date !== "—" ? `<span class="timeline-date">${esc(event.date)}</span>` : "";
   const detail = event.detail ? `<span class="timeline-detail">${esc(event.detail)}</span>` : "";
+  const age = Number.isFinite(event.age) ? `<span class="timeline-age">· ${event.age} an${event.age > 1 ? "s" : ""}</span>` : "";
   const iconMarkup = `<svg class="ui-icon timeline-icon" aria-hidden="true"><use href="#icon-${timelineTypeIcon(event)}"></use></svg>`;
-  return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-content"><span class="timeline-line">${iconMarkup}<strong class="timeline-title">${esc(event.title)}</strong>${date}</span>${detail}</div></li>`;
+  return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-content"><span class="timeline-line">${iconMarkup}<strong class="timeline-title">${esc(event.title)}</strong>${age}${date}</span>${detail}</div></li>`;
 }
 
 function renderLifeTimeline() {
