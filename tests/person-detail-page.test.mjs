@@ -30,6 +30,7 @@ window.__personPageTest = {
     genealogyLoaded = true;
     genealogyCollectionsLoaded = new Set(["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyEvents", "genealogyNotifications"]);
     currentUserProfile = { role: "admin", displayName: "Archiviste" };
+    treeCatalogState = "ready";
     $("authScreen").hidden = true;
     $("topbar").hidden = false;
     renderTree();
@@ -110,19 +111,60 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     const inlineDesktop = await page.evaluate(() => {
       const panel = document.getElementById("personIdentityPanel");
       const timeline = document.getElementById("personLifeTimeline");
+      const editor = document.getElementById("personPageEditHost");
+      const documentCards = [...document.querySelectorAll("#personDocumentsPanel > .person-page-inline-card")];
+      const relationAction = document.getElementById("toggleRelationBuilderBtn");
+      const rect = element => { const box = element.getBoundingClientRect(); return { top: box.top, bottom: box.bottom, height: box.height }; };
       return {
         panelDisplay: getComputedStyle(panel).display,
-        columns: getComputedStyle(panel).gridTemplateColumns.split(" ").length,
-        timelineInIdentity: timeline.parentElement === panel,
+        panelWidth: panel.getBoundingClientRect().width,
+        editorWidth: editor.getBoundingClientRect().width,
+        timelineHidden: timeline.hidden,
+        documentCards: documentCards.length,
+        documentCardTitles: documentCards.map(card => card.querySelector("h3")?.textContent.trim()),
+        documentCardStyles: documentCards.map(card => ({ background: getComputedStyle(card).backgroundColor, border: getComputedStyle(card).borderTopWidth, radius: getComputedStyle(card).borderTopLeftRadius })),
+        documentCardRects: documentCards.map(rect),
+        documentActions: [document.getElementById("linkDocumentBtn").textContent.trim(), document.getElementById("proofEntryPointLabel").textContent.trim()],
+        documentActionHeaders: [document.getElementById("linkDocumentBtn"), document.getElementById("genealogyProposeProofForPersonBtn")].map(button => button.parentElement.classList.contains("person-page-inline-section-header")),
+        relationHeaderAction: relationAction.parentElement.classList.contains("person-page-inline-section-header"),
+        relationActionPrimary: relationAction.classList.contains("primary"),
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         stickyActions: getComputedStyle(document.querySelector("#personPageEditHost .person-actions")).position
       };
     });
-    assert.equal(inlineDesktop.panelDisplay, "grid", "édition inline desktop : panneau Identité en grille");
-    assert.equal(inlineDesktop.columns, 2, "édition inline desktop : identité et timeline côte à côte");
-    assert.equal(inlineDesktop.timelineInIdentity, true, "timeline intégrée au bloc Identité inline desktop");
+    assert.equal(inlineDesktop.panelDisplay, "block", "édition inline desktop : carte Identité pleine largeur");
+    assert.ok(inlineDesktop.panelWidth >= inlineDesktop.editorWidth - 64, "carte Identité occupe toute la largeur utile");
+    assert.equal(inlineDesktop.timelineHidden, true, "timeline masquée pendant la modification");
+    assert.equal(inlineDesktop.documentCards, 2, "Documents associés et Recherches forment deux cartes distinctes");
+    assert.deepEqual(inlineDesktop.documentCardTitles, ["Documents associés", "Recherches"]);
+    assert.equal(inlineDesktop.documentCardStyles[0].background, inlineDesktop.documentCardStyles[1].background, "cartes Documents/Recherches sur fond identique");
+    assert.equal(inlineDesktop.documentCardStyles[0].border, inlineDesktop.documentCardStyles[1].border, "cartes Documents/Recherches avec bordures identiques");
+    assert.equal(inlineDesktop.documentCardStyles[0].radius, inlineDesktop.documentCardStyles[1].radius, "cartes Documents/Recherches avec arrondis identiques");
+    assert.ok(inlineDesktop.documentCardRects[1].top - inlineDesktop.documentCardRects[0].bottom >= 12, "espace vertical entre les cartes Documents et Recherches");
+    assert.deepEqual(inlineDesktop.documentActions, ["Ajouter un document", "Ajouter une preuve"]);
+    assert.deepEqual(inlineDesktop.documentActionHeaders, [true, true], "actions d'ajout en haut de chaque carte");
+    assert.equal(inlineDesktop.relationHeaderAction, true, "Ajouter un lien familial aligné sur le titre Famille");
+    assert.equal(inlineDesktop.relationActionPrimary, false, "Ajouter un lien familial reste une action secondaire");
     assert.ok(inlineDesktop.overflow <= 1, `édition inline desktop sans débordement (${inlineDesktop.overflow}px)`);
     assert.equal(inlineDesktop.stickyActions, "sticky", "barre d’actions d’édition conservée");
+    await page.locator("#personPageActions > summary").click();
+    assert.equal(await page.locator("#personPageActionsMenu [data-person-page-action]").count(), 5, "menu ⋯ complet toujours disponible en modification");
+    await page.locator('#personPageActionsMenu [data-person-page-action="print"]').focus();
+    await page.keyboard.press("ArrowDown");
+    const menuKeyboard = await page.evaluate(() => ({
+      action: document.activeElement?.dataset.personPageAction,
+      focusVisible: document.activeElement?.matches(":focus-visible"),
+      outline: getComputedStyle(document.activeElement).outline
+    }));
+    assert.equal(menuKeyboard.action, "branch", "flèches clavier parcourent les actions du menu en modification");
+    assert.equal(menuKeyboard.focusVisible, true, "la ligne active utilise le focus clavier visible");
+    assert.match(menuKeyboard.outline, /solid 2px/, "contour de focus du menu visible");
+    await page.keyboard.press("Escape");
+    await page.locator("#personPageActions > summary").click();
+    await page.locator("#toggleRelationBuilderBtn").click();
+    await page.waitForFunction(() => !document.getElementById("relationBuilder").hidden);
+    await page.locator("#closeRelationBuilderBtn").click();
+    await page.waitForFunction(() => document.getElementById("relationBuilder").hidden);
     await page.locator("#firstName").fill("Adélaïde");
     await page.locator("#birthYear").fill("1891");
     await page.locator("#place").fill("Palermo modifiée");
@@ -192,6 +234,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         const identity = document.getElementById("personPageIdentity");
         const timeline = document.getElementById("personPageTimeline");
         const timelineList = document.querySelector("#personPageTimeline ol");
+        const timelineItems = [...timelineList.querySelectorAll(".timeline-jalon")];
         const familyCards = [...document.querySelectorAll("#personPageFamily .relation-person-row")];
         const pdfCard = document.querySelector("#personPageDocuments .person-doc-card--pdf");
         const imageCard = document.querySelector("#personPageDocuments .person-doc-card--image");
@@ -202,6 +245,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         const account = document.getElementById("accountMenu");
         const brand = header.querySelector(".brand");
         const activeTab = document.querySelector("#personPageSectionNav [aria-current='location']");
+        const personMenu = document.getElementById("personPageActionsMenu");
+        const navSeparator = getComputedStyle(document.querySelector("#personPageSectionNav [data-person-page-section]:not(:last-child)"), "::after");
         return {
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           viewport: document.documentElement.clientWidth,
@@ -220,9 +265,13 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           navBackground: getComputedStyle(document.getElementById("personPageSectionNav")).backgroundColor,
           navBorderTop: getComputedStyle(document.getElementById("personPageSectionNav")).borderTopWidth,
           navBorderBottom: getComputedStyle(document.getElementById("personPageSectionNav")).borderBottomWidth,
+          navHeight: document.getElementById("personPageSectionNav").getBoundingClientRect().height,
+          navSeparator: { content: navSeparator.content, width: Number.parseFloat(navSeparator.width), height: Number.parseFloat(navSeparator.height) },
           activeTabBackground: getComputedStyle(activeTab).backgroundColor,
           backTop: rect("personPageBackBtn").top,
+          backCenter: rect("personPageBackBtn").top + rect("personPageBackBtn").height / 2,
           heroTop: document.querySelector(".person-detail-hero").getBoundingClientRect().top,
+          globalHeaderBottom: header.getBoundingClientRect().bottom,
           actions: ["personPageEditBtn", "personPageViewTreeBtn", "personPageActions"].map(rect),
           actionDateVisible: isVisible(document.querySelector(".person-detail-modification--actions")),
           actionDateText: document.querySelector(".person-detail-modification--actions").textContent,
@@ -233,17 +282,36 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           genderBadgeVisible: isVisible(document.querySelector(".person-detail-gender")),
           familyWidths: familyCards.map(card => card.getBoundingClientRect().width),
           timelineListStyle: getComputedStyle(timelineList).listStyleType,
-          timelineLineDisplay: getComputedStyle(timelineList, "::before").display,
+          timelineLineDisplay: timelineItems.length ? getComputedStyle(timelineItems[0], "::after").display : "none",
           timelineDotDisplay: getComputedStyle(timelineList.querySelector(".timeline-dot")).display,
+          timelineItemRects: timelineItems.map(item => {
+            const itemRect = item.getBoundingClientRect();
+            const dotRect = item.querySelector(".timeline-dot").getBoundingClientRect();
+            const lineStyle = getComputedStyle(item, "::after");
+            return { left: itemRect.left, top: itemRect.top, dotCenter: dotRect.left + dotRect.width / 2, dotTop: dotRect.top, dotHeight: dotRect.height, lineTop: Number.parseFloat(lineStyle.top), lineHeight: Number.parseFloat(lineStyle.height) };
+          }),
           pdfFormatDisplay: pdfCard && getComputedStyle(pdfCard.querySelector(".person-detail-document-format")).display,
           imageFormatDisplay: imageCard && getComputedStyle(imageCard.querySelector(".person-detail-document-format")).display,
           extensionImageFormatDisplay: getComputedStyle(extensionImageCard.querySelector(".person-detail-document-format")).display,
+          pdfVisualDisplay: getComputedStyle(pdfCard.querySelector(".person-detail-document-format-visual")).display,
+          imageVisualDisplay: getComputedStyle(extensionImageCard.querySelector(".person-detail-document-format-visual")).display,
+          pdfVisualText: pdfCard.querySelector(".person-detail-document-format-visual").textContent.trim(),
+          imageVisualText: extensionImageCard.querySelector(".person-detail-document-format-visual").textContent.trim(),
+          unknownVisualHref: unknownCard.querySelector(".person-detail-document-format-visual use")?.getAttribute("href"),
+          pdfMetadata: pdfCard.querySelector(".person-detail-document-format").textContent.trim(),
+          imageMetadata: extensionImageCard.querySelector(".person-detail-document-format").textContent.trim(),
+          pdfMetadataIcons: pdfCard.querySelectorAll(".person-detail-document-format .ui-icon").length,
+          imageMetadataIcons: extensionImageCard.querySelectorAll(".person-detail-document-format .ui-icon").length,
           unknownFormat: unknownCard.querySelector(".person-detail-document-format"),
           researchChevron: research ? getComputedStyle(research, "::after").content : "none",
           accountRight: account.getBoundingClientRect().right,
           brandLeft: brand.getBoundingClientRect().left,
           accountColumn: getComputedStyle(account).gridColumnStart,
-          brandColumn: getComputedStyle(brand).gridColumnStart
+          brandColumn: getComputedStyle(brand).gridColumnStart,
+          menuActions: [...personMenu.querySelectorAll("[data-person-page-action]")].map(button => ({ action: button.dataset.personPageAction, icon: button.querySelector("use")?.getAttribute("href"), border: getComputedStyle(button).borderTopWidth })),
+          mobileMenuTransferIcon: document.querySelector("#personPageMobileActionsMenu [data-person-page-action='change-tree'] use")?.getAttribute("href"),
+          menuBorder: getComputedStyle(personMenu).borderTopWidth,
+          menuShadow: getComputedStyle(personMenu).boxShadow
         };
       });
       assert.ok(layout.overflow <= 1, `${width}px : aucun débordement horizontal (${layout.overflow}px)`);
@@ -256,7 +324,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.ok(layout.timeline.top < layout.identity.top, `${width}px : ordre timeline/identité conservé`);
         assert.equal(layout.pdfFormatDisplay, "none", `${width}px : nouvelle icône PDF absente sur tablette/mobile`);
         assert.equal(layout.imageFormatDisplay, "none", `${width}px : nouvelle icône image absente sur tablette/mobile`);
+        assert.equal(layout.pdfVisualDisplay, "none", `${width}px : pictogramme PDF desktop absent sur tablette/mobile`);
+        assert.equal(layout.imageVisualDisplay, "none", `${width}px : pictogramme image desktop absent sur tablette/mobile`);
         assert.equal(layout.researchChevron, "none", `${width}px : aucun chevron ajouté aux recherches sur tablette/mobile`);
+        assert.equal(layout.navSeparator.content, "none", `${width}px : aucun séparateur vertical ajouté sur tablette/mobile`);
+        assert.equal(layout.mobileMenuTransferIcon, "#icon-tree", `${width}px : menu mobile conserve son icône historique`);
       } else {
         assert.equal(layout.mobileHeader, false, `${width}px : en-tête mobile masqué sur desktop`);
         assert.deepEqual(layout.overviewOrder, ["personPageIdentity", "personPageTimeline"], `${width}px : ordre de lecture desktop aligné sur la présentation`);
@@ -265,11 +337,14 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.ok(Math.abs(layout.identity.height - layout.timeline.height) <= 1, `${width}px : cartes Identité et Parcours de vie de même hauteur`);
         assert.ok(layout.identity.left < layout.timeline.left, `${width}px : Identité à gauche, Parcours à droite`);
         assert.equal(layout.backTop < layout.heroTop, true, `${width}px : retour au-dessus de la carte`);
+        assert.ok(Math.abs(layout.backCenter - (layout.globalHeaderBottom + layout.heroTop) / 2) <= 8, `${width}px : retour centré entre en-tête global et carte`);
         assert.ok(Number.parseFloat(layout.titleSize) >= 30, `${width}px : nom de personne ≥30px (${layout.titleSize})`);
         assert.equal(layout.sectionTitleSize, "20px", `${width}px : titre principal commun de 20px`);
         assert.equal(layout.navBackground, "rgb(247, 243, 234)", `${width}px : barre de sections sur fond ivoire`);
-        assert.equal(layout.navBorderTop, "0px", `${width}px : aucun trait supérieur superposé`);
+        assert.equal(layout.navBorderTop, "1px", `${width}px : bordure supérieure de la barre visible`);
         assert.equal(layout.navBorderBottom, "1px", `${width}px : séparateur unique sous la navigation`);
+        assert.equal(layout.navSeparator.content, '""', `${width}px : séparateurs verticaux discrets visibles`);
+        assert.ok(layout.navSeparator.width <= 1 && layout.navSeparator.height < layout.navHeight, `${width}px : séparateurs courts sans toucher aux bordures`);
         assert.equal(layout.activeTabBackground, "rgb(232, 239, 233)", `${width}px : onglet actif vert clair`);
         assert.deepEqual(layout.actions.map(action => Math.round(action.left)).sort((a, b) => a - b), layout.actions.map(action => Math.round(action.left)), `${width}px : ordre CTA Modifier, Voir dans l’arbre, menu ⋯`);
         assert.ok(layout.actions[0].left < layout.actions[1].left && layout.actions[1].left < layout.actions[2].left, `${width}px : ordre CTA gauche-droite`);
@@ -279,14 +354,33 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.equal(layout.genderBadgeVisible, false, `${width}px : badge Homme/Femme absent de l’en-tête`);
         assert.ok(layout.familyWidths.every(cardWidth => cardWidth <= 500), `${width}px : cartes Famille limitées à 500px`);
         assert.equal(layout.timelineListStyle, "none", `${width}px : aucun numéro parasite dans la timeline`);
-        assert.equal(layout.timelineLineDisplay, "block", `${width}px : trait vertical continu dans la timeline`);
+        assert.equal(layout.timelineLineDisplay, "block", `${width}px : liaison horizontale entre événements`);
         assert.notEqual(layout.timelineDotDisplay, "none", `${width}px : pastilles visibles`);
+        assert.equal(layout.timelineItemRects.length, 3, `${width}px : naissance, mariage et décès seulement`);
+        assert.ok(layout.timelineItemRects[0].left < layout.timelineItemRects[1].left && layout.timelineItemRects[1].left < layout.timelineItemRects[2].left, `${width}px : événements ordonnés horizontalement`);
+        assert.ok(layout.timelineItemRects.every(item => Math.abs(item.top - layout.timelineItemRects[0].top) < 1), `${width}px : pastilles sur une même rangée`);
+        assert.ok(layout.timelineItemRects.every(item => Math.abs(item.dotTop + item.dotHeight / 2 - item.top - item.lineTop - item.lineHeight / 2) <= 1), `${width}px : trait horizontal centré sur les pastilles`);
         assert.match(layout.pdfFormatDisplay, /flex/, `${width}px : fichier PDF identifié par son format réel`);
         assert.match(layout.imageFormatDisplay, /flex/, `${width}px : image identifiée par son format réel`);
         assert.match(layout.extensionImageFormatDisplay, /flex/, `${width}px : extension image utilisée si le MIME est générique`);
+        assert.equal(layout.pdfVisualDisplay, "grid", `${width}px : pictogramme PDF dans la partie supérieure`);
+        assert.equal(layout.imageVisualDisplay, "grid", `${width}px : pictogramme Image dans la partie supérieure`);
+        assert.equal(layout.pdfVisualText, "", `${width}px : aucun libellé PDF sous le pictogramme supérieur`);
+        assert.equal(layout.imageVisualText, "", `${width}px : aucun libellé Image sous le pictogramme supérieur`);
+        assert.equal(layout.pdfMetadata, "PDF", `${width}px : format PDF conservé en texte dans les métadonnées`);
+        assert.equal(layout.imageMetadata, "Image", `${width}px : format Image conservé en texte dans les métadonnées`);
+        assert.equal(layout.pdfMetadataIcons, 0, `${width}px : aucun pictogramme répété dans les métadonnées PDF`);
+        assert.equal(layout.imageMetadataIcons, 0, `${width}px : aucun pictogramme répété dans les métadonnées Image`);
+        assert.equal(layout.unknownVisualHref, "#icon-document", `${width}px : pictogramme générique pour format inconnu`);
         assert.equal(layout.unknownFormat, null, `${width}px : repli générique pour type inconnu`);
         assert.equal(layout.researchChevron, '"›"', `${width}px : chevron sur les recherches ouvrables`);
         assert.ok(layout.accountRight >= layout.viewport - 64 && layout.accountColumn === "3" && layout.brandColumn === "1", `${width}px : compte à droite et marque à gauche (${layout.brandLeft}/${layout.accountRight})`);
+        assert.deepEqual(layout.menuActions.map(item => item.action), ["print", "branch", "change-tree", "remove-tree", "delete"], `${width}px : cinq actions dans le menu ⋯`);
+        assert.deepEqual(layout.menuActions.slice(1, 4).map(item => item.icon), ["#icon-tree", "#icon-transfer", "#icon-unlink"], `${width}px : icônes distinctes pour les actions arbre`);
+        assert.equal(layout.mobileMenuTransferIcon, "#icon-tree", `${width}px : icône mobile non modifiée`);
+        assert.ok(layout.menuActions.every(item => item.border === "0px"), `${width}px : lignes de menu sans contours individuels`);
+        assert.equal(layout.menuBorder, "1px", `${width}px : bordure unique du menu`);
+        assert.notEqual(layout.menuShadow, "none", `${width}px : ombre légère du menu`);
       }
     }
 

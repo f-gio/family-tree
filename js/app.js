@@ -232,6 +232,7 @@ let personPageDocumentsExpanded = false;
 let personPageInlineEditing = false;
 let personPageInlineInitialDraft = null;
 let personPageInlineHome = null;
+let personPageInlineDesktopSections = null;
 let activeGenealogyItem = null;
 let activeSourcePageItem = null;
 let sourcePageReturnContext = null;
@@ -2262,9 +2263,9 @@ function personPageDocumentCard(item) {
     : `<span class="person-doc-tile" aria-hidden="true">${icon("document", "ui-icon-lg")}</span>`;
   const formatIcon = fileFormat === "pdf" ? "file-pdf" : fileFormat === "image" ? "image" : "";
   const formatLabel = fileFormat === "pdf" ? "PDF" : fileFormat === "image" ? "Image" : "";
-  const formatMarkup = formatIcon ? `<span class="person-detail-document-format person-detail-document-format--${fileFormat}">${icon(formatIcon)}<span>${formatLabel}</span></span>` : "";
-  const formatVisual = formatIcon && !thumb ? `<span class="person-detail-document-format-visual person-detail-document-format-visual--${fileFormat}" aria-hidden="true">${icon(formatIcon, "ui-icon-lg")}<span>${formatLabel}</span></span>` : "";
-  const formatClass = fileFormat === "unknown" ? "" : ` person-doc-card--${fileFormat}`;
+  const formatMarkup = formatIcon ? `<span class="person-detail-document-format person-detail-document-format--${fileFormat}">${formatLabel}</span>` : "";
+  const formatVisual = `<span class="person-detail-document-format-visual person-detail-document-format-visual--${fileFormat}" aria-hidden="true">${icon(formatIcon || "document", "ui-icon-lg")}</span>`;
+  const formatClass = ` person-doc-card--${fileFormat}`;
   return `<article class="person-doc-card${thumb ? "" : " is-no-thumbnail"}${formatClass}" tabindex="0" aria-label="Consulter ${esc(label)}" data-view-document="${esc(item.id)}"><div class="person-doc-thumb">${preview}${formatVisual}</div><div class="person-doc-meta"><strong class="person-doc-title">${esc(label)}</strong><span class="person-doc-subrow">${formatMarkup}<span class="person-doc-type">${esc(type)}</span>${date ? `<time class="person-doc-date">${esc(date)}</time>` : ""}</span></div></article>`;
 }
 
@@ -2324,7 +2325,7 @@ function syncPersonPageSectionNav(section = personPageActiveSection) {
   });
 }
 
-function personPageActionMenuMarkup() {
+function personPageActionMenuMarkup({ distinctTreeIcons = false } = {}) {
   const groups = [
     [{ id: "printPersonBtn", action: "print" }, { id: "viewBranchBtn", action: "branch" }],
     [{ id: "changePersonTreeBtn", action: "change-tree" }, { id: "removePersonFromTreeBtn", action: "remove-tree" }],
@@ -2341,6 +2342,8 @@ function personPageActionMenuMarkup() {
       clone.setAttribute("type", "button");
       clone.setAttribute("role", "menuitem");
       clone.dataset.personPageAction = action;
+      const iconName = distinctTreeIcons && action === "change-tree" ? "transfer" : action === "branch" ? "tree" : action === "remove-tree" ? "unlink" : "";
+      if (iconName) clone.querySelector(".ui-icon use")?.setAttribute("href", `#icon-${iconName}`);
       clone.querySelectorAll("[id]").forEach(node => node.removeAttribute("id"));
       return clone.outerHTML;
     }).filter(Boolean);
@@ -2362,6 +2365,22 @@ function currentPersonPageDraftSignature() {
 function personPageInlineDirty() {
   return personPageInlineEditing && personPageInlineInitialDraft !== null
     && currentPersonPageDraftSignature() !== personPageInlineInitialDraft;
+}
+
+function personPageInlineHeading(label) {
+  const heading = document.createElement("h3");
+  heading.className = "person-page-desktop-inline-heading";
+  heading.dataset.personInlineHeading = "";
+  heading.textContent = label;
+  return heading;
+}
+
+function personPageInlineSectionHeader(title, action) {
+  const header = document.createElement("div");
+  header.className = "person-page-inline-section-header";
+  header.dataset.personInlineHeading = "";
+  header.append(personPageInlineHeading(title), action);
+  return header;
 }
 
 function ensurePersonPageInlineHomeAnchors() {
@@ -2387,6 +2406,17 @@ function finishPersonPageInlineEdit({ refresh = true } = {}) {
   const timeline = $("personLifeTimeline");
   if (timeline && $("personIdentityPanel") && !$("personIdentityPanel").contains(timeline)) $("personIdentityPanel").append(timeline);
   document.querySelectorAll("#personPageEditHost [data-person-inline-heading]").forEach(heading => heading.remove());
+  if (personPageInlineDesktopSections) {
+    const state = personPageInlineDesktopSections;
+    state.documentPanel.replaceChildren(state.documentsUnavailable, state.documentsSection, state.evidenceSection);
+    state.documentsSection.append(state.linkDocumentButton);
+    state.linkDocumentButton.innerHTML = state.linkDocumentMarkup;
+    state.evidenceSection.append(state.proposeProofButton);
+    state.proofEntryPointLabel.textContent = state.proofEntryPointText;
+    state.relationsOverview.append(state.relationBuilderButton);
+    state.relationBuilderButton.className = state.relationBuilderButtonClass;
+    personPageInlineDesktopSections = null;
+  }
   tabs.hidden = false;
   if (tabsAnchor.parentNode) tabsAnchor.parentNode.insertBefore(tabs, tabsAnchor.nextSibling);
   if (formAnchor.parentNode) formAnchor.parentNode.insertBefore(form, formAnchor.nextSibling);
@@ -2425,20 +2455,43 @@ function enterPersonPageInlineEdit() {
   host.append(tabs);
   tabs.hidden = true;
   if (timeline && window.matchMedia("(min-width: 961px)").matches) {
-    for (const [panelId, title] of [["personIdentityPanel", "Identité"], ["personRelationsPanel", "Famille"], ["personDocumentsPanel", "Documents associés"], ["personGenealogyEvidenceSection", "Recherches"]]) {
-      const heading = document.createElement("h3");
-      heading.className = "person-page-desktop-inline-heading";
-      heading.dataset.personInlineHeading = "";
-      heading.textContent = title;
-      $(panelId).prepend(heading);
-    }
-    $("personIdentityPanel").append(timeline);
+    $("personIdentityPanel").prepend(personPageInlineHeading("Identité"));
+    const relationsPanel = $("personRelationsPanel");
+    const relationsOverview = relationsPanel.querySelector(".relations-overview");
+    const relationBuilderButton = $("toggleRelationBuilderBtn");
+    const relationBuilderButtonClass = relationBuilderButton.className;
+    relationBuilderButton.classList.remove("primary");
+    relationsPanel.prepend(personPageInlineSectionHeader("Famille", relationBuilderButton));
+    const documentPanel = $("personDocumentsPanel");
+    const documentsUnavailable = $("personDocumentsUnavailable");
+    const documentsSection = $("personDocumentsSection");
+    const evidenceSection = $("personGenealogyEvidenceSection");
+    const linkDocumentButton = $("linkDocumentBtn");
+    const proposeProofButton = $("genealogyProposeProofForPersonBtn");
+    const proofEntryPointLabel = $("proofEntryPointLabel");
+    const linkDocumentMarkup = linkDocumentButton.innerHTML;
+    const proofEntryPointText = proofEntryPointLabel.textContent;
+    linkDocumentButton.innerHTML = `${icon("plus")}<span>Ajouter un document</span>`;
+    proofEntryPointLabel.textContent = "Ajouter une preuve";
+    const documentsCard = document.createElement("section");
+    documentsCard.className = "person-page-inline-card person-page-inline-documents-card";
+    documentsCard.append(personPageInlineSectionHeader("Documents associés", linkDocumentButton), documentsUnavailable, documentsSection);
+    const researchCard = document.createElement("section");
+    researchCard.className = "person-page-inline-card person-page-inline-research-card";
+    researchCard.append(personPageInlineSectionHeader("Recherches", proposeProofButton), evidenceSection);
+    documentPanel.replaceChildren(documentsCard, researchCard);
+    personPageInlineDesktopSections = {
+      documentPanel, documentsUnavailable, documentsSection, evidenceSection,
+      linkDocumentButton, linkDocumentMarkup, proposeProofButton, proofEntryPointLabel, proofEntryPointText,
+      relationsOverview, relationBuilderButton, relationBuilderButtonClass
+    };
   } else if (timeline) host.append(timeline);
   host.append(form);
   $("personPageContent").hidden = true;
   $("personPageEditBtn").hidden = true;
   setPersonSection("identity");
   renderRelations();
+  if (timeline && window.matchMedia("(min-width: 961px)").matches) timeline.hidden = true;
   for (const panel of document.querySelectorAll("[data-person-panel]")) {
     panel.removeAttribute("role");
     panel.removeAttribute("aria-labelledby");
@@ -2521,9 +2574,8 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
   $("personPageActions").insertAdjacentHTML("afterend", `<span class="card-meta person-detail-modification person-detail-modification--actions">${modification ? modification.long : "Dernière modification : Non renseignée"}</span>`);
   updatePersonMenuActions(item);
   $("personPageViewTreeBtn").hidden = membership.type !== "assigned";
-  const pageActionsMarkup = personPageActionMenuMarkup();
-  $("personPageActionsMenu").innerHTML = pageActionsMarkup;
-  $("personPageMobileActionsMenu").innerHTML = pageActionsMarkup;
+  $("personPageActionsMenu").innerHTML = personPageActionMenuMarkup({ distinctTreeIcons: window.matchMedia("(min-width: 961px)").matches });
+  $("personPageMobileActionsMenu").innerHTML = personPageActionMenuMarkup();
   $("personPageActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
   $("personPageMobileActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
   if (!samePageVisible) {
