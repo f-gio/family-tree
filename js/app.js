@@ -2160,10 +2160,10 @@ function personPageContext() {
   };
 }
 
-function personPageFact(label, raw, wide = false) {
+function personPageFact(label, raw, wide = false, modifier = "") {
   const value = typeof raw === "string" || typeof raw === "number" ? String(raw).trim() : "";
   const isWide = wide || value.length > 24;
-  return `<div class="source-detail-fact${isWide ? " person-detail-fact-wide" : ""}"><strong>${esc(label)}</strong><span>${value ? esc(value) : `<span class="person-detail-empty-value">Non renseigné</span>`}</span></div>`;
+  return `<div class="source-detail-fact${isWide ? " person-detail-fact-wide" : ""}${modifier ? ` ${modifier}` : ""}"><strong>${esc(label)}</strong><span>${value ? esc(value) : `<span class="person-detail-empty-value">Non renseigné</span>`}</span></div>`;
 }
 
 function personPageIdentityMarkup(item) {
@@ -2173,8 +2173,8 @@ function personPageIdentityMarkup(item) {
     personPageFact("Second prénom", item.middleName),
     personPageFact("Nom de naissance", item.lastName, true),
     personPageFact("Nom d’usage", item.marriedName, true),
-    personPageFact("Sexe", gender),
-    personPageFact("Branche familiale", item.branch, true)
+    personPageFact("Sexe", gender, false, "person-detail-gender-fact"),
+    personPageFact("Branche familiale", item.branch, true, "person-detail-branch-fact")
   ];
   const notes = item.notes ? `<p class="person-detail-notes">${esc(item.notes)}</p>` : "";
   const modification = personModMetaParts(item);
@@ -2255,11 +2255,27 @@ function personPageDocumentCard(item) {
   const label = documentDisplayLabel(item);
   const thumb = personDocThumbSource(item);
   const type = item.type || item.fileName || "Document";
+  const fileFormat = personPageDocumentFormat(item);
   const date = item.date ? new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR") : "";
   const preview = thumb
     ? `<img class="person-doc-thumb-img" src="${esc(thumb)}" alt="" loading="lazy">`
     : `<span class="person-doc-tile" aria-hidden="true">${icon("document", "ui-icon-lg")}</span>`;
-  return `<article class="person-doc-card${thumb ? "" : " is-no-thumbnail"}" tabindex="0" aria-label="Consulter ${esc(label)}" data-view-document="${esc(item.id)}"><div class="person-doc-thumb">${preview}</div><div class="person-doc-meta"><strong class="person-doc-title">${esc(label)}</strong><span class="person-doc-subrow"><span class="person-doc-type">${esc(type)}</span>${date ? `<time class="person-doc-date">${esc(date)}</time>` : ""}</span></div></article>`;
+  const formatIcon = fileFormat === "pdf" ? "file-pdf" : fileFormat === "image" ? "image" : "";
+  const formatLabel = fileFormat === "pdf" ? "PDF" : fileFormat === "image" ? "Image" : "";
+  const formatMarkup = formatIcon ? `<span class="person-detail-document-format person-detail-document-format--${fileFormat}">${icon(formatIcon)}<span>${formatLabel}</span></span>` : "";
+  const formatVisual = formatIcon && !thumb ? `<span class="person-detail-document-format-visual person-detail-document-format-visual--${fileFormat}" aria-hidden="true">${icon(formatIcon, "ui-icon-lg")}<span>${formatLabel}</span></span>` : "";
+  const formatClass = fileFormat === "unknown" ? "" : ` person-doc-card--${fileFormat}`;
+  return `<article class="person-doc-card${thumb ? "" : " is-no-thumbnail"}${formatClass}" tabindex="0" aria-label="Consulter ${esc(label)}" data-view-document="${esc(item.id)}"><div class="person-doc-thumb">${preview}${formatVisual}</div><div class="person-doc-meta"><strong class="person-doc-title">${esc(label)}</strong><span class="person-doc-subrow">${formatMarkup}<span class="person-doc-type">${esc(type)}</span>${date ? `<time class="person-doc-date">${esc(date)}</time>` : ""}</span></div></article>`;
+}
+
+function personPageDocumentFormat(item = {}) {
+  const mimeType = String(item.mimeType || "").trim().toLowerCase().split(";", 1)[0];
+  const fileName = String(item.fileName || "").trim();
+  if (["application/pdf", "application/x-pdf"].includes(mimeType)) return "pdf";
+  if (mimeType.startsWith("image/")) return "image";
+  if (/\.pdf$/i.test(fileName)) return "pdf";
+  if (/\.(?:jpe?g|png|gif|webp|bmp|svg|tiff?|heic|heif|avif)$/i.test(fileName)) return "image";
+  return "unknown";
 }
 
 function personPageDocumentsMarkup(item) {
@@ -2370,6 +2386,7 @@ function finishPersonPageInlineEdit({ refresh = true } = {}) {
   const { tabs, form, tabsAnchor, formAnchor, panels } = ensurePersonPageInlineHomeAnchors();
   const timeline = $("personLifeTimeline");
   if (timeline && $("personIdentityPanel") && !$("personIdentityPanel").contains(timeline)) $("personIdentityPanel").append(timeline);
+  document.querySelectorAll("#personPageEditHost [data-person-inline-heading]").forEach(heading => heading.remove());
   tabs.hidden = false;
   if (tabsAnchor.parentNode) tabsAnchor.parentNode.insertBefore(tabs, tabsAnchor.nextSibling);
   if (formAnchor.parentNode) formAnchor.parentNode.insertBefore(form, formAnchor.nextSibling);
@@ -2407,7 +2424,16 @@ function enterPersonPageInlineEdit() {
   host.hidden = false;
   host.append(tabs);
   tabs.hidden = true;
-  if (timeline) host.append(timeline);
+  if (timeline && window.matchMedia("(min-width: 961px)").matches) {
+    for (const [panelId, title] of [["personIdentityPanel", "Identité"], ["personRelationsPanel", "Famille"], ["personDocumentsPanel", "Documents associés"], ["personGenealogyEvidenceSection", "Recherches"]]) {
+      const heading = document.createElement("h3");
+      heading.className = "person-page-desktop-inline-heading";
+      heading.dataset.personInlineHeading = "";
+      heading.textContent = title;
+      $(panelId).prepend(heading);
+    }
+    $("personIdentityPanel").append(timeline);
+  } else if (timeline) host.append(timeline);
   host.append(form);
   $("personPageContent").hidden = true;
   $("personPageEditBtn").hidden = true;
@@ -2486,11 +2512,13 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
   const essentials = [
     `<span class="person-detail-dates"><strong>Naissance</strong> · ${esc(birthDate === "—" ? "Non renseignée" : birthDate)}${birthPlace ? ` · ${esc(birthPlace)}` : ""}</span>`,
     `<span class="person-detail-dates"><strong>Décès</strong> · ${esc(deathDate === "—" ? "Non renseigné" : deathDate)}${deathPlace ? ` · ${esc(deathPlace)}` : ""}</span>`,
-    genderLabel ? `<span class="person-detail-badge">${esc(genderLabel)}</span>` : "",
-    item.branch ? `<span class="person-detail-badge">${esc(item.branch)}</span>` : "",
-    `<span class="card-meta person-detail-modification">${modification ? modification.long : "Dernière modification : Non renseignée"}</span>`
+    genderLabel ? `<span class="person-detail-badge person-detail-gender">${esc(genderLabel)}</span>` : "",
+    item.branch ? `<span class="person-detail-badge person-detail-branch">${esc(item.branch)}</span>` : "",
+    `<span class="card-meta person-detail-modification person-detail-modification--essentials">${modification ? modification.long : "Dernière modification : Non renseignée"}</span>`
   ].filter(Boolean);
   $("personPageEssentials").innerHTML = essentials.join("");
+  $("personPageActionsMenu").closest(".person-detail-header-actions").querySelector(".person-detail-modification--actions")?.remove();
+  $("personPageActions").insertAdjacentHTML("afterend", `<span class="card-meta person-detail-modification person-detail-modification--actions">${modification ? modification.long : "Dernière modification : Non renseignée"}</span>`);
   updatePersonMenuActions(item);
   $("personPageViewTreeBtn").hidden = membership.type !== "assigned";
   const pageActionsMarkup = personPageActionMenuMarkup();
@@ -2503,7 +2531,12 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
     personPageDocumentsExpanded = false;
   }
   syncPersonPageSectionNav(restore?.section || personPageActiveSection || "identity");
-  $("personPageContent").innerHTML = `<div class="detail-page-main">${personPageTimelineMarkup(item)}${personPageIdentityMarkup(item)}${personPageFamilyMarkup(item)}${personPageDocumentsMarkup(item)}${personPageResearchMarkup(item)}</div>`;
+  const identityMarkup = personPageIdentityMarkup(item);
+  const timelineMarkup = personPageTimelineMarkup(item);
+  const overviewMarkup = window.matchMedia("(min-width: 961px)").matches
+    ? `${identityMarkup}${timelineMarkup}`
+    : `${timelineMarkup}${identityMarkup}`;
+  $("personPageContent").innerHTML = `<div class="detail-page-main"><div class="person-detail-overview" id="personPageOverview">${overviewMarkup}</div>${personPageFamilyMarkup(item)}${personPageDocumentsMarkup(item)}${personPageResearchMarkup(item)}</div>`;
   if (!samePageVisible && !preserveScroll) scrollFicheToTop("personDetailView");
   if (restore && Number.isFinite(Number(restore.scrollY))) {
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -2636,11 +2669,12 @@ $("personPageSectionNav").addEventListener("click", event => {
     if (section === "family") setPersonSection("relations");
     else if (["identity", "documents"].includes(section)) setPersonSection(section === "identity" ? "identity" : "documents");
     else setPersonSection("documents");
-    target = section === "identity" && !$('personLifeTimeline').hidden ? $("personLifeTimeline")
+    target = section === "identity" && window.matchMedia("(min-width: 961px)").matches ? $("personIdentityPanel")
+      : section === "identity" && !$('personLifeTimeline').hidden ? $("personLifeTimeline")
       : section === "documents" ? $("personDocumentsSection")
         : $(panel);
   } else {
-    target = $(section === "identity" ? "personPageTimeline" : `personPage${section[0].toUpperCase()}${section.slice(1)}`);
+    target = $(section === "identity" && window.matchMedia("(min-width: 961px)").matches ? "personPageOverview" : section === "identity" ? "personPageTimeline" : `personPage${section[0].toUpperCase()}${section.slice(1)}`);
   }
   if (!target) return;
   syncPersonPageSectionNav(section);

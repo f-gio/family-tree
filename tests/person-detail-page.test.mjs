@@ -8,12 +8,17 @@ const hooks = `
 window.__personPageTest = {
   seed() {
     people = [
-      { id: "person-page-a", firstName: "Ada", middleName: "Maria", lastName: "Rossi", marriedName: "Bianchi", gender: "F", branch: "Ramo Conti", birthDateInfo: { type: "year", year: 1890 }, place: "Palermo", deathDateInfo: { type: "unknown" }, deathPlace: "", notes: "Note de consultation", photoUrl: "${svg}", updatedByName: "Archiviste" },
+      { id: "person-page-a", firstName: "Ada", middleName: "Maria", lastName: "Rossi", marriedName: "Bianchi", gender: "F", branch: "Ramo Conti", birthDateInfo: { type: "year", year: 1890 }, place: "Palermo", deathDateInfo: { type: "year", year: 1931 }, deathPlace: "Metz", notes: "Note de consultation", photoUrl: "${svg}", updatedAt: { toDate: () => new Date("2026-10-24T03:30:00Z") }, updatedByName: "Archiviste", inTree: true },
       { id: "person-page-b", firstName: "Carlo", lastName: "Rossi", gender: "M", birthDateInfo: { type: "year", year: 1860 }, place: "Palermo" },
       { id: "person-page-c", firstName: "Lina", lastName: "Rossi", gender: "F" }
     ];
     families = [{ id: "person-page-family", partnerIds: ["person-page-a", "person-page-b"], childIds: ["person-page-c"], relationType: "marriage", unionDateInfo: { type: "year", year: 1888 }, unionPlace: "Palermo", endType: "none", endDateInfo: { type: "unknown" }, parentChildLinks: [] }];
-    documents = [{ id: "person-page-document", title: "Acte de naissance d’Ada", type: "Acte", date: "1890-03-04", fileName: "acte.svg", mimeType: "image/svg+xml", externalUrl: "https://example.invalid/acte.svg", personIds: ["person-page-a"] }];
+    documents = [
+      { id: "person-page-document", title: "Acte de naissance d’Ada", type: "Acte", date: "1890-03-04", fileName: "acte.svg", mimeType: "image/svg+xml", externalUrl: "https://example.invalid/acte.svg", personIds: ["person-page-a"] },
+      { id: "person-page-pdf", title: "Registre PDF", type: "Registre", fileName: "registre.pdf", mimeType: "application/pdf", personIds: ["person-page-a"] },
+      { id: "person-page-image", title: "Photographie", type: "Photo", fileName: "portrait.jpg", mimeType: "application/octet-stream", personIds: ["person-page-a"] },
+      { id: "person-page-unknown", title: "Fichier inconnu", type: "Archive", fileName: "fichier.bin", mimeType: "application/octet-stream", personIds: ["person-page-a"] }
+    ];
     loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = true;
     genealogyRecords = {
       sourceDocuments: [], sourceRevisions: [], transcriptionHeads: [], transcriptionRevisions: [],
@@ -31,10 +36,11 @@ window.__personPageTest = {
     setView("directory");
   },
   update(id, data) {
-    window.__personPageUpdates = [...(window.__personPageUpdates || []), { id, firstName: data.firstName }];
+    window.__personPageUpdates = [...(window.__personPageUpdates || []), { id, firstName: data.firstName, place: data.place, birthDateInfo: data.birthDateInfo }];
     people = people.map(item => item.id === id ? { ...item, ...data, updatedAt: { toDate: () => new Date("2026-11-04T12:00:00Z") }, updatedByName: "Archiviste" } : item);
   },
   openTree() { renderTree(); setView("tree"); },
+  openDirectory() { setView("directory"); },
   state() {
     return {
       pageVisible: !$('personDetailView').hidden,
@@ -101,11 +107,32 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator("#personPageEditBtn").click();
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     assert.equal(await page.locator("#personDialog").evaluate(dialog => dialog.open), false, "l’édition reste sur la page, sans ouvrir la modale");
+    const inlineDesktop = await page.evaluate(() => {
+      const panel = document.getElementById("personIdentityPanel");
+      const timeline = document.getElementById("personLifeTimeline");
+      return {
+        panelDisplay: getComputedStyle(panel).display,
+        columns: getComputedStyle(panel).gridTemplateColumns.split(" ").length,
+        timelineInIdentity: timeline.parentElement === panel,
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        stickyActions: getComputedStyle(document.querySelector("#personPageEditHost .person-actions")).position
+      };
+    });
+    assert.equal(inlineDesktop.panelDisplay, "grid", "édition inline desktop : panneau Identité en grille");
+    assert.equal(inlineDesktop.columns, 2, "édition inline desktop : identité et timeline côte à côte");
+    assert.equal(inlineDesktop.timelineInIdentity, true, "timeline intégrée au bloc Identité inline desktop");
+    assert.ok(inlineDesktop.overflow <= 1, `édition inline desktop sans débordement (${inlineDesktop.overflow}px)`);
+    assert.equal(inlineDesktop.stickyActions, "sticky", "barre d’actions d’édition conservée");
     await page.locator("#firstName").fill("Adélaïde");
+    await page.locator("#birthYear").fill("1891");
+    await page.locator("#place").fill("Palermo modifiée");
     await page.locator("#savePersonBtn").click();
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Adélaïde"));
     assert.equal(await page.evaluate(() => window.__personPageTest.state().updateCount), 1, "la sauvegarde réutilise le point d’écriture existant");
+    const savedInlineData = await page.evaluate(() => window.__personPageUpdates[0]);
+    assert.equal(savedInlineData.place, "Palermo modifiée", "le lieu est enregistré depuis l’édition inline");
+    assert.equal(savedInlineData.birthDateInfo.year, 1891, "la date est enregistrée depuis l’édition inline");
     assert.equal(await page.locator("#personDialog").evaluate(dialog => dialog.open), false, "la modale reste fermée après l’enregistrement en ligne");
 
     await page.locator("#personPageEditBtn").click();
@@ -147,25 +174,141 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
     assert.equal((await page.evaluate(() => window.__personPageTest.state())).section, "research", "section Recherches restaurée après la Preuve");
 
-    for (const width of [390, 760, 1024, 1280]) {
+    for (const width of [320, 390, 430, 760, 768, 900, 1024, 1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 850 });
+      await page.evaluate(() => window.__personPageTest.openDirectory());
+      await page.locator('#directoryList [data-directory-person="person-page-a"]').click();
+      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
       const layout = await page.evaluate(() => {
         const isVisible = element => !!element && getComputedStyle(element).display !== "none" && element.getBoundingClientRect().height > 0;
+        const rect = id => {
+          const box = document.getElementById(id).getBoundingClientRect();
+          return { left: box.left, top: box.top, right: box.right, width: box.width, height: box.height };
+        };
         const desktopBack = document.getElementById("personPageBackBtn");
         const mobileBack = document.getElementById("personPageMobileBackBtn");
         const back = isVisible(desktopBack) ? desktopBack : mobileBack;
+        const overview = document.getElementById("personPageOverview");
+        const identity = document.getElementById("personPageIdentity");
+        const timeline = document.getElementById("personPageTimeline");
+        const timelineList = document.querySelector("#personPageTimeline ol");
+        const familyCards = [...document.querySelectorAll("#personPageFamily .relation-person-row")];
+        const pdfCard = document.querySelector("#personPageDocuments .person-doc-card--pdf");
+        const imageCard = document.querySelector("#personPageDocuments .person-doc-card--image");
+        const extensionImageCard = document.querySelector("#personPageDocuments [data-view-document='person-page-image']");
+        const unknownCard = document.querySelector("#personPageDocuments .person-doc-card[data-view-document='person-page-unknown']");
+        const research = document.querySelector("#personPageResearch .person-detail-research-card[role='button']");
+        const header = document.getElementById("topbar");
+        const account = document.getElementById("accountMenu");
+        const brand = header.querySelector(".brand");
+        const activeTab = document.querySelector("#personPageSectionNav [aria-current='location']");
         return {
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          viewport: document.documentElement.clientWidth,
           columns: getComputedStyle(document.getElementById("personPageContent")).gridTemplateColumns.split(" ").length,
           backCount: [desktopBack, mobileBack].filter(isVisible).length,
           backHeight: back.getBoundingClientRect().height,
-          editHeight: document.getElementById("personPageEditBtn").getBoundingClientRect().height
+          editHeight: document.getElementById("personPageEditBtn").getBoundingClientRect().height,
+          mobileHeader: isVisible(document.getElementById("personPageMobileHeader")),
+          overviewDisplay: getComputedStyle(overview).display,
+          overviewColumns: getComputedStyle(overview).gridTemplateColumns.split(" ").length,
+          overviewOrder: [...overview.children].map(section => section.id),
+          identity: rect("personPageIdentity"),
+          timeline: rect("personPageTimeline"),
+          titleSize: getComputedStyle(document.getElementById("personPageTitle")).fontSize,
+          sectionTitleSize: getComputedStyle(identity.querySelector("h3")).fontSize,
+          navBackground: getComputedStyle(document.getElementById("personPageSectionNav")).backgroundColor,
+          navBorderTop: getComputedStyle(document.getElementById("personPageSectionNav")).borderTopWidth,
+          navBorderBottom: getComputedStyle(document.getElementById("personPageSectionNav")).borderBottomWidth,
+          activeTabBackground: getComputedStyle(activeTab).backgroundColor,
+          backTop: rect("personPageBackBtn").top,
+          heroTop: document.querySelector(".person-detail-hero").getBoundingClientRect().top,
+          actions: ["personPageEditBtn", "personPageViewTreeBtn", "personPageActions"].map(rect),
+          actionDateVisible: isVisible(document.querySelector(".person-detail-modification--actions")),
+          actionDateText: document.querySelector(".person-detail-modification--actions").textContent,
+          actionDateDisplay: getComputedStyle(document.querySelector(".person-detail-modification--actions")).display,
+          actionDateHeight: document.querySelector(".person-detail-modification--actions").getBoundingClientRect().height,
+          actionDateRight: document.querySelector(".person-detail-modification--actions").getBoundingClientRect().right,
+          essentialsDateVisible: isVisible(document.querySelector(".person-detail-modification--essentials")),
+          genderBadgeVisible: isVisible(document.querySelector(".person-detail-gender")),
+          familyWidths: familyCards.map(card => card.getBoundingClientRect().width),
+          timelineListStyle: getComputedStyle(timelineList).listStyleType,
+          timelineLineDisplay: getComputedStyle(timelineList, "::before").display,
+          timelineDotDisplay: getComputedStyle(timelineList.querySelector(".timeline-dot")).display,
+          pdfFormatDisplay: pdfCard && getComputedStyle(pdfCard.querySelector(".person-detail-document-format")).display,
+          imageFormatDisplay: imageCard && getComputedStyle(imageCard.querySelector(".person-detail-document-format")).display,
+          extensionImageFormatDisplay: getComputedStyle(extensionImageCard.querySelector(".person-detail-document-format")).display,
+          unknownFormat: unknownCard.querySelector(".person-detail-document-format"),
+          researchChevron: research ? getComputedStyle(research, "::after").content : "none",
+          accountRight: account.getBoundingClientRect().right,
+          brandLeft: brand.getBoundingClientRect().left,
+          accountColumn: getComputedStyle(account).gridColumnStart,
+          brandColumn: getComputedStyle(brand).gridColumnStart
         };
       });
       assert.ok(layout.overflow <= 1, `${width}px : aucun débordement horizontal (${layout.overflow}px)`);
       assert.equal(layout.backCount, 1, `${width}px : un seul bouton Retour visible (desktop/mobile)`);
       assert.ok(layout.backHeight >= 44 && layout.editHeight >= 44, `${width}px : cibles tactiles suffisantes`);
       assert.equal(layout.columns, 1, `${width}px : contenu de lecture en une colonne maîtrisée`);
+      if (width <= 900) {
+        assert.equal(layout.mobileHeader, width <= 760, `${width}px : en-tête adapté au breakpoint existant`);
+        assert.deepEqual(layout.overviewOrder, ["personPageTimeline", "personPageIdentity"], `${width}px : ordre de lecture historique conservé`);
+        assert.ok(layout.timeline.top < layout.identity.top, `${width}px : ordre timeline/identité conservé`);
+        assert.equal(layout.pdfFormatDisplay, "none", `${width}px : nouvelle icône PDF absente sur tablette/mobile`);
+        assert.equal(layout.imageFormatDisplay, "none", `${width}px : nouvelle icône image absente sur tablette/mobile`);
+        assert.equal(layout.researchChevron, "none", `${width}px : aucun chevron ajouté aux recherches sur tablette/mobile`);
+      } else {
+        assert.equal(layout.mobileHeader, false, `${width}px : en-tête mobile masqué sur desktop`);
+        assert.deepEqual(layout.overviewOrder, ["personPageIdentity", "personPageTimeline"], `${width}px : ordre de lecture desktop aligné sur la présentation`);
+        assert.equal(layout.overviewDisplay, "grid", `${width}px : grille Identité/Parcours de vie`);
+        assert.equal(layout.overviewColumns, 2, `${width}px : deux colonnes Identité/Parcours`);
+        assert.ok(Math.abs(layout.identity.height - layout.timeline.height) <= 1, `${width}px : cartes Identité et Parcours de vie de même hauteur`);
+        assert.ok(layout.identity.left < layout.timeline.left, `${width}px : Identité à gauche, Parcours à droite`);
+        assert.equal(layout.backTop < layout.heroTop, true, `${width}px : retour au-dessus de la carte`);
+        assert.ok(Number.parseFloat(layout.titleSize) >= 30, `${width}px : nom de personne ≥30px (${layout.titleSize})`);
+        assert.equal(layout.sectionTitleSize, "20px", `${width}px : titre principal commun de 20px`);
+        assert.equal(layout.navBackground, "rgb(247, 243, 234)", `${width}px : barre de sections sur fond ivoire`);
+        assert.equal(layout.navBorderTop, "0px", `${width}px : aucun trait supérieur superposé`);
+        assert.equal(layout.navBorderBottom, "1px", `${width}px : séparateur unique sous la navigation`);
+        assert.equal(layout.activeTabBackground, "rgb(232, 239, 233)", `${width}px : onglet actif vert clair`);
+        assert.deepEqual(layout.actions.map(action => Math.round(action.left)).sort((a, b) => a - b), layout.actions.map(action => Math.round(action.left)), `${width}px : ordre CTA Modifier, Voir dans l’arbre, menu ⋯`);
+        assert.ok(layout.actions[0].left < layout.actions[1].left && layout.actions[1].left < layout.actions[2].left, `${width}px : ordre CTA gauche-droite`);
+        assert.ok(layout.actionDateVisible && !layout.essentialsDateVisible, `${width}px : date de modification sous les CTA uniquement (${layout.actionDateDisplay}, h=${layout.actionDateHeight}, essentials=${layout.essentialsDateVisible})`);
+        assert.match(layout.actionDateText, /4 novembre 2026/, `${width}px : date réelle de dernière modification affichée`);
+        assert.ok(layout.actionDateRight <= layout.actions[2].right + 1, `${width}px : date alignée dans la colonne des CTA`);
+        assert.equal(layout.genderBadgeVisible, false, `${width}px : badge Homme/Femme absent de l’en-tête`);
+        assert.ok(layout.familyWidths.every(cardWidth => cardWidth <= 500), `${width}px : cartes Famille limitées à 500px`);
+        assert.equal(layout.timelineListStyle, "none", `${width}px : aucun numéro parasite dans la timeline`);
+        assert.equal(layout.timelineLineDisplay, "block", `${width}px : trait vertical continu dans la timeline`);
+        assert.notEqual(layout.timelineDotDisplay, "none", `${width}px : pastilles visibles`);
+        assert.match(layout.pdfFormatDisplay, /flex/, `${width}px : fichier PDF identifié par son format réel`);
+        assert.match(layout.imageFormatDisplay, /flex/, `${width}px : image identifiée par son format réel`);
+        assert.match(layout.extensionImageFormatDisplay, /flex/, `${width}px : extension image utilisée si le MIME est générique`);
+        assert.equal(layout.unknownFormat, null, `${width}px : repli générique pour type inconnu`);
+        assert.equal(layout.researchChevron, '"›"', `${width}px : chevron sur les recherches ouvrables`);
+        assert.ok(layout.accountRight >= layout.viewport - 64 && layout.accountColumn === "3" && layout.brandColumn === "1", `${width}px : compte à droite et marque à gauche (${layout.brandLeft}/${layout.accountRight})`);
+      }
+    }
+
+    for (const width of [390, 768]) {
+      await page.setViewportSize({ width, height: 850 });
+      await page.evaluate(() => window.__personPageTest.openDirectory());
+      await page.locator('#directoryList [data-directory-person="person-page-a"]').click();
+      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
+      await page.locator("#personPageEditBtn").click();
+      await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+      const inlineResponsive = await page.evaluate(() => ({
+        timelineInHost: document.getElementById("personLifeTimeline").parentElement === document.getElementById("personPageEditHost"),
+        panelDisplay: getComputedStyle(document.getElementById("personIdentityPanel")).display,
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        actions: getComputedStyle(document.querySelector("#personPageEditHost .person-actions")).position
+      }));
+      assert.equal(inlineResponsive.timelineInHost, true, `${width}px : placement historique de la timeline inline conservé`);
+      assert.notEqual(inlineResponsive.panelDisplay, "grid", `${width}px : nouvelle grille desktop non appliquée au mode tablette/mobile`);
+      assert.ok(inlineResponsive.overflow <= 1, `${width}px : édition sans débordement (${inlineResponsive.overflow}px)`);
+      assert.equal(inlineResponsive.actions, "sticky", `${width}px : barre Enregistrer/Annuler conservée`);
+      await page.locator('#personPageEditHost [data-close="personDialog"]').click();
+      await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     }
 
     await page.evaluate(() => window.__personPageTest.openTree());
