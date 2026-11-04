@@ -2109,7 +2109,7 @@ function renderPersonDocuments(personId) {
     ? `<button class="btn tertiary person-detail-documents-toggle" type="button" data-person-page-documents-toggle>${personPageDocumentsExpanded ? "Réduire" : `Tout voir (${linked.length})`}</button>`
     : "";
   $("personDocumentsList").innerHTML = linked.length
-    ? `<div class="${galleryClass}">${linked.map(personDocCard).join("")}</div>${showAll}`
+    ? `<div class="${galleryClass}">${linked.map(documentItem => personPageDocumentCard(documentItem, { editable: personPageInlineEditing })).join("")}</div>${showAll}`
     : emptyState({ iconName: "document", title: "Aucun document associé", description: "Les documents ajoutés pour cette personne apparaîtront ici." });
   const linkedProofs = genealogyRecords.genealogyProofs.filter(item => (genealogyRecordData(item).personIds || []).includes(personId));
   const linkedConclusions = genealogyRecords.factConclusions.filter(conclusion => linkedProofs.some(proof => genealogyRecordData(proof).factId === genealogyRecordData(conclusion).factId));
@@ -2252,7 +2252,7 @@ function personPageFamilyMarkup(item) {
   ].join("")}</section>`;
 }
 
-function personPageDocumentCard(item) {
+function personPageDocumentCard(item, { editable = false } = {}) {
   const label = documentDisplayLabel(item);
   const thumb = personDocThumbSource(item);
   const type = item.type || item.fileName || "Document";
@@ -2266,7 +2266,10 @@ function personPageDocumentCard(item) {
   const formatMarkup = formatIcon ? `<span class="person-detail-document-format person-detail-document-format--${fileFormat}">${formatLabel}</span>` : "";
   const formatVisual = `<span class="person-detail-document-format-visual person-detail-document-format-visual--${fileFormat}" aria-hidden="true">${icon(formatIcon || "document", "ui-icon-lg")}</span>`;
   const formatClass = ` person-doc-card--${fileFormat}`;
-  return `<article class="person-doc-card${thumb ? "" : " is-no-thumbnail"}${formatClass}" tabindex="0" aria-label="Consulter ${esc(label)}" data-view-document="${esc(item.id)}"><div class="person-doc-thumb">${preview}${formatVisual}</div><div class="person-doc-meta"><strong class="person-doc-title">${esc(label)}</strong><span class="person-doc-subrow">${formatMarkup}<span class="person-doc-type">${esc(type)}</span>${date ? `<time class="person-doc-date">${esc(date)}</time>` : ""}</span></div></article>`;
+  const editButton = editable
+    ? `<button class="btn small person-doc-edit" type="button" data-edit-person-document="${esc(item.id)}" aria-label="Modifier le document" title="Modifier le document">${icon("edit")}<span class="sr-only">Modifier le document</span></button>`
+    : "";
+  return `<article class="person-doc-card${thumb ? "" : " is-no-thumbnail"}${formatClass}" tabindex="0" aria-label="Consulter ${esc(label)}" data-view-document="${esc(item.id)}"><div class="person-doc-thumb">${preview}${formatVisual}</div><div class="person-doc-meta"><strong class="person-doc-title">${esc(label)}</strong><span class="person-doc-subrow">${formatMarkup}<span class="person-doc-type">${esc(type)}</span>${date ? `<time class="person-doc-date">${esc(date)}</time>` : ""}${editButton}</span></div></article>`;
 }
 
 function personPageDocumentFormat(item = {}) {
@@ -13792,7 +13795,7 @@ $("documentDialog").addEventListener("close", () => {
   if (!context) return;
   setTimeout(() => {
     const item = person(context.personId);
-    if (!item || $("personDialog").open) return;
+    if (!item || $("personDialog").open || personPageInlineEditing) return;
     openPerson(item, context.source);
     restorePersonDraft(context.draft);
     setPersonSection("documents");

@@ -115,18 +115,31 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       const branch = document.querySelector("#personPageEssentials .person-detail-branch");
       const wrapper = document.querySelector("#personPageEssentials .person-detail-badges");
       const wrapperBox = wrapper.getBoundingClientRect();
+      const styles = element => {
+        const style = getComputedStyle(element);
+        return { size: style.fontSize, weight: style.fontWeight, family: style.fontFamily, height: Math.round(element.getBoundingClientRect().height), padding: style.paddingLeft };
+      };
       return {
         text: badge?.textContent.trim(),
         display: badge ? getComputedStyle(badge).display : "absent",
         sameLine: !!branch && Math.abs(branch.getBoundingClientRect().top - badge.getBoundingClientRect().top) <= 2,
         wrapperDisplay: wrapper ? getComputedStyle(wrapper).display : "absent",
-        wrapperWidth: wrapperBox.width
+        wrapperWidth: wrapperBox.width,
+        branchStyle: styles(branch),
+        statusStyle: styles(badge)
       };
     });
     assert.equal(adaStatus.text, "Décédé", "badge Décédé affiché lorsque le décès est établi");
     assert.ok(["flex", "inline-flex"].includes(adaStatus.display), `badge Décédé visible sur desktop (${adaStatus.display})`);
     assert.equal(adaStatus.sameLine, true, "Décédé aligné sur la même ligne que le badge de l'arbre");
     assert.equal(adaStatus.wrapperDisplay, "flex", "les badges sont regroupés sur une ligne dédiée en desktop");
+    assert.equal(adaStatus.branchStyle.size, "13px", "badge de l'arbre à 13px");
+    assert.equal(adaStatus.statusStyle.size, "13px", "badge Décédé à la même taille que le badge de l'arbre");
+    assert.equal(adaStatus.statusStyle.weight, "600", "badge Décédé en graisse 600");
+    assert.equal(adaStatus.statusStyle.weight, adaStatus.branchStyle.weight, "mêmes graisses pour les deux badges");
+    assert.equal(adaStatus.statusStyle.family, adaStatus.branchStyle.family, "même famille typographique");
+    assert.ok(Math.abs(adaStatus.statusStyle.height - adaStatus.branchStyle.height) <= 1, `mêmes hauteurs (${adaStatus.branchStyle.height}px / ${adaStatus.statusStyle.height}px)`);
+    assert.equal(adaStatus.statusStyle.padding, adaStatus.branchStyle.padding, "mêmes padding latéraux");
 
     await page.locator("#personPageEditBtn").click();
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
@@ -151,6 +164,62 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         documentActionHeaders: [document.getElementById("linkDocumentBtn"), document.getElementById("genealogyProposeProofForPersonBtn")].map(button => button.parentElement.classList.contains("person-page-inline-section-header")),
         relationHeaderAction: relationAction.parentElement.classList.contains("person-page-inline-section-header"),
         relationActionPrimary: relationAction.classList.contains("primary"),
+        membership: (() => {
+          const label = document.getElementById("personTreeMembershipLabel");
+          const title = label.querySelector(".person-tree-membership-title");
+          const value = label.querySelector(".person-tree-membership-copy strong");
+          const icon = label.querySelector(":scope > .ui-icon");
+          const valueStyle = getComputedStyle(value);
+          return {
+            hidden: label.hidden,
+            gridColumn: getComputedStyle(label).gridColumnStart,
+            display: getComputedStyle(label).display,
+            iconDisplay: icon ? getComputedStyle(icon).display : "absent",
+            labelAboveValue: title.getBoundingClientRect().bottom <= value.getBoundingClientRect().top + 1,
+            labelText: title.textContent.trim(),
+            valueText: value.textContent.trim(),
+            valueBorder: valueStyle.borderTopWidth,
+            valueRadius: valueStyle.borderTopLeftRadius,
+            valueHeight: Math.round(value.getBoundingClientRect().height),
+            valueSize: valueStyle.fontSize,
+            labelSize: getComputedStyle(title).fontSize,
+            labelWeight: getComputedStyle(title).fontWeight
+          };
+        })(),
+        editCards: (() => {
+          const pdf = document.querySelector("#personDocumentsList .person-doc-card--pdf");
+          const noThumb = document.querySelector("#personDocumentsList .person-doc-card.is-no-thumbnail");
+          const edit = pdf?.querySelector(".person-doc-edit");
+          const editStyle = edit ? getComputedStyle(edit) : null;
+          return {
+            count: document.querySelectorAll("#personDocumentsList .person-doc-card").length,
+            pdfHeight: pdf ? Math.round(pdf.getBoundingClientRect().height) : null,
+            thumbHeight: noThumb ? Math.round(noThumb.querySelector(".person-doc-thumb").getBoundingClientRect().height) : null,
+            formatDisplay: pdf ? getComputedStyle(pdf.querySelector(".person-detail-document-format-visual")).display : "absent",
+            editAria: edit ? edit.getAttribute("aria-label") : null,
+            editTitle: edit ? edit.title : null,
+            editPosition: editStyle ? editStyle.position : null,
+            editInsideCard: edit ? pdf.contains(edit) : false
+          };
+        })(),
+        footer: (() => {
+          const footer = document.querySelector("#personPageEditHost .person-actions");
+          const boxes = [...footer.querySelectorAll(".right .btn:not([hidden])")].map(button => ({ button: button.textContent.trim(), box: button.getBoundingClientRect() }));
+          const footerBox = footer.getBoundingClientRect();
+          return {
+            buttons: boxes.map(entry => entry.button),
+            gap: boxes.length > 1 ? Math.round(boxes[1].box.left - boxes[0].box.right) : null,
+            aligned: boxes.length > 1 ? Math.abs(boxes[0].box.top - boxes[1].box.top) <= 1 && Math.abs(boxes[0].box.bottom - boxes[1].box.bottom) <= 1 : false,
+            heights: boxes.map(entry => Math.round(entry.box.height)),
+            rightInset: Math.round(footerBox.right - Math.max(...boxes.map(entry => entry.box.right)))
+          };
+        })(),
+        badges: (() => {
+          const branch = document.querySelector("#personPageEssentials .person-detail-branch");
+          const status = document.querySelector("#personPageEssentials .person-detail-status");
+          const style = getComputedStyle(status);
+          return { branchSize: getComputedStyle(branch).fontSize, statusSize: style.fontSize, statusWeight: style.fontWeight };
+        })(),
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         stickyActions: getComputedStyle(document.querySelector("#personPageEditHost .person-actions")).position
       };
@@ -170,6 +239,45 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(inlineDesktop.relationActionPrimary, false, "Ajouter un lien familial reste une action secondaire");
     assert.ok(inlineDesktop.overflow <= 1, `édition inline desktop sans débordement (${inlineDesktop.overflow}px)`);
     assert.equal(inlineDesktop.stickyActions, "sticky", "barre d’actions d’édition conservée");
+    assert.equal(inlineDesktop.membership.hidden, false, "arbre d'appartenance affiché en modification");
+    assert.equal(inlineDesktop.membership.gridColumn, "2", "arbre d'appartenance en colonne de droite, sous Branche familiale");
+    assert.equal(inlineDesktop.membership.display, "grid", "arbre d'appartenance traité comme un champ de la grille");
+    assert.equal(inlineDesktop.membership.iconDisplay, "none", "icône décorative de l'arbre masquée");
+    assert.equal(inlineDesktop.membership.labelAboveValue, true, "libellé au-dessus de la valeur");
+    assert.equal(inlineDesktop.membership.labelText, "Arbre d’appartenance");
+    assert.match(inlineDesktop.membership.valueText, /^Arbre/, `valeur dynamique (${inlineDesktop.membership.valueText})`);
+    assert.equal(inlineDesktop.membership.valueBorder, "1px", "valeur avec la bordure d'un champ");
+    assert.notEqual(inlineDesktop.membership.valueRadius, "0px", "valeur avec les arrondis d'un champ");
+    assert.ok(inlineDesktop.membership.valueHeight >= 40, `valeur à la hauteur d'un champ (${inlineDesktop.membership.valueHeight}px)`);
+    assert.equal(inlineDesktop.membership.labelSize, "13px", "libellé à la typographie des autres champs");
+    assert.equal(inlineDesktop.membership.labelWeight, "700", "libellé à la graisse des autres champs");
+    assert.equal(inlineDesktop.badges.statusSize, inlineDesktop.badges.branchSize, "badges homogènes en modification");
+    assert.equal(inlineDesktop.badges.statusSize, "13px", "badges à 13px en modification");
+    assert.equal(inlineDesktop.badges.statusWeight, "600", "badge Décédé en graisse 600 en modification");
+    assert.ok(inlineDesktop.editCards.count >= 4, `documents éditables présents (${inlineDesktop.editCards.count})`);
+    assert.equal(inlineDesktop.editCards.formatDisplay, "grid", "pictogramme de format conservé en modification");
+    assert.equal(inlineDesktop.editCards.editAria, "Modifier le document", "nom accessible du crayon");
+    assert.equal(inlineDesktop.editCards.editTitle, "Modifier le document", "infobulle du crayon");
+    assert.equal(inlineDesktop.editCards.editPosition, "absolute", "crayon hors du flux pour préserver la hauteur");
+    assert.equal(inlineDesktop.editCards.editInsideCard, true, "crayon dans la carte");
+    assert.deepEqual(inlineDesktop.footer.buttons, ["Annuler", "Enregistrer"], "footer dans l'ordre Annuler puis Enregistrer");
+    assert.ok(inlineDesktop.footer.gap >= 8 && inlineDesktop.footer.gap <= 12, `espacement des boutons du footer (${inlineDesktop.footer.gap}px)`);
+    assert.equal(inlineDesktop.footer.aligned, true, "boutons du footer alignés verticalement");
+    assert.equal(inlineDesktop.footer.heights[0], inlineDesktop.footer.heights[1], "boutons du footer de même hauteur");
+    assert.ok(inlineDesktop.footer.rightInset >= 16, `marge droite du footer (${inlineDesktop.footer.rightInset}px)`);
+    await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" }));
+    await page.waitForTimeout(250);
+    const footerClearance = await page.evaluate(() => {
+      const footer = document.querySelector("#personPageEditHost .person-actions");
+      const notes = document.getElementById("notes");
+      return {
+        footerTop: Math.round(footer.getBoundingClientRect().top),
+        notesBottom: Math.round(notes.getBoundingClientRect().bottom),
+        clear: notes.getBoundingClientRect().bottom <= footer.getBoundingClientRect().top + 1
+      };
+    });
+    assert.ok(footerClearance.clear, `le dernier champ reste lisible au-dessus du footer (notes:${footerClearance.notesBottom}, footer:${footerClearance.footerTop})`);
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await page.locator("#personPageActions > summary").click();
     assert.equal(await page.locator("#personPageActionsMenu [data-person-page-action]").count(), 5, "menu ⋯ complet toujours disponible en modification");
     await page.locator('#personPageActionsMenu [data-person-page-action="print"]').focus();
@@ -291,9 +399,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           navHeight: document.getElementById("personPageSectionNav").getBoundingClientRect().height,
           navSeparator: { content: navSeparator.content, width: Number.parseFloat(navSeparator.width), height: Number.parseFloat(navSeparator.height) },
           activeTabBackground: getComputedStyle(activeTab).backgroundColor,
+          navTabStyle: { size: getComputedStyle(activeTab).fontSize, weight: getComputedStyle(activeTab).fontWeight },
           backTop: rect("personPageBackBtn").top,
           backBottom: rect("personPageBackBtn").bottom,
           heroTop: document.querySelector(".person-detail-hero").getBoundingClientRect().top,
+          heroBottom: document.querySelector(".person-detail-hero").getBoundingClientRect().bottom,
           globalHeaderBottom: header.getBoundingClientRect().bottom,
           actions: ["personPageEditBtn", "personPageViewTreeBtn", "personPageActions"].map(rect),
           actionDateVisible: isVisible(document.querySelector(".person-detail-modification--actions")),
@@ -301,6 +411,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           actionDateDisplay: getComputedStyle(document.querySelector(".person-detail-modification--actions")).display,
           actionDateHeight: document.querySelector(".person-detail-modification--actions").getBoundingClientRect().height,
           actionDateRight: document.querySelector(".person-detail-modification--actions").getBoundingClientRect().right,
+          actionDateBottom: document.querySelector(".person-detail-modification--actions").getBoundingClientRect().bottom,
           essentialsDateVisible: isVisible(document.querySelector(".person-detail-modification--essentials")),
           genderBadgeVisible: isVisible(document.querySelector(".person-detail-gender")),
           familyWidths: familyCards.map(card => card.getBoundingClientRect().width),
@@ -315,7 +426,19 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
             const itemRect = item.getBoundingClientRect();
             const dotRect = item.querySelector(".timeline-dot").getBoundingClientRect();
             const lineStyle = getComputedStyle(item, "::after");
-            return { left: itemRect.left, top: itemRect.top, dotCenter: dotRect.left + dotRect.width / 2, dotTop: dotRect.top, dotHeight: dotRect.height, lineTop: Number.parseFloat(lineStyle.top), lineHeight: Number.parseFloat(lineStyle.height) };
+            const contentRect = item.querySelector(".timeline-content").getBoundingClientRect();
+            const icon = item.querySelector(".timeline-icon");
+            const titleRect = item.querySelector(".timeline-title").getBoundingClientRect();
+            return {
+              left: itemRect.left, top: itemRect.top,
+              dotCenter: dotRect.left + dotRect.width / 2, dotTop: dotRect.top, dotHeight: dotRect.height,
+              lineTop: Number.parseFloat(lineStyle.top), lineHeight: Number.parseFloat(lineStyle.height),
+              contentCenter: contentRect.left + contentRect.width / 2,
+              iconDisplay: getComputedStyle(icon).display,
+              iconLeft: icon.getBoundingClientRect().left,
+              iconWidth: icon.getBoundingClientRect().width,
+              titleLeft: titleRect.left
+            };
           }),
           statusBadge: (() => {
             const badge = document.querySelector("#personPageEssentials .person-detail-status");
@@ -400,6 +523,15 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.equal(layout.navSeparator.content, '""', `${width}px : séparateurs verticaux discrets visibles`);
         assert.ok(layout.navSeparator.width <= 1 && layout.navSeparator.height < layout.navHeight, `${width}px : séparateurs courts sans toucher aux bordures`);
         assert.equal(layout.activeTabBackground, "rgb(232, 239, 233)", `${width}px : onglet actif vert clair`);
+        assert.equal(layout.navTabStyle.size, "13px", `${width}px : navigation à 13px`);
+        assert.equal(layout.navTabStyle.weight, "600", `${width}px : navigation en graisse 600`);
+        const actionsTop = Math.min(...layout.actions.map(action => action.top));
+        const actionsBottom = Math.max(...layout.actions.map(action => action.bottom));
+        const actionsCenter = (actionsTop + actionsBottom) / 2;
+        const heroCenter = (layout.heroTop + layout.heroBottom) / 2;
+        assert.ok(Math.abs(actionsCenter - heroCenter) <= 12, `${width}px : actions centrées verticalement dans la carte (écart ${Math.round(Math.abs(actionsCenter - heroCenter))}px)`);
+        assert.ok(layout.actionDateBottom <= layout.heroBottom && layout.actionDateBottom >= layout.heroBottom - 44, `${width}px : dernière modification près du bas de la carte`);
+        assert.ok(Math.abs(layout.actionDateRight - layout.actions[2].right) <= 2, `${width}px : dernière modification alignée à droite des actions`);
         assert.deepEqual(layout.actions.map(action => Math.round(action.left)).sort((a, b) => a - b), layout.actions.map(action => Math.round(action.left)), `${width}px : ordre CTA Modifier, Voir dans l’arbre, menu ⋯`);
         assert.ok(layout.actions[0].left < layout.actions[1].left && layout.actions[1].left < layout.actions[2].left, `${width}px : ordre CTA gauche-droite`);
         assert.ok(layout.actionDateVisible && !layout.essentialsDateVisible, `${width}px : date de modification sous les CTA uniquement (${layout.actionDateDisplay}, h=${layout.actionDateHeight}, essentials=${layout.essentialsDateVisible})`);
@@ -416,6 +548,12 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.ok(layout.timelineItemRects.every(item => Math.abs(item.dotTop + item.dotHeight / 2 - item.top - item.lineTop - item.lineHeight / 2) <= 1), `${width}px : trait horizontal centré sur les pastilles`);
         assert.ok(layout.timelineLayout.ratio >= 0.75 && layout.timelineLayout.ratio <= 0.9, `${width}px : timeline centrée sur environ 84% de la carte (ratio ${layout.timelineLayout.ratio})`);
         assert.ok(layout.timelineLayout.centeredGap <= 4, `${width}px : timeline centrée horizontalement (écart ${layout.timelineLayout.centeredGap}px)`);
+        layout.timelineItemRects.forEach((item, index) => {
+          assert.ok(Math.abs(item.dotCenter - item.contentCenter) <= 2, `${width}px : pastille ${index + 1} alignée sur le centre de son bloc (${Math.round(item.dotCenter)} / ${Math.round(item.contentCenter)})`);
+          assert.notEqual(item.iconDisplay, "none", `${width}px : icône de l'événement ${index + 1} visible`);
+          assert.ok(item.iconLeft <= item.titleLeft, `${width}px : icône de l'événement ${index + 1} à gauche du libellé`);
+          assert.ok(item.iconWidth <= 16, `${width}px : icône de l'événement ${index + 1} discrète (${item.iconWidth}px)`);
+        });
         assert.ok(layout.timelineLayout.headingToLine >= 22 && layout.timelineLayout.headingToLine <= 30, `${width}px : respiration titre → ligne (${Math.round(layout.timelineLayout.headingToLine)}px)`);
         assert.ok(layout.timelineLayout.lineToContent >= 18 && layout.timelineLayout.lineToContent <= 24, `${width}px : respiration ligne → informations (${Math.round(layout.timelineLayout.lineToContent)}px)`);
         assert.equal(layout.timelineLayout.dateBelowTitle, true, `${width}px : date sur son propre niveau sous le libellé`);
@@ -556,6 +694,73 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.ok(Math.abs(backConsultation - backEdition) <= 1, `retour à position identique en consultation et modification (${backConsultation}px / ${backEdition}px)`);
     await page.locator('#personPageEditHost [data-close="personDialog"]').click();
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+
+    // Documents : rendu identique entre consultation et modification, crayon indépendant.
+    const readDocumentCards = inEdit => page.evaluate(inEdition => {
+      const card = inEdition
+        ? document.querySelector("#personDocumentsList .person-doc-card--pdf")
+        : document.querySelector("#personPageDocuments .person-doc-card--pdf");
+      const thumb = card.querySelector(".person-doc-thumb");
+      const meta = card.querySelector(".person-doc-meta");
+      const title = card.querySelector(".person-doc-title");
+      const subrow = card.querySelector(".person-doc-subrow");
+      return {
+        height: Math.round(card.getBoundingClientRect().height),
+        width: Math.round(card.getBoundingClientRect().width),
+        thumb: Math.round(thumb.getBoundingClientRect().height),
+        meta: Math.round(meta.getBoundingClientRect().height),
+        title: Math.round(title.getBoundingClientRect().height),
+        subrow: Math.round(subrow.getBoundingClientRect().height),
+        format: getComputedStyle(card.querySelector(".person-detail-document-format-visual")).display,
+        editCount: card.querySelectorAll(".person-doc-edit").length
+      };
+    }, inEdit);
+    await page.setViewportSize({ width: 1280, height: 850 });
+    await page.evaluate(() => window.__personPageTest.openDirectory());
+    await page.locator('#directoryList [data-directory-person="person-page-a"]').click();
+    await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
+    const consultCards = await readDocumentCards(false);
+    await page.locator("#personPageEditBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    const editCards = await readDocumentCards(true);
+    assert.equal(consultCards.format, "grid", "pictogramme de format affiché en consultation");
+    assert.equal(editCards.format, consultCards.format, "pictogramme de format identique en modification");
+    assert.equal(consultCards.editCount, 0, "aucun crayon en consultation");
+    assert.equal(editCards.editCount, 1, "un crayon en modification");
+    assert.ok(Math.abs(editCards.height - consultCards.height) <= 1, `hauteurs identiques (${consultCards.height}px / ${editCards.height}px)`);
+    assert.ok(Math.abs(editCards.width - consultCards.width) <= 1, `largeurs identiques (${consultCards.width}px / ${editCards.width}px)`);
+    assert.ok(Math.abs(editCards.thumb - consultCards.thumb) <= 1, `zones vignette identiques (${consultCards.thumb}px / ${editCards.thumb}px)`);
+    assert.ok(Math.abs(editCards.meta - consultCards.meta) <= 1, `zones d'information identiques (${consultCards.meta}px / ${editCards.meta}px)`);
+    assert.equal(editCards.title, consultCards.title, "titres de la même hauteur");
+    assert.equal(editCards.subrow, consultCards.subrow, "métadonnées de la même hauteur");
+    await page.locator("#personDocumentsList .person-doc-card--pdf .person-doc-edit").click();
+    await page.waitForTimeout(500);
+    const afterPencil = await page.evaluate(() => ({
+      documentDialog: document.getElementById("documentDialog").open,
+      documentPage: !document.getElementById("documentDetailView").hidden,
+      personDialog: document.getElementById("personDialog").open,
+      personPage: !document.getElementById("personDetailView").hidden,
+      editHost: !document.getElementById("personPageEditHost").hidden
+    }));
+    assert.equal(afterPencil.documentDialog, true, "le crayon ouvre le formulaire de modification du document");
+    assert.equal(afterPencil.documentPage, false, "le crayon n'ouvre pas la page de consultation du document");
+    assert.equal(afterPencil.personDialog, false, "la modale historique personne ne s'ouvre pas par-dessus l'édition");
+    assert.equal(afterPencil.personPage, true, "la page Personne reste affichée");
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.getElementById("documentDialog").open);
+    await page.waitForTimeout(300);
+    const afterDocumentClose = await page.evaluate(() => {
+      const dialog = document.getElementById("personDialog");
+      return {
+        personDialogExists: !!dialog,
+        personDialogTag: dialog ? dialog.tagName : "absent",
+        personDialogOpen: dialog ? dialog.open : null,
+        personPage: !document.getElementById("personDetailView").hidden,
+        editHost: !document.getElementById("personPageEditHost").hidden
+      };
+    });
+    assert.equal(afterDocumentClose.personDialogOpen, false, `la fermeture du formulaire ne rouvre pas la modale personne (${JSON.stringify(afterDocumentClose)} | erreurs: ${errors.join(" | ")})`);
+    assert.equal(afterDocumentClose.personPage, true, "la page Personne reste affichée après le crayon");
 
     await page.evaluate(() => window.__personPageTest.openTree());
     await page.waitForSelector("#treeScene .person");
