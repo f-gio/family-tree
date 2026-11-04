@@ -255,9 +255,10 @@ test("annuaire global, filtre d’arbre indépendant et libellés d’appartenan
     await page.locator('#directoryList [data-directory-person="secondary-a"]').click();
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
     await page.locator("#personPageEditBtn").click();
-    await page.waitForSelector("#personDialog[open]");
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     assert.equal(await page.locator("#personTreeSelectWrap").isVisible(), false, "aucun changement treeId dans l’édition d’une fiche existante");
-    await page.locator('#personDialog button.icon-btn[data-close="personDialog"]').click();
+    await page.locator('#personPageEditHost [data-close="personDialog"]').click();
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     await page.locator("#personPageBackBtn").click();
     await page.waitForFunction(() => !document.getElementById("directoryView").hidden);
     await page.locator("#directoryTreeFilter").selectOption("main");

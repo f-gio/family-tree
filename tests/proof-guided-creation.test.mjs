@@ -98,12 +98,16 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
         const dialog = document.getElementById(id);
         if (dialog?.open) dialog.close();
       }
+      const editHost = document.getElementById("personPageEditHost");
+      if (editHost && !editHost.hidden) editHost.querySelector('[data-close="personDialog"]')?.click();
+      const personPage = document.getElementById("personDetailView");
+      if (personPage && !personPage.hidden) document.getElementById("personPageBackBtn").click();
       /* Page Document dédiée (lot D) : sortie par le Retour de la page. */
       const documentPage = document.getElementById("documentDetailView");
       if (documentPage && !documentPage.hidden) document.getElementById("documentPageBackBtn").click();
     });
 
-    const openProofDialogFromPerson = async () => {
+    const openPersonDocumentsForEditing = async (personName = "Probe") => {
       // Remise à zéro des résidus de test : aucun dialogue ne doit rester ouvert d'un sous-test à l'autre.
       await closeResidualDialogs();
       await page.waitForTimeout(300);
@@ -111,7 +115,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.waitForSelector("#directoryList", { timeout: 10000 });
       const cardCount = await page.locator("#directoryList .content-card, #directoryList article, #directoryList [role=group]").count();
       const cardText = await page.locator("#directoryList").innerText().catch(() => "");
-      const adaCard = page.locator("#directoryList").getByText("Probe", { exact: false }).first();
+      const adaCard = page.locator("#directoryList").getByText(personName, { exact: false }).first();
       if (!(await adaCard.count())) {
         const peopleCount = await probe.count("people");
         throw new Error(`carte introuvable (cartes=${cardCount}, personnes injectées=${peopleCount}, répertoire="${cardText.slice(0, 200)}")`);
@@ -119,8 +123,13 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await adaCard.click();
       await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
       await page.click("#personPageEditBtn");
-      await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
-      await page.click('[data-person-section="documents"]');
+      await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden, { timeout: 10000 });
+      await page.click('[data-person-page-section="documents"]');
+      await page.waitForTimeout(250);
+    };
+
+    const openProofDialogFromPerson = async () => {
+      await openPersonDocumentsForEditing();
       await page.waitForSelector("#genealogyProposeProofForPersonBtn", { state: "visible", timeout: 10000 });
       const label = (await page.locator("#proofEntryPointLabel").textContent()).trim();
       await page.click("#genealogyProposeProofForPersonBtn");
@@ -372,11 +381,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
         // Ouverture de la preuve depuis la fiche personne (parcours mobile naturel, sans menu tile)
         await page.click('.nav-btn[data-view="directory"]');
         await page.waitForTimeout(400);
-        await page.locator("#directoryList").getByText("Probe", { exact: false }).first().click();
-        await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
-        await page.click("#personPageEditBtn");
-        await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
-        await page.click('[data-person-section="documents"]');
+        await openPersonDocumentsForEditing();
         const consult = page.locator('#personGenealogyEvidenceList [data-view-proof]').first();
         assert.ok(await consult.count(), `${width}px : preuve consultable depuis la fiche personne`);
         await consult.click();
@@ -394,7 +399,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
         assert.ok(box.docSw <= width + 1, `${width}px : page sans débordement`);
         assert.equal(box.cols, 1, `${width}px : faits empilés en une colonne`);
         await page.click("#proofPageBackBtn");
-        await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
+        await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
         await closeResidualDialogs();
       }
       // Formulaire en mobile : pastille et retrait (375)
@@ -413,18 +418,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
     });
 
     await t.test("8. révision d'une preuve : retrait de personne persisté, retrait total accepté", async () => {
-      const openPersonSection = async () => {
-        await closeResidualDialogs();
-        await page.waitForTimeout(300);
-        await page.click('.nav-btn[data-view="directory"]');
-        await page.waitForTimeout(400);
-        await page.locator("#directoryList").getByText("Probe", { exact: false }).first().click();
-        await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
-        await page.click("#personPageEditBtn");
-        await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
-        await page.click('[data-person-section="documents"]');
-        await page.waitForTimeout(250);
-      };
+      const openPersonSection = (personName = "Probe") => openPersonDocumentsForEditing(personName);
       await openPersonSection();
       // a) le crayon ouvre la révision guidée (sans JSON)
       assert.equal(await page.locator("#personGenealogyEvidenceList article.person-doc-card").count(), 3, "trois cartes preuve cliquables pour la personne");
@@ -474,27 +468,11 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       assert.equal(deathProof.documentId, "doc-probe", "le document d'origine est conservé");
       // e) fiches personnes après rechargement
       await page.keyboard.press("Escape");
-      await closeResidualDialogs();
-      await page.waitForTimeout(300);
-      await page.click('.nav-btn[data-view="directory"]');
-      await page.waitForTimeout(400);
-      await page.locator("#directoryList").getByText("Grace", { exact: false }).first().click();
-      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
-      await page.click("#personPageEditBtn");
-      await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
-      await page.click('[data-person-section="documents"]');
+      await openPersonSection("Grace");
       await page.waitForTimeout(300);
       assert.equal(await page.locator("#personGenealogyEvidenceList article.person-doc-card").count(), 0, "la personne retirée n'a plus aucune preuve associée");
       assert.ok((await page.locator("#personGenealogyEvidenceList").innerText()).includes("Aucune preuve associée"), "état vide affiché");
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
-      await page.click('.nav-btn[data-view="directory"]');
-      await page.waitForTimeout(400);
-      await page.locator("#directoryList").getByText("Ada", { exact: false }).first().click();
-      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
-      await page.click("#personPageEditBtn");
-      await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
-      await page.click('[data-person-section="documents"]');
+      await openPersonSection("Ada");
       await page.waitForTimeout(300);
       assert.equal(await page.locator("#personGenealogyEvidenceList article.person-doc-card").count(), 2, "les deux preuves encore associées à la personne sont intactes (décès détaché)");
       await page.keyboard.press("Escape");
@@ -502,31 +480,13 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
 
     await t.test("9. révision : retraits personne/document sans blocage (6 scénarios)", async () => {
       const openMarriageRevision = async (personName = "Probe") => {
-        await closeResidualDialogs();
-        await page.waitForTimeout(300);
-        await page.click('.nav-btn[data-view="directory"]');
-        await page.waitForTimeout(400);
-        await page.locator("#directoryList").getByText(personName, { exact: false }).first().click();
-        await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
-        await page.click("#personPageEditBtn");
-        await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
-        await page.click('[data-person-section="documents"]');
-        await page.waitForTimeout(250);
+        await openPersonDocumentsForEditing(personName);
         const marriageCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "Mariage" });
         await marriageCard.locator("[data-edit-genealogy-proof]").click();
         await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
       };
       const openBirthRevision = async () => {
-        await closeResidualDialogs();
-        await page.waitForTimeout(300);
-        await page.click('.nav-btn[data-view="directory"]');
-        await page.waitForTimeout(400);
-        await page.locator("#directoryList").getByText("Ada", { exact: false }).first().click();
-        await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
-        await page.click("#personPageEditBtn");
-        await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
-        await page.click('[data-person-section="documents"]');
-        await page.waitForTimeout(250);
+        await openPersonDocumentsForEditing("Ada");
         const birthCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "Naissance" });
         await birthCard.locator("[data-edit-genealogy-proof]").click();
         await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
@@ -673,13 +633,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
           interpretation: "", technicalStatus: "active"
         }, reason: "Fixture interface émulateur"
       });
-      await page.click('.nav-btn[data-view="directory"]');
-      await page.waitForTimeout(400);
-      await page.locator("#directoryList").getByText("Ada", { exact: false }).first().click();
-      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
-      await page.click("#personPageEditBtn");
-      await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
-      await page.click('[data-person-section="documents"]');
+      await openPersonDocumentsForEditing("Ada");
       const proofCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "ui-delete-proof-lock-fact" });
       await proofCard.click();
       await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden, { timeout: 10000 });
@@ -689,7 +643,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.click("#permanentDeleteConfirmBtn");
       await page.waitForFunction(() => !document.getElementById("permanentDeleteDialog").open, { timeout: 15000 });
       await page.waitForFunction(() => document.getElementById("proofDetailView").hidden, { timeout: 15000 });
-      await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
+      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
       await page.waitForTimeout(500);
       const proofRemaining = JSON.parse(await probe.list("genealogyProofs")).some(item => item.id === proofId);
       const proofRevisionRemaining = JSON.parse(await probe.list("genealogyProofRevisions")).some(item => item.data.objectId === proofId);

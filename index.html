@@ -192,6 +192,7 @@
 <button class="nav-btn" type="button" data-view="dossiers" aria-pressed="false"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-procedures"></use></svg></span><span>Démarches</span></button>
 </nav>
 <div class="account-menu" id="accountMenu"><button class="btn account-menu-btn" id="accountMenuBtn" type="button" aria-expanded="false" aria-controls="accountDropdown" aria-haspopup="menu"><span class="account-avatar" id="accountAvatar">?</span><span class="account-label" id="accountLabel">Compte</span><svg class="ui-icon ui-icon-sm account-caret" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></button><div class="account-dropdown" id="accountDropdown" role="menu" hidden><div class="account-summary"><strong id="accountSummaryName">Compte</strong><small id="accountSummaryEmail"></small></div><button class="account-action" id="profileBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Mon profil</span></button><button class="account-action" id="dataBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-database"></use></svg><span>Données</span></button><button class="account-action" id="adminBtn" type="button" role="menuitem" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span>Administration</span></button><button class="account-action danger" id="logoutBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-logout"></use></svg><span>Se déconnecter</span></button></div></div>
+<div class="person-page-mobile-header" id="personPageMobileHeader" hidden><button class="btn icon-btn person-page-mobile-back" id="personPageMobileBackBtn" type="button" aria-label="Retour" title="Retour"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-left"></use></svg></button><strong>La Nostra Storia</strong><details class="person-page-mobile-actions" id="personPageMobileActions"><summary class="btn icon-btn" aria-label="Actions de la personne" title="Actions de la personne" aria-haspopup="menu" aria-expanded="false">⋯</summary><div class="source-detail-actions-menu" id="personPageMobileActionsMenu" role="menu" aria-label="Actions de la personne"></div></details></div>
 </header>
   <main class="page-content-lane" id="appMain" hidden>
 <section class="intro page-heading">
@@ -386,21 +387,24 @@
   <main class="workspace-view page-content-lane person-detail-view" id="personDetailView" hidden aria-labelledby="personPageTitle">
     <div class="source-detail-page person-detail-page">
       <header class="dedicated-page-header person-detail-header">
-        <div class="detail-page-crumb-row">
-          <nav class="consultation-breadcrumb" id="personPageBreadcrumb" aria-label="Fil d’Ariane"><h2 id="personPageTitle"></h2></nav>
-          <button class="dedicated-page-back" id="personPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
-        </div>
-        <div class="detail-page-meta-row">
-          <div class="person-detail-essentials" id="personPageEssentials"></div>
-          <div class="dedicated-page-actions dedicated-page-actions-row person-detail-header-actions"><button class="btn primary" id="personPageEditBtn" type="button">Modifier</button></div>
+        <div class="person-detail-hero">
+          <button class="dedicated-page-back person-page-desktop-back" id="personPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
+          <div class="person-detail-portrait" id="personPagePortrait"></div>
+          <div class="person-detail-heading"><nav class="consultation-breadcrumb person-detail-breadcrumb" id="personPageBreadcrumb" aria-label="Fil d’Ariane"><h2 id="personPageTitle"></h2></nav><div class="person-detail-essentials" id="personPageEssentials"></div></div>
+          <div class="dedicated-page-actions dedicated-page-actions-row person-detail-header-actions">
+            <button class="btn" type="button" id="personPageViewTreeBtn">Voir dans l’arbre</button>
+            <button class="btn primary" type="button" id="personPageEditBtn">Modifier la fiche</button>
+            <details class="dedicated-page-actions source-detail-actions person-page-actions" id="personPageActions"><summary class="btn icon-btn" aria-label="Actions de la personne" title="Actions de la personne" aria-haspopup="menu" aria-expanded="false">⋯</summary><div class="source-detail-actions-menu" id="personPageActionsMenu" role="menu" aria-label="Actions de la personne"></div></details>
+          </div>
         </div>
       </header>
-      <nav class="person-detail-section-nav" id="personPageSectionNav" aria-label="Sections de la fiche">
-        <button class="btn" type="button" data-person-page-section="identity" aria-current="location">Identité</button>
-        <button class="btn" type="button" data-person-page-section="family">Famille</button>
-        <button class="btn" type="button" data-person-page-section="documents">Documents</button>
-        <button class="btn" type="button" data-person-page-section="research">Recherches</button>
+      <nav class="person-section-nav person-detail-section-nav" id="personPageSectionNav" aria-label="Sections de la fiche">
+        <button class="person-section-tab active" type="button" data-person-page-section="identity" aria-current="location">Identité</button>
+        <button class="person-section-tab" type="button" data-person-page-section="family">Famille</button>
+        <button class="person-section-tab" type="button" data-person-page-section="documents">Documents associés</button>
+        <button class="person-section-tab" type="button" data-person-page-section="research">Recherches</button>
       </nav>
+      <div class="person-page-edit-host" id="personPageEditHost" hidden></div>
       <div class="source-detail-content person-detail-content" id="personPageContent"></div>
     </div>
   </main>

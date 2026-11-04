@@ -373,7 +373,7 @@ test("Lot 2 : Action, Relation et Paramètres en sheets mobiles", async t => {
 });
 
 test("Lot 2 : le retour Relation conserve le brouillon et l’onglet Personne existants", () => {
-  assert.match(appSource, /familyDetailsReturnContext = \{ personId: activeId, source: personDialogSource, draft: capturePersonDraft\(\) \}[\s\S]*?\$\("personDialog"\)\.close\(\);\s*\$\("familyDetailsDialog"\)\.showModal\(\)/);
+  assert.match(appSource, /familyDetailsReturnContext = \{ personId: activeId, source: personDialogSource, draft: capturePersonDraft\(\), personPageInline: personPageInlineEditing \}[\s\S]*?if \(\$\("personDialog"\)\.open\) \$\("personDialog"\)\.close\(\);\s*\$\("familyDetailsDialog"\)\.showModal\(\)/);
   assert.match(appSource, /function returnFromFamilyDetails\(\) \{[\s\S]*?openPerson\(item, context\.source\);\s*restorePersonDraft\(context\.draft\);\s*setPersonSection\("relations"\)/);
   assert.match(appSource, /\$\("familyDetailsDialog"\)\.addEventListener\("close", \(\) => \{ if \(familyDetailsReturnContext\) returnFromFamilyDetails\(\); \}\)/);
   assert.match(appSource, /async function saveFamilyDetails\(event\) \{[\s\S]*?\$\("familyDetailsDialog"\)\.close\(\);[\s\S]*?returnFromFamilyDetails\(\)/);

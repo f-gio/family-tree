@@ -228,6 +228,10 @@ let activePersonSection = "identity";
 let activePersonPageItem = null;
 let personPageReturnContext = null;
 let personPageActiveSection = "identity";
+let personPageDocumentsExpanded = false;
+let personPageInlineEditing = false;
+let personPageInlineInitialDraft = null;
+let personPageInlineHome = null;
 let activeGenealogyItem = null;
 let activeSourcePageItem = null;
 let sourcePageReturnContext = null;
@@ -1943,6 +1947,18 @@ function activateBranchView(personId) {
   renderTree();
 }
 
+function showPersonInTree(personId) {
+  if (!person(personId)) return;
+  branchView = null;
+  setView("tree");
+  focusAfterRender = personId;
+  renderTree();
+  requestAnimationFrame(() => {
+    const position = currentLayout?.positions.get(personId);
+    if (position) camera.focus(position);
+  });
+}
+
 function exitBranchView() {
   if (!branchView) return;
   branchView = null;
@@ -2085,8 +2101,14 @@ function personDocCard(item) {
 
 function renderPersonDocuments(personId) {
   const linked = documents.filter(item => (item.personIds || []).includes(personId));
+  const galleryClass = personPageInlineEditing
+    ? personPageDocumentsExpanded ? "person-doc-gallery person-detail-documents-expanded" : "person-doc-gallery person-detail-documents-carousel"
+    : "person-doc-gallery";
+  const showAll = personPageInlineEditing && linked.length
+    ? `<button class="btn tertiary person-detail-documents-toggle" type="button" data-person-page-documents-toggle>${personPageDocumentsExpanded ? "Réduire" : `Tout voir (${linked.length})`}</button>`
+    : "";
   $("personDocumentsList").innerHTML = linked.length
-    ? `<div class="person-doc-gallery">${linked.map(personDocCard).join("")}</div>`
+    ? `<div class="${galleryClass}">${linked.map(personDocCard).join("")}</div>${showAll}`
     : emptyState({ iconName: "document", title: "Aucun document associé", description: "Les documents ajoutés pour cette personne apparaîtront ici." });
   const linkedProofs = genealogyRecords.genealogyProofs.filter(item => (genealogyRecordData(item).personIds || []).includes(personId));
   const linkedConclusions = genealogyRecords.factConclusions.filter(conclusion => linkedProofs.some(proof => genealogyRecordData(proof).factId === genealogyRecordData(conclusion).factId));
@@ -2114,7 +2136,7 @@ function setPersonSection(section = "identity", focusTab = false) {
     if (active && focusTab) button.focus();
   });
   document.querySelectorAll("[data-person-panel]").forEach(panel => {
-    panel.hidden = panel.dataset.personPanel !== normalized;
+    panel.hidden = personPageInlineEditing ? false : panel.dataset.personPanel !== normalized;
   });
   const hasPerson = !!$("personId").value;
   $("personRelationsUnavailable").hidden = hasPerson;
@@ -2122,8 +2144,8 @@ function setPersonSection(section = "identity", focusTab = false) {
   $("personDocumentsUnavailable").hidden = hasPerson;
   $("personDocumentsSection").hidden = !hasPerson;
   if (hasPerson && normalized === "identity") renderLifeTimeline();
-  if (hasPerson && normalized === "relations") renderRelations();
-  if (hasPerson && normalized === "documents") renderPersonDocuments($("personId").value);
+  if (hasPerson && (normalized === "relations" || personPageInlineEditing)) renderRelations();
+  if (hasPerson && (normalized === "documents" || personPageInlineEditing)) renderPersonDocuments($("personId").value);
 }
 
 function personPageContext() {
@@ -2138,36 +2160,49 @@ function personPageContext() {
   };
 }
 
-function personPageFact(label, raw) {
+function personPageFact(label, raw, wide = false) {
   const value = typeof raw === "string" || typeof raw === "number" ? String(raw).trim() : "";
-  return `<div class="source-detail-fact"><strong>${esc(label)}</strong><span>${value ? esc(value) : `<span class="person-detail-empty-value">Non renseigné</span>`}</span></div>`;
+  const isWide = wide || value.length > 24;
+  return `<div class="source-detail-fact${isWide ? " person-detail-fact-wide" : ""}"><strong>${esc(label)}</strong><span>${value ? esc(value) : `<span class="person-detail-empty-value">Non renseigné</span>`}</span></div>`;
 }
 
 function personPageIdentityMarkup(item) {
-  const birthDate = formatGenealogyDate(item.birthDateInfo, item.birthDate);
-  const deathDate = formatGenealogyDate(item.deathDateInfo, item.deathDate);
-  const birthPlace = formatCompactPlace(item.place, item.birthPlaceInfo);
-  const deathPlace = formatCompactPlace(item.deathPlace, item.deathPlaceInfo);
   const gender = ({ F: "Femme", M: "Homme", X: "Autre" })[item.gender] || "";
   const facts = [
     personPageFact("Prénom", item.firstName),
     personPageFact("Second prénom", item.middleName),
-    personPageFact("Nom de naissance", item.lastName),
-    personPageFact("Nom d’usage", item.marriedName),
+    personPageFact("Nom de naissance", item.lastName, true),
+    personPageFact("Nom d’usage", item.marriedName, true),
     personPageFact("Sexe", gender),
-    personPageFact("Branche familiale", item.branch),
-    personPageFact("Naissance", birthDate === "—" ? "" : birthDate),
-    personPageFact("Lieu de naissance", birthPlace),
-    personPageFact("Décès", deathDate === "—" ? "" : deathDate),
-    personPageFact("Lieu de décès", deathPlace)
+    personPageFact("Branche familiale", item.branch, true)
   ];
-  const photo = item.photoUrl ? `<img class="person-detail-photo" src="${esc(item.photoUrl)}" alt="Portrait de ${esc([item.firstName, item.middleName, item.lastName].filter(Boolean).join(" "))}" loading="lazy">` : "";
   const notes = item.notes ? `<p class="person-detail-notes">${esc(item.notes)}</p>` : "";
+  const modification = personModMetaParts(item);
+  const mobileModification = `<p class="person-detail-last-modified-mobile">${modification ? modification.long : "Dernière modification : Non renseignée"}</p>`;
+  return `<section id="personPageIdentity" aria-labelledby="personPageIdentityTitle"><h3 id="personPageIdentityTitle">Identité</h3><div class="source-detail-facts person-detail-identity-grid">${facts.join("")}</div>${notes}${mobileModification}</section>`;
+}
+
+function personPageTimelineMarkup(item) {
   const events = lifeTimelineEvents(item, { people, families });
-  const timeline = events.length
-    ? `<section class="life-timeline" aria-labelledby="personPageTimelineTitle"><h4 id="personPageTimelineTitle" class="timeline-heading"><svg class="ui-icon timeline-icon" aria-hidden="true"><use href="#icon-history"></use></svg>Parcours de vie</h4><ol class="life-timeline-list">${events.map(timelineItemHtml).join("")}</ol></section>`
-    : "";
-  return `<section id="personPageIdentity" aria-labelledby="personPageIdentityTitle"><h3 id="personPageIdentityTitle">Identité</h3>${photo}<div class="source-detail-facts">${facts.join("")}</div>${notes}${timeline}</section>`;
+  if (!events.length) return `<section id="personPageTimeline" aria-labelledby="personPageTimelineTitle"><h3 id="personPageTimelineTitle">Parcours de vie</h3><p class="card-meta">Aucun événement renseigné.</p></section>`;
+  const eventMarkup = events.map(event => {
+    const docsMarkup = personPageEventDocuments(item, event).map(documentItem => `<button class="btn small" type="button" data-view-document="${esc(documentItem.id)}">${icon("document")}<span>${esc(documentDisplayLabel(documentItem))}</span></button>`).join("");
+    return timelineItemHtml(event).replace(/<\/li>$/, `${docsMarkup ? `<div class="person-page-event-documents" aria-label="Documents associés à l’événement">${docsMarkup}</div>` : ""}</li>`);
+  }).join("");
+  return `<section id="personPageTimeline" aria-labelledby="personPageTimelineTitle"><h3 id="personPageTimelineTitle">Parcours de vie</h3><ol class="person-page-timeline">${eventMarkup}</ol></section>`;
+}
+
+function personPageEventDocuments(item, event) {
+  const factTypes = event.type === "birth" ? ["birth"] : event.type === "death" ? ["death"] : ["marriage", "union"];
+  const familyId = event.type === "union" && String(event.id).startsWith("union-") ? String(event.id).slice("union-".length) : "";
+  const ids = new Set(genealogyRecords.genealogyProofs
+    .map(record => genealogyRecordData(record))
+    .filter(proof => (proof.personIds || []).includes(item.id)
+      && factTypes.includes(proof.factType)
+      && (!familyId || proof.familyId === familyId || proof.relationshipId === familyId)
+      && typeof proof.documentId === "string")
+    .map(proof => proof.documentId));
+  return documents.filter(documentItem => ids.has(documentItem.id));
 }
 
 function personPageRelativeRow(relative, kind, meta = []) {
@@ -2224,13 +2259,15 @@ function personPageDocumentCard(item) {
   const preview = thumb
     ? `<img class="person-doc-thumb-img" src="${esc(thumb)}" alt="" loading="lazy">`
     : `<span class="person-doc-tile" aria-hidden="true">${icon("document", "ui-icon-lg")}</span>`;
-  return `<article class="person-doc-card" tabindex="0" aria-label="Consulter ${esc(label)}" data-view-document="${esc(item.id)}"><div class="person-doc-thumb">${preview}</div><div class="person-doc-meta"><strong class="person-doc-title">${esc(label)}</strong><span class="person-doc-subrow"><span class="person-doc-type">${esc(type)}</span>${date ? `<time class="person-doc-date">${esc(date)}</time>` : ""}</span></div></article>`;
+  return `<article class="person-doc-card${thumb ? "" : " is-no-thumbnail"}" tabindex="0" aria-label="Consulter ${esc(label)}" data-view-document="${esc(item.id)}"><div class="person-doc-thumb">${preview}</div><div class="person-doc-meta"><strong class="person-doc-title">${esc(label)}</strong><span class="person-doc-subrow"><span class="person-doc-type">${esc(type)}</span>${date ? `<time class="person-doc-date">${esc(date)}</time>` : ""}</span></div></article>`;
 }
 
 function personPageDocumentsMarkup(item) {
   const linked = documents.filter(documentItem => (documentItem.personIds || []).includes(item.id));
+  const galleryClass = personPageDocumentsExpanded ? "person-doc-gallery person-detail-documents-expanded" : "person-doc-gallery person-detail-documents-carousel";
+  const toggle = linked.length ? `<button class="btn tertiary person-detail-documents-toggle" type="button" data-person-page-documents-toggle>${personPageDocumentsExpanded ? "Réduire" : `Tout voir (${linked.length})`}</button>` : "";
   return `<section id="personPageDocuments" aria-labelledby="personPageDocumentsTitle"><h3 id="personPageDocumentsTitle">Documents associés</h3>${linked.length
-    ? `<div class="person-doc-gallery">${linked.map(personPageDocumentCard).join("")}</div>`
+    ? `<div class="${galleryClass}" aria-label="Documents associés">${linked.map(personPageDocumentCard).join("")}</div>${toggle}`
     : emptyState({ iconName: "document", title: "Aucun document associé", description: "Les documents associés à cette personne apparaîtront ici." })}</section>`;
 }
 
@@ -2264,13 +2301,135 @@ function personPageResearchMarkup(item) {
 function syncPersonPageSectionNav(section = personPageActiveSection) {
   personPageActiveSection = ["identity", "family", "documents", "research"].includes(section) ? section : "identity";
   document.querySelectorAll("[data-person-page-section]").forEach(button => {
-    if (button.dataset.personPageSection === personPageActiveSection) button.setAttribute("aria-current", "location");
+    const active = button.dataset.personPageSection === personPageActiveSection;
+    button.classList.toggle("active", active);
+    if (active) button.setAttribute("aria-current", "location");
     else button.removeAttribute("aria-current");
   });
 }
 
+function personPageActionMenuMarkup() {
+  const groups = [
+    [{ id: "printPersonBtn", action: "print" }, { id: "viewBranchBtn", action: "branch" }],
+    [{ id: "changePersonTreeBtn", action: "change-tree" }, { id: "removePersonFromTreeBtn", action: "remove-tree" }],
+    [{ id: "deleteBtn", action: "delete" }]
+  ];
+  const rendered = [];
+  for (const group of groups) {
+    const buttons = group.map(({ id, action }) => {
+      const source = $(id);
+      if (!source || source.hidden) return "";
+      const clone = source.cloneNode(true);
+      clone.removeAttribute("id");
+      clone.hidden = false;
+      clone.setAttribute("type", "button");
+      clone.setAttribute("role", "menuitem");
+      clone.dataset.personPageAction = action;
+      clone.querySelectorAll("[id]").forEach(node => node.removeAttribute("id"));
+      return clone.outerHTML;
+    }).filter(Boolean);
+    if (buttons.length) {
+      if (rendered.length) rendered.push('<hr class="person-menu-sep" aria-hidden="true">');
+      rendered.push(...buttons);
+    }
+  }
+  return rendered.join("");
+}
+
+function currentPersonPageDraftSignature() {
+  return JSON.stringify({
+    draft: capturePersonDraft(),
+    photoFile: $("personPhotoFile").files?.[0]?.name || ""
+  });
+}
+
+function personPageInlineDirty() {
+  return personPageInlineEditing && personPageInlineInitialDraft !== null
+    && currentPersonPageDraftSignature() !== personPageInlineInitialDraft;
+}
+
+function ensurePersonPageInlineHomeAnchors() {
+  if (personPageInlineHome) return personPageInlineHome;
+  const tabs = document.querySelector("#personDialog > .person-section-nav");
+  const form = $("personForm");
+  const tabsAnchor = document.createComment("person-section-nav-home");
+  const formAnchor = document.createComment("person-form-home");
+  tabs.parentNode.insertBefore(tabsAnchor, tabs);
+  form.parentNode.insertBefore(formAnchor, form);
+  const panels = [...document.querySelectorAll("[data-person-panel]")].map(panel => ({
+    panel,
+    role: panel.getAttribute("role"),
+    labelledBy: panel.getAttribute("aria-labelledby")
+  }));
+  personPageInlineHome = { tabs, form, tabsAnchor, formAnchor, panels };
+  return personPageInlineHome;
+}
+
+function finishPersonPageInlineEdit({ refresh = true } = {}) {
+  if (!personPageInlineEditing) return;
+  const { tabs, form, tabsAnchor, formAnchor, panels } = ensurePersonPageInlineHomeAnchors();
+  const timeline = $("personLifeTimeline");
+  if (timeline && $("personIdentityPanel") && !$("personIdentityPanel").contains(timeline)) $("personIdentityPanel").append(timeline);
+  tabs.hidden = false;
+  if (tabsAnchor.parentNode) tabsAnchor.parentNode.insertBefore(tabs, tabsAnchor.nextSibling);
+  if (formAnchor.parentNode) formAnchor.parentNode.insertBefore(form, formAnchor.nextSibling);
+  for (const { panel, role, labelledBy } of panels) {
+    if (role) panel.setAttribute("role", role); else panel.removeAttribute("role");
+    if (labelledBy) panel.setAttribute("aria-labelledby", labelledBy); else panel.removeAttribute("aria-labelledby");
+  }
+  $("personPageEditHost").hidden = true;
+  $("personPageEditHost").replaceChildren();
+  $("personPageContent").hidden = false;
+  $("personPageEditBtn").hidden = false;
+  personPageInlineEditing = false;
+  personPageInlineInitialDraft = null;
+  closePersonPageMenus();
+  close("personDialog");
+  if (refresh) refreshOpenPersonPage();
+}
+
+function requestPersonPageInlineExit() {
+  if (!personPageInlineEditing) return true;
+  if (personPageInlineDirty() && !confirm("Vos modifications ne sont pas enregistrées. Abandonner les modifications ?")) return false;
+  finishPersonPageInlineEdit();
+  return true;
+}
+
+function enterPersonPageInlineEdit() {
+  if (!activePersonPageItem || personPageInlineEditing) return;
+  const source = personPageReturnContext?.view === "tree" ? "tree" : "directory";
+  openPerson(activePersonPageItem, source, { showDialog: false });
+  const { tabs, form } = ensurePersonPageInlineHomeAnchors();
+  const timeline = $("personLifeTimeline");
+  const host = $("personPageEditHost");
+  personPageInlineEditing = true;
+  personPageInlineInitialDraft = currentPersonPageDraftSignature();
+  host.hidden = false;
+  host.append(tabs);
+  tabs.hidden = true;
+  if (timeline) host.append(timeline);
+  host.append(form);
+  $("personPageContent").hidden = true;
+  $("personPageEditBtn").hidden = true;
+  setPersonSection("identity");
+  renderRelations();
+  for (const panel of document.querySelectorAll("[data-person-panel]")) {
+    panel.removeAttribute("role");
+    panel.removeAttribute("aria-labelledby");
+  }
+}
+
+function closePersonPageMenus() {
+  for (const id of ["personPageActions", "personPageMobileActions"]) {
+    const details = $(id);
+    if (details) details.open = false;
+  }
+}
+
 function renderPersonPage(item, returnContext = null, preserveScroll = false, restore = null) {
   if (!item) return;
+  if (personPageInlineEditing && activePersonPageItem?.id !== item.id && !requestPersonPageInlineExit()) return;
+  if (personPageInlineEditing && activePersonPageItem?.id === item.id) return;
   const samePageVisible = !$('personDetailView').hidden && activePersonPageItem?.id === item.id;
   if (!samePageVisible) {
     personPageReturnContext = returnContext || { kind: "view", view: activeView === "personDetail" ? "directory" : activeView };
@@ -2311,21 +2470,40 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
     parent
   });
   setDedicatedPageBackLabel("personPageBackBtn", personPageReturnContext);
+  setDedicatedPageBackLabel("personPageMobileBackBtn", personPageReturnContext);
 
   const birthDate = formatDirectoryDate(item.birthDateInfo, item.birthDate);
   const deathDate = formatDirectoryDate(item.deathDateInfo, item.deathDate);
   const birthPlace = formatCompactPlace(item.place, item.birthPlaceInfo);
   const deathPlace = formatCompactPlace(item.deathPlace, item.deathPlaceInfo);
   const modification = personModMetaParts(item);
+  const genderLabel = ({ F: "Femme", M: "Homme", X: "Autre" })[item.gender] || "";
+  const membership = getPersonTreeMembership(item);
+  const portrait = item.photoUrl
+    ? `<img src="${esc(item.photoUrl)}" alt="Portrait de ${esc([item.firstName, item.middleName, item.lastName].filter(Boolean).join(" "))}">`
+    : `<span aria-hidden="true">${esc(personInitials(item))}</span>`;
+  $("personPagePortrait").innerHTML = portrait;
   const essentials = [
-    `<span><strong>Naissance</strong> · ${esc(birthDate === "—" ? "Non renseignée" : birthDate)}${birthPlace ? ` · ${esc(birthPlace)}` : ""}</span>`,
-    `<span><strong>Décès</strong> · ${esc(deathDate === "—" ? "Non renseigné" : deathDate)}${deathPlace ? ` · ${esc(deathPlace)}` : ""}</span>`,
-    modification ? `<span class="card-meta">${modification.long}</span>` : `<span class="card-meta">Dernière modification : Non renseignée</span>`
+    `<span class="person-detail-dates"><strong>Naissance</strong> · ${esc(birthDate === "—" ? "Non renseignée" : birthDate)}${birthPlace ? ` · ${esc(birthPlace)}` : ""}</span>`,
+    `<span class="person-detail-dates"><strong>Décès</strong> · ${esc(deathDate === "—" ? "Non renseigné" : deathDate)}${deathPlace ? ` · ${esc(deathPlace)}` : ""}</span>`,
+    genderLabel ? `<span class="person-detail-badge">${esc(genderLabel)}</span>` : "",
+    item.branch ? `<span class="person-detail-badge">${esc(item.branch)}</span>` : "",
+    `<span class="card-meta person-detail-modification">${modification ? modification.long : "Dernière modification : Non renseignée"}</span>`
   ].filter(Boolean);
   $("personPageEssentials").innerHTML = essentials.join("");
-  if (!samePageVisible) personPageActiveSection = restore?.section || "identity";
+  updatePersonMenuActions(item);
+  $("personPageViewTreeBtn").hidden = membership.type !== "assigned";
+  const pageActionsMarkup = personPageActionMenuMarkup();
+  $("personPageActionsMenu").innerHTML = pageActionsMarkup;
+  $("personPageMobileActionsMenu").innerHTML = pageActionsMarkup;
+  $("personPageActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
+  $("personPageMobileActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
+  if (!samePageVisible) {
+    personPageActiveSection = restore?.section || "identity";
+    personPageDocumentsExpanded = false;
+  }
   syncPersonPageSectionNav(restore?.section || personPageActiveSection || "identity");
-  $("personPageContent").innerHTML = `<div class="detail-page-main">${personPageIdentityMarkup(item)}${personPageFamilyMarkup(item)}${personPageDocumentsMarkup(item)}${personPageResearchMarkup(item)}</div>`;
+  $("personPageContent").innerHTML = `<div class="detail-page-main">${personPageTimelineMarkup(item)}${personPageIdentityMarkup(item)}${personPageFamilyMarkup(item)}${personPageDocumentsMarkup(item)}${personPageResearchMarkup(item)}</div>`;
   if (!samePageVisible && !preserveScroll) scrollFicheToTop("personDetailView");
   if (restore && Number.isFinite(Number(restore.scrollY))) {
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -2337,11 +2515,12 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
 }
 
 function openPersonPage(item, returnContext = null) {
+  if (personPageInlineEditing && !requestPersonPageInlineExit()) return;
   return renderPersonPage(item, returnContext);
 }
 
 function refreshOpenPersonPage() {
-  if (!activePersonPageItem || $("personDetailView").hidden) return;
+  if (personPageInlineEditing || !activePersonPageItem || $("personDetailView").hidden) return;
   const item = person(activePersonPageItem.id);
   if (!item) return returnFromPersonPage();
   renderer.setActive(item.id);
@@ -2350,6 +2529,7 @@ function refreshOpenPersonPage() {
 
 function returnFromPersonPage() {
   if ($("personDetailView").hidden) return false;
+  if (!requestPersonPageInlineExit()) return false;
   const target = personPageReturnContext || { kind: "view", view: "directory" };
   personPageReturnContext = null;
   activePersonPageItem = null;
@@ -2398,20 +2578,81 @@ function returnFromPersonPage() {
 }
 
 $("personPageBackBtn").addEventListener("click", returnFromPersonPage);
-$("personPageEditBtn").addEventListener("click", () => {
-  if (!activePersonPageItem) return;
-  openPerson(activePersonPageItem, personPageReturnContext?.view === "tree" ? "tree" : "directory");
+$("personPageMobileBackBtn").addEventListener("click", returnFromPersonPage);
+$("personPageEditBtn").addEventListener("click", enterPersonPageInlineEdit);
+$("personPageViewTreeBtn").addEventListener("click", () => {
+  if (activePersonPageItem?.id) showPersonInTree(activePersonPageItem.id);
+});
+for (const id of ["personPageActions", "personPageMobileActions"]) {
+  $(id).addEventListener("toggle", () => $(id).querySelector("summary")?.setAttribute("aria-expanded", String($(id).open)));
+  $(id).addEventListener("keydown", event => {
+    if (!$(id).open) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      $(id).open = false;
+      $(id).querySelector("summary")?.focus();
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const buttons = [...$(id).querySelectorAll("[data-person-page-action]")];
+    if (!buttons.length) return;
+    event.preventDefault();
+    const index = buttons.indexOf(document.activeElement);
+    if (event.key === "Home" || (event.key === "ArrowDown" && index < 0)) buttons[0].focus();
+    else if (event.key === "End") buttons.at(-1).focus();
+    else if (event.key === "ArrowDown") buttons[(index + 1) % buttons.length].focus();
+    else buttons[(index - 1 + buttons.length) % buttons.length].focus();
+  });
+}
+document.addEventListener("click", event => {
+  for (const id of ["personPageActions", "personPageMobileActions"]) {
+    const details = $(id);
+    if (details.open && !details.contains(event.target)) details.open = false;
+  }
+  const action = event.target.closest("[data-person-page-action]");
+  if (!action || !activePersonPageItem) return;
+  event.preventDefault();
+  closePersonPageMenus();
+  const id = activePersonPageItem.id;
+  if (action.dataset.personPageAction === "print") openPersonPrint({ people, families, documents, personId: id });
+  if (action.dataset.personPageAction === "branch") activateBranchView(id);
+  if (action.dataset.personPageAction === "change-tree") openPersonTreeTransfer(id);
+  if (action.dataset.personPageAction === "remove-tree") runSafely(() => removePersonFromTree(id), "Retrait de l’arbre impossible");
+  if (action.dataset.personPageAction === "delete") runSafely(async () => {
+    if (await removeDirectoryPersonPermanently(id)) {
+      activePersonPageItem = null;
+      personPageReturnContext = null;
+      setView("directory");
+    }
+  }, "Suppression de la personne impossible");
 });
 $("personPageSectionNav").addEventListener("click", event => {
   const button = event.target.closest("[data-person-page-section]");
   if (!button) return;
   const section = button.dataset.personPageSection;
-  const target = $(`personPage${section[0].toUpperCase()}${section.slice(1)}`);
+  let target;
+  if (personPageInlineEditing) {
+    const panel = ({ identity: "personIdentityPanel", family: "personRelationsPanel", documents: "personDocumentsPanel", research: "personGenealogyEvidenceSection" })[section];
+    if (section === "family") setPersonSection("relations");
+    else if (["identity", "documents"].includes(section)) setPersonSection(section === "identity" ? "identity" : "documents");
+    else setPersonSection("documents");
+    target = section === "identity" && !$('personLifeTimeline').hidden ? $("personLifeTimeline")
+      : section === "documents" ? $("personDocumentsSection")
+        : $(panel);
+  } else {
+    target = $(section === "identity" ? "personPageTimeline" : `personPage${section[0].toUpperCase()}${section.slice(1)}`);
+  }
   if (!target) return;
   syncPersonPageSectionNav(section);
   target.scrollIntoView({ block: "start", behavior: "smooth" });
 });
 $("personPageContent").addEventListener("click", event => {
+  const documentsToggle = event.target.closest("[data-person-page-documents-toggle]");
+  if (documentsToggle) {
+    personPageDocumentsExpanded = !personPageDocumentsExpanded;
+    if (activePersonPageItem) renderPersonPage(activePersonPageItem, personPageReturnContext, true, { scrollY: window.scrollY, section: "documents" });
+    return;
+  }
   const section = event.target.closest("#personPageIdentity, #personPageFamily, #personPageDocuments, #personPageResearch");
   if (section) syncPersonPageSectionNav(({ personPageIdentity: "identity", personPageFamily: "family", personPageDocuments: "documents", personPageResearch: "research" })[section.id]);
   const button = event.target.closest("[data-open-person-page]");
@@ -2427,6 +2668,41 @@ $("personPageContent").addEventListener("keydown", event => {
   if (!card) return;
   event.preventDefault();
   card.click();
+});
+$("personForm").addEventListener("click", event => {
+  const cancel = event.target.closest('[data-close="personDialog"]');
+  if (!personPageInlineEditing || !cancel) return;
+  event.preventDefault();
+  event.stopPropagation();
+  finishPersonPageInlineEdit();
+});
+$("personPageEditHost").addEventListener("click", event => {
+  if (!personPageInlineEditing) return;
+  const documentsToggle = event.target.closest("[data-person-page-documents-toggle]");
+  if (documentsToggle) {
+    event.preventDefault();
+    personPageDocumentsExpanded = !personPageDocumentsExpanded;
+    if (activeId) renderPersonDocuments(activeId);
+    return;
+  }
+  const leaveAction = event.target.closest("[data-view-document], [data-view-proof], [data-edit-person-document]");
+  if (!leaveAction) return;
+  if (!requestPersonPageInlineExit()) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+});
+document.addEventListener("click", event => {
+  if (!personPageInlineEditing) return;
+  const leaveAction = event.target.closest(".topbar .brand, #personPageBackBtn, #personPageMobileBackBtn, #personPageViewTreeBtn, [data-person-page-action], [data-consultation-breadcrumb-action]");
+  if (!leaveAction || requestPersonPageInlineExit()) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}, true);
+window.addEventListener("beforeunload", event => {
+  if (!personPageInlineDirty()) return;
+  event.preventDefault();
+  event.returnValue = "";
 });
 /* Icônes du parcours de vie : une seule famille graphique (sprite existant),
    mêmes épaisseur/couleurs que le Design System, décoratives (aria-hidden).
@@ -2600,7 +2876,7 @@ function updatePersonMenuActions(item) {
   updatePersonTreeMembershipLabel(item);
 }
 
-function openPerson(item = null, source = "tree") {
+function openPerson(item = null, source = "tree", { showDialog = true } = {}) {
   personDialogSource = source;
   syncProofEntryPoints();
   if (item) {
@@ -2650,8 +2926,10 @@ function openPerson(item = null, source = "tree") {
   $("toggleRelationBuilderBtn").setAttribute("aria-expanded", "false");
   setRelationBuilderKind("parent");
   setPersonSection("identity");
-  $("personDialog").showModal();
-  setTimeout(() => $("firstName").focus(), 30);
+  if (showDialog) {
+    $("personDialog").showModal();
+    setTimeout(() => $("firstName").focus(), 30);
+  }
 }
 
 function close(id) {
@@ -2940,7 +3218,7 @@ function openFamilyDetails(familyId) {
     : currentIsChild && current
       ? `Parents de ${nameOf(current.id)}`
       : "Détails de la relation";
-  familyDetailsReturnContext = { personId: activeId, source: personDialogSource, draft: capturePersonDraft() };
+  familyDetailsReturnContext = { personId: activeId, source: personDialogSource, draft: capturePersonDraft(), personPageInline: personPageInlineEditing };
   $("familyDetailsId").value = family.id;
   $("familyRelationType").value = normalizeRelationType(family.relationType);
   setLocationField("unionPlace", family.unionPlace || family.marriagePlace || "", family.unionPlaceInfo);
@@ -2952,7 +3230,7 @@ function openFamilyDetails(familyId) {
   const relevantLinks = normalizedParentChildLinks(family).filter(link => currentIsPartner ? link.parentId === activeId : currentIsChild ? link.childId === activeId : true);
   $("filiationDetailsTitle").textContent = currentIsChild ? "Liens avec les parents" : "Liens avec les enfants";
   $("filiationEditors").innerHTML = relevantLinks.map((link, index) => `<div class="filiation-editor"><span><strong>${esc(nameOf(link.parentId))}</strong> → ${esc(nameOf(link.childId))}</span><label>Type de filiation<select class="field" data-filiation-index="${index}" data-parent-id="${link.parentId}" data-child-id="${link.childId}"><option value="unknown" ${link.type === "unknown" ? "selected" : ""}>Non précisée</option><option value="biological" ${link.type === "biological" ? "selected" : ""}>Biologique</option><option value="adoptive" ${link.type === "adoptive" ? "selected" : ""}>Adoptive</option><option value="uncertain" ${link.type === "uncertain" ? "selected" : ""}>Incertaine</option></select></label></div>`).join("") || '<p class="hint">Aucun lien parent-enfant à modifier pour cette personne.</p>';
-  $("personDialog").close();
+  if ($("personDialog").open) $("personDialog").close();
   $("familyDetailsDialog").showModal();
 }
 
@@ -2960,6 +3238,11 @@ function returnFromFamilyDetails() {
   const context = familyDetailsReturnContext;
   familyDetailsReturnContext = null;
   if (!context) return;
+  if (context.personPageInline && personPageInlineEditing) {
+    setPersonSection("relations");
+    syncPersonPageSectionNav("family");
+    return;
+  }
   const item = person(context.personId);
   if (!item) return;
   openPerson(item, context.source);
@@ -3393,7 +3676,8 @@ ${childRows.length ? `<p class="print-union-subtitle">Enfants issus de cette uni
 
 function openPersonPrint(scope = personPrintScopeOverride) {
   const effectiveScope = scope || null;
-  const item = (effectiveScope?.people || []).find(candidate => candidate.id === activeId) || person(activeId);
+  const personId = effectiveScope?.personId || activeId;
+  const item = (effectiveScope?.people || []).find(candidate => candidate.id === personId) || person(personId);
   if (!item) {
     toast("Ouvrez d’abord la fiche d’une personne pour imprimer.", "error");
     return;
@@ -12383,6 +12667,11 @@ function setView(view) {
   $("proofDetailView").hidden = view !== "proofDetail";
   if (view !== "proofDetail") $("proofPageActions").open = false;
   $("personDetailView").hidden = view !== "personDetail";
+  $("personPageMobileHeader").hidden = view !== "personDetail";
+  if (view !== "personDetail") {
+    $("personPageActions").open = false;
+    $("personPageMobileActions").open = false;
+  }
   $("documentDetailView").hidden = view !== "documentDetail";
   $("tasksView").hidden = view !== "tasks";
   $("dossiersView").hidden = view !== "dossiers";
@@ -12486,7 +12775,7 @@ function startData() {
     loadedFamilies = true;
     syncState();
     refreshOpenPersonPage();
-    if ($("personDialog").open && activePersonSection === "relations" && activeId) renderRelations();
+    if ((($("personDialog").open && activePersonSection === "relations") || personPageInlineEditing) && activeId) renderRelations();
   }, dataError));
   unsubs.push(onSnapshot(refs.documents, snapshot => {
     documents = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
@@ -12526,7 +12815,7 @@ function startData() {
         genealogyItemRefreshPending = false;
         refreshOpenGenealogyItem();
         const personId = $("personId")?.value;
-        if ($("personDialog").open && personId) renderPersonDocuments(personId);
+        if (($("personDialog").open || personPageInlineEditing) && personId) renderPersonDocuments(personId);
       }
       if (collectionName === "sourceDocuments") {
         if (loadedPeople && loadedDocuments) renderDocuments();
@@ -12639,8 +12928,11 @@ $("personForm").addEventListener("submit", async event => {
     if (id) {
       await updateDoc(doc(db, "people", id), data);
       focusAfterRender = id;
-      close("personDialog");
-      refreshOpenPersonPage();
+      if (personPageInlineEditing) finishPersonPageInlineEdit();
+      else {
+        close("personDialog");
+        refreshOpenPersonPage();
+      }
       toast("Personne mise à jour");
     } else {
       const createData = { ...data };
@@ -12782,7 +13074,8 @@ $("restoreTreeBtn").onclick = async () => {
   if (!id) return;
   await updateDoc(doc(db, "people", id), { inTree: true, updatedAt: serverTimestamp() });
   focusAfterRender = id;
-  close("personDialog");
+  if (personPageInlineEditing) finishPersonPageInlineEdit();
+  else close("personDialog");
   toast("Personne ajoutée à l’arbre");
 };
 
@@ -13115,7 +13408,7 @@ $("treeQualityContent").onclick = event => {
   const item = person(button.dataset.qualityPerson);
   if (!item) return;
   close("treeQualityDialog");
-  openPerson(item, "directory");
+  openPersonPage(item, { kind: "view", view: "directory", focusId: item.id });
 };
 $("gender").onchange = updateMarriedNameVisibility;
 $("firstName").addEventListener("input", updatePersonPhotoPreview);
@@ -13527,7 +13820,7 @@ $("genealogyContributionDialog").addEventListener("close", () => {
   genealogyItemRefreshPending = true;
   refreshOpenGenealogyItem();
   const personId = $("personId")?.value;
-  if ($("personDialog").open && personId) renderPersonDocuments(personId);
+  if (($("personDialog").open || personPageInlineEditing) && personId) renderPersonDocuments(personId);
 });
 $("sourcePageBackBtn").addEventListener("click", returnFromSourcePage);
 $("sourcePageActions").addEventListener("toggle", () => {

@@ -165,12 +165,10 @@ async function openPaulTransfer(page) {
   await entry.waitFor({ state: "visible", timeout: 10000 });
   await entry.click();
   await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
-  await page.locator("#personPageEditBtn").click();
-  await page.waitForSelector("#personDialog[open]");
-  await page.locator("#personMenuBtn").click();
   const actionOrder = await page.locator("#personMenu button:not([hidden])").evaluateAll(buttons => buttons.map(button => button.id));
   assert.deepEqual(actionOrder, ["printPersonBtn", "viewBranchBtn", "changePersonTreeBtn", "removePersonFromTreeBtn", "deleteBtn"], "ordre complet des actions administrateur");
-  await page.locator("#changePersonTreeBtn").click();
+  await page.locator("#personPageActions > summary").click();
+  await page.locator('#personPageActionsMenu [data-person-page-action="change-tree"]').click();
 }
 
 test("action transfert réservée aux admins et destination vide par défaut", async t => {
@@ -181,10 +179,10 @@ test("action transfert réservée aux admins et destination vide par défaut", a
     await page.evaluate(() => window.__transferHarness.setRole("member"));
     await page.locator('#directoryList [data-directory-person="paul"]').click();
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
-    await page.locator("#personPageEditBtn").click();
-    await page.waitForSelector("#personDialog[open]");
+    await page.locator("#personPageActions > summary").click();
+    assert.equal(await page.locator('#personPageActionsMenu [data-person-page-action="change-tree"]').count(), 0, "action transfert absente du menu pour un membre");
     assert.equal(await page.locator("#changePersonTreeBtn").isVisible(), false);
-    await page.locator('#personDialog button.icon-btn[data-close="personDialog"]').click();
+    await page.locator("#personPageActions > summary").click();
 
     await page.evaluate(() => window.__transferHarness.setRole("admin"));
     await openPaulTransfer(page);
@@ -311,7 +309,7 @@ test("aperçu périmé ou source modifiée bloque l'écriture", async t => {
 
     // Preview is refreshed; simulate a second session changing membership before the transaction reads it.
     await page.locator('#personTreeTransferDialog button.icon-btn[data-close="personTreeTransferDialog"]').click();
-    await page.locator('#personDialog button.icon-btn[data-close="personDialog"]').click();
+    await page.evaluate(() => { const dialog = document.getElementById("personDialog"); if (dialog.open) dialog.close(); });
     await page.evaluate(data => window.__transferHarness.seed(data), { people, families, trees });
     await openPaulTransfer(page);
     await page.locator("#personTreeTransferDestination").selectOption("tree-a");
@@ -322,7 +320,7 @@ test("aperçu périmé ou source modifiée bloque l'écriture", async t => {
     assert.match(await page.locator("#personTreeTransferError").textContent(), /a changé depuis l'aperçu/i);
 
     await page.locator('#personTreeTransferDialog button.icon-btn[data-close="personTreeTransferDialog"]').click();
-    await page.locator('#personDialog button.icon-btn[data-close="personDialog"]').click();
+    await page.evaluate(() => { const dialog = document.getElementById("personDialog"); if (dialog.open) dialog.close(); });
     await page.evaluate(data => window.__transferHarness.seed(data), { people, families, trees });
     await openPaulTransfer(page);
     await page.locator("#personTreeTransferDestination").selectOption("tree-a");

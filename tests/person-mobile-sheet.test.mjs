@@ -254,7 +254,7 @@ test("Fiche Personne : navigation liée aux fenêtres Document et Relation prés
   assert.match(appSource, /if \(editPersonDocument\) \{[\s\S]*?capturePersonDraft\(\)[\s\S]*?\$\("personDialog"\)\.close\(\);[\s\S]*?openDocument\(item, "", context\)/);
   assert.match(appSource, /\$\("linkDocumentBtn"\)\.onclick = \(\) => \{[\s\S]*?capturePersonDraft\(\)[\s\S]*?\$\("personDialog"\)\.close\(\);\s*openDocument\(null, personId, context\)/);
   assert.match(appSource, /\$\("documentDialog"\)\.addEventListener\("close", \(\) => \{[\s\S]*?openPerson\(item, context\.source\);\s*restorePersonDraft\(context\.draft\);\s*setPersonSection\("documents"\)/);
-  assert.match(appSource, /function openFamilyDetails\([\s\S]*?familyDetailsReturnContext = \{ personId: activeId, source: personDialogSource, draft: capturePersonDraft\(\) \}[\s\S]*?\$\("personDialog"\)\.close\(\)/);
+  assert.match(appSource, /function openFamilyDetails\([\s\S]*?familyDetailsReturnContext = \{ personId: activeId, source: personDialogSource, draft: capturePersonDraft\(\), personPageInline: personPageInlineEditing \}[\s\S]*?if \(\$\("personDialog"\)\.open\) \$\("personDialog"\)\.close\(\)/);
   assert.match(appSource, /\$\("familyDetailsDialog"\)\.addEventListener\("close", \(\) => \{ if \(familyDetailsReturnContext\) returnFromFamilyDetails\(\); \}\)/);
   assert.match(appSource, /document\.querySelectorAll\("\[data-person-section\]"\)\.forEach\(button => \{\s*button\.onclick = \(\) => setPersonSection\(button\.dataset\.personSection, true\)/);
 });

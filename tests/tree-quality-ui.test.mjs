@@ -25,7 +25,7 @@ test("la vue de diagnostic possède une structure accessible et responsive", () 
 
 test("les actions de diagnostic réutilisent l'ouverture de fiche existante", () => {
   assert.match(app, /data-quality-person/);
-  assert.match(app, /openPerson\(item, "directory"\)/);
+  assert.match(app, /openPersonPage\(item, \{ kind: "view", view: "directory", focusId: item\.id \}\)/);
 });
 
 test("le contrôle est purement local et ne crée aucune écriture Firestore", () => {

@@ -218,7 +218,7 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
           await page.locator("#treeScene .person").first().click();
           await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
           assert.equal(await page.locator("#personDetailView").isVisible(), true, `${name} : page Personne ouvrable`);
-          await page.locator("#personPageBackBtn").click();
+          await page.locator("#personPageBackBtn:visible, #personPageMobileBackBtn:visible").first().click();
           await page.waitForFunction(() => document.getElementById("personDetailView").hidden);
           await page.waitForFunction(() => document.documentElement.classList.contains("tree-fullscreen-active"));
 
