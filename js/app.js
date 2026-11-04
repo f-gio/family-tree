@@ -418,15 +418,19 @@ function formatPersonModInfo(item) {
 
 /* Métadonnée de modification pour le header de la modale Personne :
    source identique à formatPersonModInfo (updatedAt Firestore + auteur
-   réel), sans aucun fallback sur la date actuelle. */
+   réel), sans aucun fallback sur la date actuelle. La variante `page`
+   est celle de la fiche Personne : JJ/MM/AAAA à HH:mm, sans auteur. */
 function personModMetaParts(item = {}) {
   if (!item?.updatedAt?.toDate) return null;
   const date = item.updatedAt.toDate();
+  const page = "Dernière modification : " + date.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
+    + " à " + date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   const long = "Dernière modification : " + date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
     + " à " + date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   const short = "Modifiée le " + date.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
   const author = item.updatedByName;
   return {
+    page,
     long: author ? `${long} · ${esc(author)}` : long,
     short: author ? `${short} · ${esc(author)}` : short
   };
@@ -2179,7 +2183,7 @@ function personPageIdentityMarkup(item) {
   ];
   const notes = item.notes ? `<p class="person-detail-notes">${esc(item.notes)}</p>` : "";
   const modification = personModMetaParts(item);
-  const mobileModification = `<p class="person-detail-last-modified-mobile">${modification ? modification.long : "Dernière modification : Non renseignée"}</p>`;
+  const mobileModification = `<p class="person-detail-last-modified-mobile">${modification ? modification.page : "Dernière modification : Non renseignée"}</p>`;
   return `<section id="personPageIdentity" aria-labelledby="personPageIdentityTitle"><h3 id="personPageIdentityTitle">Identité</h3><div class="source-detail-facts person-detail-identity-grid">${facts.join("")}</div>${notes}${mobileModification}</section>`;
 }
 
@@ -2325,6 +2329,7 @@ function syncPersonPageSectionNav(section = personPageActiveSection) {
     button.classList.toggle("active", active);
     if (active) button.setAttribute("aria-current", "location");
     else button.removeAttribute("aria-current");
+    if (active && window.matchMedia("(max-width: 960px)").matches) button.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
   });
 }
 
@@ -2567,17 +2572,17 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
   $("personPagePortrait").innerHTML = portrait;
   const branchBadge = item.branch ? `<span class="person-detail-badge person-detail-branch">${esc(item.branch)}</span>` : "";
   const deathBadge = hasDeathInformation(item) ? `<span class="person-detail-badge person-detail-status">Décédé</span>` : "";
-  const statusBadges = branchBadge || deathBadge ? `<span class="person-detail-badges">${branchBadge}${deathBadge}</span>` : "";
+  const genderBadge = genderLabel ? `<span class="person-detail-badge person-detail-gender">${esc(genderLabel)}</span>` : "";
+  const statusBadges = branchBadge || deathBadge || genderBadge ? `<span class="person-detail-badges">${genderBadge}${branchBadge}${deathBadge}</span>` : "";
   const essentials = [
     `<span class="person-detail-dates"><strong>Naissance</strong> · ${esc(birthDate === "—" ? "Non renseignée" : birthDate)}${birthPlace ? ` · ${esc(birthPlace)}` : ""}</span>`,
     `<span class="person-detail-dates"><strong>Décès</strong> · ${esc(deathDate === "—" ? "Non renseigné" : deathDate)}${deathPlace ? ` · ${esc(deathPlace)}` : ""}</span>`,
-    genderLabel ? `<span class="person-detail-badge person-detail-gender">${esc(genderLabel)}</span>` : "",
     statusBadges,
-    `<span class="card-meta person-detail-modification person-detail-modification--essentials">${modification ? modification.long : "Dernière modification : Non renseignée"}</span>`
+    `<span class="card-meta person-detail-modification person-detail-modification--essentials">${modification ? modification.page : "Dernière modification : Non renseignée"}</span>`
   ].filter(Boolean);
   $("personPageEssentials").innerHTML = essentials.join("");
   $("personPageActionsMenu").closest(".person-detail-header-actions").querySelector(".person-detail-modification--actions")?.remove();
-  $("personPageActions").insertAdjacentHTML("afterend", `<span class="card-meta person-detail-modification person-detail-modification--actions">${modification ? modification.long : "Dernière modification : Non renseignée"}</span>`);
+  $("personPageActions").insertAdjacentHTML("afterend", `<span class="card-meta person-detail-modification person-detail-modification--actions">${modification ? modification.page : "Dernière modification : Non renseignée"}</span>`);
   updatePersonMenuActions(item);
   $("personPageViewTreeBtn").hidden = membership.type !== "assigned";
   $("personPageActionsMenu").innerHTML = personPageActionMenuMarkup({ distinctTreeIcons: window.matchMedia("(min-width: 961px)").matches });
@@ -2591,9 +2596,7 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
   syncPersonPageSectionNav(restore?.section || personPageActiveSection || "identity");
   const identityMarkup = personPageIdentityMarkup(item);
   const timelineMarkup = personPageTimelineMarkup(item);
-  const overviewMarkup = window.matchMedia("(min-width: 961px)").matches
-    ? `${identityMarkup}${timelineMarkup}`
-    : `${timelineMarkup}${identityMarkup}`;
+  const overviewMarkup = `${identityMarkup}${timelineMarkup}`;
   $("personPageContent").innerHTML = `<div class="detail-page-main"><div class="person-detail-overview" id="personPageOverview">${overviewMarkup}</div>${personPageFamilyMarkup(item)}${personPageDocumentsMarkup(item)}${personPageResearchMarkup(item)}</div>`;
   requestAnimationFrame(updatePersonPageAnchorOffset);
   if (!samePageVisible && !preserveScroll) scrollFicheToTop("personDetailView");
@@ -2726,6 +2729,7 @@ function updatePersonPageAnchorOffset() {
   const offset = Math.ceil((Number.isFinite(stickyTop) ? stickyTop : 0) + nav.getBoundingClientRect().height) + 18;
   document.documentElement.style.setProperty("--person-page-anchor-offset", `${offset}px`);
 }
+window.addEventListener("resize", updatePersonPageAnchorOffset);
 
 $("personPageSectionNav").addEventListener("click", event => {
   const button = event.target.closest("[data-person-page-section]");
@@ -2737,12 +2741,11 @@ $("personPageSectionNav").addEventListener("click", event => {
     if (section === "family") setPersonSection("relations");
     else if (["identity", "documents"].includes(section)) setPersonSection(section === "identity" ? "identity" : "documents");
     else setPersonSection("documents");
-    target = section === "identity" && window.matchMedia("(min-width: 961px)").matches ? $("personIdentityPanel")
-      : section === "identity" && !$('personLifeTimeline').hidden ? $("personLifeTimeline")
+    target = section === "identity" ? $("personIdentityPanel")
       : section === "documents" ? $("personDocumentsSection")
         : $(panel);
   } else {
-    target = $(section === "identity" && window.matchMedia("(min-width: 961px)").matches ? "personPageOverview" : section === "identity" ? "personPageTimeline" : `personPage${section[0].toUpperCase()}${section.slice(1)}`);
+    target = $(section === "identity" ? (window.matchMedia("(min-width: 961px)").matches ? "personPageOverview" : "personPageIdentity") : `personPage${section[0].toUpperCase()}${section.slice(1)}`);
   }
   if (!target) return;
   updatePersonPageAnchorOffset();
