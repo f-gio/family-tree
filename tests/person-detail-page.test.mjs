@@ -107,6 +107,10 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Carlo"));
     assert.equal(await page.locator("#personPageBackBtn").getAttribute("aria-label"), "Retour à la personne");
     assert.equal(await page.locator("#personPageEssentials .person-detail-status").count(), 0, "aucun badge Décédé sans date ni lieu de décès");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const missingDeath = await page.locator("#personPageEssentials .person-detail-dates-copy").allTextContents();
+    assert.equal(missingDeath[1].trim(), "Non renseigné", "date et lieu absents sans séparateur orphelin");
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.locator("#personPageBackBtn").click();
     await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Ada"));
     assert.equal((await page.evaluate(() => window.__personPageTest.state())).section, "family", "retour au membre précédent et à Famille");
@@ -347,7 +351,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
     assert.equal((await page.evaluate(() => window.__personPageTest.state())).section, "research", "section Recherches restaurée après la Preuve");
 
-    for (const width of [320, 390, 430, 760, 768, 900, 1024, 1280, 1440, 1920]) {
+    for (const width of [320, 375, 390, 430, 760, 768, 900, 1024, 1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 850 });
       await page.evaluate(() => window.__personPageTest.openDirectory());
       await page.locator('#directoryList [data-directory-person="person-page-a"]').click();
@@ -395,11 +399,13 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           sectionTitleSize: getComputedStyle(identity.querySelector("h3")).fontSize,
           navBackground: getComputedStyle(document.getElementById("personPageSectionNav")).backgroundColor,
           navFlexWrap: getComputedStyle(document.getElementById("personPageSectionNav")).flexWrap,
+          navPosition: getComputedStyle(document.getElementById("personPageSectionNav")).position,
           navOverflowX: getComputedStyle(document.getElementById("personPageSectionNav")).overflowX,
           navScrollWidth: document.getElementById("personPageSectionNav").scrollWidth,
           navClientWidth: document.getElementById("personPageSectionNav").clientWidth,
           navBorderTop: getComputedStyle(document.getElementById("personPageSectionNav")).borderTopWidth,
           navBorderBottom: getComputedStyle(document.getElementById("personPageSectionNav")).borderBottomWidth,
+          navTop: document.getElementById("personPageSectionNav").getBoundingClientRect().top,
           navHeight: document.getElementById("personPageSectionNav").getBoundingClientRect().height,
           navSeparator: { content: navSeparator.content, width: Number.parseFloat(navSeparator.width), height: Number.parseFloat(navSeparator.height) },
           activeTabBackground: getComputedStyle(activeTab).backgroundColor,
@@ -408,8 +414,28 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           backBottom: rect("personPageBackBtn").bottom,
           heroTop: document.querySelector(".person-detail-hero").getBoundingClientRect().top,
           heroBottom: document.querySelector(".person-detail-hero").getBoundingClientRect().bottom,
+          mobileModification: (() => {
+            const element = document.getElementById("personPageMobileModification");
+            const box = element.getBoundingClientRect();
+            return { visible: isVisible(element), text: element.textContent, left: box.left, right: box.right, top: box.top, bottom: box.bottom, align: getComputedStyle(element).textAlign };
+          })(),
+          identityFacts: (() => {
+            const grid = document.querySelector("#personPageIdentity .person-detail-identity-grid");
+            return {
+              columns: getComputedStyle(grid).gridTemplateColumns.split(" ").length,
+              cells: [...grid.children].map(cell => { const box = cell.getBoundingClientRect(); return { label: cell.querySelector("strong")?.textContent.trim(), top: box.top, left: box.left, width: box.width, column: getComputedStyle(cell).gridColumn }; }),
+              modificationCount: grid.querySelectorAll(".person-detail-modification, .person-detail-last-modified-mobile").length
+            };
+          })(),
+          heroDateRows: [...document.querySelectorAll("#personPageEssentials .person-detail-dates")].map(row => {
+            const copy = row.querySelector(".person-detail-dates-copy");
+            const icon = row.querySelector(".person-detail-event-icon");
+            const box = row.getBoundingClientRect();
+            return { top: box.top, height: box.height, iconDisplay: getComputedStyle(icon).display, iconLabel: icon.getAttribute("aria-label"), iconHref: icon.querySelector("use")?.getAttribute("href"), labelDisplay: getComputedStyle(row.querySelector("strong")).display, copyWhiteSpace: getComputedStyle(copy).whiteSpace, copyOverflow: getComputedStyle(copy).textOverflow, copyScrollWidth: copy.scrollWidth, copyClientWidth: copy.clientWidth };
+          }),
           globalHeaderBottom: header.getBoundingClientRect().bottom,
           actions: ["personPageEditBtn", "personPageViewTreeBtn", "personPageActions"].map(rect),
+          summaryGap: Math.round(document.querySelector("#personPageActions summary").getBoundingClientRect().left - document.getElementById("personPageViewTreeBtn").getBoundingClientRect().right),
           actionDateVisible: isVisible(document.querySelector(".person-detail-modification--actions")),
           actionDateText: document.querySelector(".person-detail-modification--actions").textContent,
           actionDateDisplay: getComputedStyle(document.querySelector(".person-detail-modification--actions")).display,
@@ -423,7 +449,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
             const copy = document.querySelector("#personPageFamily .relation-person-copy");
             const link = copy.querySelector(".person-detail-relative-link");
             const meta = copy.querySelector(".relation-person-meta");
-            return Number.parseFloat(getComputedStyle(link).paddingBottom) + Number.parseFloat(getComputedStyle(copy).rowGap) + Number.parseFloat(getComputedStyle(meta).marginTop);
+            return { pixels: Number.parseFloat(getComputedStyle(link).paddingBottom) + Number.parseFloat(getComputedStyle(copy).rowGap) + Number.parseFloat(getComputedStyle(meta).marginTop), rowGap: getComputedStyle(copy).rowGap, alignContent: getComputedStyle(copy).alignContent, justifyContent: getComputedStyle(copy).justifyContent, linkMinHeight: getComputedStyle(link).minHeight, linkPadding: getComputedStyle(link).padding, metaMargin: getComputedStyle(meta).marginTop };
           })(),
           docTitleStyle: (() => {
             const style = getComputedStyle(document.querySelector("#personPageDocuments .person-doc-title"));
@@ -459,7 +485,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
             const badge = document.querySelector("#personPageEssentials .person-detail-status");
             const wrapper = document.querySelector("#personPageEssentials .person-detail-badges");
             const gender = document.querySelector("#personPageEssentials .person-detail-gender");
-            return badge ? { text: badge.textContent.trim(), display: getComputedStyle(badge).display, wrapperDisplay: getComputedStyle(wrapper).display, badgeInWrapper: badge.parentElement === wrapper, genderInWrapper: gender?.parentElement === wrapper, genderDisplay: gender ? getComputedStyle(gender).display : "absent" } : null;
+            const branch = document.querySelector("#personPageEssentials .person-detail-branch");
+            return badge ? { text: badge.textContent.trim(), top: badge.getBoundingClientRect().top, branchTop: branch?.getBoundingClientRect().top, statusWidth: badge.getBoundingClientRect().width, branchWidth: branch?.getBoundingClientRect().width, wrapperWidth: wrapper.getBoundingClientRect().width, display: getComputedStyle(badge).display, wrapperDisplay: getComputedStyle(wrapper).display, badgeInWrapper: badge.parentElement === wrapper, genderInWrapper: gender?.parentElement === wrapper, genderDisplay: gender ? getComputedStyle(gender).display : "absent" } : null;
           })(),
           statusWrapperDisplay: document.querySelector("#personPageEssentials .person-detail-badges") ? getComputedStyle(document.querySelector("#personPageEssentials .person-detail-badges")).display : "absent",
           timelineLayout: (() => {
@@ -511,14 +538,39 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       assert.equal(layout.columns, 1, `${width}px : contenu de lecture en une colonne maîtrisée`);
       if (width <= 900) {
         assert.equal(layout.mobileHeader, width <= 760, `${width}px : en-tête adapté au breakpoint existant`);
+        assert.ok(layout.mobileModification.visible, `${width}px : dernière modification affichée sous le Hero`);
+        assert.match(layout.mobileModification.text, /Dernière modification : \d{2}\/\d{2}\/2026 à \d{2}:\d{2}/, `${width}px : date courte sans auteur`);
+        assert.equal(layout.mobileModification.align, "right", `${width}px : date alignée à droite`);
+        assert.ok(layout.mobileModification.top >= layout.heroBottom - 1, `${width}px : date placée après le Hero`);
+        assert.equal(layout.essentialsDateVisible, false, `${width}px : aucune date dupliquée dans le Hero desktop actions`);
+        assert.equal(layout.identityFacts.modificationCount, 0, `${width}px : aucune mention de modification dans Identité`);
+        assert.equal(layout.identityFacts.columns, 2, `${width}px : Identité en deux colonnes`);
+        assert.deepEqual(layout.identityFacts.cells.map(cell => cell.label), ["Prénom", "Second prénom", "Nom de naissance", "Nom d’usage", "Sexe", "Branche familiale"], `${width}px : six cellules dans l’ordre en trois lignes`);
+        assert.equal(new Set(layout.identityFacts.cells.map(cell => Math.round(cell.top))).size, 3, `${width}px : six informations sur trois lignes`);
+        for (let index = 0; index < 6; index += 2) {
+          assert.ok(Math.abs(layout.identityFacts.cells[index].width - layout.identityFacts.cells[index + 1].width) <= 1, `${width}px : colonnes de largeur égale, ligne ${index / 2 + 1}`);
+          assert.ok(Math.abs(layout.identityFacts.cells[index].top - layout.identityFacts.cells[index + 1].top) <= 1, `${width}px : cellules alignées, ligne ${index / 2 + 1}`);
+        }
         assert.deepEqual(layout.overviewOrder, ["personPageIdentity", "personPageTimeline"], `${width}px : Identité avant Parcours de vie`);
         assert.ok(layout.identity.top < layout.timeline.top, `${width}px : Identité placée avant la timeline`);
         assert.equal(layout.navFlexWrap, "nowrap", `${width}px : navigation sections sur une ligne`);
+        assert.equal(layout.navPosition, "sticky", `${width}px : navigation sticky conservée`);
         assert.equal(layout.navOverflowX, "auto", `${width}px : slider sections défilant horizontalement`);
         assert.equal(layout.navTabStyle.size, "13px", `${width}px : onglets sections 13px sur petit écran`);
         assert.equal(layout.navTabStyle.weight, "600", `${width}px : onglets sections en graisse 600`);
-        assert.ok(layout.familyNameRelationGap >= 6 && layout.familyNameRelationGap <= 8, `${width}px : écart nom/relation Famille de 6–8px (${layout.familyNameRelationGap}px)`);
+        assert.equal(layout.familyNameRelationGap.pixels, 4, `${width}px : écart effectif nom/relation Famille de 4px (${JSON.stringify(layout.familyNameRelationGap)})`);
+        assert.equal(layout.familyNameRelationGap.linkMinHeight, "0px", `${width}px : bouton nom sans hauteur minimale qui écarte la relation`);
+        assert.equal(layout.familyNameRelationGap.metaMargin, "0px", `${width}px : aucune marge cumulée sur la relation`);
         if (width <= 390) assert.ok(layout.navScrollWidth > layout.navClientWidth, `${width}px : slider laisse voir le débordement vers l'onglet suivant`);
+        assert.equal(layout.navBackground, "rgb(247, 243, 234)", `${width}px : fond beige de page conservé derrière le slider`);
+        assert.equal(layout.navBorderTop, "1px", `${width}px : ligne supérieure encadrant le slider`);
+        assert.equal(layout.navBorderBottom, "1px", `${width}px : ligne inférieure encadrant le slider`);
+        assert.ok(layout.mobileModification.bottom <= layout.navTop + 1, `${width}px : date située avant la ligne supérieure du slider`);
+        assert.equal(layout.heroDateRows.length, 2, `${width}px : lignes Naissance et Décès présentes`);
+        assert.deepEqual(layout.heroDateRows.map(row => row.iconLabel), ["Naissance", "Décès"], `${width}px : icônes avec libellés accessibles`);
+        assert.deepEqual(layout.heroDateRows.map(row => row.iconHref), ["#icon-sparkles", "#icon-cross"], `${width}px : icônes existantes de Parcours de vie réutilisées`);
+        assert.ok(layout.heroDateRows.every(row => row.iconDisplay !== "none" && row.labelDisplay === "none" && row.copyWhiteSpace === "nowrap" && row.copyOverflow === "ellipsis"), `${width}px : icônes alignées et textes sur une ligne avec troncature`);
+        assert.ok(Math.abs(layout.heroDateRows[0].top - layout.heroDateRows[1].top) > 0, `${width}px : naissance et décès occupent deux lignes distinctes`);
         assert.match(layout.pdfFormatDisplay, /flex/, `${width}px : format PDF visible dans les métadonnées mobile/tablette`);
         assert.match(layout.imageFormatDisplay, /flex/, `${width}px : format Image visible dans les métadonnées mobile/tablette`);
         assert.equal(layout.pdfVisualDisplay, "grid", `${width}px : pictogramme PDF dans la partie supérieure mobile/tablette`);
@@ -529,8 +581,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.ok(layout.statusBadge && ["flex", "inline-flex"].includes(layout.statusBadge.display), `${width}px : badge Décédé visible dans la zone de badges`);
         assert.equal(layout.statusWrapperDisplay, "flex", `${width}px : badges regroupés dans une même zone`);
         assert.equal(layout.statusBadge.badgeInWrapper, true, `${width}px : badge Décédé dans la zone commune`);
+        if (layout.statusBadge.branchWidth + layout.statusBadge.statusWidth + 8 <= layout.statusBadge.wrapperWidth) assert.ok(Math.abs(layout.statusBadge.top - layout.statusBadge.branchTop) <= 2, `${width}px : badges Arbre et Décédé sur la même ligne lorsque l’espace le permet (${JSON.stringify(layout.statusBadge)})`);
         assert.equal(layout.statusBadge.genderInWrapper, true, `${width}px : sexe dans la zone commune`);
-        assert.ok(["flex", "inline-flex"].includes(layout.statusBadge.genderDisplay), `${width}px : badge sexe visible dans la zone commune`);
+        assert.equal(layout.statusBadge.genderDisplay, "none", `${width}px : badge sexe masqué dans le Hero`);
+        assert.equal(layout.genderBadgeVisible, false, `${width}px : donnée Sexe conservée dans Identité sans badge Hero`);
+        assert.match(await page.locator("#personPageIdentity").innerText(), /SEXE\s+Femme/i, `${width}px : sexe toujours visible dans Identité`);
         assert.equal(layout.timelineLayout.ageCount, 0, `${width}px : aucun âge affiché pour des dates incomplètes`);
         assert.equal(layout.docTitleStyle.size, 13, `${width}px : titres de documents à 13px sur mobile/tablette`);
         assert.equal(layout.docTitleStyle.weight, "600", `${width}px : titres de documents en graisse 600 sur mobile/tablette`);
@@ -546,6 +601,10 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           assert.ok(activeTabBounds.tabLeft >= activeTabBounds.navLeft - 1 && activeTabBounds.tabRight <= activeTabBounds.navRight + 1, `${width}px : onglet actif ramené dans le slider`);
         }
       } else {
+        assert.equal(layout.mobileModification.visible, false, `${width}px : mention mobile masquée sur desktop`);
+        assert.ok(layout.actionDateVisible && layout.actionDateText.startsWith("Dernière modification :"), `${width}px : dernière modification conservée sous les CTA`);
+        assert.ok(layout.heroDateRows.every(row => row.iconDisplay === "none" && row.labelDisplay !== "none"), `${width}px : libellés Naissance/Décès conservés, icônes mobiles masquées`);
+        assert.equal(layout.navBackground, "rgb(247, 243, 234)", `${width}px : fond desktop de navigation inchangé`);
         assert.equal(layout.mobileHeader, false, `${width}px : en-tête mobile masqué sur desktop`);
         assert.deepEqual(layout.overviewOrder, ["personPageIdentity", "personPageTimeline"], `${width}px : ordre de lecture desktop aligné sur la présentation`);
         assert.equal(layout.overviewDisplay, "grid", `${width}px : grille Identité/Parcours de vie`);
@@ -575,6 +634,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.deepEqual(layout.actions.map(action => Math.round(action.left)).sort((a, b) => a - b), layout.actions.map(action => Math.round(action.left)), `${width}px : ordre CTA Modifier, Voir dans l’arbre, menu ⋯`);
         assert.ok(layout.actions[0].left < layout.actions[1].left && layout.actions[1].left < layout.actions[2].left, `${width}px : ordre CTA gauche-droite`);
         assert.equal(Math.round(layout.actions[2].left - layout.actions[1].right), 12, `${width}px : 12px entre Voir dans l’arbre et le menu ⋯`);
+        assert.equal(layout.summaryGap, 12, `${width}px : écart visuel réel de 12px jusqu’au bouton ⋯ (${layout.summaryGap}px)`);
         assert.ok(layout.actionDateVisible && !layout.essentialsDateVisible, `${width}px : date de modification sous les CTA uniquement (${layout.actionDateDisplay}, h=${layout.actionDateHeight}, essentials=${layout.essentialsDateVisible})`);
         assert.match(layout.actionDateText, /\d{2}\/\d{2}\/2026 à \d{2}:\d{2}/, `${width}px : date au format JJ/MM/AAAA à HH:mm`);
         assert.doesNotMatch(layout.actionDateText, /Archiviste/, `${width}px : auteur absent de la date de modification`);
@@ -628,6 +688,38 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.equal(layout.menuBorder, "1px", `${width}px : bordure unique du menu`);
         assert.notEqual(layout.menuShadow, "none", `${width}px : ombre légère du menu`);
       }
+    }
+
+    // Espace « Voir dans l'arbre » → « ⋯ » : 12 px en consultation et en modification desktop.
+    for (const width of [1024, 1280, 1440]) {
+      await page.setViewportSize({ width, height: 850 });
+      await page.evaluate(() => window.__personPageTest.openDirectory());
+      await page.locator('#directoryList [data-directory-person="person-page-a"]').click();
+      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
+      const readCtaGap = () => page.evaluate(() => {
+        const tree = document.getElementById("personPageViewTreeBtn");
+        const menu = document.getElementById("personPageActions");
+        const treeBox = tree.getBoundingClientRect();
+        const menuBox = menu.getBoundingClientRect();
+        const summaryBox = menu.querySelector("summary").getBoundingClientRect();
+        return {
+          gap: Math.round(menuBox.left - treeBox.right),
+          summaryGap: Math.round(summaryBox.left - treeBox.right),
+          editGap: Math.round(menuBox.left - document.getElementById("personPageEditBtn").getBoundingClientRect().right),
+          treeHidden: tree.hidden, editHidden: document.getElementById("personPageEditBtn").hidden,
+          menuMarginLeft: getComputedStyle(menu).marginLeft
+        };
+      });
+      const consultationGap = await readCtaGap();
+      assert.equal(consultationGap.gap, 12, `${width}px : consultation — 12px entre Voir dans l'arbre et ⋯ (${JSON.stringify(consultationGap)})`);
+      assert.equal(consultationGap.summaryGap, 12, `${width}px : consultation — bouton ⋯ visible à 12px (${JSON.stringify(consultationGap)})`);
+      await page.locator("#personPageEditBtn").click();
+      await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+      const editionGap = await readCtaGap();
+      assert.equal(editionGap.gap, 12, `${width}px : modification — 12px entre Voir dans l'arbre et ⋯ (${JSON.stringify(editionGap)})`);
+      assert.equal(editionGap.summaryGap, 12, `${width}px : modification — bouton ⋯ visible à 12px (${JSON.stringify(editionGap)})`);
+      await page.locator('#personPageEditHost [data-close="personDialog"]').click();
+      await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     }
 
     for (const width of [390, 768]) {
@@ -723,6 +815,23 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       const afterManual = await clickSection("documents");
       assert.ok(afterManual.gapNow >= 0, `${width}px : réactivation après défilement manuel — titre non masqué (${Math.round(afterManual.gapNow)}px)`);
       if (!afterManual.saturated) assert.ok(afterManual.gap >= 14 && afterManual.gap <= 24, `${width}px : réactivation après défilement manuel (${Math.round(afterManual.gap)}px)`);
+    }
+
+    for (const width of [390, 768, 900]) {
+      await page.setViewportSize({ width, height: 850 });
+      await page.evaluate(() => window.__personPageTest.openDirectory());
+      await page.locator('#directoryList [data-directory-person="person-page-a"]').click();
+      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
+      await page.locator('[data-person-page-section="family"]').click();
+      await page.waitForTimeout(800);
+      const mobileAnchor = await page.evaluate(() => {
+        const nav = document.getElementById("personPageSectionNav");
+        const navBox = nav.getBoundingClientRect();
+        const section = document.getElementById("personPageFamily");
+        return { position: getComputedStyle(nav).position, gap: section.getBoundingClientRect().top - navBox.bottom, scrollMargin: getComputedStyle(section).scrollMarginTop };
+      });
+      assert.equal(mobileAnchor.position, "sticky", `${width}px : navigation reste sticky`);
+      assert.ok(mobileAnchor.gap >= 14, `${width}px : ancre Famille visible sous le slider (${mobileAnchor.gap}px)`);
     }
 
     // Lien Retour : position identique en consultation et en modification (1280 px).

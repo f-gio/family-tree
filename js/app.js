@@ -2182,9 +2182,7 @@ function personPageIdentityMarkup(item) {
     personPageFact("Branche familiale", item.branch, true, "person-detail-branch-fact")
   ];
   const notes = item.notes ? `<p class="person-detail-notes">${esc(item.notes)}</p>` : "";
-  const modification = personModMetaParts(item);
-  const mobileModification = `<p class="person-detail-last-modified-mobile">${modification ? modification.page : "Dernière modification : Non renseignée"}</p>`;
-  return `<section id="personPageIdentity" aria-labelledby="personPageIdentityTitle"><h3 id="personPageIdentityTitle">Identité</h3><div class="source-detail-facts person-detail-identity-grid">${facts.join("")}</div>${notes}${mobileModification}</section>`;
+  return `<section id="personPageIdentity" aria-labelledby="personPageIdentityTitle"><h3 id="personPageIdentityTitle">Identité</h3><div class="source-detail-facts person-detail-identity-grid">${facts.join("")}</div>${notes}</section>`;
 }
 
 function personPageTimelineMarkup(item) {
@@ -2563,6 +2561,8 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
   const deathDate = formatDirectoryDate(item.deathDateInfo, item.deathDate);
   const birthPlace = formatCompactPlace(item.place, item.birthPlaceInfo);
   const deathPlace = formatCompactPlace(item.deathPlace, item.deathPlaceInfo);
+  const birthSummary = [birthDate === "—" ? "Non renseignée" : birthDate, birthPlace].filter(Boolean).join(" · ");
+  const deathSummary = [deathDate === "—" ? "Non renseigné" : deathDate, deathPlace].filter(Boolean).join(" · ");
   const modification = personModMetaParts(item);
   const genderLabel = ({ F: "Femme", M: "Homme", X: "Autre" })[item.gender] || "";
   const membership = getPersonTreeMembership(item);
@@ -2575,12 +2575,13 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
   const genderBadge = genderLabel ? `<span class="person-detail-badge person-detail-gender">${esc(genderLabel)}</span>` : "";
   const statusBadges = branchBadge || deathBadge || genderBadge ? `<span class="person-detail-badges">${genderBadge}${branchBadge}${deathBadge}</span>` : "";
   const essentials = [
-    `<span class="person-detail-dates"><strong>Naissance</strong> · ${esc(birthDate === "—" ? "Non renseignée" : birthDate)}${birthPlace ? ` · ${esc(birthPlace)}` : ""}</span>`,
-    `<span class="person-detail-dates"><strong>Décès</strong> · ${esc(deathDate === "—" ? "Non renseigné" : deathDate)}${deathPlace ? ` · ${esc(deathPlace)}` : ""}</span>`,
+    `<span class="person-detail-dates"><strong>Naissance</strong><span class="person-detail-date-separator" aria-hidden="true"> · </span><svg class="ui-icon person-detail-event-icon person-detail-event-icon--birth" role="img" aria-label="Naissance"><use href="#icon-sparkles"></use></svg><span class="person-detail-dates-copy">${esc(birthSummary)}</span></span>`,
+    `<span class="person-detail-dates"><strong>Décès</strong><span class="person-detail-date-separator" aria-hidden="true"> · </span><svg class="ui-icon person-detail-event-icon person-detail-event-icon--death" role="img" aria-label="Décès"><use href="#icon-cross"></use></svg><span class="person-detail-dates-copy">${esc(deathSummary)}</span></span>`,
     statusBadges,
     `<span class="card-meta person-detail-modification person-detail-modification--essentials">${modification ? modification.page : "Dernière modification : Non renseignée"}</span>`
   ].filter(Boolean);
   $("personPageEssentials").innerHTML = essentials.join("");
+  $("personPageMobileModification").textContent = modification ? modification.page : "Dernière modification : Non renseignée";
   $("personPageActionsMenu").closest(".person-detail-header-actions").querySelector(".person-detail-modification--actions")?.remove();
   $("personPageActions").insertAdjacentHTML("afterend", `<span class="card-meta person-detail-modification person-detail-modification--actions">${modification ? modification.page : "Dernière modification : Non renseignée"}</span>`);
   updatePersonMenuActions(item);
