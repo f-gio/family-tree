@@ -225,6 +225,9 @@ let viewerImageState = null;
 let viewerPdfState = null;
 let viewerImageHandlersBound = false;
 let activePersonSection = "identity";
+let activePersonPageItem = null;
+let personPageReturnContext = null;
+let personPageActiveSection = "identity";
 let activeGenealogyItem = null;
 let activeSourcePageItem = null;
 let sourcePageReturnContext = null;
@@ -1582,7 +1585,7 @@ let treeViewportFitTimer = 0;
 
 const renderer = createTreeRenderer({
   scene: $("treeScene"),
-  onPersonClick: id => openPerson(person(id)),
+  onPersonClick: id => openPersonPage(person(id), { kind: "view", view: "tree", focusId: id, treeFullscreen: treeFullscreenActive }),
   onEmptyAdd: () => openPerson(),
   shouldSuppressClick: () => camera.shouldSuppressClick(),
   getScale: () => camera.getState().scale,
@@ -2123,6 +2126,308 @@ function setPersonSection(section = "identity", focusTab = false) {
   if (hasPerson && normalized === "documents") renderPersonDocuments($("personId").value);
 }
 
+function personPageContext() {
+  if (!activePersonPageItem) return null;
+  return {
+    kind: "personPage",
+    personId: activePersonPageItem.id,
+    section: personPageActiveSection,
+    windowScrollY: window.scrollY || 0,
+    view: personPageReturnContext?.view || "directory",
+    personReturnContext: personPageReturnContext ? { ...personPageReturnContext } : null
+  };
+}
+
+function personPageFact(label, raw) {
+  const value = typeof raw === "string" || typeof raw === "number" ? String(raw).trim() : "";
+  return `<div class="source-detail-fact"><strong>${esc(label)}</strong><span>${value ? esc(value) : `<span class="person-detail-empty-value">Non renseigné</span>`}</span></div>`;
+}
+
+function personPageIdentityMarkup(item) {
+  const birthDate = formatGenealogyDate(item.birthDateInfo, item.birthDate);
+  const deathDate = formatGenealogyDate(item.deathDateInfo, item.deathDate);
+  const birthPlace = formatCompactPlace(item.place, item.birthPlaceInfo);
+  const deathPlace = formatCompactPlace(item.deathPlace, item.deathPlaceInfo);
+  const gender = ({ F: "Femme", M: "Homme", X: "Autre" })[item.gender] || "";
+  const facts = [
+    personPageFact("Prénom", item.firstName),
+    personPageFact("Second prénom", item.middleName),
+    personPageFact("Nom de naissance", item.lastName),
+    personPageFact("Nom d’usage", item.marriedName),
+    personPageFact("Sexe", gender),
+    personPageFact("Branche familiale", item.branch),
+    personPageFact("Naissance", birthDate === "—" ? "" : birthDate),
+    personPageFact("Lieu de naissance", birthPlace),
+    personPageFact("Décès", deathDate === "—" ? "" : deathDate),
+    personPageFact("Lieu de décès", deathPlace)
+  ];
+  const photo = item.photoUrl ? `<img class="person-detail-photo" src="${esc(item.photoUrl)}" alt="Portrait de ${esc([item.firstName, item.middleName, item.lastName].filter(Boolean).join(" "))}" loading="lazy">` : "";
+  const notes = item.notes ? `<p class="person-detail-notes">${esc(item.notes)}</p>` : "";
+  const events = lifeTimelineEvents(item, { people, families });
+  const timeline = events.length
+    ? `<section class="life-timeline" aria-labelledby="personPageTimelineTitle"><h4 id="personPageTimelineTitle" class="timeline-heading"><svg class="ui-icon timeline-icon" aria-hidden="true"><use href="#icon-history"></use></svg>Parcours de vie</h4><ol class="life-timeline-list">${events.map(timelineItemHtml).join("")}</ol></section>`
+    : "";
+  return `<section id="personPageIdentity" aria-labelledby="personPageIdentityTitle"><h3 id="personPageIdentityTitle">Identité</h3>${photo}<div class="source-detail-facts">${facts.join("")}</div>${notes}${timeline}</section>`;
+}
+
+function personPageRelativeRow(relative, kind, meta = []) {
+  if (!relative) return "";
+  const name = relationOptionName(relative);
+  return `<article class="relation-person-row person-detail-family-row"><span class="relation-person-avatar">${relationAvatarMarkup(relative)}</span><div class="relation-person-copy"><button class="person-detail-relative-link" type="button" data-open-person-page="${esc(relative.id)}">${esc(name)}</button>${relationMetadata([relationRole(relative, kind), ...meta])}</div></article>`;
+}
+
+function personPageFamilyMarkup(item) {
+  const parentFamilies = families.filter(family => (family.childIds || []).includes(item.id));
+  const ownFamilies = families.filter(family => (family.partnerIds || []).includes(item.id));
+  const parentEntries = parentFamilies.flatMap(family => (family.partnerIds || []).map(parentId => {
+    const relative = person(parentId);
+    const type = parentChildLinkType(family, parentId, item.id);
+    const filiation = type === "unknown" ? "" : `Filiation ${FILIATION_TYPE_LABELS[type].toLocaleLowerCase("fr-FR")}`;
+    return { relative, html: personPageRelativeRow(relative, "parent", [filiation]) };
+  })).filter(entry => entry.relative).sort((a, b) => comparePeopleBySurname(a.relative, b.relative)).map(entry => entry.html);
+  const partnerEntries = ownFamilies.flatMap(family => (family.partnerIds || []).filter(id => id !== item.id).map(partnerId => {
+    const relative = person(partnerId);
+    const relationType = normalizeRelationType(family.relationType);
+    const endType = normalizeEndType(family.endType);
+    const unionDate = formatGenealogyDate(family.unionDateInfo, family.marriageDate || family.unionDate);
+    const endDate = formatGenealogyDate(family.endDateInfo, family.separationDate || family.divorceDate);
+    const childCount = (family.childIds || []).length;
+    const meta = [
+      relationType === "unknown" ? "" : RELATION_TYPE_LABELS[relationType],
+      unionDate === "—" ? "" : unionDate,
+      ["none", "unknown"].includes(endType) ? "" : `${END_TYPE_LABELS[endType]}${endDate === "—" ? "" : ` · ${endDate}`}`,
+      childCount ? `${childCount} enfant${childCount > 1 ? "s" : ""}` : ""
+    ];
+    return { relative, html: personPageRelativeRow(relative, "partner", meta) };
+  })).filter(entry => entry.relative).sort((a, b) => comparePeopleBySurname(a.relative, b.relative)).map(entry => entry.html);
+  const childEntries = ownFamilies.flatMap(family => (family.childIds || []).map(childId => {
+    const relative = person(childId);
+    const type = parentChildLinkType(family, item.id, childId);
+    const filiation = type === "unknown" ? "" : `Filiation ${FILIATION_TYPE_LABELS[type].toLocaleLowerCase("fr-FR")}`;
+    const otherParents = (family.partnerIds || []).filter(id => id !== item.id).map(nameOf);
+    return { relative, html: personPageRelativeRow(relative, "child", [filiation, otherParents.length ? `Avec ${otherParents.join(" et ")}` : ""]) };
+  })).filter(entry => entry.relative).sort((a, b) => comparePeopleBySurname(a.relative, b.relative)).map(entry => entry.html);
+  const total = parentEntries.length + partnerEntries.length + childEntries.length;
+  if (!total) return `<section id="personPageFamily" aria-labelledby="personPageFamilyTitle"><h3 id="personPageFamilyTitle">Famille</h3>${emptyState({ iconName: "link", title: "Aucun lien familial", description: "Les liens familiaux associés à cette personne apparaîtront ici." })}</section>`;
+  return `<section id="personPageFamily" aria-labelledby="personPageFamilyTitle"><h3 id="personPageFamilyTitle">Famille</h3>${[
+    relationGroup("Parents", parentEntries, "Aucun parent renseigné"),
+    relationGroup("Partenaires et unions", partnerEntries, "Aucun partenaire renseigné"),
+    relationGroup("Enfants", childEntries, "Aucun enfant renseigné")
+  ].join("")}</section>`;
+}
+
+function personPageDocumentCard(item) {
+  const label = documentDisplayLabel(item);
+  const thumb = personDocThumbSource(item);
+  const type = item.type || item.fileName || "Document";
+  const date = item.date ? new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR") : "";
+  const preview = thumb
+    ? `<img class="person-doc-thumb-img" src="${esc(thumb)}" alt="" loading="lazy">`
+    : `<span class="person-doc-tile" aria-hidden="true">${icon("document", "ui-icon-lg")}</span>`;
+  return `<article class="person-doc-card" tabindex="0" aria-label="Consulter ${esc(label)}" data-view-document="${esc(item.id)}"><div class="person-doc-thumb">${preview}</div><div class="person-doc-meta"><strong class="person-doc-title">${esc(label)}</strong><span class="person-doc-subrow"><span class="person-doc-type">${esc(type)}</span>${date ? `<time class="person-doc-date">${esc(date)}</time>` : ""}</span></div></article>`;
+}
+
+function personPageDocumentsMarkup(item) {
+  const linked = documents.filter(documentItem => (documentItem.personIds || []).includes(item.id));
+  return `<section id="personPageDocuments" aria-labelledby="personPageDocumentsTitle"><h3 id="personPageDocumentsTitle">Documents associés</h3>${linked.length
+    ? `<div class="person-doc-gallery">${linked.map(personPageDocumentCard).join("")}</div>`
+    : emptyState({ iconName: "document", title: "Aucun document associé", description: "Les documents associés à cette personne apparaîtront ici." })}</section>`;
+}
+
+function personPageResearchMarkup(item) {
+  const linkedProofs = genealogyRecords.genealogyProofs.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id));
+  const linkedFactIds = new Set(linkedProofs.map(record => genealogyRecordData(record).factId).filter(Boolean));
+  const linkedConclusions = genealogyRecords.factConclusions.filter(record => linkedFactIds.has(genealogyRecordData(record).factId));
+  if (!genealogyLoaded) return `<section id="personPageResearch" aria-labelledby="personPageResearchTitle"><h3 id="personPageResearchTitle">Recherches</h3><p class="card-meta" role="status">Chargement des preuves et conclusions…</p></section>`;
+  const proofCards = linkedProofs.map(record => {
+    const data = genealogyRecordData(record);
+    const title = proofFactLabel(data.factType) || data.factId || "Preuve";
+    const relation = PROOF_RELATION_LABELS[data.relation] || data.relation || "Mention";
+    const statusBadge = data.technicalStatus ? genealogyStatusBadgeHtml(data.technicalStatus) : `<span class="genealogy-status-badge">À vérifier</span>`;
+    return `<article class="person-detail-research-card" tabindex="0" role="button" aria-label="Consulter la preuve : ${esc(title)}" data-view-proof="${esc(record.id)}"><strong>${esc(title)}</strong><span class="person-detail-research-meta"><span>Preuve · ${esc(relation)}</span>${statusBadge}</span></article>`;
+  });
+  const conclusionCards = linkedConclusions.map(record => {
+    const data = genealogyRecordData(record);
+    const revision = data.revision || {};
+    const title = proofFactLabel(data.factType || revision.factType) || data.factId || revision.factId || "Conclusion";
+    const status = GENEALOGY_CONCLUSION_STATUS_LABELS[revision.status || data.status] || "Indéterminée";
+    const retained = revision.retainedValue;
+    const retainedLabel = typeof retained === "string" || typeof retained === "number" ? String(retained).trim() : "";
+    return `<article class="person-detail-research-card"><strong>${esc(title)}</strong><span class="person-detail-research-meta">Conclusion · ${esc(status)}</span>${retainedLabel ? `<span class="card-meta">Valeur retenue : ${esc(retainedLabel)}</span>` : ""}</article>`;
+  });
+  const cards = [...proofCards, ...conclusionCards];
+  return `<section id="personPageResearch" aria-labelledby="personPageResearchTitle"><h3 id="personPageResearchTitle">Recherches</h3>${cards.length
+    ? `<div class="person-detail-research-list">${cards.join("")}</div>`
+    : emptyState({ iconName: "document", title: "Aucune preuve ou conclusion associée", description: "Les recherches concernant cette personne apparaîtront ici." })}</section>`;
+}
+
+function syncPersonPageSectionNav(section = personPageActiveSection) {
+  personPageActiveSection = ["identity", "family", "documents", "research"].includes(section) ? section : "identity";
+  document.querySelectorAll("[data-person-page-section]").forEach(button => {
+    if (button.dataset.personPageSection === personPageActiveSection) button.setAttribute("aria-current", "location");
+    else button.removeAttribute("aria-current");
+  });
+}
+
+function renderPersonPage(item, returnContext = null, preserveScroll = false, restore = null) {
+  if (!item) return;
+  const samePageVisible = !$('personDetailView').hidden && activePersonPageItem?.id === item.id;
+  if (!samePageVisible) {
+    personPageReturnContext = returnContext || { kind: "view", view: activeView === "personDetail" ? "directory" : activeView };
+    if (!preserveScroll) personPageReturnContext.windowScrollY = window.scrollY || 0;
+  }
+  activePersonPageItem = item;
+  if ($("genealogyItemDialog").open) close("genealogyItemDialog");
+  if ($("personDialog").open) close("personDialog");
+  if (treeFullscreenActive) void toggleTreeFullscreen();
+  setView("personDetail");
+
+  const fullName = [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ") || "Personne";
+  const origin = personPageReturnContext || { kind: "view", view: "directory" };
+  const requestedOriginView = origin.view || (origin.kind === "document" ? "documents" : origin.kind === "source" || origin.kind === "proof" || origin.kind === "item" ? "genealogy" : "directory");
+  const originView = requestedOriginView === "documentDetail" ? "documents"
+    : ["sourceDetail", "proofDetail"].includes(requestedOriginView) ? "genealogy"
+      : requestedOriginView === "personDetail" ? origin.personReturnContext?.view || "directory"
+        : requestedOriginView;
+  const rootLabels = { tree: "Arbre", directory: "Annuaire", documents: "Documents", genealogy: "Archives", tasks: "Actions", dossiers: "Démarches" };
+  let parent = null;
+  if (origin.kind === "document") {
+    const documentItem = documents.find(value => value.id === origin.documentId);
+    if (documentItem) parent = { id: documentItem.id, label: documentDisplayLabel(documentItem), action: "document" };
+  } else if (origin.kind === "source") {
+    const source = genealogyWorkspaceItems().find(value => value.kind === "source" && value.record.id === origin.id);
+    if (source) parent = { id: source.record.id, label: source.data.title || "Source sans titre", action: "source" };
+  } else if (origin.kind === "proof") {
+    const proof = genealogyWorkspaceItems().find(value => value.kind === "proof" && value.record.id === origin.id);
+    if (proof) parent = { id: proof.record.id, label: PROOF_FACT_KIND_LABELS[proof.data.factType] || proof.data.factType || "Preuve", action: "proof" };
+  } else if (origin.kind === "personPage") {
+    const previousPerson = person(origin.personId);
+    if (previousPerson) parent = { id: previousPerson.id, label: [previousPerson.firstName, previousPerson.middleName, previousPerson.lastName].filter(Boolean).join(" "), action: "person" };
+  }
+  renderConsultationBreadcrumb("personPageBreadcrumb", "personPageTitle", {
+    title: fullName,
+    root: rootLabels[originView] || "Annuaire",
+    rootView: originView,
+    parent
+  });
+  setDedicatedPageBackLabel("personPageBackBtn", personPageReturnContext);
+
+  const birthDate = formatDirectoryDate(item.birthDateInfo, item.birthDate);
+  const deathDate = formatDirectoryDate(item.deathDateInfo, item.deathDate);
+  const birthPlace = formatCompactPlace(item.place, item.birthPlaceInfo);
+  const deathPlace = formatCompactPlace(item.deathPlace, item.deathPlaceInfo);
+  const modification = personModMetaParts(item);
+  const essentials = [
+    `<span><strong>Naissance</strong> · ${esc(birthDate === "—" ? "Non renseignée" : birthDate)}${birthPlace ? ` · ${esc(birthPlace)}` : ""}</span>`,
+    `<span><strong>Décès</strong> · ${esc(deathDate === "—" ? "Non renseigné" : deathDate)}${deathPlace ? ` · ${esc(deathPlace)}` : ""}</span>`,
+    modification ? `<span class="card-meta">${modification.long}</span>` : `<span class="card-meta">Dernière modification : Non renseignée</span>`
+  ].filter(Boolean);
+  $("personPageEssentials").innerHTML = essentials.join("");
+  if (!samePageVisible) personPageActiveSection = restore?.section || "identity";
+  syncPersonPageSectionNav(restore?.section || personPageActiveSection || "identity");
+  $("personPageContent").innerHTML = `<div class="detail-page-main">${personPageIdentityMarkup(item)}${personPageFamilyMarkup(item)}${personPageDocumentsMarkup(item)}${personPageResearchMarkup(item)}</div>`;
+  if (!samePageVisible && !preserveScroll) scrollFicheToTop("personDetailView");
+  if (restore && Number.isFinite(Number(restore.scrollY))) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      window.scrollTo({ left: 0, top: Number(restore.scrollY) || 0, behavior: "instant" });
+      syncPersonPageSectionNav(restore.section || "identity");
+    }));
+  }
+  if (!samePageVisible) requestAnimationFrame(() => $("personPageBackBtn").focus({ preventScroll: true }));
+}
+
+function openPersonPage(item, returnContext = null) {
+  return renderPersonPage(item, returnContext);
+}
+
+function refreshOpenPersonPage() {
+  if (!activePersonPageItem || $("personDetailView").hidden) return;
+  const item = person(activePersonPageItem.id);
+  if (!item) return returnFromPersonPage();
+  renderer.setActive(item.id);
+  renderPersonPage(item);
+}
+
+function returnFromPersonPage() {
+  if ($("personDetailView").hidden) return false;
+  const target = personPageReturnContext || { kind: "view", view: "directory" };
+  personPageReturnContext = null;
+  activePersonPageItem = null;
+  if (target.kind === "personPage") {
+    const item = person(target.personId);
+    if (!item) return toast("Cette personne n’est plus disponible.", "error");
+    renderPersonPage(item, target.personReturnContext || null, true, { scrollY: target.windowScrollY, section: target.section });
+  } else if (target.kind === "document") {
+    const documentItem = documents.find(value => value.id === target.documentId);
+    if (!documentItem) return setView(target.view || "documents");
+    setView(target.view === "documentDetail" ? "documentDetail" : target.view || "documents");
+    void openStoredDocument(documentItem, { returnContext: target.returnContext || "documents", view: target.view, pageContext: target.pageContext || null }).then(() => {
+      if (Number(target.windowScrollY) > 0) requestAnimationFrame(() => window.scrollTo({ left: 0, top: Number(target.windowScrollY), behavior: "instant" }));
+    });
+  } else if (target.kind === "source") {
+    const source = genealogyWorkspaceItems().find(value => value.kind === "source" && value.record.id === target.id);
+    if (source) {
+      renderSourcePage(source, target.sourceReturnContext || null, true);
+      if (Number(target.windowScrollY) > 0) requestAnimationFrame(() => window.scrollTo({ left: 0, top: Number(target.windowScrollY), behavior: "instant" }));
+    }
+    else setView(target.view || "genealogy");
+  } else if (target.kind === "proof") {
+    const proof = genealogyWorkspaceItems().find(value => value.kind === "proof" && value.record.id === target.id);
+    if (proof) {
+      renderProofPage(proof, target.returnContext || null, true);
+      if (Number(target.windowScrollY) > 0) requestAnimationFrame(() => window.scrollTo({ left: 0, top: Number(target.windowScrollY), behavior: "instant" }));
+    }
+    else setView(target.view || "genealogy");
+  } else if (target.kind === "item") {
+    setView(target.view || "genealogy");
+    openGenealogyItem(target.itemKind, target.id, target.pageId, target.photoId);
+    if (Number(target.windowScrollY) > 0) requestAnimationFrame(() => window.scrollTo({ left: 0, top: Number(target.windowScrollY), behavior: "instant" }));
+  } else {
+    setView(target.view || "directory");
+    requestAnimationFrame(() => {
+      if (Number(target.windowScrollY) > 0) window.scrollTo({ left: 0, top: Number(target.windowScrollY), behavior: "instant" });
+      if (target.view === "directory" && target.focusId) {
+        document.querySelector(`[data-directory-person="${CSS.escape(target.focusId)}"]`)?.focus({ preventScroll: true });
+      } else if (target.view === "tree" && target.focusId) {
+        document.querySelector(`#treeScene .person[data-person-id="${CSS.escape(target.focusId)}"]`)?.focus({ preventScroll: true });
+      }
+    });
+  }
+  if (target.treeFullscreen && target.view === "tree" && !treeFullscreenActive) void toggleTreeFullscreen();
+  return true;
+}
+
+$("personPageBackBtn").addEventListener("click", returnFromPersonPage);
+$("personPageEditBtn").addEventListener("click", () => {
+  if (!activePersonPageItem) return;
+  openPerson(activePersonPageItem, personPageReturnContext?.view === "tree" ? "tree" : "directory");
+});
+$("personPageSectionNav").addEventListener("click", event => {
+  const button = event.target.closest("[data-person-page-section]");
+  if (!button) return;
+  const section = button.dataset.personPageSection;
+  const target = $(`personPage${section[0].toUpperCase()}${section.slice(1)}`);
+  if (!target) return;
+  syncPersonPageSectionNav(section);
+  target.scrollIntoView({ block: "start", behavior: "smooth" });
+});
+$("personPageContent").addEventListener("click", event => {
+  const section = event.target.closest("#personPageIdentity, #personPageFamily, #personPageDocuments, #personPageResearch");
+  if (section) syncPersonPageSectionNav(({ personPageIdentity: "identity", personPageFamily: "family", personPageDocuments: "documents", personPageResearch: "research" })[section.id]);
+  const button = event.target.closest("[data-open-person-page]");
+  if (!button) return;
+  const item = person(button.dataset.openPersonPage);
+  if (!item) return toast("Cette personne n’est plus disponible.", "error");
+  renderPersonPage(item, personPageContext());
+});
+$("personPageContent").addEventListener("keydown", event => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  if (event.target.closest("button")) return;
+  const card = event.target.closest("[data-view-document], [data-view-proof]");
+  if (!card) return;
+  event.preventDefault();
+  card.click();
+});
 /* Icônes du parcours de vie : une seule famille graphique (sprite existant),
    mêmes épaisseur/couleurs que le Design System, décoratives (aria-hidden).
    naissance → sparkles · union → heart · séparation/divorce → unlink
@@ -4140,6 +4445,7 @@ function dedicatedPageReturnDestination(context) {
   if (context?.kind === "proof") return "à la preuve";
   if (context?.kind === "document") return "au document";
   if (context?.kind === "person") return "à la personne";
+  if (context?.kind === "personPage") return "à la personne";
   if (context?.kind === "fiche") return itemLabels[context.itemKind] || "à la fiche";
   if (context?.kind === "item") return itemLabels[context.itemKind] || "à la fiche";
   if (context?.view) return viewLabels[context.view] || "à la vue précédente";
@@ -4171,6 +4477,7 @@ function setTranscriptionWorkshopBackLabel() {
 function refreshDedicatedPageBackLabels() {
   if (!$("sourceDetailView").hidden) setDedicatedPageBackLabel("sourcePageBackBtn", sourcePageReturnContext);
   if (!$("proofDetailView").hidden) setDedicatedPageBackLabel("proofPageBackBtn", proofPageReturnContext);
+  if (!$("personDetailView").hidden) setDedicatedPageBackLabel("personPageBackBtn", personPageReturnContext);
   if (isDocumentPageVisible()) setDedicatedPageBackLabel("documentPageBackBtn", documentPageReturnContext);
   if (isTranscriptionWorkshopActive()) setTranscriptionWorkshopBackLabel();
 }
@@ -4435,6 +4742,7 @@ function renderGenealogyWorkspace() {
   $("genealogyOfficialBtn").hidden = !isAdminUser();
   refreshOpenSourcePage();
   refreshOpenProofPage();
+  refreshOpenPersonPage();
 }
 
 function proofDetailsMarkup(data, record) {
@@ -4576,6 +4884,7 @@ function proofPageReturnContextFor(item) {
       view: activeView
     };
   }
+  if (!$('personDetailView').hidden && activePersonPageItem) return personPageContext();
   if (isDocumentPageVisible() && activeViewerDocumentId) {
     return {
       kind: "document",
@@ -4690,6 +4999,24 @@ function navigateConsultationBreadcrumb(action, value) {
     return navigateTranscriptionWorkshopBreadcrumb(action === "view" ? "documents" : "document");
   }
   if (action === "view") return setView(value);
+  if (!$('personDetailView').hidden && activePersonPageItem) {
+    const returnContext = personPageContext();
+    if (action === "person") {
+      const personItem = person(value);
+      if (!personItem) return toast("Cette personne n’est plus disponible.", "error");
+      return renderPersonPage(personItem, returnContext);
+    }
+    if (action === "source") {
+      const source = genealogyWorkspaceItems().find(item => item.kind === "source" && item.record.id === value);
+      if (!source) return toast("Cette source n’est plus disponible.", "error");
+      return renderSourcePage(source, returnContext);
+    }
+    if (action === "proof") {
+      const proof = genealogyWorkspaceItems().find(item => item.kind === "proof" && item.record.id === value);
+      if (!proof) return toast("Cette preuve n’est plus disponible.", "error");
+      return renderProofPage(proof, returnContext);
+    }
+  }
   if (action === "source" && !$("proofDetailView").hidden) {
     const source = genealogyWorkspaceItems().find(item => item.kind === "source" && item.record.id === value);
     if (!source) return toast("Cette source n’est plus disponible.", "error");
@@ -4718,6 +5045,8 @@ function navigateConsultationBreadcrumb(action, value) {
     pageContext = { kind: "source", id: activeSourcePageItem.record.id, sourceReturnContext: sourcePageReturnContext ? { ...sourcePageReturnContext } : null, view: sourcePageReturnContext?.view || "genealogy" };
   } else if (!$("proofDetailView").hidden && activeProofPageItem) {
     pageContext = { kind: "proof", id: activeProofPageItem.record.id, returnContext: proofPageReturnContext ? { ...proofPageReturnContext } : null, view: proofPageReturnContext?.view || "genealogy" };
+  } else if (!$('personDetailView').hidden && activePersonPageItem) {
+    pageContext = personPageContext();
   }
   return openStoredDocument(documentItem, { returnContext: "documents", view: "documents", pageContext });
 }
@@ -4801,6 +5130,10 @@ function returnFromProofPage() {
         if (panel) panel.scrollTop = target.scrollTop || 0;
       }, 45);
     });
+  } else if (target.kind === "personPage") {
+    const personItem = person(target.personId);
+    if (!personItem) return toast("Cette personne n’est plus disponible.", "error");
+    renderPersonPage(personItem, target.personReturnContext || null, true, { scrollY: target.windowScrollY, section: target.section });
   } else {
     setView(target.view || "genealogy");
     if (target.view === "genealogy" && target.focusId) requestAnimationFrame(() => {
@@ -9271,6 +9604,10 @@ function returnFromSourcePage() {
     const proof = genealogyWorkspaceItems().find(item => item.kind === "proof" && item.record.id === target.id);
     if (proof) renderProofPage(proof, target.returnContext || null, true);
     else setView(target.view || "genealogy");
+  } else if (target.kind === "personPage") {
+    const personItem = person(target.personId);
+    if (personItem) renderPersonPage(personItem, target.personReturnContext || null, true, { scrollY: target.windowScrollY, section: target.section });
+    else setView(target.view || "directory");
   } else {
     setView(target.view || "genealogy");
     if (target.view === "genealogy" && target.focusId) {
@@ -10945,6 +11282,7 @@ function captureDocumentPageReturnContext() {
       view: activeView
     };
   }
+  if (!$('personDetailView').hidden && activePersonPageItem) return personPageContext();
   return { kind: "view", view: activeView, ...(activeView === "genealogy" ? { focusId: null } : {}) };
 }
 
@@ -11019,6 +11357,10 @@ function restoreDocumentPageOrigin(target) {
         if (panel) panel.scrollTop = target.scrollTop || 0;
       }, 45);
     });
+  } else if (target.kind === "personPage") {
+    const personItem = person(target.personId);
+    if (!personItem) return toast("Cette personne n’est plus disponible.", "error");
+    renderPersonPage(personItem, target.personReturnContext || null, true, { scrollY: target.windowScrollY, section: target.section });
   } else {
     setView(target.view || "documents");
     if (target.view === "genealogy" && target.focusId) requestAnimationFrame(() => {
@@ -12040,6 +12382,7 @@ function setView(view) {
   if (view !== "sourceDetail") $("sourcePageActions").open = false;
   $("proofDetailView").hidden = view !== "proofDetail";
   if (view !== "proofDetail") $("proofPageActions").open = false;
+  $("personDetailView").hidden = view !== "personDetail";
   $("documentDetailView").hidden = view !== "documentDetail";
   $("tasksView").hidden = view !== "tasks";
   $("dossiersView").hidden = view !== "dossiers";
@@ -12048,6 +12391,7 @@ function setView(view) {
   $("headerTreeActions").hidden = view !== "tree";
   const selectedNavView = view === "sourceDetail" ? sourcePageReturnContext?.view || "genealogy"
     : view === "proofDetail" ? proofPageReturnContext?.view || "genealogy"
+      : view === "personDetail" ? personPageReturnContext?.view || "directory"
       : view === "documentDetail" ? documentPageReturnContext?.view || "documents"
         : view;
   document.querySelectorAll("[data-view]").forEach(button => {
@@ -12133,6 +12477,7 @@ function startData() {
     loadedPeople = true;
     syncState();
     updateReadyViews();
+    refreshOpenPersonPage();
     const viewedDocument = documents.find(item => item.id === activeViewerDocumentId);
     if (isDocumentPageVisible() && viewedDocument) renderUnifiedDocumentDetails(viewedDocument);
   }, dataError));
@@ -12140,6 +12485,7 @@ function startData() {
     families = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
     loadedFamilies = true;
     syncState();
+    refreshOpenPersonPage();
     if ($("personDialog").open && activePersonSection === "relations" && activeId) renderRelations();
   }, dataError));
   unsubs.push(onSnapshot(refs.documents, snapshot => {
@@ -12147,6 +12493,7 @@ function startData() {
     loadedDocuments = true;
     syncState();
     updateReadyViews();
+    refreshOpenPersonPage();
     renderGenealogySourceDocumentPicker();
     const viewedDocument = documents.find(item => item.id === activeViewerDocumentId);
     if (isDocumentPageVisible() && viewedDocument) renderUnifiedDocumentDetails(viewedDocument);
@@ -12293,6 +12640,7 @@ $("personForm").addEventListener("submit", async event => {
       await updateDoc(doc(db, "people", id), data);
       focusAfterRender = id;
       close("personDialog");
+      refreshOpenPersonPage();
       toast("Personne mise à jour");
     } else {
       const createData = { ...data };
@@ -12568,8 +12916,8 @@ $("directoryList").addEventListener("click", event => {
   if (documentsButton) return openDirectoryDocuments(documentsButton.dataset.directoryDocuments);
   const entry = event.target.closest("[data-directory-person]");
   if (entry && !event.target.closest("button, a, input, select, textarea, summary, .tile-context-actions")) {
-    preparePrimaryTileActivation(event, entry, $("personDialog"));
-    openPerson(person(entry.dataset.directoryPerson), "directory");
+    preparePrimaryTileActivation(event, entry);
+    openPersonPage(person(entry.dataset.directoryPerson), { kind: "view", view: "directory", focusId: entry.dataset.directoryPerson });
   }
 });
 $("directoryList").addEventListener("keydown", event => {
@@ -12578,9 +12926,8 @@ $("directoryList").addEventListener("keydown", event => {
   const entry = event.target.closest("[data-directory-person]");
   if (!entry || event.target !== entry) return;
   pendingPrimaryTilePointer = null;
-  primaryTileFocusReturn.delete($("personDialog"));
   event.preventDefault();
-  openPerson(person(entry.dataset.directoryPerson), "directory");
+  openPersonPage(person(entry.dataset.directoryPerson), { kind: "view", view: "directory", focusId: entry.dataset.directoryPerson });
 });
 
 $("personDocumentsList").addEventListener("keydown", event => {
@@ -13091,9 +13438,13 @@ $("viewerDocumentDetails").addEventListener("click", event => {
   if (personButton) {
     const personItem = person(personButton.dataset.unifiedPerson);
     if (!personItem) return toast("Cette personne n’est plus disponible.", "error");
-    /* La fiche Personne s'ouvre au-dessus de la page : le retour est sa
-       fermeture, la page Document reste appelante et intacte. */
-    if (!$("personDialog").open) openPerson(personItem, "directory");
+    renderPersonPage(personItem, {
+      kind: "document",
+      documentId: activeViewerDocumentId,
+      returnContext: activeViewerReturnContext,
+      view: "documentDetail",
+      pageContext: documentPageReturnContext ? { ...documentPageReturnContext } : null
+    });
     return;
   }
   const sourceCard = event.target.closest("[data-unified-source-card]");
@@ -13172,6 +13523,7 @@ $("genealogyContributionDialog").addEventListener("close", () => {
   refreshUnifiedDetailsIfOpen();
   refreshOpenSourcePage();
   refreshOpenProofPage();
+  refreshOpenPersonPage();
   genealogyItemRefreshPending = true;
   refreshOpenGenealogyItem();
   const personId = $("personId")?.value;
@@ -13240,7 +13592,12 @@ $("proofPageContent").addEventListener("click", event => {
   if (personButton) {
     const item = person(personButton.dataset.genealogyPerson);
     if (!item) return toast("Cette personne n’est plus disponible.", "error");
-    return openPerson(item, "directory");
+    return renderPersonPage(item, {
+      kind: "proof",
+      id: activeProofPageItem.record.id,
+      returnContext: proofPageReturnContext ? { ...proofPageReturnContext } : null,
+      view: proofPageReturnContext?.view || "genealogy"
+    });
   }
 });
 $("sourcePageContent").addEventListener("click", event => {
@@ -13248,7 +13605,12 @@ $("sourcePageContent").addEventListener("click", event => {
   if (personButton) {
     const item = person(personButton.dataset.genealogyPerson);
     if (!item) return toast("Cette personne n’est plus disponible.", "error");
-    return openPerson(item, "directory");
+    return renderPersonPage(item, {
+      kind: "source",
+      id: activeSourcePageItem.record.id,
+      sourceReturnContext: sourcePageReturnContext ? { ...sourcePageReturnContext } : null,
+      view: sourcePageReturnContext?.view || "genealogy"
+    });
   }
   const button = event.target.closest("[data-source-document-open]");
   if (button) {
@@ -13314,7 +13676,14 @@ $("genealogyItemContent").addEventListener("click", event => {
   if (proofPerson) {
     const personItem = person(proofPerson.dataset.genealogyPerson);
     if (!personItem) return toast("Cette personne n’est plus disponible.", "error");
-    if (!$("personDialog").open) openPerson(personItem, "directory");
+    renderPersonPage(personItem, {
+      kind: "item",
+      itemKind: activeGenealogyItem?.kind || "transcription",
+      id: activeGenealogyItem?.record?.id || "",
+      pageId: activeGenealogyPageId,
+      photoId: activeGenealogyPhotoId,
+      view: activeView
+    });
     return;
   }
   const deleteOfficialButton = event.target.closest("[data-delete-official-kind]");

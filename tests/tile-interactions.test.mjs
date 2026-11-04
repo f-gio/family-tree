@@ -15,7 +15,7 @@ test("Annuaire : la tuile ouvre la fiche, le menu conserve le compteur de docume
   assert.match(render, /directory-entry-documents">\$\{documentAction\}<\/div><div class="directory-entry-menu">\$\{menu\}/);
   assert.match(render, /tileContextMenuMarkup\("directory", item\.id[\s\S]*?label: "Supprimer"/);
   assert.doesNotMatch(render, /directory-open-action|>→</);
-  assert.match(app, /preparePrimaryTileActivation\(event, entry, \$\("personDialog"\)\);\s*openPerson/);
+  assert.match(app, /preparePrimaryTileActivation\(event, entry\);\s*openPersonPage/);
 });
 
 test("Documents : les personnes restent affichées et seules les pièces consultables ouvrent le visualiseur", () => {

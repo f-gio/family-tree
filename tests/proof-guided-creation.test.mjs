@@ -117,6 +117,8 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
         throw new Error(`carte introuvable (cartes=${cardCount}, personnes injectées=${peopleCount}, répertoire="${cardText.slice(0, 200)}")`);
       }
       await adaCard.click();
+      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
+      await page.click("#personPageEditBtn");
       await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
       await page.click('[data-person-section="documents"]');
       await page.waitForSelector("#genealogyProposeProofForPersonBtn", { state: "visible", timeout: 10000 });
@@ -342,13 +344,13 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.click("#proofPageBackBtn");
       await page.waitForTimeout(600);
       assert.equal((await page.locator("#proofPageTitle").textContent()).trim(), firstTitle, "retour à la précédente preuve");
-      // Preuve → Personne : la modale Personne recouvre temporairement la page.
+      // Preuve → Personne : la page Personne remplace la fiche Preuve.
       const chip = page.locator("#proofPageContent [data-genealogy-person]").first();
       assert.ok(await chip.count(), "personne consultable depuis la preuve");
       await chip.click();
-      await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
+      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
+      await page.click("#personPageBackBtn");
+      await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden, { timeout: 10000 });
       assert.ok(await page.locator("#proofDetailView:not([hidden])").count(), "page Preuve conservée après la visite personne");
       // Preuve → Document : la page Document prend la place de la page Preuve ;
       // Échap conserve le retour contextuel vers la Preuve appelante.
@@ -371,6 +373,8 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
         await page.click('.nav-btn[data-view="directory"]');
         await page.waitForTimeout(400);
         await page.locator("#directoryList").getByText("Probe", { exact: false }).first().click();
+        await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
+        await page.click("#personPageEditBtn");
         await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
         await page.click('[data-person-section="documents"]');
         const consult = page.locator('#personGenealogyEvidenceList [data-view-proof]').first();
@@ -415,6 +419,8 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
         await page.click('.nav-btn[data-view="directory"]');
         await page.waitForTimeout(400);
         await page.locator("#directoryList").getByText("Probe", { exact: false }).first().click();
+        await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
+        await page.click("#personPageEditBtn");
         await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
         await page.click('[data-person-section="documents"]');
         await page.waitForTimeout(250);
@@ -473,6 +479,8 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.click('.nav-btn[data-view="directory"]');
       await page.waitForTimeout(400);
       await page.locator("#directoryList").getByText("Grace", { exact: false }).first().click();
+      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
+      await page.click("#personPageEditBtn");
       await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
       await page.click('[data-person-section="documents"]');
       await page.waitForTimeout(300);
@@ -483,6 +491,8 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.click('.nav-btn[data-view="directory"]');
       await page.waitForTimeout(400);
       await page.locator("#directoryList").getByText("Ada", { exact: false }).first().click();
+      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
+      await page.click("#personPageEditBtn");
       await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
       await page.click('[data-person-section="documents"]');
       await page.waitForTimeout(300);
@@ -497,6 +507,8 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
         await page.click('.nav-btn[data-view="directory"]');
         await page.waitForTimeout(400);
         await page.locator("#directoryList").getByText(personName, { exact: false }).first().click();
+        await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
+        await page.click("#personPageEditBtn");
         await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
         await page.click('[data-person-section="documents"]');
         await page.waitForTimeout(250);
@@ -510,6 +522,8 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
         await page.click('.nav-btn[data-view="directory"]');
         await page.waitForTimeout(400);
         await page.locator("#directoryList").getByText("Ada", { exact: false }).first().click();
+        await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
+        await page.click("#personPageEditBtn");
         await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
         await page.click('[data-person-section="documents"]');
         await page.waitForTimeout(250);
@@ -662,6 +676,8 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.click('.nav-btn[data-view="directory"]');
       await page.waitForTimeout(400);
       await page.locator("#directoryList").getByText("Ada", { exact: false }).first().click();
+      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
+      await page.click("#personPageEditBtn");
       await page.waitForSelector("#personDialog[open]", { timeout: 10000 });
       await page.click('[data-person-section="documents"]');
       const proofCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "ui-delete-proof-lock-fact" });

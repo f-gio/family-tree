@@ -383,6 +383,27 @@
       <div class="source-detail-content proof-detail-content" id="proofPageContent"></div>
     </div>
   </main>
+  <main class="workspace-view page-content-lane person-detail-view" id="personDetailView" hidden aria-labelledby="personPageTitle">
+    <div class="source-detail-page person-detail-page">
+      <header class="dedicated-page-header person-detail-header">
+        <div class="detail-page-crumb-row">
+          <nav class="consultation-breadcrumb" id="personPageBreadcrumb" aria-label="Fil d’Ariane"><h2 id="personPageTitle"></h2></nav>
+          <button class="dedicated-page-back" id="personPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
+        </div>
+        <div class="detail-page-meta-row">
+          <div class="person-detail-essentials" id="personPageEssentials"></div>
+          <div class="dedicated-page-actions dedicated-page-actions-row person-detail-header-actions"><button class="btn primary" id="personPageEditBtn" type="button">Modifier</button></div>
+        </div>
+      </header>
+      <nav class="person-detail-section-nav" id="personPageSectionNav" aria-label="Sections de la fiche">
+        <button class="btn" type="button" data-person-page-section="identity" aria-current="location">Identité</button>
+        <button class="btn" type="button" data-person-page-section="family">Famille</button>
+        <button class="btn" type="button" data-person-page-section="documents">Documents</button>
+        <button class="btn" type="button" data-person-page-section="research">Recherches</button>
+      </nav>
+      <div class="source-detail-content person-detail-content" id="personPageContent"></div>
+    </div>
+  </main>
   <main class="workspace-view page-content-lane document-detail-view" id="documentDetailView" hidden aria-labelledby="viewerTitle">
     <div class="document-detail-shell">
       <header class="dedicated-page-header document-detail-header">

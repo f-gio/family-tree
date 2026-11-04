@@ -253,8 +253,13 @@ test("annuaire global, filtre d’arbre indépendant et libellés d’appartenan
     state = await page.evaluate(() => window.__personTreeHarness.state());
     assert.equal(state.directoryTreeId, "all", "le sélecteur Arbre ne touche pas au filtre Annuaire");
     await page.locator('#directoryList [data-directory-person="secondary-a"]').click();
+    await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
+    await page.locator("#personPageEditBtn").click();
+    await page.waitForSelector("#personDialog[open]");
     assert.equal(await page.locator("#personTreeSelectWrap").isVisible(), false, "aucun changement treeId dans l’édition d’une fiche existante");
     await page.locator('#personDialog button.icon-btn[data-close="personDialog"]').click();
+    await page.locator("#personPageBackBtn").click();
+    await page.waitForFunction(() => !document.getElementById("directoryView").hidden);
     await page.locator("#directoryTreeFilter").selectOption("main");
     assert.deepEqual(await page.locator("#directoryList [data-directory-person]").evaluateAll(nodes => nodes.map(node => node.dataset.directoryPerson)), ["main-a", "main-b"]);
     await page.locator("#directorySearch").fill("carlo");

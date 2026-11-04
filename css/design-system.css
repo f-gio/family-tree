@@ -2743,11 +2743,13 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 body:has(#transcriptionWorkshopView:not([hidden])) .topbar .main-nav,
 body:has(#documentDetailView:not([hidden])) .topbar .main-nav,
 body:has(#sourceDetailView:not([hidden])) .topbar .main-nav,
-body:has(#proofDetailView:not([hidden])) .topbar .main-nav { display: none !important; }
+body:has(#proofDetailView:not([hidden])) .topbar .main-nav,
+body:has(#personDetailView:not([hidden])) .topbar .main-nav { display: none !important; }
 body:has(#transcriptionWorkshopView:not([hidden])) .topbar .brand p,
 body:has(#documentDetailView:not([hidden])) .topbar .brand p,
 body:has(#sourceDetailView:not([hidden])) .topbar .brand p,
-body:has(#proofDetailView:not([hidden])) .topbar .brand p { display: none; }
+body:has(#proofDetailView:not([hidden])) .topbar .brand p,
+body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 .modal-md { width: min(var(--modal-md), calc(100% - var(--space-8))); }
 #transcriptionPageInitDialog { max-height: min(42rem, calc(100dvh - var(--space-8))); }
 #transcriptionPageInitDialog .modal-head { align-items: center; }
@@ -5423,6 +5425,7 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .dedicated-page-back-arrow { font-size: var(--text-lg); line-height: 1; }
 .dedicated-page-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; row-gap: var(--space-1); column-gap: var(--space-3); min-width: 0; padding-bottom: var(--space-4); border-bottom: var(--border-subtle); }
 .source-detail-header { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2); margin-bottom: var(--space-3); }
+.person-detail-header { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2); margin-bottom: var(--space-3); }
 .dedicated-page-heading { min-width: 0; }
 .workspace-view .dedicated-page-heading .page-kicker { margin: 0 0 2px; }
 .dedicated-page-heading .page-title { overflow-wrap: anywhere; }
@@ -5461,6 +5464,35 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .source-detail-content .detail-page-main > section > h4,
 .source-detail-content .detail-page-aside > section > h3,
 .source-detail-content .detail-page-aside > section > h4 { margin: 0 0 var(--space-3); color: var(--color-text); font: var(--weight-semibold) var(--text-lg)/var(--leading-tight) var(--font-display); }
+.person-detail-essentials { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-4); min-width: 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+.person-detail-essentials > span { min-width: 0; overflow-wrap: anywhere; }
+.person-detail-essentials strong { color: var(--color-text); font-weight: var(--weight-semibold); }
+.person-detail-section-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-3); }
+.person-detail-section-nav,
+.person-detail-content { width: min(100%, 72rem); margin-inline: auto; }
+.person-detail-content { grid-template-columns: minmax(0, 1fr); }
+.person-detail-section-nav button { min-height: var(--control-touch); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); }
+.person-detail-section-nav button[aria-current="location"] { border-color: var(--color-brand); background: var(--color-brand); color: var(--color-surface); }
+.person-detail-content section[id] { scroll-margin-top: var(--space-4); }
+.person-detail-empty-value { color: var(--color-text-muted); font-size: var(--text-sm); font-weight: var(--weight-regular); }
+.person-detail-notes { margin: var(--space-3) 0 0; padding-top: var(--space-3); border-top: var(--border-subtle); color: var(--color-text-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.person-detail-relative-link { display: inline-flex; align-items: center; min-height: var(--control-touch); padding: 0; border: 0; background: transparent; box-shadow: none; color: var(--color-brand); font: inherit; font-weight: var(--weight-semibold); text-align: left; }
+.person-detail-relative-link:hover { border: 0; background: transparent; box-shadow: none; color: var(--color-brand-hover); text-decoration: underline; }
+.person-detail-family-row { grid-template-columns: 2.75rem minmax(0, 1fr); }
+.person-detail-research-list { display: grid; gap: var(--space-2); }
+.person-detail-research-card { display: grid; gap: var(--space-1); min-width: 0; padding: var(--space-3); border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); text-align: left; }
+.person-detail-research-card[role="button"] { cursor: pointer; }
+.person-detail-research-card strong { overflow-wrap: anywhere; }
+.person-detail-research-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); color: var(--color-text-muted); font-size: var(--text-sm); }
+.person-detail-photo { width: min(9rem, 100%); aspect-ratio: 1; object-fit: cover; border-radius: var(--radius-md); }
+.person-detail-content .life-timeline { margin-top: var(--space-4); }
+@media (max-width: 760px) {
+  .person-detail-header .detail-page-meta-row { align-items: flex-start; }
+  .person-detail-essentials { display: grid; gap: var(--space-1); }
+  .person-detail-header-actions { flex: 0 0 auto; }
+  .person-detail-section-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .person-detail-section-nav button { width: 100%; min-height: var(--control-touch); }
+}
 .source-detail-content .genealogy-linked-documents ul { margin-bottom: 0; }
 .source-detail-content .genealogy-linked-documents li button { min-height: var(--control-touch); }
 /* Textes longs : largeur de lecture bornée même dans la colonne large. */

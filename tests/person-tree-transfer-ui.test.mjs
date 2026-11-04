@@ -164,6 +164,9 @@ async function openPaulTransfer(page) {
   const entry = page.locator('#directoryList [data-directory-person="paul"]');
   await entry.waitFor({ state: "visible", timeout: 10000 });
   await entry.click();
+  await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
+  await page.locator("#personPageEditBtn").click();
+  await page.waitForSelector("#personDialog[open]");
   await page.locator("#personMenuBtn").click();
   const actionOrder = await page.locator("#personMenu button:not([hidden])").evaluateAll(buttons => buttons.map(button => button.id));
   assert.deepEqual(actionOrder, ["printPersonBtn", "viewBranchBtn", "changePersonTreeBtn", "removePersonFromTreeBtn", "deleteBtn"], "ordre complet des actions administrateur");
@@ -177,6 +180,9 @@ test("action transfert réservée aux admins et destination vide par défaut", a
   try {
     await page.evaluate(() => window.__transferHarness.setRole("member"));
     await page.locator('#directoryList [data-directory-person="paul"]').click();
+    await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
+    await page.locator("#personPageEditBtn").click();
+    await page.waitForSelector("#personDialog[open]");
     assert.equal(await page.locator("#changePersonTreeBtn").isVisible(), false);
     await page.locator('#personDialog button.icon-btn[data-close="personDialog"]').click();
 

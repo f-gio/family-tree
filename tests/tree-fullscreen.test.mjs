@@ -216,9 +216,11 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
 
           // Fiches personnes accessibles en plein écran.
           await page.locator("#treeScene .person").first().click();
-          assert.equal(await page.locator("#personDialog").evaluate(dialog => dialog.open), true, `${name} : fiche personne ouvrable`);
-          await page.keyboard.press("Escape");
-          await page.waitForFunction(() => !document.getElementById("personDialog").open);
+          await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
+          assert.equal(await page.locator("#personDetailView").isVisible(), true, `${name} : page Personne ouvrable`);
+          await page.locator("#personPageBackBtn").click();
+          await page.waitForFunction(() => document.getElementById("personDetailView").hidden);
+          await page.waitForFunction(() => document.documentElement.classList.contains("tree-fullscreen-active"));
 
           // Ajuster/Recentrer directement depuis la barre.
           await page.locator("#zoomInBtn").tap();
@@ -271,7 +273,7 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
           await page.keyboard.press("Escape");
           await page.waitForFunction(() => !document.documentElement.classList.contains("tree-fullscreen-active"));
           await page.locator("#treeScene .person").first().click();
-          assert.equal(await page.locator("#personDialog").evaluate(dialog => dialog.open), true, `${name} : accès aux fiches préservé`);
+          assert.equal(await page.locator("#personDetailView").isVisible(), true, `${name} : accès à la page Personne préservé`);
         } finally { await context.close(); }
       } finally { await browser.close(); }
     }
