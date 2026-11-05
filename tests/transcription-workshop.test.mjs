@@ -765,7 +765,7 @@ test("les brouillons sont persistés localement et repris sans toucher aux modul
   assert.match(app, /flushTranscriptionWorkshopDraftSaves\(\);\s*\n\s*unbindTranscriptionWorkshopMenu\(\);\s*\n\s*transcriptionWorkshopDraft = null;/, "dernière écriture et fermeture du menu avant l'effacement de la session");
   assert.match(app, /addEventListener\("beforeunload"/, "garde conservée pour les écritures non conservées");
   // Sortie : écriture immédiate avant toute navigation (bouton Retour, retour système).
-  assert.match(app, /flushTranscriptionWorkshopDraftSaves\(\);\s*\n\s*const target = transcriptionWorkshopReturn;/, "Retour de l'atelier écrit les sauvegardes avant navigation");
+  assert.match(app, /flushTranscriptionWorkshopDraftSaves\(\);\s*\n\s*flushTranscriptionDraftRemoteSends\(\);\s*\n\s*const target = transcriptionWorkshopReturn;/, "Retour de l'atelier écrit les sauvegardes locales puis déclenche l'envoi distant avant navigation");
   // Jamais de destruction sur un échec de lecture ou de restauration.
   const restoreFn = app.match(/function restoreTranscriptionWorkshopDraftFromStorage[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(restoreFn, "restauration locale présente");

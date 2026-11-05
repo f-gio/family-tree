@@ -910,3 +910,51 @@ test("après validation : un brouillon distant hérité n'est jamais restauré n
     await server.close().catch(() => {});
   }
 });
+
+test("la sortie de l'atelier déclenche immédiatement l'envoi distante en attente", { timeout: 120000 }, async t => {
+  const harness = await openRemoteHarness(t);
+  if (!harness) return;
+  const { browser, server, serverState, contexts, pageErrors, createDevice } = harness;
+  try {
+    const key = serverKey();
+    const page = await createDevice();
+    await openWorkshopOn(page);
+    assert.deepEqual(serverState.entries, {}, "compte vide à l'ouverture");
+
+    /* Saisie : l'autosauvegarde locale (3 s) arme l'envoi distant (5 s). */
+    await page.fill('[data-workshop-field="textIt"]', "Anno prima dell’uscita");
+    await page.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Enregistré", undefined, { timeout: 5000 });
+
+    /* Sortie réelle (breadcrumb → leaveTranscriptionWorkshop) bien avant le
+       délai naturel de 5 s : l'envoi part à la sortie, sans attendre le
+       minuteur, et la sauvegarde locale reste en place. */
+    const exitAt = Date.now();
+    await exitWorkshop(page);
+    await waitForRemote("envoi déclenché à la sortie de l'atelier", () => Boolean(serverState.entries[key]), 3000);
+    const elapsedAfterExit = Date.now() - exitAt;
+    assert.ok(elapsedAfterExit < 4000, `envoi distant constaté ${elapsedAfterExit} ms après la sortie (le délai naturel de 5 s n'est pas attendu)`);
+    assert.equal(serverState.entries[key].version, 1, "première écriture distante = version 1");
+    assert.equal(serverState.entries[key].ownerUid, "compte-remote-1", "propriétaire porté par le document distant");
+    assert.equal(serverState.entries[key].snapshot.passages[0].textIt, "Anno prima dell’uscita", "dernier état sauvegardé publié");
+    assert.equal(await page.evaluate(() => !!localStorage.getItem("familyTreeTranscriptionDraft:compte-remote-1|doc-remote|page-remote-1")), true, "copie locale conservée après la sortie");
+
+    /* Aucun doublon : le minuteur annulé à la sortie ne réécrit pas et le
+       contenu publié reste identique (pas de conflit de version). */
+    await page.waitForTimeout(5500);
+    assert.equal(Object.keys(serverState.entries).length, 1, "un seul brouillon distant après le délai naturel");
+    assert.equal(serverState.entries[key].version, 1, "aucune réécriture ni conflit de version");
+
+    /* Scénario inter-appareils : le second appareil retrouve le brouillon
+       non validé dès l'ouverture de la même page. */
+    const second = await createDevice();
+    await openWorkshopOn(second);
+    await second.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 8000 });
+    assert.equal(await second.evaluate(() => window.__draftRemote.fieldValue()), "Anno prima dell’uscita", "brouillon non validé retrouvé sur le second appareil");
+
+    assertNoWorkshopPageErrors(pageErrors);
+  } finally {
+    for (const context of contexts) await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
+});

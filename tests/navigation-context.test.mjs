@@ -75,6 +75,7 @@ test("l'atelier gare une entrée d'historique réelle et sort sans double nettoy
   assert.match(leave, /const target = transcriptionWorkshopReturn;/, "origine capturée avant nettoyage");
   assert.match(leave, /if \(!setView\(activeView\)\) return false;/, "nettoyage et confirmation assurés par setView, une seule fois");
   assert.match(leave, /restoreTranscriptionWorkshopOrigin\(target\);/, "origine restaurée après la sortie");
+  assert.match(leave, /flushTranscriptionWorkshopDraftSaves\(\);[\r\n\s]*flushTranscriptionDraftRemoteSends\(\);/, "envoi distant déclenché à la sortie, après la sauvegarde locale et avant la navigation");
 });
 
 test("le retour système du navigateur s'appuie sur l'entrée réelle sans boucle", () => {

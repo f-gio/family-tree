@@ -7899,6 +7899,7 @@ function leaveTranscriptionWorkshop() {
      travail uniquement en mémoire, et un échec éventuel est alors signalé
      par la confirmation de sortie. */
   flushTranscriptionWorkshopDraftSaves();
+  flushTranscriptionDraftRemoteSends();
   const target = transcriptionWorkshopReturn;
   if (!setView(activeView)) return false;
   restoreTranscriptionWorkshopOrigin(target);
