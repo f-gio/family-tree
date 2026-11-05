@@ -2331,12 +2331,18 @@ function syncPersonPageSectionNav(section = personPageActiveSection) {
   });
 }
 
-function personPageActionMenuMarkup({ distinctTreeIcons = false } = {}) {
-  const groups = [
-    [{ id: "printPersonBtn", action: "print" }, { id: "viewBranchBtn", action: "branch" }],
-    [{ id: "changePersonTreeBtn", action: "change-tree" }, { id: "removePersonFromTreeBtn", action: "remove-tree" }],
-    [{ id: "deleteBtn", action: "delete" }]
-  ];
+function personPageActionMenuMarkup({ distinctTreeIcons = false, mobileSections = false } = {}) {
+  const groups = mobileSections
+    ? [
+      [{ id: "printPersonBtn", action: "print" }],
+      [{ id: "viewBranchBtn", action: "branch" }, { id: "changePersonTreeBtn", action: "change-tree" }, { id: "removePersonFromTreeBtn", action: "remove-tree" }],
+      [{ id: "deleteBtn", action: "delete" }]
+    ]
+    : [
+      [{ id: "printPersonBtn", action: "print" }, { id: "viewBranchBtn", action: "branch" }],
+      [{ id: "changePersonTreeBtn", action: "change-tree" }, { id: "removePersonFromTreeBtn", action: "remove-tree" }],
+      [{ id: "deleteBtn", action: "delete" }]
+    ];
   const rendered = [];
   for (const group of groups) {
     const buttons = group.map(({ id, action }) => {
@@ -2587,7 +2593,7 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
   updatePersonMenuActions(item);
   $("personPageViewTreeBtn").hidden = membership.type !== "assigned";
   $("personPageActionsMenu").innerHTML = personPageActionMenuMarkup({ distinctTreeIcons: window.matchMedia("(min-width: 961px)").matches });
-  $("personPageMobileActionsMenu").innerHTML = personPageActionMenuMarkup();
+  $("personPageMobileActionsMenu").innerHTML = personPageActionMenuMarkup({ distinctTreeIcons: true, mobileSections: true });
   $("personPageActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
   $("personPageMobileActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
   if (!samePageVisible) {
