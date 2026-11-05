@@ -2124,8 +2124,17 @@ function renderPersonDocuments(personId) {
   $("personGenealogyEvidenceList").innerHTML = evidence.length
     ? evidence.map(item => {
       const title = proofFactLabel(item.data.factType) || item.data.factId || item.kind;
-      const status = GENEALOGY_DATA_STATUS_LABELS[item.data.technicalStatus] || GENEALOGY_DATA_STATUS_LABELS[item.data.status] || item.data.status || "à examiner";
-      return `<article class="person-doc-card" tabindex="0" aria-label="Consulter ${esc(title)}" data-view-proof="${esc(item.record.id)}"><div class="person-doc-meta"><strong class="person-doc-title">${esc(title)}</strong><span class="person-doc-subrow">${esc(genealogyKindLabels[item.kind])} · ${esc(status)}<button class="btn small person-doc-edit" type="button" data-edit-genealogy-proof="${esc(item.record.id)}">${icon("edit")}<span class="sr-only">Réviser</span></button></span></article>`;
+      const isConclusion = item.kind === "conclusion";
+      const status = isConclusion
+        ? conclusionStatusText(item.data)
+        : GENEALOGY_DATA_STATUS_LABELS[item.data.technicalStatus] || GENEALOGY_DATA_STATUS_LABELS[item.data.status] || item.data.status || "à examiner";
+      const viewAttribute = isConclusion
+        ? `data-view-conclusion="${esc(item.record.id)}"`
+        : `data-view-proof="${esc(item.record.id)}"`;
+      const reviseButton = isAdminUser()
+        ? `<button class="btn small person-doc-edit" type="button" data-edit-genealogy-${isConclusion ? "conclusion" : "proof"}="${esc(item.record.id)}">${icon("edit")}<span class="sr-only">Réviser</span></button>`
+        : "";
+      return `<article class="person-doc-card" tabindex="0" aria-label="Consulter ${esc(title)}" ${viewAttribute}><div class="person-doc-meta"><strong class="person-doc-title">${esc(title)}</strong><span class="person-doc-subrow">${esc(genealogyKindLabels[item.kind])} · ${esc(status)}${reviseButton}</span></article>`;
     }).join("")
     : emptyState({ iconName: "document", title: "Aucune preuve associée", description: "Les preuves concernant cette personne apparaîtront ici après leur enregistrement." });
 }
@@ -2309,10 +2318,10 @@ function personPageResearchMarkup(item) {
     const data = genealogyRecordData(record);
     const revision = data.revision || {};
     const title = proofFactLabel(data.factType || revision.factType) || data.factId || revision.factId || "Conclusion";
-    const status = GENEALOGY_CONCLUSION_STATUS_LABELS[revision.status || data.status] || "Indéterminée";
+    const status = conclusionStatusText(data);
     const retained = revision.retainedValue;
     const retainedLabel = typeof retained === "string" || typeof retained === "number" ? String(retained).trim() : "";
-    return `<article class="person-detail-research-card"><strong>${esc(title)}</strong><span class="person-detail-research-meta">Conclusion · ${esc(status)}</span>${retainedLabel ? `<span class="card-meta">Valeur retenue : ${esc(retainedLabel)}</span>` : ""}</article>`;
+    return `<article class="person-detail-research-card" tabindex="0" role="button" aria-label="Consulter la conclusion : ${esc(title)}" data-view-conclusion="${esc(record.id)}"><strong>${esc(title)}</strong><span class="person-detail-research-meta">Conclusion · ${esc(status)}</span>${retainedLabel ? `<span class="card-meta">Valeur retenue : ${esc(retainedLabel)}</span>` : ""}</article>`;
   });
   const cards = [...proofCards, ...conclusionCards];
   return `<section id="personPageResearch" aria-labelledby="personPageResearchTitle"><h3 id="personPageResearchTitle">Recherches</h3>${cards.length
@@ -2778,7 +2787,7 @@ $("personPageContent").addEventListener("click", event => {
 $("personPageContent").addEventListener("keydown", event => {
   if (event.key !== "Enter" && event.key !== " ") return;
   if (event.target.closest("button")) return;
-  const card = event.target.closest("[data-view-document], [data-view-proof]");
+  const card = event.target.closest("[data-view-document], [data-view-proof], [data-view-conclusion]");
   if (!card) return;
   event.preventDefault();
   card.click();
@@ -2799,7 +2808,7 @@ $("personPageEditHost").addEventListener("click", event => {
     if (activeId) renderPersonDocuments(activeId);
     return;
   }
-  const leaveAction = event.target.closest("[data-view-document], [data-view-proof], [data-edit-person-document]");
+  const leaveAction = event.target.closest("[data-view-document], [data-view-proof], [data-view-conclusion], [data-edit-person-document]");
   if (!leaveAction) return;
   if (!requestPersonPageInlineExit()) {
     event.preventDefault();
@@ -4821,6 +4830,11 @@ function genealogyKindBadgeHtml(kind) {
 const GENEALOGY_CONCLUSION_STATUS_LABELS = Object.freeze({
   undetermined: "Indéterminée", provisional: "Provisoire", established: "Établie", disputed: "Contestée", reexamination_required: "À réexaminer"
 });
+
+function conclusionStatusText(data = {}) {
+  const revision = data.revision || {};
+  return GENEALOGY_CONCLUSION_STATUS_LABELS[revision.status || data.status] || "Indéterminée";
+}
 
 function genealogyEventLabel(eventType) {
   return GENEALOGY_EVENT_TYPE_LABELS[eventType] || "";
@@ -13231,15 +13245,24 @@ document.addEventListener("click", event => {
   if (event.target.closest("[data-empty-add-person]")) openPerson(null, "directory");
   if (event.target.closest("[data-empty-add-document]")) openDocument();
   if (event.target.closest("[data-empty-add-task]")) openTask();
-  const editProofCard = event.target.closest("[data-edit-genealogy-proof]");
-  if (editProofCard) {
-    const proofItem = genealogyWorkspaceItems().find(value => value.kind === "proof" && value.record.id === editProofCard.dataset.editGenealogyProof);
-    if (proofItem) openGenealogyContribution({ official: true, reviseItem: proofItem });
+  const editEvidenceCard = event.target.closest("[data-edit-genealogy-proof], [data-edit-genealogy-conclusion]");
+  if (editEvidenceCard) {
+    const evidenceKind = editEvidenceCard.hasAttribute("data-edit-genealogy-conclusion") ? "conclusion" : "proof";
+    const evidenceId = evidenceKind === "conclusion"
+      ? editEvidenceCard.dataset.editGenealogyConclusion
+      : editEvidenceCard.dataset.editGenealogyProof;
+    const evidenceItem = genealogyWorkspaceItems().find(value => value.kind === evidenceKind && value.record.id === evidenceId);
+    if (evidenceItem) openGenealogyContribution({ official: true, reviseItem: evidenceItem });
     return;
   }
   const viewProofCard = event.target.closest("[data-view-proof]");
   if (viewProofCard) {
     openGenealogyItem("proof", viewProofCard.dataset.viewProof);
+    return;
+  }
+  const viewConclusionCard = event.target.closest("[data-view-conclusion]");
+  if (viewConclusionCard) {
+    openGenealogyItem("conclusion", viewConclusionCard.dataset.viewConclusion);
     return;
   }
   const miniDocument = event.target.closest("[data-view-document]");
@@ -13351,10 +13374,11 @@ $("personDocumentsList").addEventListener("keydown", event => {
 $("personGenealogyEvidenceList").addEventListener("keydown", event => {
   if (event.key !== "Enter" && event.key !== " ") return;
   if (event.target.closest("button")) return;
-  const card = event.target.closest("[data-view-proof]");
+  const card = event.target.closest("[data-view-proof], [data-view-conclusion]");
   if (!card) return;
   event.preventDefault();
-  openGenealogyItem("proof", card.dataset.viewProof);
+  if (card.dataset.viewConclusion) openGenealogyItem("conclusion", card.dataset.viewConclusion);
+  else openGenealogyItem("proof", card.dataset.viewProof);
 });
 
 $("directoryDocumentsList").addEventListener("click", event => {

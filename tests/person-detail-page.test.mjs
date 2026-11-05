@@ -47,6 +47,23 @@ window.__personPageTest = {
   },
   openTree() { renderTree(); setView("tree"); },
   openDirectory() { setView("directory"); },
+  openEvidenceModal() {
+    openPerson(people.find(item => item.id === "person-page-a"), "directory");
+    setPersonSection("documents");
+  },
+  setEvidenceRole(role) {
+    currentUserProfile = { role, displayName: "Testeur" };
+    renderPersonDocuments("person-page-a");
+  },
+  setConclusionStatus(status) {
+    const conclusion = genealogyRecords.factConclusions.find(item => item.id === "person-page-conclusion");
+    conclusion.data.revision.status = status;
+    renderPersonDocuments("person-page-a");
+  },
+  tryDirectRevision() {
+    openGenealogyContribution({ official: true, reviseItem: { kind: "proof", record: { id: "person-page-proof" }, data: {} } });
+    return document.getElementById("genealogyContributionDialog").open;
+  },
   state() {
     return {
       pageVisible: !$('personDetailView').hidden,
@@ -362,6 +379,51 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator("#proofPageBackBtn").click();
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
     assert.equal((await page.evaluate(() => window.__personPageTest.state())).section, "research", "section Recherches restaurée après la Preuve");
+
+    const researchConclusion = page.locator('#personPageContent [data-view-conclusion="person-page-conclusion"]');
+    assert.equal(await researchConclusion.getAttribute("role"), "button", "carte conclusion de Recherches interactive");
+    await researchConclusion.click();
+    await page.waitForFunction(() => document.getElementById("genealogyItemDialog").open, { timeout: 10000 });
+    assert.match(await page.locator("#genealogyItemSubtitle").innerText(), /Conclusion/, "clic sur la conclusion ouvre la conclusion");
+    await page.locator('#genealogyItemDialog [data-close="genealogyItemDialog"]').click();
+    await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open);
+    await researchConclusion.focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.getElementById("genealogyItemDialog").open, { timeout: 10000 });
+    await page.locator('#genealogyItemDialog [data-close="genealogyItemDialog"]').click();
+    await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open);
+
+    await page.evaluate(() => window.__personPageTest.openEvidenceModal());
+    await page.waitForFunction(() => document.getElementById("personDialog").open);
+    const evidenceText = await page.locator("#personGenealogyEvidenceList").innerText();
+    assert.match(evidenceText, /Conclusion · Établie/, "la modale Personne affiche le statut réel de la conclusion");
+    assert.doesNotMatch(evidenceText, /à examiner/, "plus de statut par défaut « à examiner » pour les conclusions");
+    assert.equal(await page.locator('#personGenealogyEvidenceList [data-view-proof]').count(), 1, "la preuve conserve data-view-proof");
+    assert.equal(await page.locator('#personGenealogyEvidenceList [data-view-conclusion]').count(), 1, "la conclusion porte data-view-conclusion");
+    assert.equal(await page.locator('#personGenealogyEvidenceList [data-edit-genealogy-proof]').count(), 1, "administrateur : Réviser visible sur la preuve");
+    assert.equal(await page.locator('#personGenealogyEvidenceList [data-edit-genealogy-conclusion]').count(), 1, "administrateur : Réviser visible sur la conclusion");
+    for (const [status, label] of [
+      ["undetermined", "Indéterminée"], ["provisional", "Provisoire"], ["established", "Établie"],
+      ["disputed", "Contestée"], ["reexamination_required", "À réexaminer"]
+    ]) {
+      await page.evaluate(statusValue => window.__personPageTest.setConclusionStatus(statusValue), status);
+      assert.match(await page.locator("#personGenealogyEvidenceList").innerText(), new RegExp(`Conclusion · ${label}`), `statut ${status} restitué`);
+    }
+    await page.evaluate(() => window.__personPageTest.setConclusionStatus("established"));
+    await page.locator('#personGenealogyEvidenceList [data-view-conclusion="person-page-conclusion"]').click();
+    await page.waitForFunction(() => document.getElementById("genealogyItemDialog").open, { timeout: 10000 });
+    await page.locator('#genealogyItemDialog [data-close="genealogyItemDialog"]').click();
+    await page.waitForFunction(() => !document.getElementById("genealogyItemDialog").open);
+    await page.evaluate(() => window.__personPageTest.setEvidenceRole("member"));
+    assert.equal(await page.locator('#personGenealogyEvidenceList [data-edit-genealogy-proof]').count(), 0, "membre : Réviser masqué sur la preuve");
+    assert.equal(await page.locator('#personGenealogyEvidenceList [data-edit-genealogy-conclusion]').count(), 0, "membre : Réviser masqué sur la conclusion");
+    const directRevisionBlocked = await page.evaluate(() => window.__personPageTest.tryDirectRevision());
+    assert.equal(directRevisionBlocked, false, "la garde officielle refuse toujours un appel direct de révision en membre");
+    await page.evaluate(() => window.__personPageTest.setEvidenceRole("admin"));
+    assert.equal(await page.locator('#personGenealogyEvidenceList [data-edit-genealogy-proof]').count(), 1, "retour au rôle administrateur");
+    await page.locator('#personDialog [data-close="personDialog"]').first().click();
+    await page.waitForFunction(() => !document.getElementById("personDialog").open);
+    assert.equal((await page.evaluate(() => window.__personPageTest.state())).section, "research", "la fiche Personne reste en place après la modale");
 
     for (const width of [320, 375, 390, 430, 760, 768, 900, 1024, 1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 850 });
