@@ -2483,7 +2483,7 @@ function enterPersonPageInlineEdit() {
     const proofEntryPointLabel = $("proofEntryPointLabel");
     const linkDocumentMarkup = linkDocumentButton.innerHTML;
     const proofEntryPointText = proofEntryPointLabel.textContent;
-    linkDocumentButton.innerHTML = `${icon("plus")}<span>Ajouter un document</span>`;
+    linkDocumentButton.innerHTML = `${icon("plus")}<span class="person-document-add-label-desktop">Ajouter un document pour cette personne</span><span class="person-document-add-label-mobile">Ajouter un document</span>`;
     proofEntryPointLabel.textContent = "Ajouter une preuve";
     const documentsCard = document.createElement("section");
     documentsCard.className = "person-page-inline-card person-page-inline-documents-card";
@@ -2560,6 +2560,7 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
     rootView: originView,
     parent
   });
+  $("personPageBreadcrumb").insertAdjacentElement("afterend", $("personPageTitle"));
   setDedicatedPageBackLabel("personPageBackBtn", personPageReturnContext);
   setDedicatedPageBackLabel("personPageMobileBackBtn", personPageReturnContext);
 

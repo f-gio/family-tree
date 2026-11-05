@@ -5432,7 +5432,7 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .person-detail-portrait img { width: 100%; height: 100%; object-fit: cover; }
 .person-detail-heading { display: grid; gap: var(--space-2); min-width: 0; }
 .person-detail-breadcrumb { flex-wrap: wrap; align-items: baseline; row-gap: var(--space-1); }
-.person-detail-breadcrumb > h2 { flex: 1 0 100%; max-width: none; overflow: visible; overflow-wrap: anywhere; font: 700 clamp(1.6rem, 3vw, 2.5rem)/1.05 var(--font-display); white-space: normal; }
+.person-detail-title { display: block; min-width: 0; max-width: none; margin: 0; overflow: visible; overflow-wrap: anywhere; color: var(--color-text-label); font: 700 clamp(1.6rem, 3vw, 2.5rem)/1.05 var(--font-display); white-space: normal; }
 .person-detail-essentials { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); min-width: 0; color: var(--color-text-muted); font-size: var(--text-sm); }
 .person-detail-essentials > span { min-width: 0; overflow-wrap: anywhere; }
 .person-detail-essentials strong { color: var(--color-text); font-weight: var(--weight-semibold); }
@@ -5445,6 +5445,7 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .person-detail-badge { display: inline-flex; align-items: center; min-height: 1.75rem; padding-inline: var(--space-2); border: var(--border-subtle); border-radius: var(--radius-full); background: var(--color-surface-muted); color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); }
 .person-detail-badges { display: contents; }
 .person-detail-badge.person-detail-status { display: none; }
+.person-document-add-label-mobile { display: none; }
 .timeline-age { display: none; }
 .person-detail-header-actions { flex-wrap: wrap; max-width: 30rem; }
 .person-detail-header-actions > .btn { min-height: var(--control-touch); white-space: nowrap; }
@@ -5553,14 +5554,14 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   .person-detail-hero { grid-template-columns: minmax(0, 4rem) minmax(0, 1fr); align-items: start; gap: var(--space-2) var(--space-3); padding-block: var(--space-3); }
   .person-page-desktop-back { display: none; }
   .person-detail-portrait { grid-column: 1; grid-row: 1; width: 4rem; height: 4rem; border-radius: var(--radius-md); align-self: center; }
-  .person-detail-heading { grid-column: 2; grid-row: 1; gap: var(--space-1); }
   .person-detail-breadcrumb { gap: 2px; }
-  .person-detail-breadcrumb > .consultation-breadcrumb-link,
-  .person-detail-breadcrumb > .consultation-breadcrumb-separator { display: none; }
-  .person-detail-breadcrumb > h2 { flex-basis: 100%; font-size: clamp(1.25rem, 6vw, 1.6rem); }
+  .person-detail-breadcrumb .consultation-breadcrumb-link,
+  .person-detail-breadcrumb .consultation-breadcrumb-separator { display: none; }
+  .person-detail-title { font-size: clamp(1.25rem, 6vw, 1.6rem); }
+  .person-detail-breadcrumb:has(.consultation-breadcrumb-overflow) + .person-detail-title { margin-top: 2px; }
   .person-detail-essentials { display: flex; flex-wrap: wrap; gap: 2px var(--space-2); font-size: var(--text-xs); }
   .person-detail-modification { display: none; }
-  .person-detail-header-actions { grid-column: 1 / -1; grid-row: 2; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); max-width: none; gap: var(--space-2); }
+  .person-detail-header-actions { grid-column: 1 / -1; grid-row: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); max-width: none; gap: var(--space-2); margin-top: var(--space-2); }
   .person-detail-header-actions > .btn { min-height: var(--control-touch); }
   .person-detail-header-actions .person-page-actions { display: none; }
   .person-detail-section-nav { top: calc(var(--control-touch) + env(safe-area-inset-top) + var(--space-2)); gap: 2px; padding-inline: var(--space-2); }
@@ -5872,6 +5873,22 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   }
 }
 
+@media (min-width: 761px) and (max-width: 960px) {
+  .person-detail-view .person-detail-hero { grid-template-rows: auto auto auto auto auto; row-gap: 0; }
+  .person-detail-view .person-page-desktop-back { grid-column: 1; grid-row: 1 / 6; align-self: center; }
+  .person-detail-view .person-detail-portrait { grid-column: 2; grid-row: 2 / 5; align-self: center; }
+  .person-detail-view .person-detail-breadcrumb { grid-column: 3; grid-row: 1; }
+  .person-detail-view .person-detail-title { grid-column: 3; grid-row: 2; margin-top: var(--space-1); }
+  .person-detail-view #personPageEssentials > .person-detail-dates:first-child { grid-column: 3; grid-row: 3; }
+  .person-detail-view #personPageEssentials > .person-detail-dates:nth-child(2) { grid-column: 3; grid-row: 4; margin-top: var(--space-1); }
+  .person-detail-view #personPageEssentials > .person-detail-badges { grid-column: 3; grid-row: 5; align-self: start; margin-top: var(--space-1); }
+  .person-detail-view .person-detail-header-actions { grid-column: 4; grid-row: 1 / 6; align-self: center; }
+  .person-detail-view .person-detail-hero:not(:has(#personPageEssentials > .person-detail-badges)) { grid-template-rows: auto auto auto auto; }
+  .person-detail-view .person-detail-hero:not(:has(#personPageEssentials > .person-detail-badges)) .person-page-desktop-back,
+  .person-detail-view .person-detail-hero:not(:has(#personPageEssentials > .person-detail-badges)) .person-detail-header-actions { grid-row: 1 / 5; }
+  body:has(#personPageEditHost:not([hidden])) .person-detail-hero .person-detail-header-actions { margin-top: var(--space-4); }
+}
+
 @media (min-width: 961px) {
   body:has(#personDetailView:not([hidden])) .topbar { grid-template-columns: auto minmax(0, 1fr) auto; }
   body:has(#personDetailView:not([hidden])) .topbar > .brand { grid-column: 1; grid-row: 1; }
@@ -5882,11 +5899,8 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   .person-detail-hero { grid-template-columns: 7rem minmax(0, 1fr) max-content; align-items: stretch; gap: var(--space-5); padding: var(--space-5) var(--space-6); border: var(--border-subtle); border-radius: var(--radius-lg); background: var(--color-surface); }
   .person-detail-portrait { align-self: start; width: 7rem; height: 7rem; border-radius: var(--radius-md); }
   .person-detail-heading { align-content: start; gap: var(--space-3); }
-  .person-detail-breadcrumb { display: flex; min-width: 0; }
-  .person-detail-breadcrumb > .consultation-breadcrumb-link,
-  .person-detail-breadcrumb > .consultation-breadcrumb-separator,
-  .person-detail-breadcrumb > .consultation-breadcrumb-overflow { display: none; }
-  .person-detail-breadcrumb > h2 { flex-basis: 100%; font-size: clamp(1.875rem, 2vw, 2rem); line-height: 1.1; }
+  .person-detail-breadcrumb { display: none; }
+  .person-detail-title { font-size: clamp(1.875rem, 2vw, 2rem); line-height: 1.1; }
   .person-detail-essentials { display: grid; justify-items: start; gap: var(--space-2); font-size: 1rem; }
   .person-detail-essentials > .person-detail-dates { white-space: normal; }
   .person-detail-badge.person-detail-gender { display: none; }
@@ -6004,6 +6018,7 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   #personPageActionsMenu .person-menu-sep { width: 100%; margin: var(--space-1) 0; border-top: var(--border-subtle); }
 
   .person-page-edit-host .person-modal-form { gap: var(--space-5); padding-top: 0; }
+  .person-page-edit-host .person-actions { margin-inline: calc(0px - var(--space-6)); }
   .person-page-edit-host .person-modal-form label { font-size: 0.8125rem; }
   .person-page-edit-host .person-modal-form .field { font-size: 0.9375rem; }
   .person-page-edit-host .person-section-panel,
@@ -6033,13 +6048,22 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 @media (max-width: 960px) {
   .person-detail-badges { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
   .person-detail-badge.person-detail-status { display: inline-flex; }
-  .person-detail-essentials .person-detail-gender { display: none; }
+  .person-detail-badges .person-detail-gender { display: none; }
   .person-detail-essentials .person-detail-modification--essentials { display: none; }
   .person-detail-view .person-detail-header { gap: 0; margin-bottom: 0; border-bottom: 0; }
   .person-detail-view .person-detail-hero { border-bottom: 0; }
+  .person-detail-view .person-detail-heading { display: contents; }
+  .person-detail-view .person-detail-hero { row-gap: 0; }
+  .person-detail-view .person-detail-essentials { display: contents; }
+  .person-detail-view .person-detail-breadcrumb { grid-column: 2; grid-row: 1; }
+  .person-detail-view .person-detail-title { grid-column: 2; grid-row: 2; }
+  .person-detail-view #personPageEssentials > .person-detail-dates:first-child { grid-column: 2; grid-row: 3; }
+  .person-detail-view #personPageEssentials > .person-detail-dates:nth-child(2) { grid-column: 2; grid-row: 4; margin-top: var(--space-1); }
+  .person-detail-view #personPageEssentials > .person-detail-badges { grid-column: 2; grid-row: 5; align-self: start; margin-top: var(--space-1); }
+  .person-detail-view .person-detail-portrait { grid-row: 2 / 5; align-self: center; }
   .person-detail-mobile-modification { display: block; margin: var(--space-1) 0; color: var(--color-text-muted); font-size: var(--text-sm); text-align: left; }
   body:has(#personPageEditHost:not([hidden])) .person-detail-mobile-modification { display: none; }
-  .person-detail-essentials { display: grid; justify-items: stretch; gap: var(--space-1); font-size: var(--text-sm); }
+  .person-detail-essentials { display: contents; font-size: var(--text-sm); }
   .person-detail-essentials > .person-detail-dates { display: flex; align-items: center; gap: var(--space-2); min-width: 0; white-space: nowrap; }
   .person-detail-essentials > .person-detail-dates > strong,
   .person-detail-essentials > .person-detail-dates > .person-detail-date-separator { display: none; }
@@ -6047,6 +6071,16 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   .person-detail-event-icon--birth { color: var(--color-brand); }
   .person-detail-event-icon--death { color: var(--color-danger); }
   .person-detail-dates-copy { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .person-page-edit-host #toggleRelationBuilderBtn { border-color: var(--color-border); background: var(--color-surface); color: var(--color-brand); }
+  .person-page-edit-host #toggleRelationBuilderBtn:hover,
+  .person-page-edit-host #toggleRelationBuilderBtn:focus-visible { border-color: var(--color-border-strong); background: var(--color-surface-raised); color: var(--color-brand); }
+  .person-page-edit-host #linkDocumentBtn .person-document-add-label-desktop { display: none; }
+  .person-page-edit-host #linkDocumentBtn .person-document-add-label-mobile { display: inline; }
+  .person-page-edit-host #personDocumentsPanel { display: flex !important; flex-direction: column; gap: var(--space-4); width: 100%; min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-sizing: border-box; }
+  .person-page-edit-host #personDocumentsSection,
+  .person-page-edit-host #personGenealogyEvidenceSection { display: grid; align-content: start; gap: var(--space-3); width: 100%; min-width: 0; margin: 0; padding: var(--space-3); border: var(--border-subtle); border-radius: var(--radius-lg); background: var(--color-surface); box-sizing: border-box; }
+  .person-page-edit-host #personGenealogyEvidenceSection { gap: var(--space-4); margin-bottom: var(--space-1); }
+  .person-page-edit-host .person-actions { min-height: 0; padding-top: var(--space-3); padding-bottom: var(--space-3); }
   .person-detail-content #personPageOverview,
   .person-detail-content section[id] { scroll-margin-top: var(--person-page-anchor-offset, 8rem); }
   .person-page-edit-host .person-section-panel,
@@ -6061,10 +6095,10 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 
   /* Mode modification mobile : blocs pleine largeur, CTA centré, frise masquée. */
   .person-page-edit-host .person-modal-form { padding: 0; }
-  body:has(#personPageEditHost:not([hidden])) .person-detail-hero .person-detail-header-actions { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+  body:has(#personPageEditHost:not([hidden])) .person-detail-hero .person-detail-header-actions { grid-column: 1 / -1; grid-row: auto; justify-self: center; }
   body:has(#personPageEditHost:not([hidden])) .person-detail-header-actions #personPageViewTreeBtn { order: 1; }
   body:has(#personPageEditHost:not([hidden])) .person-page-edit-host #personLifeTimeline { display: none; }
-  body:has(#personPageEditHost:not([hidden])) .person-page-edit-host #personGenealogyEvidenceSection { margin-top: var(--space-6); gap: var(--space-4); margin-bottom: var(--space-1); }
+  body:has(#personPageEditHost:not([hidden])) .person-page-edit-host #personGenealogyEvidenceSection { margin-top: 0; gap: var(--space-4); margin-bottom: var(--space-1); }
 
   /* Menus « ⋯ » mobiles : lignes simples, comme les menus contextuels existants. */
   #personPageMobileActionsMenu .btn { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); align-items: center; justify-content: start; gap: var(--space-2); min-height: var(--control-touch); padding: 0 var(--space-3); border: 0; border-radius: var(--radius-sm); background: transparent; box-shadow: none; color: var(--color-text-label); font-size: 0.875rem; font-weight: var(--weight-medium); text-align: left; white-space: normal; }

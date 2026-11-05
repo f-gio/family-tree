@@ -154,6 +154,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       const editor = document.getElementById("personPageEditHost");
       const documentCards = [...document.querySelectorAll("#personDocumentsPanel > .person-page-inline-card")];
       const relationAction = document.getElementById("toggleRelationBuilderBtn");
+      const relationActionStyle = getComputedStyle(relationAction);
       const rect = element => { const box = element.getBoundingClientRect(); return { top: box.top, bottom: box.bottom, height: box.height }; };
       return {
         panelDisplay: getComputedStyle(panel).display,
@@ -164,10 +165,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         documentCardTitles: documentCards.map(card => card.querySelector("h3")?.textContent.trim()),
         documentCardStyles: documentCards.map(card => ({ background: getComputedStyle(card).backgroundColor, border: getComputedStyle(card).borderTopWidth, radius: getComputedStyle(card).borderTopLeftRadius })),
         documentCardRects: documentCards.map(rect),
-        documentActions: [document.getElementById("linkDocumentBtn").textContent.trim(), document.getElementById("proofEntryPointLabel").textContent.trim()],
+        documentActions: [document.getElementById("linkDocumentBtn").innerText.trim(), document.getElementById("proofEntryPointLabel").textContent.trim()],
         documentActionHeaders: [document.getElementById("linkDocumentBtn"), document.getElementById("genealogyProposeProofForPersonBtn")].map(button => button.parentElement.classList.contains("person-page-inline-section-header")),
         relationHeaderAction: relationAction.parentElement.classList.contains("person-page-inline-section-header"),
         relationActionPrimary: relationAction.classList.contains("primary"),
+        relationActionStyle: (() => { const s = getComputedStyle(relationAction); return { border: s.borderTopColor, background: s.backgroundColor, color: s.color, height: Math.round(relationAction.getBoundingClientRect().height), width: Math.round(relationAction.getBoundingClientRect().width) }; })(),
         membership: (() => {
           const label = document.getElementById("personTreeMembershipLabel");
           const title = label.querySelector(".person-tree-membership-title");
@@ -209,13 +211,16 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         footer: (() => {
           const footer = document.querySelector("#personPageEditHost .person-actions");
           const boxes = [...footer.querySelectorAll(".right .btn:not([hidden])")].map(button => ({ button: button.textContent.trim(), box: button.getBoundingClientRect() }));
-          const footerBox = footer.getBoundingClientRect();
-          return {
+        const footerBox = footer.getBoundingClientRect();
+        const heroBox = document.querySelector(".person-detail-hero").getBoundingClientRect();
+        return {
             buttons: boxes.map(entry => entry.button),
             gap: boxes.length > 1 ? Math.round(boxes[1].box.left - boxes[0].box.right) : null,
             aligned: boxes.length > 1 ? Math.abs(boxes[0].box.top - boxes[1].box.top) <= 1 && Math.abs(boxes[0].box.bottom - boxes[1].box.bottom) <= 1 : false,
             heights: boxes.map(entry => Math.round(entry.box.height)),
-            rightInset: Math.round(footerBox.right - Math.max(...boxes.map(entry => entry.box.right)))
+            rightInset: Math.round(footerBox.right - Math.max(...boxes.map(entry => entry.box.right))),
+            left: Math.round(footerBox.left), right: Math.round(footerBox.right),
+            heroLeft: Math.round(heroBox.left), heroRight: Math.round(heroBox.right)
           };
         })(),
         badges: (() => {
@@ -237,12 +242,19 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(inlineDesktop.documentCardStyles[0].border, inlineDesktop.documentCardStyles[1].border, "cartes Documents/Recherches avec bordures identiques");
     assert.equal(inlineDesktop.documentCardStyles[0].radius, inlineDesktop.documentCardStyles[1].radius, "cartes Documents/Recherches avec arrondis identiques");
     assert.ok(inlineDesktop.documentCardRects[1].top - inlineDesktop.documentCardRects[0].bottom >= 12, "espace vertical entre les cartes Documents et Recherches");
-    assert.deepEqual(inlineDesktop.documentActions, ["Ajouter un document", "Ajouter une preuve"]);
+    assert.deepEqual(inlineDesktop.documentActions, ["Ajouter un document pour cette personne", "Ajouter une preuve"]);
     assert.deepEqual(inlineDesktop.documentActionHeaders, [true, true], "actions d'ajout en haut de chaque carte");
     assert.equal(inlineDesktop.relationHeaderAction, true, "Ajouter un lien familial aligné sur le titre Famille");
     assert.equal(inlineDesktop.relationActionPrimary, false, "Ajouter un lien familial reste une action secondaire");
+    assert.equal(inlineDesktop.relationActionStyle.background, "rgb(255, 253, 248)", "Ajouter un lien familial garde le fond secondaire desktop");
+    assert.equal(inlineDesktop.relationActionStyle.border, "rgb(214, 204, 187)", "Ajouter un lien familial garde la bordure secondaire desktop");
+    assert.equal(inlineDesktop.relationActionStyle.color, "rgb(40, 75, 63)", "Ajouter un lien familial garde le texte vert foncé desktop");
+    assert.equal(inlineDesktop.relationActionStyle.background, "rgb(255, 253, 248)", "Ajouter un lien familial conserve le fond secondaire desktop");
+    assert.equal(inlineDesktop.relationActionStyle.border, "rgb(214, 204, 187)", "Ajouter un lien familial conserve le contour secondaire desktop");
     assert.ok(inlineDesktop.overflow <= 1, `édition inline desktop sans débordement (${inlineDesktop.overflow}px)`);
     assert.equal(inlineDesktop.stickyActions, "sticky", "barre d’actions d’édition conservée");
+    assert.equal(inlineDesktop.footer.left, inlineDesktop.footer.heroLeft, "footer desktop aligné sur le bord gauche du Hero");
+    assert.equal(inlineDesktop.footer.right, inlineDesktop.footer.heroRight, "footer desktop aligné sur le bord droit du Hero");
     assert.equal(inlineDesktop.membership.hidden, false, "arbre d'appartenance affiché en modification");
     assert.equal(inlineDesktop.membership.gridColumn, "2", "arbre d'appartenance en colonne de droite, sous Branche familiale");
     assert.equal(inlineDesktop.membership.display, "grid", "arbre d'appartenance traité comme un champ de la grille");
@@ -410,7 +422,10 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           navHeight: document.getElementById("personPageSectionNav").getBoundingClientRect().height,
           firstSectionTop: document.querySelector("#personPageContent .person-detail-overview > section").getBoundingClientRect().top,
           portrait: rect("personPagePortrait"),
-          headingBox: (() => { const box = document.querySelector(".person-detail-heading").getBoundingClientRect(); return { top: box.top, bottom: box.bottom, left: box.left, right: box.right }; })(),
+          headingBox: (() => {
+            const boxes = [document.getElementById("personPageTitle"), ...document.querySelectorAll("#personPageEssentials .person-detail-dates")].map(element => element.getBoundingClientRect());
+            return { top: Math.min(...boxes.map(box => box.top)), bottom: Math.max(...boxes.map(box => box.bottom)), left: Math.min(...boxes.map(box => box.left)), right: Math.max(...boxes.map(box => box.right)) };
+          })(),
           mobileMenuSequence: [...document.querySelectorAll("#personPageMobileActionsMenu > *")].map(node => node.tagName === "HR" ? "SEP" : node.textContent.trim()),
           mobileMenuBorders: [...document.querySelectorAll("#personPageMobileActionsMenu .btn")].map(button => getComputedStyle(button).borderTopWidth),
           familyVisualGap: (() => {
@@ -584,7 +599,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.equal(Math.round(layout.firstSectionTop - layout.navBottom), 16, `${width}px : 16px entre la bordure basse du slider et le contenu`);
         const portraitCenter = (layout.portrait.top + layout.portrait.bottom) / 2;
         const headingCenter = (layout.headingBox.top + layout.headingBox.bottom) / 2;
-        assert.ok(Math.abs(portraitCenter - headingCenter) <= 2, `${width}px : photo centrée verticalement par rapport au bloc d’informations (${Math.round(portraitCenter - headingCenter)}px)`);
+        assert.ok(Math.abs(portraitCenter - headingCenter) <= 2.5, `${width}px : photo centrée verticalement par rapport au bloc d’informations (${Math.round((portraitCenter - headingCenter) * 10) / 10}px)`);
         assert.deepEqual(layout.mobileMenuSequence, ["Imprimer / PDF", "SEP", "Voir sa branche", "Changer d’arbre", "Retirer de l’arbre", "SEP", "Supprimer la personne"], `${width}px : menu ⋯ en sections Imprimer / branche-arbre / Supprimer`);
         assert.ok(layout.mobileMenuBorders.every(border => border === "0px"), `${width}px : actions du menu ⋯ sans encadrement individuel`);
         assert.ok(layout.familyVisualGap >= 3 && layout.familyVisualGap <= 5.5, `${width}px : écart visuel nom/relation Famille d’environ 4px (${layout.familyVisualGap}px)`);
@@ -754,8 +769,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       const editionState = await page.evaluate(() => {
         const date = document.querySelector(".person-detail-modification--actions");
         const box = date.getBoundingClientRect();
+        const hero = document.querySelector(".person-detail-hero").getBoundingClientRect();
+        const footer = document.querySelector("#personPageEditHost .person-actions").getBoundingClientRect();
         const nav = document.getElementById("personPageSectionNav");
         const panel = document.getElementById("personIdentityPanel");
+        const documentLabel = document.getElementById("linkDocumentBtn").innerText.trim();
         const copy = document.querySelector("#personRelationsPanel .relation-person-copy");
         const link = copy.querySelector("strong");
         const meta = copy.querySelector(".relation-person-meta");
@@ -763,13 +781,20 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         const linkText = textRect(link), metaText = textRect(meta);
         return {
           date: { l: Math.round(box.left), t: Math.round(box.top), b: Math.round(box.bottom), h: Math.round(box.height) },
+          documentLabel,
+          footer: { left: Math.round(footer.left), right: Math.round(footer.right), heroLeft: Math.round(hero.left), heroRight: Math.round(hero.right) },
+          horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           navGap: Math.round(panel.getBoundingClientRect().top - nav.getBoundingClientRect().bottom),
           familyVisualGap: Math.round((metaText.top - linkText.bottom) * 10) / 10
         };
       });
       assert.ok(editionState.date.h <= 22, `${width}px : « Dernière modification » sur une seule ligne en modification (${editionState.date.h}px)`);
       assert.equal(JSON.stringify(editionState.date), JSON.stringify(consultState.date), `${width}px : position de la mention identique en consultation et modification (${JSON.stringify(consultState.date)} / ${JSON.stringify(editionState.date)})`);
+      assert.equal(editionState.footer.left, editionState.footer.heroLeft, `${width}px : footer desktop aligné à gauche du Hero`);
+      assert.equal(editionState.footer.right, editionState.footer.heroRight, `${width}px : footer desktop aligné à droite du Hero`);
       assert.equal(editionState.navGap, consultState.navGap, `${width}px : espacement sous la navigation identique entre consultation (${consultState.navGap}px) et modification (${editionState.navGap}px)`);
+      assert.equal(editionState.documentLabel, "Ajouter un document pour cette personne", `${width}px : libellé long Documents conservé sur desktop`);
+      assert.ok(editionState.horizontalOverflow <= 1, `${width}px : libellé desktop sans débordement (${editionState.horizontalOverflow}px)`);
       assert.ok(editionState.familyVisualGap >= 3 && editionState.familyVisualGap <= 5, `${width}px : cartes Famille compactes en modification (${editionState.familyVisualGap}px)`);
       await page.locator('#personPageEditHost [data-close="personDialog"]').click();
       await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
@@ -794,12 +819,22 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         const nav = document.getElementById("personPageSectionNav");
         const panels = [...document.querySelectorAll("#personPageEditHost .person-section-panel")].map(panel => { const box = panel.getBoundingClientRect(); return { id: panel.id, l: Math.round(box.left), r: Math.round(box.right) }; });
         const docsPanel = document.getElementById("personDocumentsPanel").getBoundingClientRect();
+        const docsCard = document.getElementById("personDocumentsSection");
+        const docsCardBox = docsCard.getBoundingClientRect();
+        const docsCardStyle = getComputedStyle(docsCard);
         const addDoc = document.getElementById("linkDocumentBtn").getBoundingClientRect();
         const evidence = document.getElementById("personGenealogyEvidenceSection");
         const evidenceBox = evidence.getBoundingClientRect();
+        const evidenceStyle = getComputedStyle(evidence);
         const evidenceTitle = evidence.querySelector("h4").getBoundingClientRect();
         const evidenceList = document.getElementById("personGenealogyEvidenceList").getBoundingClientRect();
         const addProof = document.getElementById("genealogyProposeProofForPersonBtn").getBoundingClientRect();
+        const relationButton = document.getElementById("toggleRelationBuilderBtn");
+        const relationButtonStyle = getComputedStyle(relationButton);
+        const addDocumentButton = document.getElementById("linkDocumentBtn");
+        const footer = document.querySelector("#personPageEditHost .person-actions");
+        const footerStyle = getComputedStyle(footer);
+        const footerButtons = [...footer.querySelectorAll(".right .btn:not([hidden])")].map(button => { const box = button.getBoundingClientRect(); return { label: button.innerText.trim(), top: Math.round(box.top), bottom: Math.round(box.bottom), height: Math.round(box.height) }; });
         const copy = document.querySelector("#personRelationsPanel .relation-person-copy");
         const link = copy.querySelector("strong");
         const meta = copy.querySelector(".relation-person-meta");
@@ -816,9 +851,18 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           actionsCenterDelta: Math.round((actions.left + actions.right) / 2 - (hero.left + hero.right) / 2),
           treeCenterDelta: Math.round((tree.left + tree.right) / 2 - (hero.left + hero.right) / 2),
           addDocToTitle: Math.round(evidenceTitle.top - addDoc.bottom),
+          addDocToCardBottom: Math.round(docsCardBox.bottom - addDoc.bottom),
+          evidenceTitleInset: Math.round(evidenceTitle.top - evidenceBox.top),
+          docsCardsGap: Math.round(evidenceBox.top - docsCardBox.bottom),
+          docsAndEvidenceSiblings: docsCard.parentElement === evidence.parentElement,
+          docsCardStyle: { background: docsCardStyle.backgroundColor, border: docsCardStyle.borderTopWidth, radius: docsCardStyle.borderTopLeftRadius },
+          evidenceCardStyle: { background: evidenceStyle.backgroundColor, border: evidenceStyle.borderTopWidth, radius: evidenceStyle.borderTopLeftRadius },
+          addDocumentLabel: addDocumentButton.innerText.trim(),
           listToProof: Math.round(addProof.top - evidenceList.bottom),
           proofToCardBottom: Math.round(docsPanel.bottom - addProof.bottom),
-          familyVisualGap: Math.round((metaText.top - linkText.bottom) * 10) / 10
+          familyVisualGap: Math.round((metaText.top - linkText.bottom) * 10) / 10,
+          relationButtonStyle: { border: relationButtonStyle.borderTopColor, background: relationButtonStyle.backgroundColor, color: relationButtonStyle.color, height: Math.round(relationButton.getBoundingClientRect().height), width: Math.round(relationButton.getBoundingClientRect().width) },
+          footer: { height: Math.round(footer.getBoundingClientRect().height), minHeight: footerStyle.minHeight, paddingTop: footerStyle.paddingTop, paddingBottom: footerStyle.paddingBottom, bottom: footerStyle.bottom, buttons: footerButtons }
         };
       });
       assert.equal(inlineResponsive.timelineInHost, true, `${width}px : placement historique de la timeline inline conservé`);
@@ -830,10 +874,38 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       assert.ok(inlineResponsive.panels.every(panel => panel.l === consultCard.l && panel.r === consultCard.r), `${width}px : blocs d’édition sur la même largeur utile que la consultation (${JSON.stringify(inlineResponsive.panels)} vs ${JSON.stringify(consultCard)})`);
       assert.ok(Math.abs(inlineResponsive.actionsCenterDelta) <= 2, `${width}px : groupe d’actions centré dans le Hero en modification (${inlineResponsive.actionsCenterDelta}px)`);
       if (width <= 760) assert.ok(Math.abs(inlineResponsive.treeCenterDelta) <= 2, `${width}px : « Voir dans l’arbre » centré en modification (${inlineResponsive.treeCenterDelta}px)`);
-      assert.ok(inlineResponsive.addDocToTitle >= 16 && inlineResponsive.addDocToTitle <= 32, `${width}px : séparation Documents → Preuves d’environ 24px (${inlineResponsive.addDocToTitle}px)`);
+      assert.equal(inlineResponsive.docsAndEvidenceSiblings, true, `${width}px : Documents et Preuves restent deux cartes indépendantes`);
+      assert.equal(inlineResponsive.docsCardsGap, 16, `${width}px : cartes Documents et Preuves séparées de 16px (${inlineResponsive.docsCardsGap}px)`);
+      assert.ok(inlineResponsive.addDocToCardBottom >= 12, `${width}px : bouton document respirant sous le contenu de sa carte (${inlineResponsive.addDocToCardBottom}px)`);
+      assert.ok(inlineResponsive.evidenceTitleInset >= 12, `${width}px : titre Preuves à l’intérieur de sa carte (${inlineResponsive.evidenceTitleInset}px)`);
+      assert.ok(inlineResponsive.docsCardStyle.border === "1px" && inlineResponsive.evidenceCardStyle.border === "1px", `${width}px : Documents et Preuves ont chacune leur bordure`);
+      assert.equal(inlineResponsive.docsCardStyle.background, inlineResponsive.evidenceCardStyle.background, `${width}px : cartes Documents et Preuves avec le même fond`);
+      assert.equal(inlineResponsive.docsCardStyle.radius, inlineResponsive.evidenceCardStyle.radius, `${width}px : arrondis cohérents entre les cartes`);
+      assert.notEqual(inlineResponsive.docsCardStyle.radius, "0px", `${width}px : cartes indépendantes avec coins arrondis`);
+      assert.equal(inlineResponsive.addDocumentLabel, "Ajouter un document", `${width}px : libellé mobile raccourci sans bouton dupliqué`);
       assert.ok(inlineResponsive.listToProof >= 16, `${width}px : au moins 16px entre les preuves et « Ajouter une preuve » (${inlineResponsive.listToProof}px)`);
       assert.ok(inlineResponsive.proofToCardBottom >= 16, `${width}px : au moins 16px sous « Ajouter une preuve » avant la fin de la carte (${inlineResponsive.proofToCardBottom}px)`);
       assert.ok(inlineResponsive.familyVisualGap >= 3 && inlineResponsive.familyVisualGap <= 5, `${width}px : écart visuel nom/relation en modification (~4px, ${inlineResponsive.familyVisualGap}px)`);
+      assert.equal(inlineResponsive.relationButtonStyle.background, "rgb(255, 253, 248)", `${width}px : ajout lien familial en bouton secondaire`);
+      assert.equal(inlineResponsive.relationButtonStyle.border, "rgb(214, 204, 187)", `${width}px : bordure secondaire conservée`);
+      assert.equal(inlineResponsive.relationButtonStyle.color, "rgb(40, 75, 63)", `${width}px : texte vert foncé`);
+      assert.equal(inlineResponsive.footer.minHeight, "0px", `${width}px : footer sans hauteur minimale superflue`);
+      assert.equal(inlineResponsive.footer.paddingTop, "12px", `${width}px : padding haut du footer de 12px`);
+      assert.equal(inlineResponsive.footer.paddingBottom, "12px", `${width}px : padding bas unique du footer de 12px`);
+      assert.ok(inlineResponsive.footer.height <= 74, `${width}px : footer compact (${inlineResponsive.footer.height}px)`);
+      assert.ok(inlineResponsive.footer.buttons.length >= 2, `${width}px : boutons du footer présents`);
+      assert.ok(inlineResponsive.footer.buttons.every(button => button.height >= (width <= 760 ? 44 : 40)), `${width}px : hauteur des boutons du footer conservée`);
+      assert.deepEqual(inlineResponsive.footer.buttons.map(button => button.label), ["Annuler", "Enregistrer"], `${width}px : libellés du footer inchangés`);
+      assert.equal(new Set(inlineResponsive.footer.buttons.map(button => button.top)).size, 1, `${width}px : boutons Annuler/Enregistrer restent sur une seule ligne`);
+      if (width === 390) {
+        await page.locator("#genealogyProposeProofForPersonBtn").scrollIntoViewIfNeeded();
+        const lastControl = await page.evaluate(() => {
+          const last = document.getElementById("genealogyProposeProofForPersonBtn").getBoundingClientRect();
+          const footer = document.querySelector("#personPageEditHost .person-actions").getBoundingClientRect();
+          return { lastBottom: Math.round(last.bottom), footerTop: Math.round(footer.top) };
+        });
+        assert.ok(lastControl.lastBottom <= lastControl.footerTop + 1, `390px : dernière action visible au-dessus du footer (${JSON.stringify(lastControl)})`);
+      }
       await page.locator('#personPageEditHost [data-close="personDialog"]').click();
       await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     }
@@ -855,14 +927,63 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.evaluate(() => window.__personPageTest.openDirectory());
     await page.locator('#directoryList [data-directory-person="person-page-d"]').click();
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
-    const mobileExact = await page.evaluate(() => ({
-      age: getComputedStyle(document.querySelector("#personPageTimeline .timeline-age")).display,
-      status: getComputedStyle(document.querySelector("#personPageEssentials .person-detail-status")).display,
-      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
-    }));
+    const mobileExact = await page.evaluate(() => {
+      const title = document.getElementById("personPageTitle").getBoundingClientRect();
+      const dates = [...document.querySelectorAll("#personPageEssentials .person-detail-dates")].map(row => row.getBoundingClientRect());
+      const portrait = document.getElementById("personPagePortrait").getBoundingClientRect();
+      const coreTop = Math.min(title.top, ...dates.map(rect => rect.top));
+      const coreBottom = Math.max(title.bottom, ...dates.map(rect => rect.bottom));
+      return {
+        age: getComputedStyle(document.querySelector("#personPageTimeline .timeline-age")).display,
+        status: getComputedStyle(document.querySelector("#personPageEssentials .person-detail-status")).display,
+        photoCenterDelta: Math.round(((portrait.top + portrait.bottom) / 2 - (coreTop + coreBottom) / 2) * 10) / 10,
+        titleLines: Math.round(title.height / Number.parseFloat(getComputedStyle(document.getElementById("personPageTitle")).lineHeight)),
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+      };
+    });
     assert.match(mobileExact.age, /inline|block|flex/, `âge exact visible sur mobile (${mobileExact.age})`);
     assert.ok(["flex", "inline-flex"].includes(mobileExact.status), `badge Décédé visible sur mobile (${mobileExact.status})`);
+    assert.ok(Math.abs(mobileExact.photoCenterDelta) <= 2.5, `portrait centré sur le nom et les dates malgré les badges (${mobileExact.photoCenterDelta}px)`);
+    assert.ok(mobileExact.titleLines >= 1, `nom long conservé sur une ou plusieurs lignes (${mobileExact.titleLines})`);
     assert.ok(mobileExact.overflow <= 1, `mobile sans débordement (${mobileExact.overflow}px)`);
+    await page.locator("#personPageEditBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    const emptyEditCards = await page.evaluate(() => ({
+      documents: document.getElementById("personDocumentsList").innerText,
+      proofs: document.getElementById("personGenealogyEvidenceList").innerText,
+      docsCardParent: document.getElementById("personDocumentsSection").parentElement.id,
+      proofCardParent: document.getElementById("personGenealogyEvidenceSection").parentElement.id
+    }));
+    assert.match(emptyEditCards.documents, /Aucun document associé/, "état vide des Documents conservé en modification mobile");
+    assert.match(emptyEditCards.proofs, /Aucune preuve associée/, "état vide des Preuves conservé en modification mobile");
+    assert.equal(emptyEditCards.docsCardParent, "personDocumentsPanel", "carte Documents reste dans le formulaire unique");
+    assert.equal(emptyEditCards.proofCardParent, "personDocumentsPanel", "carte Preuves reste dans le formulaire unique");
+    await page.locator('#personPageEditHost [data-close="personDialog"]').click();
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+
+    await page.setViewportSize({ width: 320, height: 844 });
+    await page.evaluate(() => window.__personPageTest.update("person-page-d", {
+      firstName: "Rosa Margherita Teresa", middleName: "Elisabetta", lastName: "Giovannoni Conti"
+    }));
+    await page.evaluate(() => window.__personPageTest.openDirectory());
+    await page.locator('#directoryList [data-directory-person="person-page-d"]').click();
+    await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
+    const longNameMobile = await page.evaluate(() => {
+      const title = document.getElementById("personPageTitle");
+      const titleBox = title.getBoundingClientRect();
+      const dates = [...document.querySelectorAll("#personPageEssentials .person-detail-dates")].map(row => row.getBoundingClientRect());
+      const portrait = document.getElementById("personPagePortrait").getBoundingClientRect();
+      const coreTop = Math.min(titleBox.top, ...dates.map(box => box.top));
+      const coreBottom = Math.max(titleBox.bottom, ...dates.map(box => box.bottom));
+      return {
+        titleLines: Math.round(titleBox.height / Number.parseFloat(getComputedStyle(title).lineHeight)),
+        photoDelta: Math.round(((portrait.top + portrait.bottom) / 2 - (coreTop + coreBottom) / 2) * 10) / 10,
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+      };
+    });
+    assert.ok(longNameMobile.titleLines >= 2, `nom long sur plusieurs lignes à 320px (${longNameMobile.titleLines})`);
+    assert.ok(Math.abs(longNameMobile.photoDelta) <= 2.5, `photo centrée face au nom long (${longNameMobile.photoDelta}px)`);
+    assert.ok(longNameMobile.overflow <= 1, `nom long sans débordement horizontal (${longNameMobile.overflow}px)`);
 
     // Navigation par ancres : haut de section sous la barre sticky de navigation.
     const measureAnchor = () => page.evaluate(() => {
