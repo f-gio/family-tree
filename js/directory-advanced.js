@@ -1,4 +1,5 @@
 import { normalizeGenealogyDate, genealogyDateYears } from "./genealogy-date.js";
+import { personNameVariantsSearchText } from "./person-name-variants.js";
 import { MAIN_TREE_ID, getPersonTreeMembership } from "./tree-model.js";
 
 export const DIRECTORY_UNASSIGNED_TREE_FILTER = "!sans-arbre!";
@@ -108,8 +109,8 @@ export function filterAndSortDirectory(people = [], filters = {}) {
   const treeId = filters.treeId || "all";
 
   const filtered = people.filter(item => {
-    const quickSearch = normalizeDirectoryText(`${item.firstName || ""} ${item.middleName || ""} ${item.lastName || ""} ${item.marriedName || ""}`);
-    const nameSearch = normalizeDirectoryText(`${item.firstName || ""} ${item.middleName || ""} ${item.lastName || ""}`);
+    const quickSearch = normalizeDirectoryText(`${item.firstName || ""} ${item.middleName || ""} ${item.lastName || ""} ${item.marriedName || ""} ${personNameVariantsSearchText(item)}`);
+    const nameSearch = normalizeDirectoryText(`${item.firstName || ""} ${item.middleName || ""} ${item.lastName || ""} ${personNameVariantsSearchText(item)}`);
     const marriedNameText = normalizeDirectoryText(item.marriedName || "");
     const birthPlaceText = searchablePlace(item, "birth");
     const deathPlaceText = searchablePlace(item, "death");

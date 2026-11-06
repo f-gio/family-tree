@@ -47,10 +47,11 @@ window.__personPageTest = {
   },
   openTree() { renderTree(); setView("tree"); },
   openDirectory() { setView("directory"); },
-  openEvidenceModal() {
+  openEvidenceModal(section = "documents") {
     openPerson(people.find(item => item.id === "person-page-a"), "directory");
-    setPersonSection("documents");
+    setPersonSection(section);
   },
+  openCreatePerson() { openPerson(null, "directory"); },
   setEvidenceRole(role) {
     currentUserProfile = { role, displayName: "Testeur" };
     renderPersonDocuments("person-page-a");
@@ -424,6 +425,77 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator('#personDialog [data-close="personDialog"]').first().click();
     await page.waitForFunction(() => !document.getElementById("personDialog").open);
     assert.equal((await page.evaluate(() => window.__personPageTest.state())).section, "research", "la fiche Personne reste en place après la modale");
+
+    /* 2C-2 : variantes orthographiques. */
+    assert.doesNotMatch(await page.locator("#personPageContent").innerText(), /Variantes orthographiques/, "aucun bloc de variantes sans donnée");
+
+    /* Création : section disponible, annulation sans enregistrement. */
+    await page.evaluate(() => window.__personPageTest.openCreatePerson());
+    await page.waitForFunction(() => document.getElementById("personDialog").open);
+    assert.ok(await page.locator("#personNameVariantsSection").isVisible(), "section variantes présente en création");
+    assert.equal(await page.locator("#personNameVariantsList li").count(), 0, "liste vide en création");
+    assert.equal(await page.locator("#nameVariantKind").inputValue(), "given", "type réinitialisé sur Prénom en création");
+    await page.fill("#nameVariantValue", "VarianteAnnulee");
+    await page.click("#addNameVariantBtn");
+    assert.equal(await page.locator("#personNameVariantsList li").count(), 1, "ajout immédiat en mémoire");
+    await page.locator('#personDialog [data-close="personDialog"]').first().click();
+    await page.waitForFunction(() => !document.getElementById("personDialog").open);
+
+    /* Édition : validations du formulaire. */
+    await page.evaluate(() => window.__personPageTest.openEvidenceModal("identity"));
+    await page.waitForFunction(() => document.getElementById("personDialog").open);
+    assert.equal(await page.locator("#personNameVariantsList li").count(), 0, "aucune variante préexistante");
+
+    const currentFirstName = await page.inputValue("#firstName");
+    await page.fill("#nameVariantValue", currentFirstName);
+    await page.click("#addNameVariantBtn");
+    assert.match(await page.locator("#nameVariantError").innerText(), /identique au prénom principal/, "variante identique au prénom refusée");
+    assert.equal(await page.locator("#personNameVariantsList li").count(), 0);
+
+    await page.fill("#nameVariantValue", "   ");
+    await page.click("#addNameVariantBtn");
+    assert.match(await page.locator("#nameVariantError").innerText(), /Saisissez une variante/, "valeur vide refusée");
+
+    await page.selectOption("#nameVariantKind", "family");
+    await page.fill("#nameVariantValue", "Pinaezza");
+    await page.click("#addNameVariantBtn");
+    assert.equal(await page.locator("#personNameVariantsList li").count(), 1, "variante de nom ajoutée");
+    await page.fill("#nameVariantValue", "pinaezza");
+    await page.click("#addNameVariantBtn");
+    assert.match(await page.locator("#nameVariantError").innerText(), /existe déjà pour ce type/, "doublon du même type refusé");
+    assert.equal(await page.locator("#personNameVariantsList li").count(), 1, "liste inchangée après doublon");
+
+    /* Enregistrement : le bloc apparaît sur la fiche, six faits inchangés. */
+    await page.click("#savePersonBtn");
+    await page.waitForFunction(() => !document.getElementById("personDialog").open, undefined, { timeout: 10000 });
+    await page.waitForFunction(() => document.getElementById("personPageIdentity")?.textContent.includes("Variantes orthographiques"), undefined, { timeout: 8000 });
+    const identityWithVariant = await page.locator("#personPageIdentity").innerText();
+    assert.match(identityWithVariant, /Pinaezza/, "variante affichée sur la fiche");
+    assert.match(identityWithVariant, /prénom[\s\S]*nom de naissance[\s\S]*nom d.usage[\s\S]*branche familiale[\s\S]*variantes orthographiques/i, "les six faits précèdent le bloc de variantes");
+
+    /* Réouverture : préchargement, puis annulation sans enregistrement. */
+    await page.evaluate(() => window.__personPageTest.openEvidenceModal("identity"));
+    await page.waitForFunction(() => document.getElementById("personDialog").open);
+    assert.equal(await page.locator("#personNameVariantsList li").count(), 1, "variante préchargée à l'édition");
+    assert.match(await page.locator("#personNameVariantsList li").first().innerText(), /Pinaezza/);
+    assert.equal(await page.locator("#nameVariantKind").inputValue(), "given", "type réinitialisé sur Prénom à chaque ouverture, malgré le choix Précédent");
+    await page.fill("#nameVariantValue", "NonEnregistree");
+    await page.click("#addNameVariantBtn");
+    await page.waitForFunction(() => document.querySelectorAll("#personNameVariantsList li").length === 2, undefined, { timeout: 5000 });
+    assert.equal(await page.locator("#personNameVariantsList li").count(), 2, "ajout local avant annulation");
+    await page.locator('#personDialog [data-close="personDialog"]').first().click();
+    await page.waitForFunction(() => !document.getElementById("personDialog").open);
+    await page.evaluate(() => window.__personPageTest.openEvidenceModal("identity"));
+    await page.waitForFunction(() => document.getElementById("personDialog").open);
+    assert.equal(await page.locator("#personNameVariantsList li").count(), 1, "annulation : seule la variante enregistrée subsiste");
+
+    /* Suppression de la dernière variante : le bloc disparaît après enregistrement. */
+    await page.locator('#personNameVariantsList [data-remove-name-variant]').click();
+    assert.equal(await page.locator("#personNameVariantsList li").count(), 0, "retrait immédiat dans le formulaire");
+    await page.click("#savePersonBtn");
+    await page.waitForFunction(() => !document.getElementById("personDialog").open, undefined, { timeout: 10000 });
+    await page.waitForFunction(() => !document.getElementById("personPageIdentity")?.textContent.includes("Variantes orthographiques"), undefined, { timeout: 8000 });
+    assert.doesNotMatch(await page.locator("#personPageIdentity").innerText(), /Variantes orthographiques/, "bloc disparu après suppression enregistrée");
 
     for (const width of [320, 375, 390, 430, 760, 768, 900, 1024, 1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 850 });

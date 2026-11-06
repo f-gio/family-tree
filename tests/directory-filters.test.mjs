@@ -211,4 +211,38 @@ test("AO. libellé d’arbre sans classement silencieux des memberships invalide
   assert.equal(directoryTreeLabel({ treeId: "tree/bad" }, trees), "Arbre indisponible");
 });
 
+test("AP. recherche rapide : variantes orthographiques retrouve la personne", () => {
+  const person = {
+    id: "v", firstName: "Ludovica", lastName: "Pianezza", marriedName: "Bianchi",
+    nameVariants: [
+      { id: "vg", kind: "given", value: "Lodovica" },
+      { id: "vf", kind: "family", value: "Pinaezza" }
+    ]
+  };
+  assert.deepEqual(filterAndSortDirectory([person], { query: "pinaezza" }).map(item => item.id), ["v"], "variante de nom retrouve la personne");
+  assert.deepEqual(filterAndSortDirectory([person], { query: "lodovica" }).map(item => item.id), ["v"], "variante de prénom retrouve la personne");
+  assert.deepEqual(filterAndSortDirectory([person], { query: "PIANEZZA" }).map(item => item.id), ["v"], "insensible a la casse");
+  assert.deepEqual(filterAndSortDirectory([person], { query: "piolin" }).map(item => item.id), []);
+});
+
+test("AQ. filtre Nom / prénom : variantes acceptées, nom d'usage intact", () => {
+  const person = {
+    id: "v", firstName: "Ludovica", lastName: "Pianezza", marriedName: "Bianchi",
+    nameVariants: [
+      { id: "vg", kind: "given", value: "Lodovica" },
+      { id: "vf", kind: "family", value: "Pinaezza" }
+    ]
+  };
+  assert.equal(filterAndSortDirectory([person], { firstName: "pinaezza" }).length, 1, "champ Nom / prénom couvre les deux types");
+  assert.equal(filterAndSortDirectory([person], { firstName: "lodovica" }).length, 1);
+  assert.equal(filterAndSortDirectory([person], { marriedName: "pinaezza" }).length, 0, "les variantes n entrent pas dans le nom d usage");
+  assert.equal(filterAndSortDirectory([person], { marriedName: "bianchi" }).length, 1, "nom d usage inchange");
+});
+
+test("AR. compatibilité : personne sans nameVariants inchangée", () => {
+  const legacy = { id: "n", firstName: "Carlo", lastName: "Giovannoni" };
+  assert.equal(filterAndSortDirectory([legacy], { query: "carlo" }).length, 1);
+  assert.deepEqual(filterAndSortDirectory([legacy], { query: "pinaezza" }), []);
+});
+
 console.log("Filtres Annuaire — logique : OK");

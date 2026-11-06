@@ -607,6 +607,14 @@
 </label>
 </div></fieldset>
 </div>
+<fieldset class="life-fields person-name-variants" id="personNameVariantsSection"><legend>Variantes orthographiques</legend><div class="person-name-variants-add">
+<label>Type<select class="field" id="nameVariantKind"><option value="given">Prénom</option><option value="family">Nom</option></select></label>
+<label>Variante<input class="field" id="nameVariantValue" autocomplete="off" autocapitalize="words" spellcheck="false" maxlength="80" placeholder="Ex. Pinaezza"></label>
+<button class="btn small" id="addNameVariantBtn" type="button">Ajouter</button>
+</div>
+<p class="field-error" id="nameVariantError" role="alert" hidden></p>
+<ul class="person-name-variants-list" id="personNameVariantsList"></ul>
+</fieldset>
 <label class="identity-notes">Notes<textarea class="field" id="notes" rows="3" maxlength="800" autocapitalize="sentences" placeholder="Profession, histoire, sources…">
 </textarea>
 </label>

@@ -91,6 +91,7 @@ import {
 } from "./transcription-draft-sync.js";
 import { PROOF_FACT_KINDS, PROOF_FACT_KIND_LABELS, PROOF_RELATION_LABELS, showProofFamilyRelation, validateProofGuidedFields, buildProofGuidedInput } from "./genealogy-proof-form.js";
 import { BACKUP_ARCHIVE_VERSION, createBackupArchiveManifest, compareBackupCaptureMarkers, generateBackupZip, readBackupZip, prepareBackupRestorePlan } from "./backup-archive.js";
+import { personNameVariants, nameVariantLabel, validateNameVariant, personNameVariantsSearchText, nameVariantsWritePlan } from "./person-name-variants.js";
 
 const firebaseEnvironment = resolveFirebaseEnvironment(window.location);
 if (!firebaseEnvironment.allowed || !firebaseConfigurationMatchesEnvironment(firebaseEnvironment.environment, firebaseEnvironment.firebaseConfig)) {
@@ -261,6 +262,7 @@ const directoryViewPreferenceKeys = Object.freeze({
   desktop: "familyTreeDirectoryViewDesktop"
 });
 const personFields = ["firstName", "middleName", "lastName", "marriedName", "gender", "branch", "place", "deathPlace", "photoUrl", "notes"];
+let personNameVariantsDraft = [];
 const taskFields = ["title", "status", "priority", "assignee", "dueDate", "description", "comments"];
 const locationControls = {};
 const locationFieldDefinitions = {
@@ -2080,7 +2082,7 @@ async function performArchiveCardAction(id, action) {
 function applySearch(focus = true) {
   const query = searchable($("search").value);
   const scopePeople = currentScope?.people || treePeople();
-  const matches = query ? scopePeople.filter(item => searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.place || ""} ${item.branch || ""} ${genealogyDateSearchText(item.birthDateInfo, item.birthDate)} ${genealogyDateSearchText(item.deathDateInfo, item.deathDate)}`).includes(query)) : [];
+  const matches = query ? scopePeople.filter(item => searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${personNameVariantsSearchText(item)} ${item.place || ""} ${item.branch || ""} ${genealogyDateSearchText(item.birthDateInfo, item.birthDate)} ${genealogyDateSearchText(item.deathDateInfo, item.deathDate)}`).includes(query)) : [];
   renderer.setHighlights(matches.map(item => item.id));
   if (focus && matches[0] && currentLayout?.positions.has(matches[0].id)) camera.focus(currentLayout.positions.get(matches[0].id));
 }
@@ -2191,7 +2193,11 @@ function personPageIdentityMarkup(item) {
     personPageFact("Branche familiale", item.branch, true, "person-detail-branch-fact")
   ];
   const notes = item.notes ? `<p class="person-detail-notes">${esc(item.notes)}</p>` : "";
-  return `<section id="personPageIdentity" aria-labelledby="personPageIdentityTitle"><h3 id="personPageIdentityTitle">Identité</h3><div class="source-detail-facts person-detail-identity-grid">${facts.join("")}</div>${notes}</section>`;
+  const variants = personNameVariants(item);
+  const variantsMarkup = variants.length
+    ? `<div class="person-detail-name-variants"><h4>Variantes orthographiques</h4><div class="source-detail-facts person-detail-identity-grid">${variants.map(variant => personPageFact(nameVariantLabel(variant.kind), variant.value, true)).join("")}</div></div>`
+    : "";
+  return `<section id="personPageIdentity" aria-labelledby="personPageIdentityTitle"><h3 id="personPageIdentityTitle">Identité</h3><div class="source-detail-facts person-detail-identity-grid">${facts.join("")}</div>${notes}${variantsMarkup}</section>`;
 }
 
 function personPageTimelineMarkup(item) {
@@ -2876,12 +2882,56 @@ function updatePersonPhotoPreview() {
   $("removePersonPhotoBtn").hidden = !value;
 }
 
+function setPersonNameVariants(values = []) {
+  personNameVariantsDraft = personNameVariants({ nameVariants: values });
+  const kindSelect = $("nameVariantKind");
+  if (kindSelect) kindSelect.value = "given";
+  const input = $("nameVariantValue");
+  if (input) input.value = "";
+  showNameVariantError("");
+  renderPersonNameVariants();
+}
+
+function showNameVariantError(message = "") {
+  const error = $("nameVariantError");
+  if (!error) return;
+  error.textContent = message;
+  error.hidden = !message;
+}
+
+function renderPersonNameVariants() {
+  const list = $("personNameVariantsList");
+  if (!list) return;
+  list.innerHTML = personNameVariantsDraft.map(variant => `<li class="person-name-variants-item"><span>${esc(nameVariantLabel(variant.kind))} : ${esc(variant.value)}</span><button class="btn small" type="button" data-remove-name-variant="${esc(variant.id)}" aria-label="Retirer la variante ${esc(variant.value)}">Retirer</button></li>`).join("");
+}
+
+function addPersonNameVariant() {
+  const kind = $("nameVariantKind")?.value || "";
+  const result = validateNameVariant({
+    kind,
+    value: $("nameVariantValue")?.value || "",
+    firstName: $("firstName")?.value || "",
+    lastName: $("lastName")?.value || "",
+    existing: personNameVariantsDraft
+  });
+  if (!result.ok) {
+    showNameVariantError(result.error);
+    $("nameVariantValue")?.focus();
+    return;
+  }
+  personNameVariantsDraft.push({ id: doc(refs.people).id, kind, value: result.value });
+  showNameVariantError("");
+  $("nameVariantValue").value = "";
+  renderPersonNameVariants();
+}
+
 function capturePersonDraft() {
   return {
     fields: Object.fromEntries(personFields.map(key => [key, $(key).value])),
     locations: { place: locationControls.place?.snapshot(), deathPlace: locationControls.deathPlace?.snapshot() },
     birth: captureGenealogyDateDraft("birth"),
-    death: captureGenealogyDateDraft("death")
+    death: captureGenealogyDateDraft("death"),
+    nameVariants: personNameVariantsDraft.map(variant => ({ ...variant }))
   };
 }
 
@@ -2894,6 +2944,7 @@ function restorePersonDraft(draft) {
   setLocationField("deathPlace", draft.locations?.deathPlace?.text ?? $("deathPlace").value, draft.locations?.deathPlace?.placeInfo);
   restoreGenealogyDateDraft("birth", draft.birth);
   restoreGenealogyDateDraft("death", draft.death);
+  setPersonNameVariants(draft.nameVariants || []);
   updateMarriedNameVisibility();
   updatePersonPhotoPreview();
 }
@@ -3041,6 +3092,7 @@ function openPerson(item = null, source = "tree", { showDialog = true } = {}) {
   setLocationField("deathPlace", item?.deathPlace || "", item?.deathPlaceInfo);
   setGenealogyDateForm("birth", item?.birthDateInfo, item?.birthDate);
   setGenealogyDateForm("death", item?.deathDateInfo, item?.deathDate);
+  setPersonNameVariants(item?.nameVariants);
   $("personPhotoFile").value = "";
   $("personPhotoStatus").textContent = "";
   updatePersonPhotoPreview();
@@ -4244,7 +4296,7 @@ const multipleTreeTransferPicker = createPersonMultiSelect({
       && canChangePersonTree(item)
       && (!selectedSource || (selectedSource.type === "assigned" && getPersonTreeMembership(item).treeId === selectedSource.treeId))
       && !selectedIds.has(item.id)
-      && searchable(`${item.firstName || ""} ${item.middleName || ""} ${item.lastName || ""} ${item.marriedName || ""}`).includes(text))
+      && searchable(`${item.firstName || ""} ${item.middleName || ""} ${item.lastName || ""} ${item.marriedName || ""} ${personNameVariantsSearchText(item)}`).includes(text))
       .sort(comparePeopleBySurname)
       .slice(0, PERSON_PICKER_MAX_RESULTS);
   },
@@ -12243,7 +12295,7 @@ function personPickerMatches(query = "", selectedIds, source) {
   if (text.length < DOSSIER_MIN_QUERY_LENGTH) return [];
   return source()
     .filter(item => !selectedIds.has(item.id))
-    .filter(item => searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${item.branch || ""}`).includes(text))
+    .filter(item => searchable(`${item.firstName} ${item.middleName || ""} ${item.lastName} ${item.marriedName || ""} ${personNameVariantsSearchText(item)} ${item.branch || ""}`).includes(text))
     .slice(0, PERSON_PICKER_MAX_RESULTS);
 }
 
@@ -13125,6 +13177,9 @@ $("personForm").addEventListener("submit", async event => {
     data.birthDate = birthDateInfo.type === "exact" ? birthDateInfo.value : deleteField();
     data.deathDate = deathDateInfo.type === "exact" ? deathDateInfo.value : deleteField();
     const id = $("personId").value;
+    const nameVariantsPlan = nameVariantsWritePlan(personNameVariantsDraft, Boolean(id));
+    if (nameVariantsPlan.action === "set") data.nameVariants = nameVariantsPlan.value;
+    else if (nameVariantsPlan.action === "delete") data.nameVariants = deleteField();
     const existing = people.find(item => item.id === id);
     applyLocationField(data, "place", existing, !!id);
     applyLocationField(data, "deathPlace", existing, !!id);
@@ -13656,6 +13711,20 @@ $("removePersonPhotoBtn").onclick = () => {
   $("personPhotoStatus").textContent = "La photo sera retirée après enregistrement.";
   updatePersonPhotoPreview();
 };
+$("addNameVariantBtn").onclick = () => addPersonNameVariant();
+$("nameVariantValue").addEventListener("keydown", event => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  addPersonNameVariant();
+});
+$("nameVariantValue").addEventListener("input", () => showNameVariantError(""));
+$("personNameVariantsList").addEventListener("click", event => {
+  const button = event.target.closest("[data-remove-name-variant]");
+  if (!button) return;
+  personNameVariantsDraft = personNameVariantsDraft.filter(variant => variant.id !== button.dataset.removeNameVariant);
+  showNameVariantError("");
+  renderPersonNameVariants();
+});
 const syncSearchClearBtn = (inputId, btnId) => {
   const input = $(inputId);
   const btn = $(btnId);

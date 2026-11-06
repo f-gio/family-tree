@@ -30,6 +30,13 @@ assert.ok(!identity.includes("Noms et informations utilisées"));
 assert.ok(!identity.includes("Conservez uniquement le niveau"));
 assert.ok(!identity.includes("La date sera affichée"));
 assert.equal((identity.match(/\bidentity-life-section\b/g) || []).length, 2);
+assert.match(identity, /id="personNameVariantsSection"/);
+assert.match(identity, /<legend>Variantes orthographiques<\/legend>/);
+assert.match(identity, /id="nameVariantKind"><option value="given">Prénom<\/option><option value="family">Nom<\/option>/);
+assert.match(identity, /id="nameVariantValue"/);
+assert.match(identity, /id="addNameVariantBtn" type="button"/);
+assert.match(identity, /id="nameVariantError" role="alert" hidden/);
+assert.match(identity, /id="personNameVariantsList"/);
 assert.match(identity, /<label class="life-place">Lieu de naissance/);
 assert.match(identity, /<label class="life-place">Lieu de décès/);
 
