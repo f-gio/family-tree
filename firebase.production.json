@@ -11,6 +11,18 @@
         { "source": "/La_Nostra_Storia_icons/**", "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }] }
       ],
       "ignore": ["firebase.production.json", "**/.*", "**/node_modules/**", "**/.git/**", "**/tests/**", "**/*.log"],
+      "redirects": [
+        {
+          "source": "/",
+          "destination": "https://lanostrastoria.web.app/",
+          "type": 301
+        },
+        {
+          "source": "/:path*",
+          "destination": "https://lanostrastoria.web.app/:path",
+          "type": 301
+        }
+      ],
       "rewrites": [{ "source": "**", "destination": "/index.html" }]
     },
     {

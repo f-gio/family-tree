@@ -50,6 +50,16 @@ test("les deux cibles Hosting Production déploient le même artefact sans confi
   assert.equal("firestore" in productionFirebaseJson, false);
 });
 
+test("la redirection 301 vers la nouvelle production existe uniquement sur production-main", () => {
+  const productionMain = productionFirebaseJson.hosting.find(({ target }) => target === "production-main");
+  const productionShort = productionFirebaseJson.hosting.find(({ target }) => target === "production-short");
+  assert.deepEqual(productionMain.redirects, [
+    { source: "/", destination: "https://lanostrastoria.web.app/", type: 301 },
+    { source: "/:path*", destination: "https://lanostrastoria.web.app/:path", type: 301 }
+  ]);
+  assert.equal("redirects" in productionShort, false, "le site officiel ne doit pas rediriger");
+});
+
 test("Recette est autorisée uniquement sur son hostname HTTPS exact", () => {
   const recette = resolveFirebaseEnvironment({ protocol: "https:", hostname: "la-nostra-storia-recette.web.app", pathname: "/" });
   assert.equal(recette.allowed, true);
