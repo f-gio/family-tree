@@ -80,6 +80,9 @@ export function resolveFirebaseEnvironment(locationLike) {
   if (hostname === "family-tree-c2fe2.web.app") {
     return protocol === "https:" ? allow("production") : denied("production-requires-https");
   }
+  if (hostname === "lanostrastoria.web.app") {
+    return protocol === "https:" ? allow("production") : denied("production-requires-https");
+  }
   if (hostname === "la-nostra-storia-recette.web.app") {
     return protocol === "https:" ? allow("recette") : denied("recette-requires-https");
   }

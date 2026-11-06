@@ -47,9 +47,19 @@ async function verifyFirebaseEnvironment() {
   const source = await readFile(join(ROOT, "js/firebase-environment.js"), "utf8");
   assert.match(source, /production:\s*"family-tree-c2fe2"/);
   assert.match(source, /hostname === "family-tree-c2fe2\.web\.app"[\s\S]*?allow\("production"\)/);
+  assert.match(source, /hostname === "lanostrastoria\.web\.app"[\s\S]*?allow\("production"\)/);
   assert.match(source, /hostname === "la-nostra-storia-recette\.web\.app"[\s\S]*?allow\("recette"\)/);
   const productionConfig = JSON.parse(await readFile(join(ROOT, "firebase.production.json"), "utf8"));
-  assert.equal(productionConfig.hosting.public, "dist-production");
+  assert.deepEqual(productionConfig.hosting.map(({ target, public: publicDir }) => ({ target, public: publicDir })), [
+    { target: "production-main", public: "dist-production" },
+    { target: "production-short", public: "dist-production" }
+  ], "les deux sites Production partagent dist-production avec des cibles distinctes");
+  const firebaseRc = JSON.parse(await readFile(join(ROOT, ".firebaserc"), "utf8"));
+  assert.equal(firebaseRc.projects.default, "family-tree-c2fe2");
+  assert.deepEqual(firebaseRc.targets?.["family-tree-c2fe2"]?.hosting, {
+    "production-main": ["family-tree-c2fe2"],
+    "production-short": ["lanostrastoria"]
+  }, "les cibles Hosting pointent vers les deux sites attendus");
   assert.equal("firestore" in productionConfig, false, "la configuration dédiée ne cible que Hosting");
 }
 

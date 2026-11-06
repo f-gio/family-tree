@@ -4,13 +4,15 @@ import test from "node:test";
 import { FIREBASE_PROJECT_IDS, firebaseConfigurationMatchesEnvironment, firebaseProjectIdMatches, resolveFirebaseEnvironment } from "../js/firebase-environment.js";
 
 const root = new URL("../", import.meta.url);
-const [appSource, html, css] = await Promise.all([
+const [appSource, html, css, productionFirebaseJson, firebaseRc] = await Promise.all([
   readFile(new URL("js/app.js", root), "utf8"),
   readFile(new URL("index.html", root), "utf8"),
-  readFile(new URL("css/design-system.css", root), "utf8")
+  readFile(new URL("css/design-system.css", root), "utf8"),
+  readFile(new URL("firebase.production.json", root), "utf8").then(JSON.parse),
+  readFile(new URL(".firebaserc", root), "utf8").then(JSON.parse)
 ]);
 
-test("Production est autorisée uniquement sur GitHub Pages ou Hosting HTTPS du projet", () => {
+test("Production est autorisée uniquement sur GitHub Pages ou les Hostings HTTPS du projet", () => {
   const production = resolveFirebaseEnvironment({ protocol: "https:", hostname: "f-gio.github.io", pathname: "/family-tree/" });
   assert.equal(production.allowed, true);
   assert.equal(production.environment, "production");
@@ -27,6 +29,25 @@ test("Production est autorisée uniquement sur GitHub Pages ou Hosting HTTPS du 
   assert.equal(firebaseConfigurationMatchesEnvironment("production", hosting.firebaseConfig), true);
   assert.equal(resolveFirebaseEnvironment({ protocol: "http:", hostname: "family-tree-c2fe2.web.app", pathname: "/" }).allowed, false, "HTTP Hosting Production refusé");
   assert.equal(resolveFirebaseEnvironment({ protocol: "https:", hostname: "family-tree-c2fe2.web.app.evil.test", pathname: "/" }).allowed, false, "sous-domaine malveillant refusé");
+  const shortHosting = resolveFirebaseEnvironment({ protocol: "https:", hostname: "lanostrastoria.web.app", pathname: "/" });
+  assert.equal(shortHosting.allowed, true);
+  assert.equal(shortHosting.environment, "production");
+  assert.equal(shortHosting.firebaseConfig.projectId, "family-tree-c2fe2");
+  assert.equal(firebaseConfigurationMatchesEnvironment("production", shortHosting.firebaseConfig), true);
+  assert.equal(resolveFirebaseEnvironment({ protocol: "http:", hostname: "lanostrastoria.web.app", pathname: "/" }).allowed, false, "HTTP second site Production refusé");
+  assert.equal(resolveFirebaseEnvironment({ protocol: "https:", hostname: "lanostrastoria.web.app.evil.test", pathname: "/" }).allowed, false, "sous-domaine malveillant du second site refusé");
+});
+
+test("les deux cibles Hosting Production déploient le même artefact sans config Firestore", () => {
+  assert.deepEqual(productionFirebaseJson.hosting.map(({ target, public: publicDir }) => ({ target, public: publicDir })), [
+    { target: "production-main", public: "dist-production" },
+    { target: "production-short", public: "dist-production" }
+  ]);
+  assert.deepEqual(firebaseRc.targets?.["family-tree-c2fe2"]?.hosting, {
+    "production-main": ["family-tree-c2fe2"],
+    "production-short": ["lanostrastoria"]
+  });
+  assert.equal("firestore" in productionFirebaseJson, false);
 });
 
 test("Recette est autorisée uniquement sur son hostname HTTPS exact", () => {

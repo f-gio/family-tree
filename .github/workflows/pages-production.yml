@@ -24,25 +24,13 @@ jobs:
       - name: Récupérer les sources
         uses: actions/checkout@v4
 
-      - name: Installer Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Installer les dépendances verrouillées
-        run: npm ci
-
-      - name: Construire l’artefact Production
-        run: npm run build:production
-
       - name: Préparer GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Publier uniquement dist-production
+      - name: Publier uniquement la redirection Firebase Hosting
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist-production
+          path: pages-redirect
 
   deploy:
     if: github.ref == 'refs/heads/main'

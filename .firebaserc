@@ -1,5 +1,13 @@
 {
   "projects": {
     "default": "family-tree-c2fe2"
+  },
+  "targets": {
+    "family-tree-c2fe2": {
+      "hosting": {
+        "production-main": ["family-tree-c2fe2"],
+        "production-short": ["lanostrastoria"]
+      }
+    }
   }
 }
