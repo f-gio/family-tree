@@ -528,7 +528,8 @@ test("la fiche unifiée du document réutilise le viewer et affiche métadonnée
   const unified = app.match(/function renderUnifiedDocumentDetails\(item\)[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(unified.length > 500);
   for (const field of ["item.type", "item.date", "item.place", "item.notes", "item.personIds"]) assert.ok(unified.includes(field), `champ documentaire absent : ${field}`);
-  assert.match(unified, /documentLinkedSources\(item\.id\)/);
+  assert.match(unified, /documentSourcePresentation\(item\)/, "résolution des sources liées factorisée pour la carte et le volet");
+  assert.match(app, /function documentSourcePresentation\(item\) \{[\s\S]{0,300}documentLinkedSources\(item\.id\)/, "sources liées résolues à partir de l'identifiant du document");
   assert.match(unified, /linkedSources\.map\(source/);
   assert.match(unified, /data-unified-source-card=/, "carte Source cliquable");
   assert.match(unified, /"Format", fileFormat/);

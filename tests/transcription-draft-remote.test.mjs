@@ -72,10 +72,10 @@ window.__draftRemote = {
   },
   /* Version officielle de la page : même contenu que le document seedé
      (badge « Validée »), pour le scénario « brouillon distant hérité ». */
-  seedOfficial() {
+  seedOfficial(documentId = "doc-remote", pageId = "page-remote-1") {
     const content = {
-      documentId: "doc-remote",
-      pageId: "page-remote-1",
+      documentId,
+      pageId,
       passages: window.__draftRemote.passagesFixture(),
       transcriptionIt: "Anno millenovecento\\nindici di Orino",
       translationFr: "L’année mille neuf cent",
@@ -90,6 +90,19 @@ window.__draftRemote = {
       updatedAt: new Date("2026-10-20T10:00:00Z"), updatedBy: "admin-seed", eventId: "tx-remote-seed-ev1"
     }];
   },
+  /* Document sans passage source ni version officielle : la fiche affiche
+     « Ajouter » tant qu'aucun brouillon (local ou distant) n'existe. */
+  seedBareDocument() {
+    const current = documents[0];
+    documents = [{
+      ...current,
+      id: "doc-bare-remote",
+      personIds: [],
+      pages: [{ id: "page-bare-1", label: "Folio 1", photographs: [{ id: "photo-bare-1", preview: { dataUrl: "${REMOTE_TEST_SVG}" } }] }]
+    }];
+    loadedDocuments = true;
+  },
+  reRenderDetails() { refreshUnifiedDetailsIfOpen(); },
   show() { $("authScreen").hidden = true; $("topbar").hidden = false; setView("directory"); },
   seed() {
     const documentItem = {
@@ -164,7 +177,7 @@ async function openRemoteHarness(t) {
   try { browser = await chromium.launch({ headless: true }); }
   catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return null; }
   const server = await startStaticServer(ROOT);
-  const serverState = { entries: {}, offline: false };
+  const serverState = { entries: {}, offline: false, readCount: 0 };
   const hooks = `${REMOTE_TEST_HOOKS}\n${REMOTE_AUTH_PATCH}`;
   const contexts = [];
   const pageErrors = [];
@@ -175,6 +188,7 @@ async function openRemoteHarness(t) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "fr-FR" });
     contexts.push(context);
     await context.exposeFunction("__draftRemoteServerRead", (key, targetJson) => {
+      serverState.readCount += 1;
       if (serverState.offline) return { ok: false, error: "réseau indisponible" };
       const raw = serverState.entries[key];
       if (!raw) return { ok: true, remote: null };
@@ -950,6 +964,118 @@ test("la sortie de l'atelier déclenche immédiatement l'envoi distante en atten
     await openWorkshopOn(second);
     await second.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 8000 });
     assert.equal(await second.evaluate(() => window.__draftRemote.fieldValue()), "Anno prima dell’uscita", "brouillon non validé retrouvé sur le second appareil");
+
+    assertNoWorkshopPageErrors(pageErrors);
+  } finally {
+    for (const context of contexts) await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
+});
+
+test("la fiche Document bascule sur Reprendre quand un brouillon distant existe", { timeout: 120000 }, async t => {
+  const harness = await openRemoteHarness(t);
+  if (!harness) return;
+  const { browser, server, serverState, contexts, pageErrors, createDevice } = harness;
+  try {
+    const bareSnapshot = {
+      documentId: "doc-bare-remote",
+      pageId: "page-bare-1",
+      original: [],
+      passages: [
+        { id: "p-b1", order: 0, textIt: "Anno da riprendere sul secondo appareil", translationFr: null, separatorAfter: "", unreadable: false, hypotheses: [], anchor: null, lineLabel: "l. 1", translationState: "current" }
+      ],
+      createdIds: [],
+      selectedPassageId: "p-b1"
+    };
+    const bareButton = '#viewerDocumentDetails [data-transcribe-document]';
+
+    /* Ordinateur A : sans brouillon, la fiche affiche « Ajouter ». */
+    const first = await createDevice();
+    await first.evaluate(() => window.__draftRemote.seedBareDocument());
+    await first.evaluate(() => window.__draftRemote.openDoc());
+    await first.waitForSelector(bareButton);
+    assert.equal(await first.locator(bareButton).textContent(), "Ajouter", "aucun brouillon : libellé court « Ajouter »");
+    assert.match(await first.evaluate(() => document.querySelector(".document-transcription-card").textContent), /Aucune transcription/, "état vide explicite avant tout brouillon");
+
+    /* A : brouillon créé et publié sur le compte (page sans passage : le
+       premier passage est ajouté dans l'atelier). */
+    await first.evaluate(() => window.__draftRemote.transcribe());
+    await first.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+    await first.click("#workshopAddPassageBtn");
+    await first.fill('[data-workshop-field="textIt"]', "Anno da riprendere sul secondo appareil");
+    await clickSave(first);
+    await first.waitForFunction(() => document.getElementById("workshopSaveStatus").textContent === "Synchronisé entre appareils", undefined, { timeout: 5000 });
+    const bareKey = "transcriptionDrafts|compte-remote-1|doc-bare-remote|page-bare-1";
+    assert.equal(serverState.entries[bareKey].version, 1, "brouillon distant publié pour la page nue");
+    await exitWorkshop(first);
+
+    /* Appareil B : libellé local d'abord, puis bascule après la vérification
+       distante — une seule lecture, puis ré-affichages sans relecture. */
+    const second = await createDevice();
+    await second.evaluate(() => window.__draftRemote.seedBareDocument());
+    const readsBeforeOpen = serverState.readCount;
+    await second.evaluate(() => window.__draftRemote.openDoc());
+    await second.waitForSelector(bareButton);
+    await second.waitForFunction(() => document.querySelector('#viewerDocumentDetails [data-transcribe-document]')?.textContent.trim() === "Reprendre", undefined, { timeout: 8000 });
+    assert.match(await second.evaluate(() => document.querySelector(".document-transcription-card").textContent), /Brouillon distant/, "état « Brouillon distant » affiché");
+    assert.equal(serverState.readCount, readsBeforeOpen + 1, "une seule lecture distante par page");
+
+    const readsAfterFlip = serverState.readCount;
+    await second.evaluate(() => window.__draftRemote.reRenderDetails());
+    await second.waitForTimeout(300);
+    assert.equal(serverState.readCount, readsAfterFlip, "ré-affichage sans nouvelle lecture distante");
+    assert.equal(await second.locator(bareButton).textContent(), "Reprendre", "libellé conservé au ré-affichage");
+
+    /* Réouverture de la fiche : cache vidé, une nouvelle lecture, libellé juste. */
+    const readsBeforeReopen = serverState.readCount;
+    await second.evaluate(() => window.__draftRemote.openDoc());
+    await second.waitForFunction(() => document.querySelector('#viewerDocumentDetails [data-transcribe-document]')?.textContent.trim() === "Reprendre", undefined, { timeout: 8000 });
+    assert.equal(serverState.readCount, readsBeforeReopen + 1, "réouverture = une nouvelle lecture distante");
+
+    /* Le bouton ouvre le même atelier et y reprend le brouillon distant. */
+    await second.click(bareButton);
+    await second.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden, undefined, { timeout: 8000 });
+    assert.equal(await second.evaluate(() => window.__draftRemote.fieldValue()), "Anno da riprendere sul secondo appareil", "brouillon distant repris dans l’atelier");
+    await exitWorkshop(second);
+
+    /* Réseau en échec : brouillon distant existant mais lecture impossible →
+       libellé neutre, aucune promesse de reprise trompeuse. */
+    serverState.offline = true;
+    serverState.entries["transcriptionDrafts|compte-remote-3|doc-bare-remote|page-bare-1"] = buildTranscriptionDraftRemotePayload({
+      target: { ownerUid: "compte-remote-3", documentId: "doc-bare-remote", pageId: "page-bare-1" },
+      snapshot: bareSnapshot,
+      version: 1,
+      createdAt: "2026-11-01T10:00:00.000Z",
+      updatedAt: "2026-11-01T10:00:00.000Z"
+    });
+    const third = await createDevice({ uid: "compte-remote-3" });
+    await third.evaluate(() => window.__draftRemote.seedBareDocument());
+    await third.evaluate(() => window.__draftRemote.openDoc());
+    await third.waitForSelector(bareButton);
+    await third.waitForTimeout(1200);
+    assert.equal(await third.locator(bareButton).textContent(), "Ajouter", "lecture en échec : libellé neutre conservé");
+    assert.match(await third.evaluate(() => document.querySelector(".document-transcription-card").textContent), /Aucune transcription/, "aucun état distant affiché sans lecture réussie");
+    serverState.offline = false;
+
+    /* Version officielle : comportement inchangé et aucune lecture distante,
+       même quand un brouillon récupérable existe pour le compte. */
+    serverState.entries["transcriptionDrafts|compte-remote-4|doc-bare-remote|page-bare-1"] = buildTranscriptionDraftRemotePayload({
+      target: { ownerUid: "compte-remote-4", documentId: "doc-bare-remote", pageId: "page-bare-1" },
+      snapshot: bareSnapshot,
+      version: 1,
+      createdAt: "2026-11-01T11:00:00.000Z",
+      updatedAt: "2026-11-01T11:00:00.000Z"
+    });
+    const readsBeforeOfficial = serverState.readCount;
+    const fourth = await createDevice({ uid: "compte-remote-4" });
+    await fourth.evaluate(() => { window.__draftRemote.seedBareDocument(); window.__draftRemote.seedOfficial("doc-bare-remote", "page-bare-1"); });
+    await fourth.evaluate(() => window.__draftRemote.openDoc());
+    await fourth.waitForSelector(bareButton);
+    await fourth.waitForTimeout(800);
+    assert.equal(await fourth.locator(bareButton).textContent(), "Consulter", "version officielle : comportement inchangé");
+    assert.match(await fourth.evaluate(() => document.querySelector(".document-transcription-card").textContent), /Validée · v1/, "état officiel inchangé");
+    assert.equal(serverState.readCount, readsBeforeOfficial, "aucune lecture distante quand la version officielle existe");
 
     assertNoWorkshopPageErrors(pageErrors);
   } finally {

@@ -11227,6 +11227,21 @@ function localTranscriptionDraftFor(documentId, pageId) {
   }
 }
 
+const transcriptionCardRemoteDrafts = new Map();
+const transcriptionCardRemoteDraftReads = new Set();
+
+function transcriptionCardRemoteDraftKey(ownerUid, documentId, pageId) {
+  return `${ownerUid || ""}|${documentId}|${pageId}`;
+}
+
+function transcriptionCardRemoteDraft(ownerUid, documentId, pageId) {
+  return transcriptionCardRemoteDrafts.get(transcriptionCardRemoteDraftKey(ownerUid, documentId, pageId)) || null;
+}
+
+function clearTranscriptionCardRemoteDrafts() {
+  transcriptionCardRemoteDrafts.clear();
+}
+
 function documentTranscriptionCardMarkup(item, linkedSources, sourceState) {
   const headsLoaded = genealogyCollectionsLoaded.has("transcriptionHeads")
     && !genealogyCollectionErrors.has("transcriptionHeads");
@@ -11237,14 +11252,19 @@ function documentTranscriptionCardMarkup(item, linkedSources, sourceState) {
   if (genealogyCollectionErrors.has("transcriptionHeads")) {
     return `<section class="document-unified-section document-transcription-card"><div class="document-unified-section-head"><h4>Transcription</h4></div><p class="document-unified-notice">L’état de la transcription est temporairement indisponible.</p></section>`;
   }
+  const ownerUid = transcriptionDraftSyncOwnerUid();
   const candidates = documentTranscriptionPageCandidates(item, linkedSources);
   const states = candidates.map(candidate => {
     const head = transcriptionOfficialHeadForPage(item.id, candidate.page.id);
     const localDraft = localTranscriptionDraftFor(item.id, candidate.page.id);
+    const remoteDraft = head ? null : transcriptionCardRemoteDraft(ownerUid, item.id, candidate.page.id);
     const data = head ? genealogyRecordData(head) : null;
     const source = proofPassagesForPage(item.id, candidate.page.id);
-    const passages = localDraft?.dirty && !localDraft.unreadable
-      ? localDraft.passages
+    const activeDraft = localDraft?.dirty && !localDraft.unreadable
+      ? localDraft
+      : remoteDraft?.dirty && !remoteDraft.unreadable ? remoteDraft : null;
+    const passages = activeDraft
+      ? activeDraft.passages
       : Array.isArray(data?.passages) ? data.passages : source.passages;
     const version = head ? (Number.isSafeInteger(head.version) && head.version > 0 ? head.version : 1) : null;
     const hasRevision = Boolean(head && localDraft?.dirty && !localDraft.unreadable
@@ -11253,13 +11273,14 @@ function documentTranscriptionCardMarkup(item, linkedSources, sourceState) {
       ? hasRevision ? `Révision en cours · v${version + 1}` : `Validée · v${version}`
       : localDraft?.unreadable ? "Brouillon local à vérifier"
         : localDraft?.dirty ? "Brouillon local"
-          : passages.length ? "Transcription existante · version source" : "Aucune transcription";
+          : remoteDraft?.dirty ? "Brouillon distant"
+            : passages.length ? "Transcription existante · version source" : "Aucune transcription";
     const action = head
       ? hasRevision ? "Reprendre" : "Consulter"
-      : localDraft?.dirty || passages.length ? "Reprendre" : "Ajouter";
-    return { ...candidate, head, localDraft, passages, version, hasRevision, status, action };
+      : localDraft?.dirty || remoteDraft?.dirty || passages.length ? "Reprendre" : "Ajouter";
+    return { ...candidate, head, localDraft, remoteDraft, passages, version, hasRevision, status, action };
   });
-  const selected = states.find(state => state.hasRevision || state.localDraft?.dirty)
+  const selected = states.find(state => state.hasRevision || state.localDraft?.dirty || state.remoteDraft?.dirty)
     || states.find(state => state.head)
     || states.find(state => state.passages.length)
     || states[0]
@@ -11275,6 +11296,62 @@ function documentTranscriptionCardMarkup(item, linkedSources, sourceState) {
     ? `<button class="btn small" type="button" data-transcribe-document="${esc(item.id)}"${selected ? ` data-transcription-page-id="${esc(selected.page.id)}"` : ""}>${esc(selected?.action || "Ajouter")}</button>`
     : `<p class="document-unified-notice">Aucune transcription ni page de transcription n’est associée à ce document.</p>`;
   return `<section class="document-unified-section document-transcription-card"><div class="document-unified-section-head"><h4>Transcription${esc(pageLabel)}</h4>${actionMarkup}</div><div class="document-transcription-summary"><div><strong>État</strong><span>${esc(selected?.status || "Aucune transcription")}</span></div><div><strong>Passages</strong><span>${passages.length}</span></div><div><strong>Italien</strong><span>${italian}</span></div><div><strong>Français</strong><span>${french}</span></div></div></section>`;
+}
+
+function documentSourcePresentation(item) {
+  const sourceState = genealogyCollectionsLoaded.has("sourceDocuments")
+    ? genealogyCollectionErrors.has("sourceDocuments") ? "unavailable" : "ready"
+    : "loading";
+  return { sourceState, linkedSources: sourceState === "ready" ? documentLinkedSources(item.id) : [] };
+}
+
+async function refreshTranscriptionCardRemoteDrafts(item) {
+  const ownerUid = transcriptionDraftSyncOwnerUid();
+  if (!ownerUid || !item?.id) return;
+  const { linkedSources } = documentSourcePresentation(item);
+  const pending = documentTranscriptionPageCandidates(item, linkedSources).filter(candidate => {
+    const pageId = candidate.page.id;
+    if (transcriptionOfficialHeadForPage(item.id, pageId)) return false;
+    if (localTranscriptionDraftFor(item.id, pageId)?.dirty) return false;
+    const key = transcriptionCardRemoteDraftKey(ownerUid, item.id, pageId);
+    return !transcriptionCardRemoteDrafts.has(key) && !transcriptionCardRemoteDraftReads.has(key);
+  });
+  if (!pending.length) return;
+  await Promise.all(pending.map(async candidate => {
+    const pageId = candidate.page.id;
+    const key = transcriptionCardRemoteDraftKey(ownerUid, item.id, pageId);
+    transcriptionCardRemoteDraftReads.add(key);
+    try {
+      const remote = await readTranscriptionDraftRemote(transcriptionDraftRemoteTarget(ownerUid, item.id, pageId));
+      let draft = null;
+      if (remote?.snapshot) {
+        try {
+          draft = restoreTranscriptionWorkshopDraft(remote.snapshot);
+          if (!draft?.dirty) draft = null;
+        } catch {
+          draft = null;
+        }
+      }
+      transcriptionCardRemoteDrafts.set(key, draft);
+    } catch {
+      transcriptionCardRemoteDrafts.set(key, null);
+    } finally {
+      transcriptionCardRemoteDraftReads.delete(key);
+    }
+  }));
+  applyTranscriptionCardRemoteDrafts(item, ownerUid);
+}
+
+function applyTranscriptionCardRemoteDrafts(item, ownerUid) {
+  if (!item?.id || ownerUid !== transcriptionDraftSyncOwnerUid()) return;
+  if (activeViewerDocumentId !== item.id || !isDocumentPageVisible()) return;
+  const card = $("viewerDocumentDetailsContent")?.querySelector(".document-transcription-card");
+  if (!card) return;
+  const { sourceState, linkedSources } = documentSourcePresentation(item);
+  const template = document.createElement("template");
+  template.innerHTML = documentTranscriptionCardMarkup(item, linkedSources, sourceState);
+  const fresh = template.content.querySelector(".document-transcription-card");
+  if (fresh && fresh.outerHTML !== card.outerHTML) card.outerHTML = fresh.outerHTML;
 }
 
 function renderUnifiedDocumentDetails(item) {
@@ -11306,10 +11383,7 @@ function renderUnifiedDocumentDetails(item) {
     : relatedPeople.length
       ? `<ul class="document-unified-people">${relatedPeople.map(personItem => `<li><button class="person-chip person-chip-consult" type="button" data-unified-person="${esc(personItem.id)}">${icon("user")}<span>${esc(directoryPersonName(personItem))}</span></button></li>`).join("")}${relatedPeople.length < personIds.length ? `<li><span class="document-unified-notice">Certaines fiches associées sont indisponibles.</span></li>` : ""}</ul>`
       : `<p class="document-unified-notice">Aucune personne n’est associée directement à cette fiche documentaire.</p>`;
-  const sourceState = genealogyCollectionsLoaded.has("sourceDocuments")
-    ? genealogyCollectionErrors.has("sourceDocuments") ? "unavailable" : "ready"
-    : "loading";
-  const linkedSources = sourceState === "ready" ? documentLinkedSources(item.id) : [];
+  const { sourceState, linkedSources } = documentSourcePresentation(item);
   const transcriptionCard = documentTranscriptionCardMarkup(item, linkedSources, sourceState);
   const sourceMarkup = sourceState === "loading"
     ? ""
@@ -11350,6 +11424,7 @@ function renderUnifiedDocumentDetails(item) {
   const associationsLoading = !loadedPeople || sourceState === "loading" || proofState === "loading";
   const loadingNotice = associationsLoading ? `<p class="document-unified-notice document-associations-loading" role="status" aria-live="polite">Chargement des associations…</p>` : "";
   $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations fichier</h4></div>${documentFacts}</section>${transcriptionCard}${loadingNotice}<section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section">${sourceHead}${sourceMarkup}</section><section class="document-unified-section">${proofActions}${proofMarkup}</section>`;
+  refreshTranscriptionCardRemoteDrafts(item).catch(() => {});
 }
 
 function refreshUnifiedDetailsIfOpen() {
@@ -11805,6 +11880,7 @@ async function openStoredDocument(item, returnContext = "previous") {
      affichage, leur contexte étant déjà capturé pour le retour. */
   if ($("genealogyItemDialog").open) close("genealogyItemDialog");
   if ($("personDialog").open) close("personDialog");
+  clearTranscriptionCardRemoteDrafts();
   renderUnifiedDocumentDetails(item);
   /* Lot G : volets mobiles fermés par défaut (Miniatures et Informations),
      Informations dépliées sur ordinateur. */
