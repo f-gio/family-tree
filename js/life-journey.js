@@ -94,7 +94,6 @@ export function validateLifeProfession(input = {}) {
 export function validateLifeEvent(input = {}) {
   const errors = {};
   if (!LIFE_EVENT_KINDS.includes(input.kind)) errors.kind = "Choisissez un type d'événement.";
-  if (!String(input.label || "").trim()) errors.label = "Indiquez l'intitulé de l'événement.";
   return { ok: Object.keys(errors).length === 0, errors };
 }
 

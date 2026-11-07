@@ -241,7 +241,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         documentCardTitles: documentCards.map(card => card.querySelector("h3")?.textContent.trim()),
         documentCardStyles: documentCards.map(card => ({ background: getComputedStyle(card).backgroundColor, border: getComputedStyle(card).borderTopWidth, radius: getComputedStyle(card).borderTopLeftRadius })),
         documentCardRects: documentCards.map(rect),
-        documentActions: [document.getElementById("linkDocumentBtn").innerText.trim(), document.getElementById("proofEntryPointLabel").textContent.trim()],
+        documentActions: [document.getElementById("linkDocumentBtn").innerText.trim(), document.getElementById("proofEntryPointLabel").innerText.trim()],
+        documentActionAria: [document.getElementById("linkDocumentBtn").getAttribute("aria-label"), document.getElementById("genealogyProposeProofForPersonBtn").getAttribute("aria-label")],
         documentActionHeaders: [document.getElementById("linkDocumentBtn"), document.getElementById("genealogyProposeProofForPersonBtn")].map(button => button.parentElement.classList.contains("person-page-inline-section-header")),
         relationHeaderAction: relationAction.parentElement.classList.contains("person-page-inline-section-header"),
         relationActionPrimary: relationAction.classList.contains("primary"),
@@ -318,7 +319,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(inlineDesktop.documentCardStyles[0].border, inlineDesktop.documentCardStyles[1].border, "cartes Documents/Recherches avec bordures identiques");
     assert.equal(inlineDesktop.documentCardStyles[0].radius, inlineDesktop.documentCardStyles[1].radius, "cartes Documents/Recherches avec arrondis identiques");
     assert.ok(inlineDesktop.documentCardRects[1].top - inlineDesktop.documentCardRects[0].bottom >= 12, "espace vertical entre les cartes Documents et Recherches");
-    assert.deepEqual(inlineDesktop.documentActions, ["Ajouter un document pour cette personne", "Ajouter une preuve"]);
+    assert.deepEqual(inlineDesktop.documentActions, ["Ajouter", "Ajouter"], "CTA desktop concis et contextualisés par leur section");
+    assert.deepEqual(inlineDesktop.documentActionAria, ["Ajouter un document", "Ajouter une preuve"], "noms accessibles explicites conservés pour les CTA desktop");
     assert.deepEqual(inlineDesktop.documentActionHeaders, [true, true], "actions d'ajout en haut de chaque carte");
     assert.equal(inlineDesktop.relationHeaderAction, true, "Ajouter un lien familial aligné sur le titre Famille");
     assert.equal(inlineDesktop.relationActionPrimary, false, "Ajouter un lien familial reste une action secondaire");
@@ -675,9 +677,24 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.deepEqual(journey.residences[0].dateInfo, { type: "year", year: 1892 }, "année seule conservée sans conversion");
     assert.equal(journey.residences[0].attestations.length, 0, "résidence valide sans attestation");
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Orino/);
+    assert.match(await page.locator('#personPageDetailedJourney [data-journey-kind="residence"] > summary').innerText(), /0 attestation/, "compteur discret visible en modification");
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('#personPageEditHost [data-close="personDialog"]').click();
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+    const emptyResidenceAttestations = page.locator('#personPageDetailedJourney [data-journey-kind="residence"]');
+    assert.doesNotMatch(await emptyResidenceAttestations.innerText(), /0 attestation|Aucune attestation renseignée/, "aucune ligne de compteur ou état vide pour les attestations en consultation");
+    assert.equal(await emptyResidenceAttestations.locator(".life-attestation").count(), 0, "aucune attestation vide affichée en consultation");
+    await page.locator("#personPageEditBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
 
     /* Attestations : date obligatoire, justificatif source, nombre affiché. */
-    await page.locator('#personPageDetailedJourney [data-journey-attestation-add]').click();
+    const addAttestation = page.locator('#personPageDetailedJourney [data-journey-attestation-add]');
+    assert.equal(await addAttestation.innerText(), "Ajouter une attestation", "le CTA conserve le terme attestation");
+    assert.ok(await addAttestation.evaluate(button => button.classList.contains("tertiary") && button.classList.contains("small")), "CTA d’attestation compact et secondaire");
+    assert.equal(await addAttestation.locator(".ui-icon use").getAttribute("href"), "#icon-plus", "icône + présente sur le CTA d’attestation");
+    assert.equal(await addAttestation.evaluate(button => getComputedStyle(button).color), "rgb(40, 75, 63)", "icône et libellé d’attestation verts");
+    await addAttestation.click();
     await page.locator('[data-journey-attestation-save]').click();
     assert.match(await page.locator("#journeyError-attDate").innerText(), /date de l'attestation/, "attestation sans date refusée");
     await page.locator('[data-journey-date-type="year"]').click();
@@ -712,6 +729,9 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.locator('#personPageDetailedJourney [data-journey-add], #personPageDetailedJourney [data-journey-edit], #personPageDetailedJourney [data-journey-delete], #personPageDetailedJourney [data-journey-attestation-add], #personPageDetailedJourney [data-journey-attestation-edit], #personPageDetailedJourney [data-journey-attestation-delete]').count(), 0, "actions et attestations en lecture seule masquées");
     assert.equal(await page.locator('#personPageDetailedJourney [data-journey-open-source="person-page-source"]').count(), 1, "source consultable en mode lecture seule");
     assert.equal(await page.locator('#personPageDetailedJourney [data-view-proof="person-page-proof"]').count(), 1, "preuve consultable en mode lecture seule");
+    const consultedAttestations = page.locator('#personPageDetailedJourney [data-journey-kind="residence"]');
+    assert.equal(await consultedAttestations.locator(".life-attestation").count(), 2, "attestations existantes toujours consultables");
+    assert.doesNotMatch(await consultedAttestations.innerText(), /2 attestations|0 attestation|Aucune attestation renseignée/, "compteur et état vide masqués en consultation");
 
     /* Consultation du justificatif : fiche Source existante puis retour. */
     await page.locator('[data-journey-open-source="person-page-source"]').click();
@@ -776,6 +796,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
     await page.locator('#personPageDetailedJourney [data-journey-add="event"]').click();
     await page.selectOption("#journeyEventKind", "census");
+    assert.equal(await page.locator("#journeyLabel").evaluate(input => input.closest("label").innerText.trim()), "Intitulé", "intitulé facultatif sans astérisque");
     await page.fill("#journeyLabel", "Recensement de Biella");
     await page.fill("#journeyPlace", "Lieu historique sans suggestion");
     await page.locator('[data-journey-date-type="year"]').click();
@@ -792,6 +813,42 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(journey.lifeEvents[0].place, "Lieu historique sans suggestion", "saisie libre conservée sans suggestion géographique");
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Agriculteur/);
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Recensement de Biella/);
+    const eventRow = page.locator('#personPageDetailedJourney .life-entry[data-journey-kind="event"]');
+    assert.match(await eventRow.locator("summary").innerText(), /Recensement · Recensement de Biella · 1901/, "intitulé distinct restitué après le type");
+    assert.equal(await eventRow.locator(".life-entry-place").innerText(), "Lieu historique sans suggestion", "lieu affiché directement sous le titre");
+    assert.doesNotMatch(await eventRow.locator(".life-entry-body").innerText(), /\bLieu\b/, "aucun libellé LIEU redondant dans l’événement");
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const editJourneyWithData = await page.locator("#personPageDetailedJourney").evaluate(section => {
+      const columns = [...section.querySelectorAll(".life-journey-column")];
+      const lefts = columns.map(column => Math.round(column.getBoundingClientRect().left));
+      const collisions = columns.filter(column => {
+        const head = column.querySelector(".life-journey-column-head");
+        return head.querySelector("h4").getBoundingClientRect().right > head.querySelector(":scope > .btn").getBoundingClientRect().left + 1;
+      }).length;
+      return { distinctColumns: new Set(lefts).size, texts: columns.map(column => column.innerText), collisions };
+    });
+    assert.equal(editJourneyWithData.distinctColumns, 3, "trois colonnes desktop en modification avec données");
+    assert.match(editJourneyWithData.texts[0], /Orino/, "résidence dans la colonne desktop dédiée");
+    assert.match(editJourneyWithData.texts[1], /Agriculteur/, "profession dans la colonne desktop dédiée");
+    assert.match(editJourneyWithData.texts[2], /Recensement de Biella/, "événement dans la colonne desktop dédiée");
+    assert.equal(editJourneyWithData.collisions, 0, "aucun chevauchement CTA/titre en desktop avec données");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await eventRow.locator('[data-journey-edit^="event:"]').click();
+    await page.fill("#journeyLabel", "  RECENSEMENT  ");
+    await page.locator('[data-journey-save="event"]').click();
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.lifeEvents[0].label, "  RECENSEMENT  ", "valeur historique conservée sans normalisation en écriture");
+    assert.match(await eventRow.locator("summary").innerText(), /^Recensement · 1901/, "intitulé identique au type omis du rendu");
+    await eventRow.locator('[data-journey-edit^="event:"]').click();
+    await page.fill("#journeyLabel", "");
+    await page.fill("#journeyPlace", "");
+    await page.locator('[data-journey-save="event"]').click();
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.lifeEvents[0].label, "", "intitulé vide enregistré sans valeur automatique");
+    assert.match(await eventRow.locator("summary").innerText(), /^Recensement · 1901/, "titre de l’événement sans intitulé");
+    assert.equal(await eventRow.locator(".life-entry-place").count(), 0, "aucune ligne de lieu vide");
     const mobileJourneyDataLayout = await page.locator("#personPageDetailedJourney").evaluate(section => {
       const columns = [...section.querySelectorAll(".life-journey-column")];
       const lefts = columns.map(column => Math.round(column.getBoundingClientRect().left));
@@ -800,7 +857,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(mobileJourneyDataLayout.singleColumn, true, "une colonne sur mobile avec données");
     assert.match(mobileJourneyDataLayout.texts[0], /Orino/, "résidence dans sa colonne");
     assert.match(mobileJourneyDataLayout.texts[1], /Agriculteur/, "profession dans sa colonne");
-    assert.match(mobileJourneyDataLayout.texts[2], /Recensement de Biella/, "événement dans sa colonne");
+    assert.match(mobileJourneyDataLayout.texts[2], /Recensement · 1901/, "événement sans intitulé restitué par type et date dans sa colonne");
 
     /* Annulation d'une modification non enregistrée : confirmation, aucune écriture. */
     await page.locator('[data-journey-edit^="residence:"]').click();
@@ -853,6 +910,14 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.professions.length, 1, "la sauvegarde générale de la fiche conserve les professions");
+    const mobileConsultJourneyWithData = await page.locator("#personPageDetailedJourney").evaluate(section => {
+      const columns = [...section.querySelectorAll(".life-journey-column")];
+      const lefts = columns.map(column => Math.round(column.getBoundingClientRect().left));
+      return { distinctColumns: new Set(lefts).size, texts: columns.map(column => column.innerText), actions: section.querySelectorAll("[data-journey-add], [data-journey-edit], [data-journey-delete]").length };
+    });
+    assert.equal(mobileConsultJourneyWithData.distinctColumns, 1, "une colonne mobile en consultation avec données");
+    assert.match(mobileConsultJourneyWithData.texts[1], /Agriculteur/, "profession visible dans la colonne mobile");
+    assert.equal(mobileConsultJourneyWithData.actions, 0, "actions masquées en consultation mobile avec données");
     await page.setViewportSize({ width: 1280, height: 900 });
     const consultationJourneyData = await page.locator("#personPageDetailedJourney").evaluate(section => {
       const columns = [...section.querySelectorAll(".life-journey-column")];
@@ -1284,6 +1349,9 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         const nav = document.getElementById("personPageSectionNav");
         const panel = document.getElementById("personIdentityPanel");
         const documentLabel = document.getElementById("linkDocumentBtn").innerText.trim();
+        const proofLabel = document.getElementById("proofEntryPointLabel").innerText.trim();
+        const documentAria = document.getElementById("linkDocumentBtn").getAttribute("aria-label");
+        const proofAria = document.getElementById("genealogyProposeProofForPersonBtn").getAttribute("aria-label");
         const copy = document.querySelector("#personRelationsPanel .relation-person-copy");
         const link = copy.querySelector("strong");
         const meta = copy.querySelector(".relation-person-meta");
@@ -1292,6 +1360,9 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         return {
           date: { l: Math.round(box.left), t: Math.round(box.top), b: Math.round(box.bottom), h: Math.round(box.height) },
           documentLabel,
+          proofLabel,
+          documentAria,
+          proofAria,
           footer: { left: Math.round(footer.left), right: Math.round(footer.right), heroLeft: Math.round(hero.left), heroRight: Math.round(hero.right) },
           horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           navGap: Math.round(panel.getBoundingClientRect().top - nav.getBoundingClientRect().bottom),
@@ -1303,7 +1374,10 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       assert.equal(editionState.footer.left, editionState.footer.heroLeft, `${width}px : footer desktop aligné à gauche du Hero`);
       assert.equal(editionState.footer.right, editionState.footer.heroRight, `${width}px : footer desktop aligné à droite du Hero`);
       assert.equal(editionState.navGap, consultState.navGap, `${width}px : espacement sous la navigation identique entre consultation (${consultState.navGap}px) et modification (${editionState.navGap}px)`);
-      assert.equal(editionState.documentLabel, "Ajouter un document pour cette personne", `${width}px : libellé long Documents conservé sur desktop`);
+      assert.equal(editionState.documentLabel, "Ajouter", `${width}px : libellé desktop Documents concis`);
+      assert.equal(editionState.proofLabel, "Ajouter", `${width}px : libellé desktop Preuves concis`);
+      assert.equal(editionState.documentAria, "Ajouter un document", `${width}px : nom accessible Documents conservé`);
+      assert.equal(editionState.proofAria, "Ajouter une preuve", `${width}px : nom accessible Preuves explicite`);
       assert.ok(editionState.horizontalOverflow <= 1, `${width}px : libellé desktop sans débordement (${editionState.horizontalOverflow}px)`);
       assert.ok(editionState.familyVisualGap >= 3 && editionState.familyVisualGap <= 5, `${width}px : cartes Famille compactes en modification (${editionState.familyVisualGap}px)`);
       await page.locator('#personPageEditHost [data-close="personDialog"]').click();
@@ -1368,6 +1442,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           docsCardStyle: { background: docsCardStyle.backgroundColor, border: docsCardStyle.borderTopWidth, radius: docsCardStyle.borderTopLeftRadius },
           evidenceCardStyle: { background: evidenceStyle.backgroundColor, border: evidenceStyle.borderTopWidth, radius: evidenceStyle.borderTopLeftRadius },
           addDocumentLabel: addDocumentButton.innerText.trim(),
+          addProofLabel: document.getElementById("proofEntryPointLabel").innerText.trim(),
+          addProofAccessibleName: document.getElementById("genealogyProposeProofForPersonBtn").getAttribute("aria-label") || document.getElementById("genealogyProposeProofForPersonBtn").innerText.trim(),
           listToProof: Math.round(addProof.top - evidenceList.bottom),
           proofToCardBottom: Math.round(docsPanel.bottom - addProof.bottom),
           familyVisualGap: Math.round((metaText.top - linkText.bottom) * 10) / 10,
@@ -1393,6 +1469,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       assert.equal(inlineResponsive.docsCardStyle.radius, inlineResponsive.evidenceCardStyle.radius, `${width}px : arrondis cohérents entre les cartes`);
       assert.notEqual(inlineResponsive.docsCardStyle.radius, "0px", `${width}px : cartes indépendantes avec coins arrondis`);
       assert.equal(inlineResponsive.addDocumentLabel, "Ajouter un document", `${width}px : libellé mobile raccourci sans bouton dupliqué`);
+      assert.equal(inlineResponsive.addProofLabel, "Ajouter une preuve", `${width}px : libellé mobile complet des Preuves`);
+      assert.equal(inlineResponsive.addProofAccessibleName, "Ajouter une preuve", `${width}px : nom accessible explicite du CTA Preuve`);
       assert.ok(inlineResponsive.listToProof >= 16, `${width}px : au moins 16px entre les preuves et « Ajouter une preuve » (${inlineResponsive.listToProof}px)`);
       assert.ok(inlineResponsive.proofToCardBottom >= 16, `${width}px : au moins 16px sous « Ajouter une preuve » avant la fin de la carte (${inlineResponsive.proofToCardBottom}px)`);
       assert.ok(inlineResponsive.familyVisualGap >= 3 && inlineResponsive.familyVisualGap <= 5, `${width}px : écart visuel nom/relation en modification (~4px, ${inlineResponsive.familyVisualGap}px)`);

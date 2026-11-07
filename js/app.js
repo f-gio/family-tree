@@ -2392,8 +2392,9 @@ function journeyAttestationsMarkup(kind, entry, item, { editable = false } = {})
     <div class="life-attestation-links">${journeySourceLinks(item, attestation.sourceIds, "source")}${journeySourceLinks(item, attestation.proofIds, "proof")}${editable ? `<button class="btn small" type="button" data-journey-attestation-edit="${kind}:${esc(entry.id)}:${esc(attestation.id)}">Modifier</button><button class="btn small danger" type="button" data-journey-attestation-delete="${kind}:${esc(entry.id)}:${esc(attestation.id)}">Supprimer</button>` : ""}</div>
   </div>`).join("");
   const form = editable && editingAttestation ? journeyAttestationFormMarkup(item, entry, attestations.find(value => value.id === journeyEditor.attId) || null) : "";
-  const addButton = editable && !editingAttestation ? `<div class="life-entry-actions"><button class="btn small" type="button" data-journey-attestation-add="${esc(entry.id)}">Ajouter une attestation</button></div>` : "";
-  return `<div class="life-attestations">${attestations.length ? rows : `<p class="life-journey-empty"><span class="person-detail-empty-value">Aucune attestation renseignée</span></p>`}${form}${addButton}</div>`;
+  const addButton = editable && !editingAttestation ? `<div class="life-entry-actions"><button class="btn small tertiary" type="button" data-journey-attestation-add="${esc(entry.id)}">${icon("plus")}<span>Ajouter une attestation</span></button></div>` : "";
+  const content = `${rows}${form}${addButton}`;
+  return content ? `<div class="life-attestations">${content}</div>` : "";
 }
 
 function journeyEntryFactsMarkup(kind, entry) {
@@ -2414,16 +2415,29 @@ function journeyEntryFactsMarkup(kind, entry) {
     fact("Notes", entry.notes);
   } else {
     const location = [entry.region, entry.country].filter(Boolean).join(", ");
-    fact("Lieu", entry.place);
     fact("Région et pays", location);
     fact("Description", entry.description);
   }
   return facts.length ? `<div class="life-entry-facts">${facts.join("")}</div>` : "";
 }
 
+function normalizeJourneyEventLabel(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase("fr-FR");
+}
+
 function journeyEntrySummary(kind, entry) {
   const date = entry.dateInfo ? formatLifeDate(entry.dateInfo) : "";
-  if (kind === "event") return [lifeEventKindLabel(entry.kind), entry.label, date || "Date inconnue"].filter(Boolean).join(" · ");
+  if (kind === "event") {
+    const kindLabel = lifeEventKindLabel(entry.kind);
+    const label = String(entry.label || "").replace(/\s+/g, " ").trim();
+    const distinctLabel = label && normalizeJourneyEventLabel(label) !== normalizeJourneyEventLabel(kindLabel) ? label : "";
+    return [kindLabel, distinctLabel, date || "Date inconnue"].filter(Boolean).join(" · ");
+  }
   const title = kind === "residence" ? entry.place : entry.label;
   return [title, date].filter(Boolean).join(" · ");
 }
@@ -2433,12 +2447,15 @@ function journeyEntryMarkup(kind, entry, item, { editable = false } = {}) {
   const isEditing = editable && journeyEditor && (journeyEditor.type === kind) && journeyEditor.entryId === entry.id && journeyEditor.type !== "attestation";
   const editingAttestation = editable && journeyEditor?.type === "attestation" && journeyEditor.entryId === entry.id;
   const open = journeyExpanded.has(entry.id) || Boolean(isEditing || editingAttestation);
-  const countLabel = kind !== "event" ? `<span class="life-entry-meta">${attestations.length} attestation${attestations.length > 1 ? "s" : ""}</span>` : "";
+  const countLabel = editable && kind !== "event" ? `<span class="life-entry-meta">${attestations.length} attestation${attestations.length > 1 ? "s" : ""}</span>` : "";
+  const eventPlace = kind === "event" && typeof entry.place === "string" && entry.place.trim()
+    ? `<span class="life-entry-place">${esc(entry.place.trim())}</span>`
+    : "";
   const body = isEditing
     ? journeyEntryFormMarkup(kind, entry)
     : `${journeyEntryFactsMarkup(kind, entry)}${kind !== "event" ? journeyAttestationsMarkup(kind, entry, item, { editable }) : `<div class="life-attestation-links">${journeySourceLinks(item, entry.sourceIds, "source")}${journeySourceLinks(item, entry.proofIds, "proof")}</div>`}${editable ? `<div class="life-entry-actions"><button class="btn small" type="button" data-journey-edit="${kind}:${esc(entry.id)}">Modifier</button><button class="btn small danger" type="button" data-journey-delete="${kind}:${esc(entry.id)}">Supprimer</button></div>` : ""}`;
   return `<details class="life-entry" data-journey-kind="${kind}" data-journey-id="${esc(entry.id)}"${open ? " open" : ""}>
-    <summary><span class="life-entry-title">${esc(journeyEntrySummary(kind, entry))}</span>${countLabel}</summary>
+    <summary><span class="life-entry-summary-copy"><span class="life-entry-title">${esc(journeyEntrySummary(kind, entry))}</span>${eventPlace}</span>${countLabel}</summary>
     <div class="life-entry-body">${body}</div>
   </details>`;
 }
@@ -2468,7 +2485,7 @@ function journeyEntryFormMarkup(kind, entry) {
   } else {
     fields = `<div class="life-journey-form-row life-journey-form-row--split">
       <label>Type *<select class="field" id="journeyEventKind">${LIFE_EVENT_KINDS.map(value => `<option value="${value}"${editing && entry.kind === value ? " selected" : ""}>${esc(lifeEventKindLabel(value))}</option>`).join("")}</select></label>
-      <label>Intitulé *<input class="field" id="journeyLabel" autocomplete="off" spellcheck="false" maxlength="120" value="${editing ? esc(entry.label || "") : ""}"></label>
+      <label>Intitulé<input class="field" id="journeyLabel" autocomplete="off" spellcheck="false" maxlength="120" value="${editing ? esc(entry.label || "") : ""}"></label>
     </div>
     ${journeyErrorMarkup("kind")}
     ${journeyErrorMarkup("label")}
@@ -2524,7 +2541,7 @@ function personPageDetailedJourneyMarkup(item, { editable = personPageInlineEdit
     profession: { desktop: "Ajouter", mobile: "Ajouter une activité" },
     event: { desktop: "Ajouter", mobile: "Ajouter un événement" }
   };
-  const addLabel = kind => editable ? `<button class="btn small life-journey-add" type="button" data-journey-add="${kind}">${icon("plus")}<span class="life-journey-add-label-desktop">${addLabels[kind].desktop}</span><span class="life-journey-add-label-mobile">${addLabels[kind].mobile}</span></button>` : "";
+  const addLabel = kind => editable ? `<button class="btn small life-journey-add" type="button" data-journey-add="${kind}" aria-label="${esc(addLabels[kind].mobile)}">${icon("plus")}<span class="life-journey-add-label-desktop">${addLabels[kind].desktop}</span><span class="life-journey-add-label-mobile">${addLabels[kind].mobile}</span></button>` : "";
   const categoryHead = (kind, title, iconName) => `<div class="life-journey-column-head"><h4>${icon(iconName, "life-journey-category-icon")}<span class="source-detail-fact"><strong>${title}</strong></span></h4>${addLabel(kind)}</div>`;
   const residencesEditor = editable && journeyEditor?.type === "residence" && !journeyEditor.entryId ? journeyEntryFormMarkup("residence", null) : "";
   const professionEditor = editable && journeyEditor?.type === "profession" && !journeyEditor.entryId ? journeyEntryFormMarkup("profession", null) : "";
@@ -2669,8 +2686,12 @@ function finishPersonPageInlineEdit({ refresh = true } = {}) {
     state.documentPanel.replaceChildren(state.documentsUnavailable, state.documentsSection, state.evidenceSection);
     state.documentsSection.append(state.linkDocumentButton);
     state.linkDocumentButton.innerHTML = state.linkDocumentMarkup;
+    if (state.linkDocumentAriaLabel === null) state.linkDocumentButton.removeAttribute("aria-label");
+    else state.linkDocumentButton.setAttribute("aria-label", state.linkDocumentAriaLabel);
     state.evidenceSection.append(state.proposeProofButton);
     state.proofEntryPointLabel.textContent = state.proofEntryPointText;
+    if (state.proofEntryPointAriaLabel === null) state.proposeProofButton.removeAttribute("aria-label");
+    else state.proposeProofButton.setAttribute("aria-label", state.proofEntryPointAriaLabel);
     state.relationsOverview.append(state.relationBuilderButton);
     state.relationBuilderButton.className = state.relationBuilderButtonClass;
     personPageInlineDesktopSections = null;
@@ -2731,9 +2752,13 @@ function enterPersonPageInlineEdit() {
     const proposeProofButton = $("genealogyProposeProofForPersonBtn");
     const proofEntryPointLabel = $("proofEntryPointLabel");
     const linkDocumentMarkup = linkDocumentButton.innerHTML;
+    const linkDocumentAriaLabel = linkDocumentButton.getAttribute("aria-label");
     const proofEntryPointText = proofEntryPointLabel.textContent;
-    linkDocumentButton.innerHTML = `${icon("plus")}<span class="person-document-add-label-desktop">Ajouter un document pour cette personne</span><span class="person-document-add-label-mobile">Ajouter un document</span>`;
-    proofEntryPointLabel.textContent = "Ajouter une preuve";
+    const proofEntryPointAriaLabel = proposeProofButton.getAttribute("aria-label");
+    linkDocumentButton.innerHTML = `${icon("plus")}<span class="person-document-add-label-desktop">Ajouter</span><span class="person-document-add-label-mobile">Ajouter un document</span>`;
+    linkDocumentButton.setAttribute("aria-label", "Ajouter un document");
+    proofEntryPointLabel.innerHTML = `<span class="person-document-add-label-desktop">Ajouter</span><span class="person-document-add-label-mobile">${esc(proofEntryPointText)}</span>`;
+    proposeProofButton.setAttribute("aria-label", proofEntryPointText);
     const documentsCard = document.createElement("section");
     documentsCard.className = "person-page-inline-card person-page-inline-documents-card";
     documentsCard.append(personPageInlineSectionHeader("Documents associés", linkDocumentButton), documentsUnavailable, documentsSection);
@@ -2743,7 +2768,7 @@ function enterPersonPageInlineEdit() {
     documentPanel.replaceChildren(documentsCard, researchCard);
     personPageInlineDesktopSections = {
       documentPanel, documentsUnavailable, documentsSection, evidenceSection,
-      linkDocumentButton, linkDocumentMarkup, proposeProofButton, proofEntryPointLabel, proofEntryPointText,
+      linkDocumentButton, linkDocumentMarkup, linkDocumentAriaLabel, proposeProofButton, proofEntryPointLabel, proofEntryPointText, proofEntryPointAriaLabel,
       relationsOverview, relationBuilderButton, relationBuilderButtonClass
     };
   } else if (timeline) host.append(timeline);

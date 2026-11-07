@@ -1987,6 +1987,11 @@ label .field { margin-top: var(--space-2); }
   color: var(--color-brand);
 }
 
+#personPageDetailedJourney [data-journey-edit],
+#personPageDetailedJourney [data-journey-attestation-edit] {
+  color: var(--color-brand);
+}
+
 .life-journey-add-label-mobile { display: none; }
 
 @media (max-width: 960px) {
@@ -2032,12 +2037,25 @@ label .field { margin-top: var(--space-2); }
   cursor: pointer;
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: flex-start;
   gap: var(--space-2) var(--space-3);
+}
+
+.life-entry-summary-copy {
+  display: grid;
+  flex: 1 1 auto;
+  gap: var(--space-1);
+  min-width: 0;
 }
 
 .life-entry-title {
   font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.life-entry-place {
+  color: var(--color-text);
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
@@ -6393,8 +6411,10 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   .person-page-edit-host #toggleRelationBuilderBtn { border-color: var(--color-border); background: var(--color-surface); color: var(--color-brand); }
   .person-page-edit-host #toggleRelationBuilderBtn:hover,
   .person-page-edit-host #toggleRelationBuilderBtn:focus-visible { border-color: var(--color-border-strong); background: var(--color-surface-raised); color: var(--color-brand); }
-  .person-page-edit-host #linkDocumentBtn .person-document-add-label-desktop { display: none; }
-  .person-page-edit-host #linkDocumentBtn .person-document-add-label-mobile { display: inline; }
+  .person-page-edit-host #linkDocumentBtn .person-document-add-label-desktop,
+  .person-page-edit-host #genealogyProposeProofForPersonBtn .person-document-add-label-desktop { display: none; }
+  .person-page-edit-host #linkDocumentBtn .person-document-add-label-mobile,
+  .person-page-edit-host #genealogyProposeProofForPersonBtn .person-document-add-label-mobile { display: inline; }
   .person-page-edit-host #personDocumentsPanel { display: flex !important; flex-direction: column; gap: var(--space-4); width: 100%; min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-sizing: border-box; }
   .person-page-edit-host #personDocumentsSection,
   .person-page-edit-host #personGenealogyEvidenceSection { display: grid; align-content: start; gap: var(--space-3); width: 100%; min-width: 0; margin: 0; padding: var(--space-3); border: var(--border-subtle); border-radius: var(--radius-lg); background: var(--color-surface); box-sizing: border-box; }

@@ -97,7 +97,7 @@ test("validations des entrées", () => {
   assert.equal(validateLifeEvent({ kind: "census", label: "Recensement de Biella" }).ok, true);
   assert.equal(validateLifeEvent({ kind: "", label: "x" }).ok, false);
   assert.match(validateLifeEvent({ kind: "", label: "x" }).errors.kind, /type d'événement/);
-  assert.equal(validateLifeEvent({ kind: "census", label: "" }).ok, false);
+  assert.equal(validateLifeEvent({ kind: "census", label: "" }).ok, true, "l’intitulé d’un événement est facultatif");
   assert.equal(validateLifeAttestation({ date: null }).ok, false);
   assert.match(validateLifeAttestation({ date: null }).errors.date, /date de l'attestation/);
   assert.equal(validateLifeAttestation({ date: { type: "year", year: 1895 } }).ok, true, "attestation datée d'une année seule");
