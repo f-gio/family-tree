@@ -26,7 +26,7 @@ window.__personPageTest = {
     ];
     loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = true;
     genealogyRecords = {
-      sourceDocuments: [], sourceRevisions: [], transcriptionHeads: [], transcriptionRevisions: [],
+      sourceDocuments: [{ id: "person-page-source", data: { id: "person-page-source", title: "Cadastre d’Orino", status: "active", personIds: ["person-page-a"], documentIds: [] } }], sourceRevisions: [], transcriptionHeads: [], transcriptionRevisions: [],
       genealogyProofs: [{ id: "person-page-proof", data: { id: "person-page-proof", factId: "fact~person~person-page-a~birth", factType: "birth", personIds: ["person-page-a"], documentId: "person-page-document", relation: "supports", technicalStatus: "active", sourceValue: "1890" } }],
       genealogyProofRevisions: [],
       factConclusions: [{ id: "person-page-conclusion", data: { id: "person-page-conclusion", factId: "fact~person~person-page-a~birth", factType: "birth", revision: { status: "established", retainedValue: "1890" } } }],
@@ -52,6 +52,15 @@ window.__personPageTest = {
     setPersonSection(section);
   },
   openCreatePerson() { openPerson(null, "directory"); },
+  journeyState() {
+    const person = people.find(item => item.id === "person-page-a");
+    return {
+      residences: person?.residences || [],
+      professions: person?.professions || [],
+      lifeEvents: person?.lifeEvents || []
+    };
+  },
+  rerenderJourney() { renderJourneySection(); },
   setEvidenceRole(role) {
     currentUserProfile = { role, displayName: "Testeur" };
     renderPersonDocuments("person-page-a");
@@ -91,12 +100,19 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
   const context = await browser.newContext({ locale: "fr-FR", viewport: { width: 1280, height: 900 } });
   await context.route("**/*", async route => {
     const url = route.request().url();
+    if (url.startsWith("https://family-tree-geonames.giovannoni-f.workers.dev/")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ geonames: [{ name: "Orino", adminName2: "Varese", adminName1: "Lombardia", countryName: "Italie", countryCode: "IT", geonameId: 3171874 }] })
+      });
+    }
     if (new URL(url).pathname.endsWith("/js/app.js")) {
       const response = await route.fetch();
       let source = await response.text();
       const update = 'await updateDoc(doc(db, "people", id), data);';
-      assert.ok(source.includes(update), "le point de sauvegarde personne doit rester celui de la modale existante");
-      source = source.replace(update, "await window.__personPageTest.update(id, data);");
+      assert.ok(source.includes(update), "les points de sauvegarde people passent par le hook du harnais");
+      source = source.split(update).join("await window.__personPageTest.update(id, data);");
       return route.fulfill({ response, body: `${source}\n${hooks}` });
     }
     return isAllowedRequest(url, server.baseURL) || url.includes("gstatic.com")
@@ -105,7 +121,12 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
   });
   const page = await context.newPage();
   const errors = [];
+  const dialogMessages = [];
   page.on("pageerror", error => errors.push(error.message));
+  page.on("dialog", async dialog => {
+    dialogMessages.push(await dialog.message());
+    await dialog.accept();
+  });
   try {
     await page.goto(server.baseURL, { waitUntil: "load" });
     await page.waitForFunction(() => typeof window.__personPageTest === "object");
@@ -119,6 +140,36 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.match(await page.locator("#personPageContent").innerText(), /Acte de naissance d’Ada/);
     assert.match(await page.locator("#personPageContent").innerText(), /Établie/);
     assert.equal(await page.locator("#personPageContent pre").count(), 0, "aucun JSON technique dans la page Personne");
+    const desktopJourneyPresentation = await page.evaluate(() => {
+      const journey = document.getElementById("personPageDetailedJourney");
+      const family = document.getElementById("personPageFamily");
+      const identityLabel = document.querySelector("#personPageIdentity .person-detail-identity-grid .source-detail-fact strong");
+      const journeyLabel = journey.querySelector(".life-journey-column-head .source-detail-fact strong");
+      const box = getComputedStyle(journey);
+      const icon = journey.querySelector(".life-journey-category-icon");
+      const columnLefts = [...journey.querySelectorAll(".life-journey-column")].map(column => Math.round(column.getBoundingClientRect().left));
+      return {
+        columnLefts,
+        headingTransform: getComputedStyle(journeyLabel).textTransform,
+        headingSize: getComputedStyle(journeyLabel).fontSize,
+        identityHeadingSize: getComputedStyle(identityLabel).fontSize,
+        headingColor: getComputedStyle(journeyLabel).color,
+        identityHeadingColor: getComputedStyle(identityLabel).color,
+        iconSize: Math.round(icon.getBoundingClientRect().width),
+        iconColor: getComputedStyle(icon).color,
+        panel: { border: box.borderTopWidth, background: box.backgroundColor, radius: box.borderTopLeftRadius, padding: box.paddingTop },
+        familyPanel: (() => { const style = getComputedStyle(family); return { border: style.borderTopWidth, background: style.backgroundColor, radius: style.borderTopLeftRadius, padding: style.paddingTop }; })(),
+        iconNames: [...journey.querySelectorAll(".life-journey-category-icon use")].map(use => use.getAttribute("href"))
+      };
+    });
+    assert.ok(desktopJourneyPresentation.columnLefts[1] > desktopJourneyPresentation.columnLefts[0], "deux colonnes sur desktop");
+    assert.equal(desktopJourneyPresentation.headingTransform, "uppercase", "libellés des catégories en capitales comme Identité");
+    assert.equal(desktopJourneyPresentation.headingSize, desktopJourneyPresentation.identityHeadingSize, "taille des libellés harmonisée avec Identité");
+    assert.equal(desktopJourneyPresentation.headingColor, desktopJourneyPresentation.identityHeadingColor, "couleur des libellés harmonisée avec Identité");
+    assert.equal(desktopJourneyPresentation.iconSize, 18, "pictogrammes discrets de 18 px");
+    assert.equal(desktopJourneyPresentation.iconColor, desktopJourneyPresentation.headingColor, "pictogrammes alignés sur la couleur des libellés");
+    assert.deepEqual(desktopJourneyPresentation.panel, desktopJourneyPresentation.familyPanel, "conteneur identique à Famille en consultation desktop");
+    assert.deepEqual(desktopJourneyPresentation.iconNames, ["#icon-home", "#icon-procedures", "#icon-calendar"]);
 
     await page.locator('[data-person-page-section="family"]').click();
     await page.locator('[data-open-person-page="person-page-b"]').click();
@@ -349,7 +400,6 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     assert.match(await page.locator("#personPageTitle").textContent(), /Adélaïde/, "Annuler abandonne les valeurs locales");
 
-    page.once("dialog", dialog => dialog.accept());
     await page.locator("#personPageEditBtn").click();
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     await page.locator("#firstName").fill("Brouillon non enregistré");
@@ -496,6 +546,216 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => !document.getElementById("personDialog").open, undefined, { timeout: 10000 });
     await page.waitForFunction(() => !document.getElementById("personPageIdentity")?.textContent.includes("Variantes orthographiques"), undefined, { timeout: 8000 });
     assert.doesNotMatch(await page.locator("#personPageIdentity").innerText(), /Variantes orthographiques/, "bloc disparu après suppression enregistrée");
+
+    /* 2C-3 : Parcours détaillé — états vides sur une personne sans données. */
+    assert.ok(await page.locator("#personPageDetailedJourney").isVisible(), "section Parcours détaillé visible par défaut");
+    const emptyJourney = await page.locator("#personPageDetailedJourney").innerText();
+    assert.match(emptyJourney, /Aucune résidence renseignée/, "état vide résidences");
+    assert.match(emptyJourney, /Aucune activité renseignée/, "état vide professions");
+    assert.match(emptyJourney, /Aucun événement renseigné/, "état vide événements");
+    assert.equal(await page.locator('#personPageDetailedJourney [data-journey-add], #personPageDetailedJourney [data-journey-edit], #personPageDetailedJourney [data-journey-delete], #personPageDetailedJourney [data-journey-attestation-add], #personPageDetailedJourney [data-journey-attestation-edit], #personPageDetailedJourney [data-journey-attestation-delete]').count(), 0, "aucune action Parcours détaillé en consultation");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileJourneyStyle = await page.locator("#personPageDetailedJourney .life-journey-column-head h4").first().evaluate(element => {
+      const section = element.closest("#personPageDetailedJourney");
+      return { fontSize: getComputedStyle(element.querySelector(".source-detail-fact strong")).fontSize, rowGap: getComputedStyle(element.closest(".life-journey-column")).rowGap, inlineHeight: section.style.height, overflowY: getComputedStyle(section).overflowY };
+    });
+    assert.equal(await page.locator("#personPageDetailedJourney .life-journey-column-head h4").count(), 3, "trois catégories toujours visibles sur mobile");
+    assert.equal(mobileJourneyStyle.fontSize, "11px", "libellés harmonisés avec Identité sur mobile");
+    assert.equal(mobileJourneyStyle.inlineHeight, "", "aucune hauteur fixe définie sur la section");
+    assert.equal(mobileJourneyStyle.overflowY, "visible", "pas de défilement interne au parcours");
+    assert.equal(await page.locator("#personPageDetailedJourney").evaluate(section => {
+      const columns = [...section.querySelectorAll(".life-journey-column")];
+      return Math.round(columns[0].getBoundingClientRect().left) === Math.round(columns[1].getBoundingClientRect().left);
+    }), true, "une colonne sur mobile");
+    await page.setViewportSize({ width: 850, height: 900 });
+    assert.equal(await page.locator("#personPageDetailedJourney").evaluate(section => {
+      const columns = [...section.querySelectorAll(".life-journey-column")];
+      return Math.round(columns[0].getBoundingClientRect().left) === Math.round(columns[1].getBoundingClientRect().left);
+    }), true, "le conteneur étroit passe en colonne unique au breakpoint intermédiaire");
+    await page.setViewportSize({ width: 1280, height: 900 });
+
+    /* Le parcours reste au même emplacement et devient éditable inline avec la fiche. */
+    await page.locator("#personPageEditBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    assert.equal(await page.locator("#personPageDetailedJourney").evaluate(section => section.parentElement.id), "personForm", "Parcours détaillé intégré à la fiche en modification");
+    assert.equal(await page.locator('#personPageDetailedJourney [data-journey-add]').count(), 3, "ajout des trois catégories disponible en modification");
+    const desktopJourneyButtons = await page.locator("#personPageDetailedJourney .life-journey-column-head > .btn").evaluateAll(buttons => buttons.map(button => ({ label: button.innerText.trim(), icon: button.querySelector(".ui-icon use")?.getAttribute("href"), small: button.classList.contains("small"), height: Math.round(button.getBoundingClientRect().height) })));
+    assert.deepEqual(desktopJourneyButtons.map(button => button.label), ["Ajouter une résidence", "Ajouter une activité", "Ajouter un événement"]);
+    assert.ok(desktopJourneyButtons.every(button => button.icon === "#icon-plus" && !button.small && button.height >= 44), "CTA standards, icône + unique et cibles tactiles conformes");
+    assert.deepEqual(await page.locator("#personPageDetailedJourney").evaluate(section => {
+      const style = getComputedStyle(section);
+      return { border: style.borderTopWidth, background: style.backgroundColor, radius: style.borderTopLeftRadius, padding: style.paddingTop };
+    }), desktopJourneyPresentation.panel, "conteneur inchangé en mode modification desktop");
+    const editOrder = await page.locator("#personForm").evaluate(form => [...form.children].map(element => element.id));
+    assert.ok(editOrder.indexOf("personIdentityPanel") < editOrder.indexOf("personPageDetailedJourney") && editOrder.indexOf("personPageDetailedJourney") < editOrder.indexOf("personRelationsPanel"), "Parcours détaillé reste entre Identité et Famille en modification");
+    await page.locator('#personPageDetailedJourney [data-journey-add="profession"]').click();
+    await page.locator('#personPageDetailedJourney [data-journey-add="event"]').click();
+    assert.equal(await page.locator("#personPageDetailedJourney [data-journey-form]").count(), 1, "un seul formulaire du parcours ouvert à la fois");
+    assert.equal(await page.locator('#personPageDetailedJourney [data-journey-save="event"]').count(), 1, "le formulaire actif correspond à la dernière catégorie choisie");
+    await page.locator("#personPageDetailedJourney [data-journey-cancel]").click();
+
+    /* Ajout d'une résidence : autocomplétion clavier, erreur inline sans perte, puis enregistrement. */
+    await page.locator('#personPageDetailedJourney [data-journey-add="residence"]').click();
+    await page.locator('[data-journey-save="residence"]').click();
+    assert.match(await page.locator("#journeyError-place").innerText(), /commune ou le lieu/, "erreur de validation inline");
+    assert.ok(await page.locator("#personPageDetailedJourney [data-journey-form]").isVisible(), "formulaire conservé après erreur");
+    await page.fill("#journeyPlace", "Ori");
+    await page.waitForSelector(".location-suggestion");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    assert.equal(await page.inputValue("#journeyRegion"), "Varese, Lombardia", "région GeoNames renseignée après sélection clavier");
+    assert.equal(await page.inputValue("#journeyCountry"), "Italie", "pays GeoNames renseigné après sélection clavier");
+    await page.locator('[data-journey-date-type="year"]').click();
+    await page.fill("#journeyDateYear", "1892");
+    await page.evaluate(() => window.__personPageTest.rerenderJourney());
+    assert.equal(await page.inputValue("#journeyRegion"), "Varese, Lombardia", "région préservée après re-render");
+    assert.equal(await page.inputValue("#journeyCountry"), "Italie", "pays préservé après re-render");
+    assert.equal(await page.inputValue("#journeyDateYear"), "1892", "date préservée après re-render");
+    await page.locator('[data-journey-save="residence"]').click();
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    let journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.residences.length, 1, "résidence enregistrée dans le document people");
+    assert.equal(journey.residences[0].place, "Orino");
+    assert.equal(journey.residences[0].region, "Varese, Lombardia");
+    assert.equal(journey.residences[0].country, "Italie");
+    assert.deepEqual(journey.residences[0].dateInfo, { type: "year", year: 1892 }, "année seule conservée sans conversion");
+    assert.equal(journey.residences[0].attestations.length, 0, "résidence valide sans attestation");
+    assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Orino/);
+
+    /* Attestations : date obligatoire, justificatif source, nombre affiché. */
+    await page.locator('#personPageDetailedJourney [data-journey-attestation-add]').click();
+    await page.locator('[data-journey-attestation-save]').click();
+    assert.match(await page.locator("#journeyError-attDate").innerText(), /date de l'attestation/, "attestation sans date refusée");
+    await page.locator('[data-journey-date-type="year"]').click();
+    await page.fill("#journeyDateYear", "1895");
+    await page.locator('[data-journey-source-check="person-page-source"]').check();
+    await page.locator('[data-journey-proof-check="person-page-proof"]').check();
+    await page.locator('[data-journey-attestation-save]').click();
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.residences[0].attestations.length, 1, "attestation enregistrée");
+    assert.deepEqual(journey.residences[0].attestations[0].sourceIds, ["person-page-source"], "association source conservée");
+    assert.match(await page.locator("#personPageDetailedJourney").innerText(), /1 attestation/);
+
+    /* Seconde attestation datée distincte : jamais bloquée. */
+    await page.locator('#personPageDetailedJourney [data-journey-attestation-add]').click();
+    await page.locator('[data-journey-date-type="year"]').click();
+    await page.fill("#journeyDateYear", "1901");
+    await page.locator('[data-journey-attestation-save]').click();
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.residences[0].attestations.length, 2, "deux attestations distinctes coexistent");
+    assert.match(await page.locator("#personPageDetailedJourney").innerText(), /2 attestations/);
+
+    await page.locator('[data-journey-edit^="residence:"]').click();
+    await page.fill("#journeyAddress", "Brouillon à abandonner");
+    const journeyExitIndex = dialogMessages.length;
+    await page.locator('#personPageEditHost [data-close="personDialog"]').click();
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+    assert.match(dialogMessages[journeyExitIndex] || "", /modifications ne sont pas enregistrées/, "sortie du mode modification confirme l’abandon du formulaire détaillé");
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.residences[0].address || "", "", "la saisie détaillée non enregistrée n’est pas sauvegardée implicitement");
+    assert.equal(await page.locator('#personPageDetailedJourney [data-journey-add], #personPageDetailedJourney [data-journey-edit], #personPageDetailedJourney [data-journey-delete], #personPageDetailedJourney [data-journey-attestation-add], #personPageDetailedJourney [data-journey-attestation-edit], #personPageDetailedJourney [data-journey-attestation-delete]').count(), 0, "actions et attestations en lecture seule masquées");
+    assert.equal(await page.locator('#personPageDetailedJourney [data-journey-open-source="person-page-source"]').count(), 1, "source consultable en mode lecture seule");
+    assert.equal(await page.locator('#personPageDetailedJourney [data-view-proof="person-page-proof"]').count(), 1, "preuve consultable en mode lecture seule");
+
+    /* Consultation du justificatif : fiche Source existante puis retour. */
+    await page.locator('[data-journey-open-source="person-page-source"]').click();
+    await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden, undefined, { timeout: 10000 });
+    assert.match(await page.locator("#sourcePageTitle").textContent(), /Cadastre/, "fiche source ouverte depuis le parcours");
+    await page.locator("#sourcePageBackBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, undefined, { timeout: 10000 });
+
+    /* Profession et événement ponctuel indépendants. */
+    await page.locator("#personPageEditBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    await page.locator('#personPageDetailedJourney [data-journey-add="profession"]').click();
+    await page.fill("#journeyLabel", "Agriculteur");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileJourneyButtons = await page.locator("#personPageDetailedJourney .life-journey-column-head > .btn").evaluateAll(buttons => buttons.map(button => { const box = button.getBoundingClientRect(); return { height: Math.round(box.height), right: box.right }; }));
+    assert.ok(mobileJourneyButtons.every(button => button.height >= 44 && button.right <= 390), "CTA mobiles accessibles sans débordement horizontal");
+    assert.ok((await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)) <= 1, "édition mobile sans débordement horizontal");
+    await page.fill("#journeyPlace", "Mon");
+    await page.waitForSelector(".location-suggestion");
+    await page.locator(".location-suggestion").first().evaluate(option => {
+      option.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "touch", pointerId: 1 }));
+      option.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    assert.equal(await page.inputValue("#journeyCountry"), "Italie", "pays GeoNames renseigné par sélection tactile");
+    await page.locator('[data-journey-date-type="about"]').click();
+    await page.fill("#journeyDateAbout", "1895");
+    await page.locator('[data-journey-save="profession"]').click();
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    await page.locator('#personPageDetailedJourney [data-journey-add="event"]').click();
+    await page.selectOption("#journeyEventKind", "census");
+    await page.fill("#journeyLabel", "Recensement de Biella");
+    await page.fill("#journeyPlace", "Lieu historique sans suggestion");
+    await page.locator('[data-journey-date-type="year"]').click();
+    await page.fill("#journeyDateYear", "1901");
+    await page.locator('[data-journey-save="event"]').click();
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.professions.length, 1, "profession enregistrée");
+    assert.equal(journey.professions[0].label, "Agriculteur");
+    assert.equal(journey.professions[0].region, "Varese, Lombardia", "région associée à la profession");
+    assert.equal(journey.professions[0].country, "Italie", "pays associé à la profession");
+    assert.equal(journey.lifeEvents.length, 1, "événement enregistré");
+    assert.equal(journey.lifeEvents[0].kind, "census");
+    assert.equal(journey.lifeEvents[0].place, "Lieu historique sans suggestion", "saisie libre conservée sans suggestion géographique");
+    assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Agriculteur/);
+    assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Recensement de Biella/);
+
+    /* Annulation d'une modification non enregistrée : confirmation, aucune écriture. */
+    await page.locator('[data-journey-edit^="residence:"]').click();
+    await page.fill("#journeyAddress", "12, rue des Forges");
+    const cancelIndex = dialogMessages.length;
+    await page.locator("[data-journey-cancel]").click();
+    for (let i = 0; i < 60 && dialogMessages.length === cancelIndex; i++) await page.waitForTimeout(50);
+    assert.match(dialogMessages[cancelIndex] || "", /Abandonner les modifications/, "confirmation avant abandon");
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.residences[0].address || "", "", "annulation : aucune modification enregistrée");
+    assert.ok(!(await page.locator("#personPageDetailedJourney [data-journey-form]").isVisible()), "formulaire fermé après annulation");
+
+    /* Édition effective d'une entrée. */
+    await page.locator('[data-journey-edit^="residence:"]').click();
+    await page.fill("#journeyRegion", "Varese (VA)");
+    await page.locator('[data-journey-save="residence"]').click();
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.residences[0].region, "Varese (VA)", "modification enregistrée");
+
+    /* Suppression individuelle d'une attestation. */
+    const attestationIndex = dialogMessages.length;
+    await page.locator('#personPageDetailedJourney [data-journey-attestation-delete]').first().click();
+    for (let i = 0; i < 60 && dialogMessages.length === attestationIndex; i++) await page.waitForTimeout(50);
+    assert.match(dialogMessages[attestationIndex] || "", /Supprimer cette attestation/, "confirmation de suppression d'attestation");
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.residences[0].attestations.length, 1, "attestation retirée seule");
+
+    /* Suppression de la résidence avec ses attestations : message avec le nombre. */
+    const residenceIndex = dialogMessages.length;
+    await page.locator('[data-journey-delete^="residence:"]').click();
+    for (let i = 0; i < 60 && dialogMessages.length === residenceIndex; i++) await page.waitForTimeout(50);
+    assert.match(dialogMessages[residenceIndex] || "", /Cette résidence contient 1 attestation\. Supprimer la résidence et ses attestations \?/, "confirmation avec le nombre d'attestations");
+    await page.waitForFunction(() => !document.querySelector('#personPageDetailedJourney [data-journey-delete^="residence:"]'), undefined, { timeout: 5000 });
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.residences.length, 0, "résidence et attestations supprimées");
+
+    /* Suppression indépendante de l'événement. */
+    const eventIndex = dialogMessages.length;
+    await page.locator('[data-journey-delete^="event:"]').click();
+    for (let i = 0; i < 60 && dialogMessages.length === eventIndex; i++) await page.waitForTimeout(50);
+    assert.match(dialogMessages[eventIndex] || "", /Supprimer cet événement/, "confirmation de suppression d'événement");
+    await page.waitForFunction(() => !document.querySelector('#personPageDetailedJourney [data-journey-delete^="event:"]'), undefined, { timeout: 5000 });
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.lifeEvents.length, 0, "événement supprimé seul");
+    assert.equal(journey.professions.length, 1, "profession intacte après suppressions");
+    assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Aucune résidence renseignée/, "état vide restauré");
+    await page.fill("#notes", "Note après parcours");
+    await page.locator("#savePersonBtn").click();
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.professions.length, 1, "la sauvegarde générale de la fiche conserve les professions");
 
     for (const width of [320, 375, 390, 430, 760, 768, 900, 1024, 1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 850 });

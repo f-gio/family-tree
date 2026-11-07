@@ -2,7 +2,8 @@ const ICON_NAMES = new Set([
   "tree", "people", "document", "tasks", "link", "plus", "search", "filter",
   "list", "grid", "chevron-down", "close", "eye", "edit", "trash", "unlink",
   "arrow-right", "download", "upload", "user", "database", "shield", "logout",
-  "check", "info", "error", "empty", "zoom-in", "zoom-out", "fit", "center", "file-pdf", "image", "transfer"
+  "check", "info", "error", "empty", "zoom-in", "zoom-out", "fit", "center", "file-pdf", "image", "transfer",
+  "home", "procedures", "calendar"
 ]);
 
 export function icon(name, className = "") {
