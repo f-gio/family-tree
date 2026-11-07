@@ -22,7 +22,7 @@ import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalize
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
 import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
 import { createNavigationContextStore, GENEALOGY_VIEW_CONTEXT_KEY } from "./navigation-context.js";
-import { formatCompactPlace } from "./place-format.js";
+import { formatCompactPlace, toIsoAlpha3 } from "./place-format.js";
 import { describeFirestoreReadError, legacyDocumentCardDetails, configureGenealogyContributionDialog } from "./genealogy-workspace-utils.js";
 import { createPersonMultiSelect } from "./person-multiselect.js";
 import { analyzeTreeQuality } from "./tree-quality.js";
@@ -2384,12 +2384,21 @@ function journeySourceLinks(item, ids, linkKind) {
   }).join("");
 }
 
+function journeyDocumentLinks(ids) {
+  return (ids || []).map(id => {
+    const documentItem = documents.find(record => record.id === id);
+    if (!documentItem) return "";
+    const label = documentDisplayLabel(documentItem);
+    return `<button class="btn small" type="button" data-view-document="${esc(id)}">${icon("document")}<span>${esc(label)}</span></button>`;
+  }).join("");
+}
+
 function journeyAttestationsMarkup(kind, entry, item, { editable = false } = {}) {
   const attestations = lifeAttestations(entry);
   const editingAttestation = journeyEditor?.type === "attestation" && journeyEditor.entryId === entry.id;
   const rows = attestations.map(attestation => `<div class="life-attestation">
     <div class="life-attestation-head"><strong>${esc(formatLifeDate(attestation.date))}</strong>${attestation.comment ? `<span class="life-entry-meta">${esc(attestation.comment)}</span>` : ""}</div>
-    <div class="life-attestation-links">${journeySourceLinks(item, attestation.sourceIds, "source")}${journeySourceLinks(item, attestation.proofIds, "proof")}${editable ? `<button class="btn small" type="button" data-journey-attestation-edit="${kind}:${esc(entry.id)}:${esc(attestation.id)}">Modifier</button><button class="btn small danger" type="button" data-journey-attestation-delete="${kind}:${esc(entry.id)}:${esc(attestation.id)}">Supprimer</button>` : ""}</div>
+    <div class="life-attestation-links">${journeyDocumentLinks(attestation.documentIds)}${journeySourceLinks(item, attestation.sourceIds, "source")}${journeySourceLinks(item, attestation.proofIds, "proof")}${editable ? `<button class="btn small" type="button" data-journey-attestation-edit="${kind}:${esc(entry.id)}:${esc(attestation.id)}">Modifier</button><button class="btn small danger" type="button" data-journey-attestation-delete="${kind}:${esc(entry.id)}:${esc(attestation.id)}">Supprimer</button>` : ""}</div>
   </div>`).join("");
   const form = editable && editingAttestation ? journeyAttestationFormMarkup(item, entry, attestations.find(value => value.id === journeyEditor.attId) || null) : "";
   const addButton = editable && !editingAttestation ? `<div class="life-entry-actions"><button class="btn small tertiary" type="button" data-journey-attestation-add="${esc(entry.id)}">${icon("plus")}<span>Ajouter une attestation</span></button></div>` : "";
@@ -2414,8 +2423,6 @@ function journeyEntryFactsMarkup(kind, entry) {
     fact("Région et pays", location);
     fact("Notes", entry.notes);
   } else {
-    const location = [entry.region, entry.country].filter(Boolean).join(", ");
-    fact("Région et pays", location);
     fact("Description", entry.description);
   }
   return facts.length ? `<div class="life-entry-facts">${facts.join("")}</div>` : "";
@@ -2428,6 +2435,38 @@ function normalizeJourneyEventLabel(value = "") {
     .replace(/\s+/g, " ")
     .trim()
     .toLocaleLowerCase("fr-FR");
+}
+
+function journeyEventCountryCode(placeSelection) {
+  const selectedCode = toIsoAlpha3(placeSelection.placeInfo?.countryCode || "");
+  if (selectedCode) return selectedCode;
+  if (journeyEditor?.mode !== "edit" || !activePersonPageItem) return "";
+  const existing = personLifeList(activePersonPageItem, "lifeEvents").find(entry => entry.id === journeyEditor.entryId);
+  if (!existing) return "";
+  const placeIsUnchanged = normalizeJourneyEventLabel(placeSelection.text) === normalizeJourneyEventLabel(existing.place || "");
+  const countryIsUnchanged = normalizeJourneyEventLabel($("journeyCountry")?.value || "") === normalizeJourneyEventLabel(existing.country || "");
+  return placeIsUnchanged && countryIsUnchanged ? existing.countryCode || "" : "";
+}
+
+function compactJourneyEventPlace(entry = {}) {
+  const place = String(entry.place || "").trim();
+  const country = String(entry.country || "").trim();
+  const regionParts = [];
+  const seen = new Set();
+  for (const rawPart of String(entry.region || "").split(/[;,]/)) {
+    const part = rawPart.trim().replace(/^(?:province(?:\s+(?:de|d['’]|of))?|provincia(?:\s+di)?|prov\.)\s+/i, "").trim();
+    const key = normalizeJourneyEventLabel(part);
+    if (!key || key === normalizeJourneyEventLabel(place) || key === normalizeJourneyEventLabel(country) || seen.has(key)) continue;
+    seen.add(key);
+    regionParts.push(part);
+  }
+  const countryCode = toIsoAlpha3(entry.countryCode || "");
+  const remainingCountry = country && !seen.has(normalizeJourneyEventLabel(country)) && normalizeJourneyEventLabel(country) !== normalizeJourneyEventLabel(place)
+    ? country
+    : "";
+  const parts = [place, ...regionParts, ...(countryCode ? [] : [remainingCountry])].filter(Boolean);
+  const location = parts.join(", ");
+  return countryCode ? `${location}${location ? " " : ""}(${countryCode})` : location;
 }
 
 function journeyEntrySummary(kind, entry) {
@@ -2448,8 +2487,9 @@ function journeyEntryMarkup(kind, entry, item, { editable = false } = {}) {
   const editingAttestation = editable && journeyEditor?.type === "attestation" && journeyEditor.entryId === entry.id;
   const open = journeyExpanded.has(entry.id) || Boolean(isEditing || editingAttestation);
   const countLabel = editable && kind !== "event" ? `<span class="life-entry-meta">${attestations.length} attestation${attestations.length > 1 ? "s" : ""}</span>` : "";
-  const eventPlace = kind === "event" && typeof entry.place === "string" && entry.place.trim()
-    ? `<span class="life-entry-place">${esc(entry.place.trim())}</span>`
+  const eventPlaceText = kind === "event" ? compactJourneyEventPlace(entry) : "";
+  const eventPlace = eventPlaceText
+    ? `<span class="life-entry-place">${esc(eventPlaceText)}</span>`
     : "";
   const body = isEditing
     ? journeyEntryFormMarkup(kind, entry)
@@ -2508,23 +2548,32 @@ function journeyEntryFormMarkup(kind, entry) {
 }
 
 function journeyAttestationFormMarkup(item, entry, attestation) {
+  const linkedDocuments = documents.filter(record => (record.personIds || []).includes(item.id));
   const sources = genealogyRecords.sourceDocuments.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id));
   const proofs = genealogyRecords.genealogyProofs.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id));
+  const documentChecks = linkedDocuments.map(documentItem => {
+    const checked = (attestation?.documentIds || []).includes(documentItem.id) ? " checked" : "";
+    const type = documentItem.type || documentItem.fileName || "Document";
+    return `<label><input type="checkbox" data-journey-document-check="${esc(documentItem.id)}"${checked}><span>${esc(documentDisplayLabel(documentItem))}<small>${esc(type)}</small></span></label>`;
+  }).join("");
   const sourceChecks = sources.length ? sources.map(record => {
     const data = genealogyRecordData(record);
     const checked = (attestation?.sourceIds || []).includes(record.id) ? " checked" : "";
-    return `<label><input type="checkbox" data-journey-source-check="${esc(record.id)}"${checked}> ${esc(data.title || data.cote || "Source")}</label>`;
+    return `<label><input type="checkbox" data-journey-source-check="${esc(record.id)}"${checked}><span>${esc(data.title || data.cote || "Source")}<small>${esc(data.category || "Source officielle")}</small></span></label>`;
   }).join("") : `<p class="card-meta">Aucune source associée à cette personne.</p>`;
   const proofChecks = proofs.length ? proofs.map(record => {
     const data = genealogyRecordData(record);
     const label = proofFactLabel(data.factType) || data.factId || "Preuve";
     const checked = (attestation?.proofIds || []).includes(record.id) ? " checked" : "";
-    return `<label><input type="checkbox" data-journey-proof-check="${esc(record.id)}"${checked}> ${esc(label)}</label>`;
-  }).join("") : "";
+    return `<label><input type="checkbox" data-journey-proof-check="${esc(record.id)}"${checked}><span>${esc(label)}<small>Preuve</small></span></label>`;
+  }).join("") : `<p class="card-meta">Aucune preuve associée à cette personne.</p>`;
+  const documentsGroup = `<section class="life-journey-justification-group"><strong>Documents associés</strong>${documentChecks || `<p class="card-meta">Aucun document associé à cette personne.</p>`}</section>`;
+  const sourcesGroup = `<section class="life-journey-justification-group"><strong>Sources</strong>${sourceChecks}</section>`;
+  const proofsGroup = `<section class="life-journey-justification-group"><strong>Preuves</strong>${proofChecks}</section>`;
   return `<div class="life-journey-form" data-journey-form>
     <fieldset class="life-fields"><legend>Date de l’attestation</legend>${journeyDateFormMarkup(attestation?.date)}${journeyErrorMarkup("attDate")}</fieldset>
     <label>Commentaire<input class="field" id="journeyAttComment" maxlength="300" value="${attestation ? esc(attestation.comment || "") : ""}"></label>
-    <div class="life-journey-justifications"><strong>Sources et preuves</strong>${sourceChecks}${proofChecks}</div>
+    <div class="life-journey-justifications">${documentsGroup}${sourcesGroup}${proofsGroup}</div>
     <div class="life-journey-form-actions">
       <button class="btn small" type="button" data-journey-attestation-cancel>Annuler</button>
       <button class="btn small primary" type="button" data-journey-attestation-save>Enregistrer</button>
@@ -13608,6 +13657,7 @@ function journeyFormValues() {
   }
   values.placeInfo = journeyLocationControl?.getValue().placeInfo || null;
   values.date = readJourneyDateRaw();
+  values.documents = [...document.querySelectorAll("[data-journey-document-check]:checked")].map(input => input.dataset.journeyDocumentCheck);
   values.sources = [...document.querySelectorAll("[data-journey-source-check]:checked")].map(input => input.dataset.journeySourceCheck);
   values.proofs = [...document.querySelectorAll("[data-journey-proof-check]:checked")].map(input => input.dataset.journeyProofCheck);
   return values;
@@ -13681,8 +13731,10 @@ function restoreJourneyFormValues(values) {
       if (field) field.value = value ?? "";
     }
   }
+  const documentIds = new Set(values.documents || []);
   const sources = new Set(values.sources || []);
   const proofs = new Set(values.proofs || []);
+  document.querySelectorAll("[data-journey-document-check]").forEach(input => { input.checked = documentIds.has(input.dataset.journeyDocumentCheck); });
   document.querySelectorAll("[data-journey-source-check]").forEach(input => { input.checked = sources.has(input.dataset.journeySourceCheck); });
   document.querySelectorAll("[data-journey-proof-check]").forEach(input => { input.checked = proofs.has(input.dataset.journeyProofCheck); });
 }
@@ -13769,6 +13821,7 @@ function readJourneyEntryForm(type) {
     kind: document.getElementById("journeyEventKind")?.value || "",
     label: document.getElementById("journeyLabel")?.value || "",
     ...locationFields,
+    countryCode: journeyEventCountryCode(placeSelection),
     description: document.getElementById("journeyDescription")?.value || "",
     date
   };
@@ -13808,8 +13861,9 @@ async function journeySaveEntry() {
     journeyFocusError(Object.keys(check.errors)[0]);
     return;
   }
-  const { date, ...fields } = raw;
+  const { date, countryCode, ...fields } = raw;
   const entryFields = { ...fields, dateInfo: dateResult.date };
+  if (type === "event" && countryCode) entryFields.countryCode = countryCode;
   const item = activePersonPageItem;
   if (!item) return;
   const field = journeyFieldFor(type);
@@ -13821,7 +13875,12 @@ async function journeySaveEntry() {
     next = [...list, { id: entryId, ...entryFields, ...(type === "event" ? {} : { attestations: [] }) }];
   } else {
     entryId = journeyEditor.entryId;
-    next = list.map(entry => entry.id === entryId ? { ...entry, ...entryFields } : entry);
+    next = list.map(entry => {
+      if (entry.id !== entryId) return entry;
+      const updated = { ...entry, ...entryFields };
+      if (type === "event" && !countryCode) delete updated.countryCode;
+      return updated;
+    });
   }
   const saved = await journeyWriteSnapshot(item.id, field, next);
   if (!saved) return;
@@ -13849,6 +13908,7 @@ async function journeySaveAttestation() {
   const comment = (document.getElementById("journeyAttComment")?.value || "").trim();
   const sourceIds = [...document.querySelectorAll("[data-journey-source-check]:checked")].map(input => input.dataset.journeySourceCheck);
   const proofIds = [...document.querySelectorAll("[data-journey-proof-check]:checked")].map(input => input.dataset.journeyProofCheck);
+  const selectedDocumentIds = [...document.querySelectorAll("[data-journey-document-check]:checked")].map(input => input.dataset.journeyDocumentCheck);
   const field = journeyFieldFor(entryKind);
   const list = personLifeList(item, field).map(entry => ({ ...entry, attestations: lifeAttestations(entry).map(value => ({ ...value })) }));
   const entry = list.find(value => value.id === entryId);
@@ -13857,7 +13917,11 @@ async function journeySaveAttestation() {
   const attId = journeyEditor.mode === "add" ? doc(refs.people).id : journeyEditor.attId;
   const candidate = { id: attId, date: dateResult.date };
   if (hasSimilarLifeAttestation(attestations, candidate) && !window.confirm("Attestation potentiellement identique : une attestation à cette date existe déjà. Enregistrer quand même ?")) return;
-  const record = { id: attId, date: dateResult.date, comment, sourceIds, proofIds };
+  const previousAttestation = attestations.find(value => value.id === attId);
+  const availableDocumentIds = new Set(documents.filter(documentItem => (documentItem.personIds || []).includes(item.id)).map(documentItem => documentItem.id));
+  const unavailableExistingDocumentIds = (previousAttestation?.documentIds || []).filter(id => !availableDocumentIds.has(id));
+  const documentIds = [...new Set([...unavailableExistingDocumentIds, ...selectedDocumentIds])];
+  const record = { id: attId, date: dateResult.date, comment, documentIds, sourceIds, proofIds };
   const nextAttestations = journeyEditor.mode === "add"
     ? [...attestations, record]
     : attestations.map(value => value.id === attId ? record : value);

@@ -22,7 +22,8 @@ window.__personPageTest = {
       { id: "person-page-document", title: "Acte de naissance d’Ada", type: "Acte", date: "1890-03-04", fileName: "acte.svg", mimeType: "image/svg+xml", externalUrl: "https://example.invalid/acte.svg", personIds: ["person-page-a"] },
       { id: "person-page-pdf", title: "Registre PDF", type: "Registre", fileName: "registre.pdf", mimeType: "application/pdf", personIds: ["person-page-a"] },
       { id: "person-page-image", title: "Photographie", type: "Photo", fileName: "portrait.jpg", mimeType: "application/octet-stream", personIds: ["person-page-a"] },
-      { id: "person-page-unknown", title: "Fichier inconnu", type: "Archive", fileName: "fichier.bin", mimeType: "application/octet-stream", personIds: ["person-page-a"] }
+      { id: "person-page-unknown", title: "Fichier inconnu", type: "Archive", fileName: "fichier.bin", mimeType: "application/octet-stream", personIds: ["person-page-a"] },
+      { id: "person-page-unlinked", title: "Document sans lien", type: "Archive", fileName: "sans-lien.bin", mimeType: "application/octet-stream", personIds: [] }
     ];
     loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = true;
     genealogyRecords = {
@@ -60,6 +61,7 @@ window.__personPageTest = {
       lifeEvents: person?.lifeEvents || []
     };
   },
+  documentExists(id) { return documents.some(documentItem => documentItem.id === id); },
   rerenderJourney() { renderJourneySection(); },
   setEvidenceRole(role) {
     currentUserProfile = { role, displayName: "Testeur" };
@@ -101,10 +103,14 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
   await context.route("**/*", async route => {
     const url = route.request().url();
     if (url.startsWith("https://family-tree-geonames.giovannoni-f.workers.dev/")) {
+      const query = new URL(url).searchParams.get("q")?.toLocaleLowerCase("fr-FR") || "";
+      const geoname = query.startsWith("var")
+        ? { name: "Varese", adminName2: "Province de Varese", adminName1: "Lombardie", countryName: "Italie", countryCode: "IT", geonameId: 3164699 }
+        : { name: "Orino", adminName2: "Varese", adminName1: "Lombardia", countryName: "Italie", countryCode: "IT", geonameId: 3171874 };
       return route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ geonames: [{ name: "Orino", adminName2: "Varese", adminName1: "Lombardia", countryName: "Italie", countryCode: "IT", geonameId: 3171874 }] })
+        body: JSON.stringify({ geonames: [geoname] })
       });
     }
     if (new URL(url).pathname.endsWith("/js/app.js")) {
@@ -695,18 +701,71 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await addAttestation.locator(".ui-icon use").getAttribute("href"), "#icon-plus", "icône + présente sur le CTA d’attestation");
     assert.equal(await addAttestation.evaluate(button => getComputedStyle(button).color), "rgb(40, 75, 63)", "icône et libellé d’attestation verts");
     await addAttestation.click();
+    const justificationGroups = page.locator("[data-journey-form] .life-journey-justification-group");
+    assert.deepEqual(await justificationGroups.locator(":scope > strong").allTextContents(), ["Documents associés", "Sources", "Preuves"], "sélecteurs séparés par type d'élément");
+    assert.equal(await page.locator("[data-journey-document-check]").count(), 4, "documents rattachés à la personne proposés");
+    assert.equal(await page.locator('[data-journey-document-check="person-page-unlinked"]').count(), 0, "document non associé exclu du sélecteur");
+    assert.equal(await page.locator("[data-journey-source-check]").count(), 1, "sources officielles liées à la personne proposées");
+    assert.equal(await page.locator("[data-journey-proof-check]").count(), 1, "preuves liées à la personne proposées");
+    const mobileAttestationDates = await page.locator("#personPageDetailedJourney [data-journey-date]").evaluate(container => {
+      const buttons = [...container.querySelectorAll("[data-journey-date-type]")];
+      const switcher = container.querySelector(".date-type-switch");
+      return {
+        types: buttons.map(button => button.dataset.journeyDateType),
+        visibleLabels: buttons.map(button => getComputedStyle(button, "::after").content.replace(/^[\"']|[\"']$/g, "")),
+        heights: buttons.map(button => Math.round(button.getBoundingClientRect().height)),
+        active: buttons.filter(button => button.classList.contains("active")).map(button => button.dataset.journeyDateType),
+        overflowX: getComputedStyle(switcher).overflowX,
+        scrollsInside: switcher.scrollWidth > switcher.clientWidth,
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+      };
+    });
+    assert.deepEqual(mobileAttestationDates.types, ["exact", "year", "about", "before", "after", "attested", "between", "unknown"]);
+    assert.deepEqual(mobileAttestationDates.visibleLabels, ["Date précise", "Année", "Vers", "Avant", "Après", "Attesté", "Entre", "Inconnue"], "huit libellés visibles dans le sélecteur mobile");
+    assert.deepEqual(mobileAttestationDates.active, ["exact"], "type sélectionné identifiable visuellement");
+    assert.ok(mobileAttestationDates.heights.every(height => height >= 44), "cibles tactiles des huit formats ≥ 44 px");
+    assert.equal(mobileAttestationDates.overflowX, "auto", "défilement horizontal limité au sélecteur");
+    assert.ok(mobileAttestationDates.scrollsInside, "le sélecteur peut défiler sans élargir la page");
+    assert.ok(mobileAttestationDates.pageOverflow <= 1, "sélecteur mobile sans débordement horizontal de page");
+    await page.setViewportSize({ width: 850, height: 850 });
+    const narrowDesktopDates = await page.locator("#personPageDetailedJourney [data-journey-date]").evaluate(container => ({
+      labels: [...container.querySelectorAll("[data-journey-date-type]")].map(button => button.innerText.trim()),
+      widths: [...container.querySelectorAll("[data-journey-date-type]")].map(button => Math.round(button.getBoundingClientRect().width)),
+      pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+    }));
+    assert.deepEqual(narrowDesktopDates.labels, ["Date précise", "Année", "Vers", "Avant", "Après", "Attesté", "Entre", "Inconnue"], "tous les formats visibles dans une colonne desktop étroite");
+    assert.ok(narrowDesktopDates.widths.every(width => width > 0), "les huit contrôles restent affichés");
+    assert.ok(narrowDesktopDates.pageOverflow <= 1, "formulaire desktop étroit sans débordement horizontal");
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('[data-journey-attestation-save]').click();
     assert.match(await page.locator("#journeyError-attDate").innerText(), /date de l'attestation/, "attestation sans date refusée");
     await page.locator('[data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1895");
+    await page.locator('[data-journey-document-check="person-page-document"]').check();
+    await page.locator('[data-journey-document-check="person-page-pdf"]').check();
     await page.locator('[data-journey-source-check="person-page-source"]').check();
     await page.locator('[data-journey-proof-check="person-page-proof"]').check();
     await page.locator('[data-journey-attestation-save]').click();
     await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.residences[0].attestations.length, 1, "attestation enregistrée");
+    assert.deepEqual(journey.residences[0].attestations[0].documentIds, ["person-page-document", "person-page-pdf"], "sélection de plusieurs documents enregistrée sans fusionner leurs références");
     assert.deepEqual(journey.residences[0].attestations[0].sourceIds, ["person-page-source"], "association source conservée");
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /1 attestation/);
+    assert.equal(await page.locator('#personPageDetailedJourney [data-journey-kind="residence"] [data-view-document]').count(), 2, "les documents associés sont consultables depuis l'attestation");
+
+    /* Réouverture : les trois catégories et sélections sont restaurées ; retirer un lien ne supprime pas le document. */
+    await page.locator('[data-journey-attestation-edit^="residence:"]').first().click();
+    assert.equal(await page.locator('[data-journey-document-check="person-page-document"]').isChecked(), true, "document préchargé après réouverture");
+    assert.equal(await page.locator('[data-journey-document-check="person-page-pdf"]').isChecked(), true, "second document préchargé après réouverture");
+    assert.equal(await page.locator('[data-journey-source-check="person-page-source"]').isChecked(), true, "source préchargée après réouverture");
+    assert.equal(await page.locator('[data-journey-proof-check="person-page-proof"]').isChecked(), true, "preuve préchargée après réouverture");
+    await page.locator('[data-journey-document-check="person-page-pdf"]').uncheck();
+    await page.locator('[data-journey-attestation-save]').click();
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.deepEqual(journey.residences[0].attestations[0].documentIds, ["person-page-document"], "désassociation de document répercutée uniquement sur l'attestation");
+    assert.equal(await page.evaluate(() => window.__personPageTest.documentExists("person-page-pdf")), true, "le document source reste présent après désassociation");
 
     /* Seconde attestation datée distincte : jamais bloquée. */
     await page.locator('#personPageDetailedJourney [data-journey-attestation-add]').click();
@@ -817,6 +876,20 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.match(await eventRow.locator("summary").innerText(), /Recensement · Recensement de Biella · 1901/, "intitulé distinct restitué après le type");
     assert.equal(await eventRow.locator(".life-entry-place").innerText(), "Lieu historique sans suggestion", "lieu affiché directement sous le titre");
     assert.doesNotMatch(await eventRow.locator(".life-entry-body").innerText(), /\bLieu\b/, "aucun libellé LIEU redondant dans l’événement");
+    await eventRow.locator('[data-journey-edit^="event:"]').click();
+    await page.fill("#journeyPlace", "Var");
+    await page.waitForSelector(".location-suggestion");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    assert.equal(await page.inputValue("#journeyRegion"), "Province de Varese, Lombardie", "régions GeoNames disponibles dans le formulaire événement");
+    assert.equal(await page.inputValue("#journeyCountry"), "Italie", "pays GeoNames conservé dans les données événement");
+    await page.locator('[data-journey-save="event"]').click();
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.lifeEvents[0].place, "Varese");
+    assert.equal(journey.lifeEvents[0].countryCode, "ITA", "code ISO alpha-3 stocké à la suite d'une sélection GeoNames fiable");
+    assert.equal(journey.lifeEvents[0].region, "Province de Varese, Lombardie", "région source conservée sans modification");
+    assert.equal(await eventRow.locator(".life-entry-place").innerText(), "Varese, Lombardie (ITA)", "lieu compact, province doublon écarté et code ISO visible");
     await page.setViewportSize({ width: 1280, height: 900 });
     const editJourneyWithData = await page.locator("#personPageDetailedJourney").evaluate(section => {
       const columns = [...section.querySelectorAll(".life-journey-column")];
@@ -843,6 +916,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await eventRow.locator('[data-journey-edit^="event:"]').click();
     await page.fill("#journeyLabel", "");
     await page.fill("#journeyPlace", "");
+    await page.fill("#journeyRegion", "");
+    await page.fill("#journeyCountry", "");
     await page.locator('[data-journey-save="event"]').click();
     await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
