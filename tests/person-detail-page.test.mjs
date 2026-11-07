@@ -1919,6 +1919,67 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator('#treeScene .person[data-person-id="person-page-a"]').click();
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
     assert.equal((await page.locator("#personPageTitle").textContent()).trim(), "Adélaïde Maria Rossi", "ouverture de la page depuis l’arbre");
+
+    /* CTA sticky : consultation uniquement, seuil haut, sorties de fiche et responsive. */
+    const stickyBar = page.locator("#personPageStickyActions");
+    assert.equal(await stickyBar.evaluate(bar => bar.classList.contains("is-visible")), false, "à l’ouverture, les CTA restent uniquement en haut");
+    assert.deepEqual(await stickyBar.locator(":scope > .btn").allTextContents(), ["Voir l’arbre", "Modifier"], "libellés complets des CTA sticky");
+    for (const width of [320, 375, 390, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+      await page.waitForTimeout(120);
+      assert.equal(await stickyBar.evaluate(bar => bar.classList.contains("is-visible")), false, `${width}px : barre cachée avec les CTA d’origine visibles`);
+      await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" }));
+      await page.waitForFunction(() => document.getElementById("personPageStickyActions").classList.contains("is-visible"), undefined, { timeout: 5000 });
+      const stickyLayout = await page.evaluate(() => {
+        const bar = document.getElementById("personPageStickyActions");
+        const box = bar.getBoundingClientRect();
+        const tree = document.getElementById("personPageStickyViewTreeBtn").getBoundingClientRect();
+        const edit = document.getElementById("personPageStickyEditBtn").getBoundingClientRect();
+        const originalTree = document.getElementById("personPageViewTreeBtn").getBoundingClientRect();
+        const originalEdit = document.getElementById("personPageEditBtn").getBoundingClientRect();
+        const lastSection = document.getElementById("personPageResearch").getBoundingClientRect();
+        return {
+          barPosition: getComputedStyle(bar).position,
+          barWidth: Math.round(box.width),
+          barHeight: Math.round(box.height),
+          buttonsSameRow: Math.abs(tree.top - edit.top) <= 1 && Math.abs(tree.bottom - edit.bottom) <= 1,
+          originalsOffscreen: originalTree.bottom <= 0 || originalTree.top >= innerHeight
+            ? (originalEdit.bottom <= 0 || originalEdit.top >= innerHeight)
+            : false,
+          lastContentAboveBar: lastSection.bottom <= box.top,
+          pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+        };
+      });
+      assert.equal(stickyLayout.barPosition, "fixed", `${width}px : barre fixe`);
+      assert.ok(stickyLayout.buttonsSameRow, `${width}px : CTA côte à côte`);
+      assert.ok(stickyLayout.originalsOffscreen, `${width}px : CTA d’origine et sticky jamais visibles simultanément`);
+      assert.ok(stickyLayout.lastContentAboveBar, `${width}px : dernier contenu accessible au-dessus de la barre`);
+      assert.ok(stickyLayout.pageOverflow <= 1, `${width}px : aucun débordement horizontal`);
+      if (width <= 390) assert.ok(stickyLayout.barWidth <= width, `${width}px : barre contenue dans le viewport mobile`);
+      else assert.ok(stickyLayout.barWidth <= 512, "desktop : barre de largeur contenue");
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+      await page.waitForFunction(() => !document.getElementById("personPageStickyActions").classList.contains("is-visible"), undefined, { timeout: 5000 });
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" }));
+    await page.waitForFunction(() => document.getElementById("personPageStickyActions").classList.contains("is-visible"), undefined, { timeout: 5000 });
+    await stickyBar.locator("#personPageStickyEditBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    assert.equal(await stickyBar.evaluate(bar => bar.classList.contains("is-visible")), false, "passage en modification : barre sticky masquée immédiatement");
+    assert.equal(await page.locator("#personPageEditBtn").isHidden(), true, "CTA d’origine masqué en modification comme auparavant");
+    await page.locator('#personPageEditHost [data-close="personDialog"]').click();
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+    await page.waitForFunction(() => document.getElementById("personPageStickyActions").classList.contains("is-visible"), undefined, { timeout: 5000 });
+    await stickyBar.locator("#personPageStickyViewTreeBtn").click();
+    await page.waitForFunction(() => document.getElementById("personDetailView").hidden && !document.getElementById("appMain").hidden);
+    assert.equal(await stickyBar.evaluate(bar => bar.classList.contains("is-visible")), false, "ouverture de l’arbre : barre sticky retirée");
+    await page.evaluate(() => window.__personPageTest.openDirectory());
+    assert.equal(await stickyBar.evaluate(bar => bar.classList.contains("is-visible")), false, "Annuaire : aucune barre sticky Personne");
+    await page.locator('#directoryList [data-directory-person="person-page-b"]').click();
+    await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Carlo"));
+    assert.equal(await stickyBar.evaluate(bar => bar.classList.contains("is-visible")), false, "autre fiche ouverte : barre initialement masquée");
     assert.deepEqual(errors, [], `aucune erreur JavaScript : ${errors.join(" | ")}`);
   } finally {
     await context.close();

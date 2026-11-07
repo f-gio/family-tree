@@ -5867,6 +5867,35 @@ dialog.modal-dossier { width: min(1040px, calc(100vw - 48px)); max-width: 1040px
 .person-detail-header-actions > .btn { min-height: var(--control-touch); white-space: nowrap; }
 .person-detail-header-actions #personPageActions { margin-left: var(--space-1); }
 .person-page-actions { position: relative; }
+.person-page-sticky-actions {
+  position: fixed;
+  z-index: 25;
+  left: 50%;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  width: min(32rem, calc(100vw - 2 * var(--space-3)));
+  padding: var(--space-2) var(--space-3) calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
+  border: var(--border-subtle);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-medium);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, var(--space-2));
+  transition: opacity var(--transition-fast), transform var(--transition-fast), visibility var(--transition-fast);
+}
+.person-page-sticky-actions.is-visible { opacity: 1; visibility: visible; pointer-events: auto; transform: translate(-50%, 0); }
+.person-page-sticky-actions > .btn { min-width: 0; min-height: var(--control-touch); white-space: nowrap; }
+.person-page-sticky-actions > [hidden] { display: none !important; }
+.person-page-sticky-actions.is-single-action { grid-template-columns: minmax(0, 1fr); }
+.person-page-sticky-actions.is-single-action #personPageStickyViewTreeBtn { display: none; }
+body:has(#personDetailView:not([hidden])):not(:has(#personPageEditHost:not([hidden]))) #personDetailView {
+  padding-bottom: calc(var(--space-8) + var(--control-touch) + var(--space-4) + env(safe-area-inset-bottom, 0px));
+}
 .person-detail-header-actions .person-page-actions > summary { width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); }
 .person-page-desktop-back { align-self: center; }
 .person-page-mobile-header { display: none; }
@@ -6002,6 +6031,10 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   .person-detail-documents-expanded .person-doc-card.is-no-thumbnail .person-doc-thumb { height: 3.25rem; aspect-ratio: auto; }
   .person-detail-documents-toggle { display: inline-flex; min-height: var(--control-touch); margin-top: var(--space-2); }
   .person-page-edit-host .person-modal-form { gap: var(--space-3); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .person-page-sticky-actions { transition: none; }
 }
 .source-detail-content .genealogy-linked-documents ul { margin-bottom: 0; }
 .source-detail-content .genealogy-linked-documents li button { min-height: var(--control-touch); }

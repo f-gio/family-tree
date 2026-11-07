@@ -231,6 +231,7 @@ let activePersonPageItem = null;
 let personPageReturnContext = null;
 let personPageActiveSection = "identity";
 let personPageDocumentsExpanded = false;
+let personPageStickyObserver = null;
 let personPageInlineEditing = false;
 let personPageInlineInitialDraft = null;
 let personPageInlineHome = null;
@@ -2636,6 +2637,48 @@ function syncPersonPageSectionNav(section = personPageActiveSection) {
   });
 }
 
+function setPersonPageStickyActionsVisible(visible) {
+  const sticky = $("personPageStickyActions");
+  const view = $("personDetailView");
+  if (!sticky || !view) return;
+  const eligible = visible && !view.hidden && !personPageInlineEditing && $("personPageEditHost").hidden && !!activePersonPageItem;
+  sticky.classList.toggle("is-visible", Boolean(eligible));
+  sticky.setAttribute("aria-hidden", String(!eligible));
+  sticky.inert = !eligible;
+}
+
+function clearPersonPageStickyActions() {
+  personPageStickyObserver?.disconnect();
+  personPageStickyObserver = null;
+  setPersonPageStickyActionsVisible(false);
+}
+
+function observePersonPageStickyActions() {
+  clearPersonPageStickyActions();
+  const view = $("personDetailView");
+  const actions = $("personPageHeaderActions");
+  const sticky = $("personPageStickyActions");
+  const sourceTreeButton = $("personPageViewTreeBtn");
+  const stickyTreeButton = $("personPageStickyViewTreeBtn");
+  if (!view || view.hidden || personPageInlineEditing || !activePersonPageItem || !actions || !sticky || typeof IntersectionObserver !== "function") return;
+
+  stickyTreeButton.hidden = sourceTreeButton.hidden;
+  sticky.classList.toggle("is-single-action", sourceTreeButton.hidden);
+  setPersonPageStickyActionsVisible(false);
+  const observer = new IntersectionObserver(entries => {
+    if (personPageStickyObserver !== observer) return;
+    const entry = entries.find(value => value.target === actions);
+    if (!entry) return;
+    const rootTop = entry.rootBounds?.top ?? 0;
+    const rootBottom = entry.rootBounds?.bottom ?? window.innerHeight;
+    const hasPassedAbove = !entry.isIntersecting && entry.boundingClientRect.bottom <= rootTop;
+    const remainsBelow = !entry.isIntersecting && entry.boundingClientRect.top >= rootBottom;
+    setPersonPageStickyActionsVisible(hasPassedAbove && !remainsBelow);
+  }, { threshold: 0 });
+  personPageStickyObserver = observer;
+  observer.observe(actions);
+}
+
 function personPageActionMenuMarkup({ distinctTreeIcons = false, mobileSections = false } = {}) {
   const groups = mobileSections
     ? [
@@ -2781,6 +2824,7 @@ function requestPersonPageInlineExit() {
 
 function enterPersonPageInlineEdit() {
   if (!activePersonPageItem || personPageInlineEditing) return;
+  clearPersonPageStickyActions();
   const source = personPageReturnContext?.view === "tree" ? "tree" : "directory";
   openPerson(activePersonPageItem, source, { showDialog: false });
   const { tabs, form } = ensurePersonPageInlineHomeAnchors();
@@ -2853,6 +2897,7 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
   if (!item) return;
   if (personPageInlineEditing && activePersonPageItem?.id !== item.id && !requestPersonPageInlineExit()) return;
   if (personPageInlineEditing && activePersonPageItem?.id === item.id) return;
+  clearPersonPageStickyActions();
   const samePageVisible = !$('personDetailView').hidden && activePersonPageItem?.id === item.id;
   if (!samePageVisible) {
     personPageReturnContext = returnContext || { kind: "view", view: activeView === "personDetail" ? "directory" : activeView };
@@ -2948,6 +2993,7 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
     }));
   }
   if (!samePageVisible) requestAnimationFrame(() => $("personPageBackBtn").focus({ preventScroll: true }));
+  requestAnimationFrame(() => requestAnimationFrame(observePersonPageStickyActions));
 }
 
 function openPersonPage(item, returnContext = null) {
@@ -3019,6 +3065,8 @@ $("personPageEditBtn").addEventListener("click", enterPersonPageInlineEdit);
 $("personPageViewTreeBtn").addEventListener("click", () => {
   if (activePersonPageItem?.id) showPersonInTree(activePersonPageItem.id);
 });
+$("personPageStickyEditBtn").addEventListener("click", () => $("personPageEditBtn").click());
+$("personPageStickyViewTreeBtn").addEventListener("click", () => $("personPageViewTreeBtn").click());
 for (const id of ["personPageActions", "personPageMobileActions"]) {
   $(id).addEventListener("toggle", () => $(id).querySelector("summary")?.setAttribute("aria-expanded", String($(id).open)));
   $(id).addEventListener("keydown", event => {
@@ -13288,6 +13336,7 @@ function setView(view) {
     if (!confirmTranscriptionWorkshopClose()) return false;
     teardownTranscriptionWorkshop();
   }
+  if (view !== "personDetail") clearPersonPageStickyActions();
   if (view !== "transcriptionWorkshop") activeView = view;
   /* Contexte de navigation commun : mémorise la vue quittée (Archives :
      filtres et défilement) pour la restaurer au retour. */

@@ -395,7 +395,7 @@
           <button class="dedicated-page-back person-page-desktop-back" id="personPageBackBtn" type="button" aria-label="Retour" title="Retour"><span class="dedicated-page-back-arrow" aria-hidden="true">←</span><span class="dedicated-page-back-label">Retour</span></button>
           <div class="person-detail-portrait" id="personPagePortrait"></div>
           <div class="person-detail-heading"><nav class="consultation-breadcrumb person-detail-breadcrumb" id="personPageBreadcrumb" aria-label="Fil d’Ariane"></nav><h2 class="person-detail-title" id="personPageTitle"></h2><div class="person-detail-essentials" id="personPageEssentials"></div></div>
-          <div class="dedicated-page-actions dedicated-page-actions-row person-detail-header-actions">
+          <div class="dedicated-page-actions dedicated-page-actions-row person-detail-header-actions" id="personPageHeaderActions">
             <button class="btn" type="button" id="personPageViewTreeBtn">Voir dans l’arbre</button>
             <button class="btn primary" type="button" id="personPageEditBtn">Modifier la fiche</button>
             <details class="dedicated-page-actions source-detail-actions person-page-actions" id="personPageActions"><summary class="btn icon-btn" aria-label="Actions de la personne" title="Actions de la personne" aria-haspopup="menu" aria-expanded="false">⋯</summary><div class="source-detail-actions-menu" id="personPageActionsMenu" role="menu" aria-label="Actions de la personne"></div></details>
@@ -411,6 +411,10 @@
       </nav>
       <div class="person-page-edit-host" id="personPageEditHost" hidden></div>
       <div class="source-detail-content person-detail-content" id="personPageContent"></div>
+    </div>
+    <div class="person-page-sticky-actions" id="personPageStickyActions" role="group" aria-label="Actions de la fiche Personne" aria-hidden="true" inert>
+      <button class="btn" type="button" id="personPageStickyViewTreeBtn">Voir l’arbre</button>
+      <button class="btn primary" type="button" id="personPageStickyEditBtn">Modifier</button>
     </div>
   </main>
   <main class="workspace-view page-content-lane document-detail-view" id="documentDetailView" hidden aria-labelledby="viewerTitle">
