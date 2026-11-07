@@ -700,6 +700,14 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.ok(await addAttestation.evaluate(button => button.classList.contains("tertiary") && button.classList.contains("small")), "CTA d’attestation compact et secondaire");
     assert.equal(await addAttestation.locator(".ui-icon use").getAttribute("href"), "#icon-plus", "icône + présente sur le CTA d’attestation");
     assert.equal(await addAttestation.evaluate(button => getComputedStyle(button).color), "rgb(40, 75, 63)", "icône et libellé d’attestation verts");
+    const mobileAttestationButtonStyle = await addAttestation.evaluate(button => {
+      const style = getComputedStyle(button);
+      return { borderStyle: style.borderTopStyle, borderColor: style.borderTopColor, background: style.backgroundColor, width: Math.round(button.getBoundingClientRect().width), parentWidth: Math.round(button.parentElement.getBoundingClientRect().width) };
+    });
+    assert.equal(mobileAttestationButtonStyle.borderStyle, "solid", "bordure visible sur le bouton d’attestation mobile");
+    assert.notEqual(mobileAttestationButtonStyle.borderColor, "rgba(0, 0, 0, 0)", "bordure non transparente sur mobile");
+    assert.notEqual(mobileAttestationButtonStyle.background, "rgba(0, 0, 0, 0)", "fond clair visible sur mobile");
+    assert.ok(mobileAttestationButtonStyle.width < mobileAttestationButtonStyle.parentWidth, "CTA d’attestation compact, non pleine largeur sur mobile");
     await addAttestation.click();
     const justificationGroups = page.locator("[data-journey-form] .life-journey-justification-group");
     assert.deepEqual(await justificationGroups.locator(":scope > strong").allTextContents(), ["Documents associés", "Sources", "Preuves"], "sélecteurs séparés par type d'élément");
@@ -753,6 +761,15 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.deepEqual(journey.residences[0].attestations[0].sourceIds, ["person-page-source"], "association source conservée");
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /1 attestation/);
     assert.equal(await page.locator('#personPageDetailedJourney [data-journey-kind="residence"] [data-view-document]').count(), 2, "les documents associés sont consultables depuis l'attestation");
+    await page.setViewportSize({ width: 850, height: 850 });
+    const desktopAttestationButtonStyle = await page.locator(".life-attestation-add").first().evaluate(button => {
+      const style = getComputedStyle(button);
+      return { borderStyle: style.borderTopStyle, borderColor: style.borderTopColor, background: style.backgroundColor };
+    });
+    assert.equal(desktopAttestationButtonStyle.borderStyle, "solid", "bordure visible sur le bouton d’attestation desktop");
+    assert.notEqual(desktopAttestationButtonStyle.borderColor, "rgba(0, 0, 0, 0)", "bordure non transparente sur desktop");
+    assert.notEqual(desktopAttestationButtonStyle.background, "rgba(0, 0, 0, 0)", "fond clair visible sur desktop");
+    await page.setViewportSize({ width: 390, height: 844 });
 
     /* Réouverture : les trois catégories et sélections sont restaurées ; retirer un lien ne supprime pas le document. */
     await page.locator('[data-journey-attestation-edit^="residence:"]').first().click();
@@ -872,12 +889,16 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(journey.lifeEvents[0].place, "Lieu historique sans suggestion", "saisie libre conservée sans suggestion géographique");
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Agriculteur/);
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Recensement de Biella/);
+    const eventCard = page.locator('#personPageDetailedJourney [data-journey-entry-kind="event"]');
     const eventRow = page.locator('#personPageDetailedJourney [data-journey-kind="event"]');
     assert.match(await eventRow.locator(".life-entry-summary").innerText(), /Recensement · Recensement de Biella · 1901/, "intitulé distinct restitué après le type");
-    assert.equal(await eventRow.locator(".life-entry-place").innerText(), "Lieu historique sans suggestion", "lieu affiché directement sous le titre");
-    assert.equal(await eventRow.locator(".life-entry-body").count(), 0, "aucun dépliage ni espace vide quand l’événement n’a aucune information complémentaire");
-    assert.equal(await eventRow.locator(".life-entry-chevron").count(), 0, "aucun chevron trompeur sur une carte vide");
-    await eventRow.locator('[data-journey-edit^="event:"]').click();
+    assert.doesNotMatch(await eventRow.locator(".life-entry-summary").innerText(), /Lieu historique sans suggestion/, "lieu absent du résumé fermé de l’événement");
+    assert.equal(await eventRow.locator(".life-entry-chevron").count(), 1, "lieu seul suffisant pour afficher un chevron de dépliage");
+    assert.match(await eventRow.locator(".life-entry-body").innerText(), /Lieu\s+Lieu historique sans suggestion/i, "lieu visible dans le panneau événement ouvert");
+    await eventRow.locator("summary").click();
+    assert.equal(await eventRow.evaluate(details => details.open), false, "panneau événement replié au clic");
+    assert.equal(await eventCard.locator('[data-journey-attestation-add]').count(), 1, "pied d’actions disponible événement replié");
+    await eventCard.locator('[data-journey-edit^="event:"]').click();
     await page.fill("#journeyPlace", "Var");
     await page.waitForSelector(".location-suggestion");
     await page.keyboard.press("ArrowDown");
@@ -890,8 +911,19 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(journey.lifeEvents[0].place, "Varese");
     assert.equal(journey.lifeEvents[0].countryCode, "ITA", "code ISO alpha-3 stocké à la suite d'une sélection GeoNames fiable");
     assert.equal(journey.lifeEvents[0].region, "Province de Varese, Lombardie", "région source conservée sans modification");
-    assert.equal(await eventRow.locator(".life-entry-place").innerText(), "Varese, Lombardie (ITA)", "lieu compact, province doublon écarté et code ISO visible");
-    await eventRow.locator('[data-journey-attestation-add]').click();
+    assert.match(await eventRow.locator(".life-entry-body").innerText(), /Lieu\s+Varese, Lombardie \(ITA\)/i, "lieu compact visible dans les détails ouverts");
+    assert.doesNotMatch(await eventRow.locator(".life-entry-summary").innerText(), /Varese/, "lieu masqué dans l’en-tête même lorsque les détails sont ouverts");
+    const mobileCardFooters = await page.locator("#personPageDetailedJourney .life-entry-card").evaluateAll(cards => cards.map(card => {
+      const footer = card.querySelector(":scope > .life-entry-actions");
+      const expandable = card.querySelector(":scope > details.life-entry");
+      return { footerInside: Boolean(footer && footer.parentElement === card), footerLast: Boolean(footer && card.lastElementChild === footer), actionOrder: footer ? [...footer.children].map(button => button.hasAttribute("data-journey-attestation-add") ? "attestation" : button.hasAttribute("data-journey-delete") ? "delete" : button.hasAttribute("data-journey-edit") ? "edit" : "other") : [], expandable: Boolean(expandable) };
+    }));
+    assert.ok(mobileCardFooters.length >= 3 && mobileCardFooters.every(card => card.footerInside && card.footerLast), "les trois catégories ont un pied d’actions en dernier dans la bordure de carte");
+    assert.ok(mobileCardFooters.every(card => !card.footer || card.actionOrder.join(",") === "edit,delete,attestation"), "ordre commun des actions dans les trois catégories");
+    await eventRow.locator("summary").click();
+    assert.equal(await eventRow.evaluate(details => details.open), false, "panneau événement replié sans retirer son pied d’actions");
+    assert.equal(await eventCard.locator("[data-journey-attestation-add]").count(), 1, "ajout d’attestation reste accessible carte fermée");
+    await eventCard.locator('[data-journey-attestation-add]').click();
     await page.locator('[data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1902");
     await page.fill("#journeyAttComment", "Mention au recensement");
@@ -928,14 +960,14 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.match(editJourneyWithData.texts[2], /Recensement de Biella/, "événement dans la colonne desktop dédiée");
     assert.equal(editJourneyWithData.collisions, 0, "aucun chevauchement CTA/titre en desktop avec données");
     await page.setViewportSize({ width: 390, height: 844 });
-    await eventRow.locator('[data-journey-edit^="event:"]').click();
+    await eventCard.locator('[data-journey-edit^="event:"]').click();
     await page.fill("#journeyLabel", "  RECENSEMENT  ");
     await page.locator('[data-journey-save="event"]').click();
     await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.lifeEvents[0].label, "  RECENSEMENT  ", "valeur historique conservée sans normalisation en écriture");
     assert.match(await eventRow.locator(".life-entry-summary").innerText(), /^Recensement · 1901/, "intitulé identique au type omis du rendu");
-    await eventRow.locator('[data-journey-edit^="event:"]').click();
+    await eventCard.locator('[data-journey-edit^="event:"]').click();
     await page.fill("#journeyLabel", "");
     await page.fill("#journeyPlace", "");
     await page.fill("#journeyRegion", "");
@@ -946,6 +978,9 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(journey.lifeEvents[0].label, "", "intitulé vide enregistré sans valeur automatique");
     assert.match(await eventRow.locator(".life-entry-summary").innerText(), /^Recensement · 1901/, "titre de l’événement sans intitulé");
     assert.equal(await eventRow.locator(".life-entry-place").count(), 0, "aucune ligne de lieu vide");
+    assert.equal(await eventRow.locator(".life-entry-chevron").count(), 0, "aucun chevron sur l’événement sans détail");
+    assert.equal(await eventRow.locator(".life-entry-body").count(), 0, "aucune zone vide sur l’événement sans détail");
+    assert.equal(await eventCard.locator("[data-journey-edit], [data-journey-delete], [data-journey-attestation-add]").count(), 3, "actions disponibles dans le pied de carte même sans détails");
     const mobileJourneyDataLayout = await page.locator("#personPageDetailedJourney").evaluate(section => {
       const columns = [...section.querySelectorAll(".life-journey-column")];
       const lefts = columns.map(column => Math.round(column.getBoundingClientRect().left));

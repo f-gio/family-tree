@@ -2422,6 +2422,7 @@ function journeyEntryFactsMarkup(kind, entry) {
     fact("Région et pays", location);
     fact("Notes", entry.notes);
   } else {
+    fact("Lieu", compactJourneyEventPlace(entry));
     fact("Description", entry.description);
   }
   return facts.length ? `<div class="life-entry-facts">${facts.join("")}</div>` : "";
@@ -2487,21 +2488,24 @@ function journeyEntryMarkup(kind, entry, item, { editable = false } = {}) {
   const editingAttestation = editable && journeyEditor?.type === "attestation" && journeyEditor.entryId === entry.id;
   const countLabel = editable ? `<span class="life-entry-meta">${attestations.length} attestation${attestations.length > 1 ? "s" : ""}</span>` : "";
   const eventPlaceText = kind === "event" ? compactJourneyEventPlace(entry) : "";
-  const eventPlace = eventPlaceText
-    ? `<span class="life-entry-place">${esc(eventPlaceText)}</span>`
-    : "";
   const editableForm = isEditing ? journeyEntryFormMarkup(kind, entry) : "";
   const attestationContent = journeyAttestationsMarkup(kind, entry, item, { editable });
   const extraFacts = journeyEntryFactsMarkup(kind, entry);
-  const detailsBody = `${extraFacts}${attestationContent}${kind === "event" ? `<div class="life-attestation-links">${journeySourceLinks(item, entry.sourceIds, "source")}${journeySourceLinks(item, entry.proofIds, "proof")}</div>` : ""}`;
+  const eventLinks = kind === "event"
+    ? `${journeySourceLinks(item, entry.sourceIds, "source")}${journeySourceLinks(item, entry.proofIds, "proof")}`
+    : "";
+  const detailsBody = `${extraFacts}${attestationContent}${eventLinks ? `<div class="life-attestation-links">${eventLinks}</div>` : ""}`;
   const actions = editable && !isEditing ? `<div class="life-entry-actions"><button class="btn small" type="button" data-journey-edit="${kind}:${esc(entry.id)}">Modifier</button><button class="btn icon-btn life-delete-icon" type="button" aria-label="Supprimer ${kind === "residence" ? "la résidence" : kind === "profession" ? "la profession" : "l’événement"} ${esc(journeyEntrySummary(kind, entry))}" title="Supprimer" data-journey-delete="${kind}:${esc(entry.id)}">${icon("trash")}</button>${!editingAttestation ? `<button class="btn small tertiary life-attestation-add" type="button" data-journey-attestation-add="${esc(entry.id)}">${icon("plus")}<span>Ajouter une attestation</span></button>` : ""}</div>` : "";
-  const hasExtra = Boolean(isEditing || editingAttestation || extraFacts || attestations.length || (kind === "event" && ((entry.sourceIds || []).length || (entry.proofIds || []).length)));
+  const hasExtra = Boolean(isEditing || editingAttestation || extraFacts || eventPlaceText || attestations.length || eventLinks);
+  const editorOpen = Boolean(isEditing || editingAttestation);
   const body = isEditing ? editableForm : detailsBody;
-  const summary = `<span class="life-entry-summary-copy"><span class="life-entry-title">${esc(journeyEntrySummary(kind, entry))}</span>${eventPlace}</span>${countLabel}${hasExtra && !isEditing ? `<svg class="ui-icon life-entry-chevron" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>` : ""}`;
-  if (!hasExtra && !editable) return `<article class="life-entry life-entry-static" data-journey-kind="${kind}" data-journey-id="${esc(entry.id)}"><div class="life-entry-summary">${summary}</div></article>`;
-  if (!hasExtra && editable) return `<div class="life-entry life-entry-static" data-journey-kind="${kind}" data-journey-id="${esc(entry.id)}"><div class="life-entry-summary">${summary}</div>${actions}</div>`;
-  const open = journeyExpanded.has(entry.id) || Boolean(isEditing || editingAttestation);
-  return `<div class="life-entry-shell" data-journey-entry-kind="${kind}" data-journey-id="${esc(entry.id)}"><details class="life-entry" data-journey-kind="${kind}" data-journey-id="${esc(entry.id)}"${open ? " open" : ""}><summary class="life-entry-summary">${summary}</summary><div class="life-entry-body">${body}</div></details>${actions}</div>`;
+  const summary = `<span class="life-entry-summary-copy"><span class="life-entry-title">${esc(journeyEntrySummary(kind, entry))}</span></span>${countLabel}${hasExtra && !editorOpen ? `<svg class="ui-icon life-entry-chevron" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>` : ""}`;
+  const content = editorOpen
+    ? `<div class="life-entry-editing"><div class="life-entry-summary">${summary}</div><div class="life-entry-body">${body}</div></div>`
+    : hasExtra
+      ? `<details class="life-entry" data-journey-kind="${kind}" data-journey-id="${esc(entry.id)}"${journeyExpanded.has(entry.id) ? " open" : ""}><summary class="life-entry-summary">${summary}</summary><div class="life-entry-body">${body}</div></details>`
+    : `<div class="life-entry-static" data-journey-kind="${kind}" data-journey-id="${esc(entry.id)}"><div class="life-entry-summary">${summary}</div></div>`;
+  return `<article class="life-entry-card" data-journey-entry-kind="${kind}" data-journey-id="${esc(entry.id)}">${content}${actions}</article>`;
 }
 
 function journeyEntryFormMarkup(kind, entry) {

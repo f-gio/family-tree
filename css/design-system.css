@@ -1996,14 +1996,24 @@ label .field { margin-top: var(--space-2); }
 .life-entry > summary { list-style: none; align-items: center; }
 .life-entry-chevron { flex: 0 0 auto; width: 1rem; height: 1rem; color: var(--color-text-muted); transition: transform 160ms ease; }
 .life-entry[open] > summary .life-entry-chevron { transform: rotate(180deg); }
-.life-entry-static > .life-entry-summary { display: flex; align-items: center; gap: var(--space-2) var(--space-3); }
-.life-entry-static > .life-entry-body { margin-top: var(--space-3); }
 .life-entry-actions { align-items: center; }
 .life-delete-icon { color: var(--color-danger, #b42318); border: 0; background: transparent; min-width: var(--control-touch); min-height: var(--control-touch); padding: var(--space-2); }
 .life-delete-icon:hover, .life-delete-icon:focus-visible { color: var(--color-danger, #b42318); background: var(--color-danger-soft, #fef3f2); border: 0; }
 .life-delete-icon .ui-icon { width: 1.1rem; height: 1.1rem; }
-.life-attestation-add { width: auto; flex: 0 0 auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-brand); }
-.life-attestation-add:hover, .life-attestation-add:focus-visible { border-color: var(--color-border-strong); background: var(--color-surface-soft); color: var(--color-brand); }
+#personPageDetailedJourney .life-entry-actions > .btn.life-attestation-add {
+  width: auto;
+  flex: 0 0 auto;
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-brand);
+}
+#personPageDetailedJourney .life-entry-actions > .btn.life-attestation-add:hover,
+#personPageDetailedJourney .life-entry-actions > .btn.life-attestation-add:focus-visible {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-soft);
+  color: var(--color-brand);
+}
 
 @media (min-width: 961px) {
   .life-journey-column-head > .btn {
@@ -2012,10 +2022,6 @@ label .field { margin-top: var(--space-2); }
     font-size: var(--text-md);
     font-weight: var(--weight-semibold);
   }
-}
-
-@media (max-width: 960px) {
-  .life-attestation-add { width: auto; }
 }
 
 .life-journey-empty {
@@ -2035,7 +2041,9 @@ label .field { margin-top: var(--space-2); }
   white-space: pre-wrap;
 }
 
-.life-entry {
+.life-entry-card {
+  display: grid;
+  gap: 0;
   border: var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--color-surface);
@@ -2043,15 +2051,23 @@ label .field { margin-top: var(--space-2); }
   min-width: 0;
 }
 
-.life-entry > summary {
+.life-entry { min-width: 0; }
+
+.life-entry > summary,
+.life-entry-static > .life-entry-summary,
+.life-entry-editing > .life-entry-summary {
   cursor: pointer;
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-2) var(--space-3);
+  list-style: none;
 }
 
-.life-entry-summary-copy {
+.life-entry-static > .life-entry-summary,
+.life-entry-editing > .life-entry-summary { cursor: default; }
+
+.life-entry-card .life-entry-summary-copy {
   display: grid;
   flex: 1 1 auto;
   gap: var(--space-1);
@@ -2084,6 +2100,10 @@ label .field { margin-top: var(--space-2); }
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+  padding-top: var(--space-3);
+  border-top: var(--border-subtle);
 }
 
 .life-attestations {
