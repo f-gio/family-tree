@@ -685,6 +685,25 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Orino/);
     assert.match(await page.locator('#personPageDetailedJourney [data-journey-kind="residence"] > summary').innerText(), /0 attestation/, "compteur discret visible en modification");
 
+    /* Espace titre/séparateur : ajouté uniquement sur les cartes fermées. */
+    const residenceFooter = page.locator("#personPageDetailedJourney .life-entry-card").first().locator(":scope > .life-entry-actions");
+    assert.equal(await residenceFooter.evaluate(footer => getComputedStyle(footer).marginTop), "0px", "carte dépliée : espacement du séparateur inchangé");
+    await page.locator('#personPageDetailedJourney [data-journey-kind="residence"] > summary').click();
+    assert.equal(await residenceFooter.evaluate(footer => getComputedStyle(footer).marginTop), "12px", "carte fermée : espace titre/séparateur porté à 12 px");
+    const desktopFooterLayout = await residenceFooter.evaluate(footer => {
+      const box = footer.getBoundingClientRect();
+      const add = footer.querySelector(".life-attestation-add").getBoundingClientRect();
+      const trash = footer.querySelector(".life-delete-icon").getBoundingClientRect();
+      return { height: Math.round(box.height), addRightGap: Math.round(box.right - add.right), trashWidth: Math.round(trash.width), footerLast: footer === footer.parentElement.lastElementChild };
+    });
+    assert.ok(desktopFooterLayout.height <= 60, "desktop : Modifier, poubelle et Ajouter une attestation sur une seule ligne");
+    assert.ok(desktopFooterLayout.addRightGap <= 2, "desktop : Ajouter une attestation aligné à droite dans la carte");
+    assert.ok(desktopFooterLayout.trashWidth >= 42, "desktop : poubelle sans compression");
+    assert.equal(desktopFooterLayout.footerLast, true, "pied d’actions en dernier, à l’intérieur de la bordure");
+    await page.locator('#personPageDetailedJourney [data-journey-kind="residence"] > summary').click();
+    assert.equal(await residenceFooter.evaluate(footer => getComputedStyle(footer).marginTop), "0px", "carte rouverte : espacement d’origine restauré");
+
+
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('#personPageEditHost [data-close="personDialog"]').click();
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
@@ -833,6 +852,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         top: Math.round(box.top),
         right: Math.round(box.right),
         titleBottom: Math.round(title.bottom),
+        headRightGap: Math.round(button.closest(".life-journey-column-head").getBoundingClientRect().right - box.right),
         height: Math.round(box.height),
         color: style.color,
         background: style.backgroundColor,
@@ -844,6 +864,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     }));
     assert.deepEqual(mobileJourneyButtons.map(button => button.label), ["Ajouter", "Ajouter", "Ajouter"], "libellés mobiles harmonisés");
     assert.ok(mobileJourneyButtons.every(button => button.top >= button.titleBottom && button.right <= 390), "CTA compacts alignés sous le titre, sans débordement horizontal");
+    assert.ok(mobileJourneyButtons.every(button => button.headRightGap <= 2), "les trois CTA principaux sont alignés à droite sur mobile");
     assert.ok(mobileJourneyButtons.every(button => button.color === "rgb(40, 75, 63)"), "texte vert foncé sur les CTA mobiles");
     const referenceMobileCta = await page.locator("#linkDocumentBtn").evaluate(button => {
       const box = button.getBoundingClientRect();
@@ -859,6 +880,38 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       assert.equal(button.padding, referenceMobileCta.padding, "padding mobile identique au CTA de référence");
     }
     assert.ok((await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)) <= 1, "édition mobile sans débordement horizontal");
+
+    /* Largeurs mobiles représentatives : une seule ligne, CTA à droite, aucun débordement. */
+    for (const narrowWidth of [375, 320]) {
+      await page.setViewportSize({ width: narrowWidth, height: 844 });
+      await page.waitForTimeout(120);
+      const narrow = await page.evaluate(() => {
+        const footer = document.querySelector("#personPageDetailedJourney .life-entry-card .life-entry-actions");
+        const box = footer.getBoundingClientRect();
+        const add = footer.querySelector(".life-attestation-add");
+        const addBox = add.getBoundingClientRect();
+        const trashBox = footer.querySelector(".life-delete-icon").getBoundingClientRect();
+        const head = document.querySelector("#personPageDetailedJourney .life-journey-column-head");
+        const headBox = head.getBoundingClientRect();
+        const headBtn = head.querySelector(":scope > .btn").getBoundingClientRect();
+        return {
+          footerHeight: Math.round(box.height),
+          addRightGap: Math.round(box.right - addBox.right),
+          addUnclipped: add.scrollWidth <= add.clientWidth + 1 && add.scrollHeight <= add.clientHeight + 1,
+          trashWidth: Math.round(trashBox.width),
+          headRightGap: Math.round(headBox.right - headBtn.right),
+          pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+        };
+      });
+      assert.ok(narrow.footerHeight <= 60, `${narrowWidth} px : les trois actions tiennent sur une seule ligne`);
+      assert.ok(narrow.addRightGap <= 2, `${narrowWidth} px : Ajouter une attestation aligné à droite`);
+      assert.equal(narrow.addUnclipped, true, `${narrowWidth} px : libellé entier, sans troncature ni rognage`);
+      assert.ok(narrow.trashWidth >= 44, `${narrowWidth} px : poubelle conservée à 44 px`);
+      assert.ok(narrow.headRightGap <= 2, `${narrowWidth} px : CTA principal aligné à droite`);
+      assert.ok(narrow.pageOverflow <= 1, `${narrowWidth} px : aucun débordement horizontal`);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(120);
     await page.fill("#journeyPlace", "Mon");
     await page.waitForSelector(".location-suggestion");
     await page.locator(".location-suggestion").first().evaluate(option => {
@@ -916,10 +969,21 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     const mobileCardFooters = await page.locator("#personPageDetailedJourney .life-entry-card").evaluateAll(cards => cards.map(card => {
       const footer = card.querySelector(":scope > .life-entry-actions");
       const expandable = card.querySelector(":scope > details.life-entry");
-      return { footerInside: Boolean(footer && footer.parentElement === card), footerLast: Boolean(footer && card.lastElementChild === footer), actionOrder: footer ? [...footer.children].map(button => button.hasAttribute("data-journey-attestation-add") ? "attestation" : button.hasAttribute("data-journey-delete") ? "delete" : button.hasAttribute("data-journey-edit") ? "edit" : "other") : [], expandable: Boolean(expandable) };
+      const add = footer?.querySelector(".life-attestation-add");
+      const footerBox = footer?.getBoundingClientRect();
+      const addBox = add?.getBoundingClientRect();
+      return {
+        footerInside: Boolean(footer && footer.parentElement === card),
+        footerLast: Boolean(footer && card.lastElementChild === footer),
+        actionOrder: footer ? [...footer.children].map(button => button.hasAttribute("data-journey-attestation-add") ? "attestation" : button.hasAttribute("data-journey-delete") ? "delete" : button.hasAttribute("data-journey-edit") ? "edit" : "other") : [],
+        footerHeight: footerBox ? Math.round(footerBox.height) : 0,
+        addRightGap: footerBox && addBox ? Math.round(footerBox.right - addBox.right) : 999,
+        expandable: Boolean(expandable)
+      };
     }));
     assert.ok(mobileCardFooters.length >= 3 && mobileCardFooters.every(card => card.footerInside && card.footerLast), "les trois catégories ont un pied d’actions en dernier dans la bordure de carte");
     assert.ok(mobileCardFooters.every(card => !card.footer || card.actionOrder.join(",") === "edit,delete,attestation"), "ordre commun des actions dans les trois catégories");
+    assert.ok(mobileCardFooters.length >= 3 && mobileCardFooters.every(card => card.footerHeight <= 60 && card.addRightGap <= 2), "Résidences, Professions et Événements : une seule ligne, Ajouter une attestation à droite");
     await eventRow.locator("summary").click();
     assert.equal(await eventRow.evaluate(details => details.open), false, "panneau événement replié sans retirer son pied d’actions");
     assert.equal(await eventCard.locator("[data-journey-attestation-add]").count(), 1, "ajout d’attestation reste accessible carte fermée");

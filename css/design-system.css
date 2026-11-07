@@ -1962,6 +1962,7 @@ label .field { margin-top: var(--space-2); }
   }
 
   .life-journey-column-head h4 { flex: 1 1 auto; }
+  .life-journey-column-head > .btn { align-self: flex-start; }
 }
 
 /* CTA du Parcours détaillé : mêmes tokens que « Ajouter un document »,
@@ -1972,6 +1973,7 @@ label .field { margin-top: var(--space-2); }
   justify-content: center;
   gap: var(--space-2);
   flex: 0 0 auto;
+  align-self: flex-end;
   min-width: 0;
   white-space: nowrap;
   border: var(--border-default);
@@ -2002,7 +2004,10 @@ label .field { margin-top: var(--space-2); }
 .life-delete-icon .ui-icon { width: 1.1rem; height: 1.1rem; }
 #personPageDetailedJourney .life-entry-actions > .btn.life-attestation-add {
   width: auto;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  white-space: normal;
   border: var(--border-default);
   border-radius: var(--radius-md);
   background: var(--color-surface);
@@ -2098,13 +2103,25 @@ label .field { margin-top: var(--space-2); }
 
 .life-entry-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-2);
   align-items: center;
   min-width: 0;
   padding-top: var(--space-3);
   border-top: var(--border-subtle);
 }
+
+/* Cartes fermées en modification : espace équilibré entre le titre et le
+   séparateur. S'applique uniquement lorsque le pied d'actions existe
+   (jamais en consultation) et laisse les cartes dépliées inchangées. */
+.life-entry-card > details:not([open]) ~ .life-entry-actions,
+.life-entry-card > .life-entry-static ~ .life-entry-actions {
+  margin-top: var(--space-3);
+}
+
+/* Modifier et la poubelle ne se compriment jamais : seul le CTA
+   « Ajouter une attestation » absorbe la réduction de largeur. */
+.life-entry-actions > .btn:not(.life-attestation-add) { flex: 0 0 auto; }
 
 .life-attestations {
   display: grid;
@@ -2196,6 +2213,13 @@ label .field { margin-top: var(--space-2); }
   }
 
   #personPageDetailedJourney .life-journey-column-head > .btn { max-width: 100%; }
+
+  /* Pied de carte compact sur petit écran : Modifier, poubelle et
+     « Ajouter une attestation » restent sur une seule ligne. */
+  #personPageDetailedJourney .life-entry-actions { gap: var(--space-1); }
+  #personPageDetailedJourney .life-entry-actions > .btn { padding-inline: var(--space-2); }
+  #personPageDetailedJourney .life-entry-actions > .btn.life-attestation-add { gap: var(--space-1); }
+  #personPageDetailedJourney .life-attestation-add .ui-icon { width: 0.875rem; height: 0.875rem; }
 }
 
 /* Timeline de vie — jalons en lecture seule dans l'onglet Identité. */
