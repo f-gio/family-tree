@@ -148,8 +148,12 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       const box = getComputedStyle(journey);
       const icon = journey.querySelector(".life-journey-category-icon");
       const columnLefts = [...journey.querySelectorAll(".life-journey-column")].map(column => Math.round(column.getBoundingClientRect().left));
+      const columns = [...journey.querySelectorAll(".life-journey-column")];
       return {
         columnLefts,
+        columnCount: columns.length,
+        borders: columns.map(column => getComputedStyle(column).borderLeftWidth),
+        flexDirection: getComputedStyle(journey.querySelector(".life-journey-column-head")).flexDirection,
         headingTransform: getComputedStyle(journeyLabel).textTransform,
         headingSize: getComputedStyle(journeyLabel).fontSize,
         identityHeadingSize: getComputedStyle(identityLabel).fontSize,
@@ -162,7 +166,10 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         iconNames: [...journey.querySelectorAll(".life-journey-category-icon use")].map(use => use.getAttribute("href"))
       };
     });
-    assert.ok(desktopJourneyPresentation.columnLefts[1] > desktopJourneyPresentation.columnLefts[0], "deux colonnes sur desktop");
+    assert.equal(desktopJourneyPresentation.columnCount, 3, "trois colonnes sur desktop");
+    assert.ok(desktopJourneyPresentation.columnLefts[2] > desktopJourneyPresentation.columnLefts[1] && desktopJourneyPresentation.columnLefts[1] > desktopJourneyPresentation.columnLefts[0], "colonnes horizontales distinctes sur desktop");
+    assert.deepEqual(desktopJourneyPresentation.borders, ["0px", "1px", "1px"], "séparateurs verticaux fins entre les colonnes");
+    assert.equal(desktopJourneyPresentation.flexDirection, "row", "titres et CTA alignés sur la même ligne en desktop large");
     assert.equal(desktopJourneyPresentation.headingTransform, "uppercase", "libellés des catégories en capitales comme Identité");
     assert.equal(desktopJourneyPresentation.headingSize, desktopJourneyPresentation.identityHeadingSize, "taille des libellés harmonisée avec Identité");
     assert.equal(desktopJourneyPresentation.headingColor, desktopJourneyPresentation.identityHeadingColor, "couleur des libellés harmonisée avec Identité");
@@ -482,6 +489,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     /* Création : section disponible, annulation sans enregistrement. */
     await page.evaluate(() => window.__personPageTest.openCreatePerson());
     await page.waitForFunction(() => document.getElementById("personDialog").open);
+    await page.waitForTimeout(60);
     assert.ok(await page.locator("#personNameVariantsSection").isVisible(), "section variantes présente en création");
     assert.equal(await page.locator("#personNameVariantsList li").count(), 0, "liste vide en création");
     assert.equal(await page.locator("#nameVariantKind").inputValue(), "given", "type réinitialisé sur Prénom en création");
@@ -494,6 +502,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     /* Édition : validations du formulaire. */
     await page.evaluate(() => window.__personPageTest.openEvidenceModal("identity"));
     await page.waitForFunction(() => document.getElementById("personDialog").open);
+    await page.waitForTimeout(60);
     assert.equal(await page.locator("#personNameVariantsList li").count(), 0, "aucune variante préexistante");
 
     const currentFirstName = await page.inputValue("#firstName");
@@ -526,6 +535,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     /* Réouverture : préchargement, puis annulation sans enregistrement. */
     await page.evaluate(() => window.__personPageTest.openEvidenceModal("identity"));
     await page.waitForFunction(() => document.getElementById("personDialog").open);
+    await page.waitForTimeout(60);
     assert.equal(await page.locator("#personNameVariantsList li").count(), 1, "variante préchargée à l'édition");
     assert.match(await page.locator("#personNameVariantsList li").first().innerText(), /Pinaezza/);
     assert.equal(await page.locator("#nameVariantKind").inputValue(), "given", "type réinitialisé sur Prénom à chaque ouverture, malgré le choix Précédent");
@@ -557,21 +567,30 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.setViewportSize({ width: 390, height: 844 });
     const mobileJourneyStyle = await page.locator("#personPageDetailedJourney .life-journey-column-head h4").first().evaluate(element => {
       const section = element.closest("#personPageDetailedJourney");
-      return { fontSize: getComputedStyle(element.querySelector(".source-detail-fact strong")).fontSize, rowGap: getComputedStyle(element.closest(".life-journey-column")).rowGap, inlineHeight: section.style.height, overflowY: getComputedStyle(section).overflowY };
+      return {
+        fontSize: getComputedStyle(element.querySelector(".source-detail-fact strong")).fontSize,
+        rowGap: getComputedStyle(element.closest(".life-journey-column")).rowGap,
+        inlineHeight: section.style.height,
+        overflowY: getComputedStyle(section).overflowY,
+        flexDirection: getComputedStyle(element.closest(".life-journey-column-head")).flexDirection,
+        borderLefts: [...section.querySelectorAll(".life-journey-column")].map(column => getComputedStyle(column).borderLeftWidth)
+      };
     });
     assert.equal(await page.locator("#personPageDetailedJourney .life-journey-column-head h4").count(), 3, "trois catégories toujours visibles sur mobile");
     assert.equal(mobileJourneyStyle.fontSize, "11px", "libellés harmonisés avec Identité sur mobile");
     assert.equal(mobileJourneyStyle.inlineHeight, "", "aucune hauteur fixe définie sur la section");
     assert.equal(mobileJourneyStyle.overflowY, "visible", "pas de défilement interne au parcours");
+    assert.equal(mobileJourneyStyle.flexDirection, "column", "titres et CTA empilés verticalement sur mobile");
+    assert.deepEqual(mobileJourneyStyle.borderLefts, ["0px", "0px", "0px"], "aucun séparateur vertical sur mobile");
     assert.equal(await page.locator("#personPageDetailedJourney").evaluate(section => {
-      const columns = [...section.querySelectorAll(".life-journey-column")];
-      return Math.round(columns[0].getBoundingClientRect().left) === Math.round(columns[1].getBoundingClientRect().left);
-    }), true, "une colonne sur mobile");
+      const lefts = [...section.querySelectorAll(".life-journey-column")].map(column => Math.round(column.getBoundingClientRect().left));
+      return new Set(lefts).size;
+    }), 1, "une colonne sur mobile");
     await page.setViewportSize({ width: 850, height: 900 });
     assert.equal(await page.locator("#personPageDetailedJourney").evaluate(section => {
-      const columns = [...section.querySelectorAll(".life-journey-column")];
-      return Math.round(columns[0].getBoundingClientRect().left) === Math.round(columns[1].getBoundingClientRect().left);
-    }), true, "le conteneur étroit passe en colonne unique au breakpoint intermédiaire");
+      const lefts = [...section.querySelectorAll(".life-journey-column")].map(column => Math.round(column.getBoundingClientRect().left));
+      return new Set(lefts).size;
+    }), 1, "le conteneur étroit passe en colonne unique au breakpoint intermédiaire");
     await page.setViewportSize({ width: 1280, height: 900 });
 
     /* Le parcours reste au même emplacement et devient éditable inline avec la fiche. */
@@ -579,9 +598,44 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     assert.equal(await page.locator("#personPageDetailedJourney").evaluate(section => section.parentElement.id), "personForm", "Parcours détaillé intégré à la fiche en modification");
     assert.equal(await page.locator('#personPageDetailedJourney [data-journey-add]').count(), 3, "ajout des trois catégories disponible en modification");
-    const desktopJourneyButtons = await page.locator("#personPageDetailedJourney .life-journey-column-head > .btn").evaluateAll(buttons => buttons.map(button => ({ label: button.innerText.trim(), icon: button.querySelector(".ui-icon use")?.getAttribute("href"), small: button.classList.contains("small"), height: Math.round(button.getBoundingClientRect().height) })));
-    assert.deepEqual(desktopJourneyButtons.map(button => button.label), ["Ajouter une résidence", "Ajouter une activité", "Ajouter un événement"]);
-    assert.ok(desktopJourneyButtons.every(button => button.icon === "#icon-plus" && !button.small && button.height >= 44), "CTA standards, icône + unique et cibles tactiles conformes");
+    const desktopJourneyButtons = await page.locator("#personPageDetailedJourney .life-journey-column-head > .btn").evaluateAll(buttons => buttons.map(button => {
+      const box = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      return {
+        label: button.innerText.trim(),
+        icon: button.querySelector(".ui-icon use")?.getAttribute("href"),
+        height: Math.round(box.height),
+        color: style.color,
+        background: style.backgroundColor,
+        border: style.borderTopColor,
+        radius: style.borderTopLeftRadius,
+        fontSize: style.fontSize,
+        padding: style.paddingLeft
+      };
+    }));
+    assert.deepEqual(desktopJourneyButtons.map(button => button.label), ["Ajouter une résidence", "Ajouter", "Ajouter"], "libellés desktop volontairement courts pour un alignement équilibré");
+    assert.ok(desktopJourneyButtons.every(button => button.icon === "#icon-plus" && button.height >= 44), "CTA standards, icône + distincte du texte et cibles ≥ 44 px");
+    assert.ok(desktopJourneyButtons.every(button => button.color === "rgb(40, 75, 63)"), "texte et icône vert foncé sur tous les CTA");
+    assert.equal(await page.locator("#personPageDetailedJourney").evaluate(section => [...section.querySelectorAll(".life-journey-column")].every(column => {
+      const head = column.querySelector(".life-journey-column-head");
+      const title = head.querySelector("h4").getBoundingClientRect();
+      const button = head.querySelector(":scope > .btn").getBoundingClientRect();
+      return title.right <= button.left + 1 || title.bottom <= button.top + 1;
+    })), true, "aucune collision entre titre et CTA en desktop");
+    const referenceJourneyCta = await page.locator("#linkDocumentBtn").evaluate(button => {
+      const box = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      return { height: Math.round(box.height), color: style.color, background: style.backgroundColor, border: style.borderTopColor, radius: style.borderTopLeftRadius, fontSize: style.fontSize, padding: style.paddingLeft };
+    });
+    for (const button of desktopJourneyButtons) {
+      assert.equal(button.height, referenceJourneyCta.height, "hauteur identique à « Ajouter un document »");
+      assert.equal(button.background, referenceJourneyCta.background, "fond identique au CTA de référence");
+      assert.equal(button.border, referenceJourneyCta.border, "bordure identique au CTA de référence");
+      assert.equal(button.radius, referenceJourneyCta.radius, "rayon identique au CTA de référence");
+      assert.equal(button.fontSize, referenceJourneyCta.fontSize, "police identique au CTA de référence");
+      assert.equal(button.padding, referenceJourneyCta.padding, "padding identique au CTA de référence");
+    }
+    assert.equal(desktopJourneyButtons[0].color, referenceJourneyCta.color, "texte vert foncé identique au CTA de référence");
     assert.deepEqual(await page.locator("#personPageDetailedJourney").evaluate(section => {
       const style = getComputedStyle(section);
       return { border: style.borderTopWidth, background: style.backgroundColor, radius: style.borderTopLeftRadius, padding: style.paddingTop };
@@ -672,8 +726,42 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator('#personPageDetailedJourney [data-journey-add="profession"]').click();
     await page.fill("#journeyLabel", "Agriculteur");
     await page.setViewportSize({ width: 390, height: 844 });
-    const mobileJourneyButtons = await page.locator("#personPageDetailedJourney .life-journey-column-head > .btn").evaluateAll(buttons => buttons.map(button => { const box = button.getBoundingClientRect(); return { height: Math.round(box.height), right: box.right }; }));
-    assert.ok(mobileJourneyButtons.every(button => button.height >= 44 && button.right <= 390), "CTA mobiles accessibles sans débordement horizontal");
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(200);
+    const mobileJourneyButtons = await page.locator("#personPageDetailedJourney .life-journey-column-head > .btn").evaluateAll(buttons => buttons.map(button => {
+      const box = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      const title = button.closest(".life-journey-column-head").querySelector("h4").getBoundingClientRect();
+      return {
+        label: button.innerText.trim(),
+        top: Math.round(box.top),
+        right: Math.round(box.right),
+        titleBottom: Math.round(title.bottom),
+        height: Math.round(box.height),
+        color: style.color,
+        background: style.backgroundColor,
+        border: style.borderTopColor,
+        radius: style.borderTopLeftRadius,
+        fontSize: style.fontSize,
+        padding: style.paddingLeft
+      };
+    }));
+    assert.deepEqual(mobileJourneyButtons.map(button => button.label), ["Ajouter une résidence", "Ajouter une activité", "Ajouter un événement"], "libellés mobiles complets sous chaque titre");
+    assert.ok(mobileJourneyButtons.every(button => button.top >= button.titleBottom && button.right <= 390), "CTA compacts alignés sous le titre, sans débordement horizontal");
+    assert.ok(mobileJourneyButtons.every(button => button.color === "rgb(40, 75, 63)"), "texte vert foncé sur les CTA mobiles");
+    const referenceMobileCta = await page.locator("#linkDocumentBtn").evaluate(button => {
+      const box = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      return { height: Math.round(box.height), background: style.backgroundColor, border: style.borderTopColor, radius: style.borderTopLeftRadius, fontSize: style.fontSize, padding: style.paddingLeft };
+    });
+    for (const button of mobileJourneyButtons) {
+      assert.equal(button.height, referenceMobileCta.height, "hauteur mobile identique à « Ajouter un document »");
+      assert.equal(button.background, referenceMobileCta.background, "fond mobile identique au CTA de référence");
+      assert.equal(button.border, referenceMobileCta.border, "bordure mobile identique au CTA de référence");
+      assert.equal(button.radius, referenceMobileCta.radius, "rayon mobile identique au CTA de référence");
+      assert.equal(button.fontSize, referenceMobileCta.fontSize, "police mobile identique au CTA de référence");
+      assert.equal(button.padding, referenceMobileCta.padding, "padding mobile identique au CTA de référence");
+    }
     assert.ok((await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)) <= 1, "édition mobile sans débordement horizontal");
     await page.fill("#journeyPlace", "Mon");
     await page.waitForSelector(".location-suggestion");
@@ -704,6 +792,15 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(journey.lifeEvents[0].place, "Lieu historique sans suggestion", "saisie libre conservée sans suggestion géographique");
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Agriculteur/);
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Recensement de Biella/);
+    const mobileJourneyDataLayout = await page.locator("#personPageDetailedJourney").evaluate(section => {
+      const columns = [...section.querySelectorAll(".life-journey-column")];
+      const lefts = columns.map(column => Math.round(column.getBoundingClientRect().left));
+      return { singleColumn: lefts.every(left => left === lefts[0]), texts: columns.map(column => column.innerText) };
+    });
+    assert.equal(mobileJourneyDataLayout.singleColumn, true, "une colonne sur mobile avec données");
+    assert.match(mobileJourneyDataLayout.texts[0], /Orino/, "résidence dans sa colonne");
+    assert.match(mobileJourneyDataLayout.texts[1], /Agriculteur/, "profession dans sa colonne");
+    assert.match(mobileJourneyDataLayout.texts[2], /Recensement de Biella/, "événement dans sa colonne");
 
     /* Annulation d'une modification non enregistrée : confirmation, aucune écriture. */
     await page.locator('[data-journey-edit^="residence:"]').click();
@@ -756,6 +853,25 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.professions.length, 1, "la sauvegarde générale de la fiche conserve les professions");
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const consultationJourneyData = await page.locator("#personPageDetailedJourney").evaluate(section => {
+      const columns = [...section.querySelectorAll(".life-journey-column")];
+      const lefts = columns.map(column => Math.round(column.getBoundingClientRect().left));
+      return {
+        distinctColumns: new Set(lefts).size,
+        borders: columns.map(column => getComputedStyle(column).borderLeftWidth),
+        texts: columns.map(column => column.innerText),
+        actionCount: section.querySelectorAll("[data-journey-add], [data-journey-edit], [data-journey-delete], [data-journey-attestation-add], [data-journey-attestation-edit], [data-journey-attestation-delete]").length,
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+      };
+    });
+    assert.equal(consultationJourneyData.distinctColumns, 3, "trois colonnes desktop avec données");
+    assert.deepEqual(consultationJourneyData.borders, ["0px", "1px", "1px"], "séparateurs desktop avec données");
+    assert.match(consultationJourneyData.texts[0], /Aucune résidence renseignée/, "colonne résidences avec état vide");
+    assert.match(consultationJourneyData.texts[1], /Agriculteur/, "colonne professions avec donnée");
+    assert.match(consultationJourneyData.texts[2], /Aucun événement renseigné/, "colonne événements avec état vide");
+    assert.equal(consultationJourneyData.actionCount, 0, "aucune action en consultation malgré les données");
+    assert.ok(consultationJourneyData.overflow <= 1, "consultation desktop large sans débordement");
 
     for (const width of [320, 375, 390, 430, 760, 768, 900, 1024, 1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 850 });

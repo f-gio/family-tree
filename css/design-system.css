@@ -1896,19 +1896,9 @@ label .field { margin-top: var(--space-2); }
     line-height: 1.25;
   }
 
-  .person-detail-journey-columns {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: var(--space-8);
-    row-gap: var(--space-5);
-  }
-
   #personPageDetailedJourney .life-journey-column-head .source-detail-fact strong { font-size: 0.8125rem; letter-spacing: 0.02em; }
   #personPageDetailedJourney .life-entry-facts .source-detail-fact > span { color: var(--color-text); font-size: 1rem; line-height: 1.4; }
   #personPageDetailedJourney .life-entry-title { color: var(--color-text); font-size: 1rem; line-height: 1.4; }
-}
-
-@container person-detail-journey (max-width: 56rem) {
-  .person-detail-journey-columns { grid-template-columns: minmax(0, 1fr); }
 }
 
 .life-journey-column {
@@ -1920,15 +1910,14 @@ label .field { margin-top: var(--space-2); }
 
 .life-journey-column-head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-3);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .life-journey-column-head h4 {
   display: flex;
-  flex: 1 1 12rem;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
@@ -1951,12 +1940,67 @@ label .field { margin-top: var(--space-2); }
   overflow-wrap: anywhere;
 }
 
+/* Trois colonnes seulement lorsque le conteneur dispose d'assez de place :
+   en dessous, une colonne unique — jamais de disposition à deux colonnes. */
+@container person-detail-journey (min-width: 64rem) {
+  .person-detail-journey-columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 0;
+    row-gap: var(--space-5);
+  }
+
+  .life-journey-column { padding-inline: var(--space-4); }
+  .life-journey-column:first-child { padding-inline-start: 0; }
+  .life-journey-column:last-child { padding-inline-end: 0; }
+  .life-journey-column + .life-journey-column { border-left: var(--border-subtle); }
+
+  .life-journey-column-head {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+
+  .life-journey-column-head h4 { flex: 1 1 auto; }
+}
+
+/* CTA du Parcours détaillé : mêmes tokens que « Ajouter un document »,
+   « Ajouter un lien familial » et « Ajouter une preuve ». */
 .life-journey-column-head > .btn {
-  flex: 0 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
   min-width: 0;
-  min-height: var(--control-touch);
-  white-space: normal;
-  text-align: center;
+  white-space: nowrap;
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-brand);
+}
+
+.life-journey-column-head > .btn:hover,
+.life-journey-column-head > .btn:focus-visible {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-soft);
+  color: var(--color-brand);
+}
+
+.life-journey-add-label-mobile { display: none; }
+
+@media (max-width: 960px) {
+  .life-journey-add-label-desktop { display: none; }
+  .life-journey-add-label-mobile { display: inline; }
+}
+
+@media (min-width: 961px) {
+  .life-journey-column-head > .btn {
+    min-height: var(--control-touch);
+    padding-inline: var(--space-3);
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+  }
 }
 
 .life-journey-empty {

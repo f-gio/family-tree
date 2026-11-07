@@ -2519,8 +2519,12 @@ function personPageDetailedJourneyMarkup(item, { editable = personPageInlineEdit
   const residences = personLifeList(item, "residences").slice().sort(compareLifeEntries);
   const professions = personLifeList(item, "professions").slice().sort(compareLifeEntries);
   const events = personLifeList(item, "lifeEvents").slice().sort(compareLifeEntries);
-  const addLabels = { residence: "Ajouter une résidence", profession: "Ajouter une activité", event: "Ajouter un événement" };
-  const addLabel = kind => editable ? `<button class="btn" type="button" data-journey-add="${kind}">${icon("plus")}<span>${addLabels[kind]}</span></button>` : "";
+  const addLabels = {
+    residence: { desktop: "Ajouter une résidence", mobile: "Ajouter une résidence" },
+    profession: { desktop: "Ajouter", mobile: "Ajouter une activité" },
+    event: { desktop: "Ajouter", mobile: "Ajouter un événement" }
+  };
+  const addLabel = kind => editable ? `<button class="btn small life-journey-add" type="button" data-journey-add="${kind}">${icon("plus")}<span class="life-journey-add-label-desktop">${addLabels[kind].desktop}</span><span class="life-journey-add-label-mobile">${addLabels[kind].mobile}</span></button>` : "";
   const categoryHead = (kind, title, iconName) => `<div class="life-journey-column-head"><h4>${icon(iconName, "life-journey-category-icon")}<span class="source-detail-fact"><strong>${title}</strong></span></h4>${addLabel(kind)}</div>`;
   const residencesEditor = editable && journeyEditor?.type === "residence" && !journeyEditor.entryId ? journeyEntryFormMarkup("residence", null) : "";
   const professionEditor = editable && journeyEditor?.type === "profession" && !journeyEditor.entryId ? journeyEntryFormMarkup("profession", null) : "";
@@ -2537,6 +2541,8 @@ function personPageDetailedJourneyMarkup(item, { editable = personPageInlineEdit
         ${categoryHead("profession", "Professions et activités", "procedures")}
         ${professionEditor}
         ${professions.length ? professions.map(entry => journeyEntryMarkup("profession", entry, item, { editable })).join("") : `<p class="life-journey-empty"><span class="person-detail-empty-value">Aucune activité renseignée</span></p>`}
+      </div>
+      <div class="life-journey-column">
         ${categoryHead("event", "Événements de vie", "calendar")}
         ${eventEditor}
         ${events.length ? events.map(entry => journeyEntryMarkup("event", entry, item, { editable })).join("") : `<p class="life-journey-empty"><span class="person-detail-empty-value">Aucun événement renseigné</span></p>`}
