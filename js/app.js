@@ -232,6 +232,13 @@ let personPageReturnContext = null;
 let personPageActiveSection = "identity";
 let personPageDocumentsExpanded = false;
 let personPageStickyObserver = null;
+/* Lot 2C-4 — volet de détail des événements du Parcours de vie :
+   `att` porte le formulaire d’attestation ouvert dans le volet, avec la
+   référence de saisie (`baseline`) pour protéger une saisie non enregistrée. */
+let lifeEventPanelState = null;
+let lifeEventPanelScrollY = 0;
+let lifeEventPanelCloseIntent = { restoreFocus: true, restoreScroll: true };
+let lifeEventSheetTouchStart = null;
 let personPageInlineEditing = false;
 let personPageInlineInitialDraft = null;
 let personPageInlineHome = null;
@@ -2213,7 +2220,7 @@ function personPageTimelineMarkup(item) {
   if (!events.length) return `<section id="personPageTimeline" aria-labelledby="personPageTimelineTitle"><h3 id="personPageTimelineTitle">Parcours de vie</h3><p class="card-meta">Aucun événement renseigné.</p></section>`;
   const eventMarkup = events.map(event => {
     const docsMarkup = personPageEventDocuments(item, event).map(documentItem => `<button class="btn small" type="button" data-view-document="${esc(documentItem.id)}">${icon("document")}<span>${esc(documentDisplayLabel(documentItem))}</span></button>`).join("");
-    return timelineItemHtml(event).replace(/<\/li>$/, `${docsMarkup ? `<div class="person-page-event-documents" aria-label="Documents associés à l’événement">${docsMarkup}</div>` : ""}</li>`);
+    return timelineItemHtml(event, { interactive: true }).replace(/<\/li>$/, `${docsMarkup ? `<div class="person-page-event-documents" aria-label="Documents associés à l’événement">${docsMarkup}</div>` : ""}</li>`);
   }).join("");
   return `<section id="personPageTimeline" aria-labelledby="personPageTimelineTitle"><h3 id="personPageTimelineTitle">Parcours de vie</h3><ol class="person-page-timeline">${eventMarkup}</ol></section>`;
 }
@@ -2641,7 +2648,7 @@ function setPersonPageStickyActionsVisible(visible) {
   const sticky = $("personPageStickyActions");
   const view = $("personDetailView");
   if (!sticky || !view) return;
-  const eligible = visible && !view.hidden && !personPageInlineEditing && $("personPageEditHost").hidden && !!activePersonPageItem;
+  const eligible = visible && !view.hidden && !personPageInlineEditing && $("personPageEditHost").hidden && !!activePersonPageItem && !$("lifeEventDialog").open;
   sticky.classList.toggle("is-visible", Boolean(eligible));
   sticky.setAttribute("aria-hidden", String(!eligible));
   sticky.inert = !eligible;
@@ -2898,6 +2905,7 @@ function renderPersonPage(item, returnContext = null, preserveScroll = false, re
   if (personPageInlineEditing && activePersonPageItem?.id !== item.id && !requestPersonPageInlineExit()) return;
   if (personPageInlineEditing && activePersonPageItem?.id === item.id) return;
   clearPersonPageStickyActions();
+  if ($("lifeEventDialog").open && lifeEventPanelState?.personId !== item.id) closeLifeEventPanel({ restoreFocus: false, restoreScroll: false });
   const samePageVisible = !$('personDetailView').hidden && activePersonPageItem?.id === item.id;
   if (!samePageVisible) {
     personPageReturnContext = returnContext || { kind: "view", view: activeView === "personDetail" ? "directory" : activeView };
@@ -3142,6 +3150,11 @@ $("personPageSectionNav").addEventListener("click", event => {
   target.scrollIntoView({ block: "start", behavior: "smooth" });
 });
 function handlePersonPageContentClick(event) {
+  const lifeEventTrigger = event.target.closest("[data-life-event]");
+  if (lifeEventTrigger) {
+    openLifeEventPanel(lifeEventTrigger.dataset.lifeEvent);
+    return;
+  }
   const documentsToggle = event.target.closest("[data-person-page-documents-toggle]");
   if (documentsToggle) {
     personPageDocumentsExpanded = !personPageDocumentsExpanded;
@@ -3150,11 +3163,7 @@ function handlePersonPageContentClick(event) {
   }
   const journeyDateType = event.target.closest("[data-journey-date-type]");
   if (journeyDateType) {
-    const container = journeyDateType.closest("[data-journey-date]");
-    if (container) {
-      container.querySelectorAll(".date-type-button").forEach(button => button.classList.toggle("active", button === journeyDateType));
-      container.querySelectorAll("[data-journey-panel]").forEach(panel => { panel.hidden = panel.dataset.journeyPanel !== journeyDateType.dataset.journeyDateType; });
-    }
+    applyJourneyDateTypeToggle(journeyDateType);
     return;
   }
   const journeyAdd = event.target.closest("[data-journey-add]");
@@ -3275,12 +3284,14 @@ function timelineTypeIcon(event) {
   return "calendar";
 }
 
-function timelineItemHtml(event) {
+function timelineItemHtml(event, { interactive = false } = {}) {
   const date = event.date !== "—" ? `<span class="timeline-date">${esc(event.date)}</span>` : "";
   const detail = event.detail ? `<span class="timeline-detail">${esc(event.detail)}</span>` : "";
   const age = Number.isFinite(event.age) ? `<span class="timeline-age">· ${event.age} an${event.age > 1 ? "s" : ""}</span>` : "";
   const iconMarkup = `<svg class="ui-icon timeline-icon" aria-hidden="true"><use href="#icon-${timelineTypeIcon(event)}"></use></svg>`;
-  return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-content"><span class="timeline-line">${iconMarkup}<strong class="timeline-title">${esc(event.title)}</strong>${age}${date}</span>${detail}</div></li>`;
+  const inner = `<span class="timeline-line">${iconMarkup}<strong class="timeline-title">${esc(event.title)}</strong>${age}${date}</span>${detail}`;
+  if (!interactive) return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-content">${inner}</div></li>`;
+  return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><button class="timeline-event-trigger" type="button" data-life-event="${esc(event.id)}"><span class="timeline-content">${inner}</span><svg class="ui-icon timeline-event-chevron" aria-hidden="true"><use href="#icon-chevron-right"></use></svg></button></li>`;
 }
 
 function renderLifeTimeline() {
@@ -3288,11 +3299,335 @@ function renderLifeTimeline() {
   if (!container) return;
   const item = activeId ? person(activeId) : null;
   const events = item ? lifeTimelineEvents(item, { people, families }) : [];
+  /* Interactif seulement quand la frise vit dans l’hôte d’édition de la fiche
+     (page Personne en Modification) : la modale historique reste inchangée. */
+  const interactive = Boolean(container.closest("#personPageEditHost"));
   container.hidden = !events.length;
   container.innerHTML = events.length
-    ? `<h3 class="timeline-heading"><svg class="ui-icon timeline-icon" aria-hidden="true"><use href="#icon-history"></use></svg>Parcours de vie</h3><ol class="life-timeline-list">${events.map(timelineItemHtml).join("")}</ol>`
+    ? `<h3 class="timeline-heading"><svg class="ui-icon timeline-icon" aria-hidden="true"><use href="#icon-history"></use></svg>Parcours de vie</h3><ol class="life-timeline-list">${events.map(event => timelineItemHtml(event, { interactive })).join("")}</ol>`
     : "";
 }
+
+/* ---- Lot 2C-4 — volet de détail des événements du Parcours de vie --------
+   Naissance et Décès portent leurs attestations sur la fiche personne ;
+   le mariage les porte sur le document families, partagé nativement par les
+   deux conjoints (aucune synchronisation, aucun jeu dupliqué). */
+
+function lifeEventPanelEvents() {
+  const item = activePersonPageItem;
+  return item ? lifeTimelineEvents(item, { people, families }) : [];
+}
+
+function lifeEventPanelTarget() {
+  const state = lifeEventPanelState;
+  if (!state) return null;
+  const item = person(state.personId);
+  if (!item) return null;
+  if (state.eventId === "birth") return { kind: "birth", id: item.id, field: "birthAttestations", container: item };
+  if (state.eventId === "death") return { kind: "death", id: item.id, field: "deathAttestations", container: item };
+  if (!state.eventId.startsWith("union-")) return null;
+  const family = families.find(value => value.id === state.eventId.slice("union-".length));
+  return family ? { kind: "union", id: family.id, field: "marriageAttestations", container: family } : null;
+}
+
+function lifeEventPanelFactsMarkup(event, target) {
+  const state = lifeEventPanelState;
+  const item = person(state.personId);
+  const facts = [];
+  const fact = (label, value) => {
+    const normalized = typeof value === "string" ? value.trim() : "";
+    if (normalized && normalized !== "—") facts.push(`<div class="source-detail-fact"><strong>${esc(label)}</strong><span>${esc(normalized)}</span></div>`);
+  };
+  fact("Date", event.date);
+  if (event.type === "birth") {
+    fact("Lieu", formatCompactPlace(item.place, item.birthPlaceInfo));
+  } else if (event.type === "death") {
+    fact("Lieu", formatCompactPlace(item.deathPlace, item.deathPlaceInfo));
+  } else {
+    const family = target.container;
+    fact("Lieu", family.unionPlace);
+    fact("Conjoint", (family.partnerIds || []).filter(id => id !== state.personId).map(nameOf).filter(Boolean).join(" et "));
+    const endType = normalizeEndType(family.endType);
+    if (!["none", "unknown"].includes(endType)) {
+      const endDate = formatGenealogyDate(family.endDateInfo, family.separationDate || family.divorceDate);
+      fact("Fin", [END_TYPE_LABELS[endType], endDate === "—" ? "" : endDate].filter(Boolean).join(" · "));
+    }
+  }
+  return facts.length ? `<section class="life-event-facts" aria-label="Informations de l’événement">${facts.join("")}</section>` : "";
+}
+
+function lifeEventPanelAttestations(target) {
+  return lifeAttestations({ attestations: target.container[target.field] });
+}
+
+function lifeEventPanelAttestationsMarkup(target, { editable = false } = {}) {
+  const state = lifeEventPanelState;
+  const item = person(state.personId);
+  const attestations = lifeEventPanelAttestations(target);
+  const editingAttId = editable && state.att?.mode === "edit" ? state.att.attId : "";
+  const adding = editable && Boolean(state.att?.mode === "add");
+  const rows = attestations.map(attestation => `<div class="life-attestation">
+    <div class="life-attestation-head"><strong>${esc(formatLifeDate(attestation.date))}</strong>${attestation.comment ? `<span class="life-entry-meta">${esc(attestation.comment)}</span>` : ""}</div>
+    <div class="life-attestation-links">${journeyDocumentLinks(attestation.documentIds)}${journeySourceLinks(item, attestation.sourceIds, "source")}${journeySourceLinks(item, attestation.proofIds, "proof")}${editable ? `<button class="btn small" type="button" data-life-event-att-edit="${esc(attestation.id)}">Modifier</button><button class="btn icon-btn life-delete-icon" type="button" aria-label="Supprimer l’attestation du ${esc(formatLifeDate(attestation.date))}" title="Supprimer l’attestation" data-life-event-att-delete="${esc(attestation.id)}">${icon("trash")}</button>` : ""}</div>
+  </div>`).join("");
+  const form = editable && (adding || editingAttId)
+    ? journeyAttestationFormMarkup(item, null, editingAttId ? attestations.find(value => value.id === editingAttId) || null : null)
+    : "";
+  /* La frise du Parcours de vie reste masquée en Modification (comportement
+     validé) : la bascule « Gérer les attestations » ouvre la Modification
+     comme le CTA « Modifier la fiche », puis le volet devient éditable. */
+  const manageButton = !editable ? `<div class="life-entry-actions"><button class="btn small" type="button" data-life-event-manage>Gérer les attestations</button></div>` : "";
+  const addButton = editable && !state.att ? `<div class="life-entry-actions"><button class="btn small tertiary life-attestation-add" type="button" data-life-event-att-add>${icon("plus")}<span>Ajouter une attestation</span></button></div>` : "";
+  const empty = !attestations.length && !state.att ? `<p class="card-meta">Aucune attestation renseignée.</p>` : "";
+  return `<section class="life-event-attestations" aria-label="Attestations"><h4>Attestations</h4>${empty}${rows}${manageButton}${form}${addButton}</section>`;
+}
+
+function renderLifeEventPanel() {
+  const state = lifeEventPanelState;
+  if (!state) return;
+  const events = lifeEventPanelEvents();
+  const index = events.findIndex(value => value.id === state.eventId);
+  const event = events[index];
+  const target = lifeEventPanelTarget();
+  if (index < 0 || !target) {
+    closeLifeEventPanel({ restoreFocus: false, restoreScroll: false });
+    return;
+  }
+  $("lifeEventDialogTitle").textContent = event.title;
+  $("lifeEventPrevBtn").disabled = index <= 0;
+  $("lifeEventNextBtn").disabled = index >= events.length - 1;
+  $("lifeEventDialogBody").innerHTML = `${lifeEventPanelFactsMarkup(event, target)}${lifeEventPanelAttestationsMarkup(target, { editable: personPageInlineEditing })}`;
+  if (state.att && !state.att.baseline) lifeEventPanelState = { ...state, att: { ...state.att, baseline: journeyFormSnapshot() } };
+}
+
+function lifeEventPanelConfirmDiscard() {
+  const baseline = lifeEventPanelState?.att?.baseline;
+  if (!baseline) return true;
+  const snapshot = journeyFormSnapshot();
+  if (snapshot == null || snapshot === baseline) return true;
+  return window.confirm("Abandonner les modifications en cours ?");
+}
+
+function openLifeEventPanel(eventId) {
+  const item = activePersonPageItem;
+  const dialog = $("lifeEventDialog");
+  if (!item || !dialog || $("personDetailView").hidden) return;
+  const events = lifeEventPanelEvents();
+  if (!events.some(value => value.id === eventId)) return;
+  /* Un seul formulaire actif : referme un éventuel formulaire du Parcours
+     détaillé (avec confirmation s'il est sale) avant d'ouvrir le volet. */
+  if (journeyEditor) {
+    if (!journeyConfirmDiscard()) return;
+    journeyCancelEditor();
+  }
+  if (dialog.open) {
+    lifeEventPanelState = { ...lifeEventPanelState, eventId, att: null };
+    renderLifeEventPanel();
+    return;
+  }
+  lifeEventPanelScrollY = window.scrollY;
+  lifeEventPanelCloseIntent = { restoreFocus: true, restoreScroll: true };
+  lifeEventPanelState = { personId: item.id, eventId, att: null };
+  setPersonPageStickyActionsVisible(false);
+  renderLifeEventPanel();
+  dialog.showModal();
+  $("lifeEventDialogTitle").focus({ preventScroll: true });
+}
+
+function closeLifeEventPanel({ restoreFocus = true, restoreScroll = true } = {}) {
+  const dialog = $("lifeEventDialog");
+  if (!dialog?.open) return;
+  if (lifeEventPanelState?.att && !lifeEventPanelConfirmDiscard()) return;
+  lifeEventPanelCloseIntent = { restoreFocus, restoreScroll };
+  dialog.close();
+}
+
+function lifeEventPanelNavigate(delta) {
+  const state = lifeEventPanelState;
+  if (!state) return;
+  if (state.att && !lifeEventPanelConfirmDiscard()) return;
+  const events = lifeEventPanelEvents();
+  const index = events.findIndex(value => value.id === state.eventId);
+  const next = events[index + delta];
+  if (!next) return;
+  lifeEventPanelState = { ...state, eventId: next.id, att: null };
+  renderLifeEventPanel();
+}
+
+async function lifeEventWriteAttestations(target, next) {
+  try {
+    if (target.kind === "union") {
+      await updateDoc(doc(db, "families", target.id), { marriageAttestations: next, updatedAt: serverTimestamp() });
+      families = families.map(family => family.id === target.id ? { ...family, marriageAttestations: next } : family);
+      return true;
+    }
+    if (target.kind === "birth") await updateDoc(doc(db, "people", target.id), { birthAttestations: next });
+    else await updateDoc(doc(db, "people", target.id), { deathAttestations: next });
+    const updated = { ...(person(target.id) || activePersonPageItem || {}), [target.field]: next };
+    people = people.map(value => value.id === target.id ? updated : value);
+    if (activePersonPageItem?.id === target.id) activePersonPageItem = updated;
+    return true;
+  } catch (error) {
+    console.error(error);
+    toast("Enregistrement impossible : vérifiez votre connexion puis réessayez.", "error");
+    return false;
+  }
+}
+
+async function lifeEventSaveAttestation() {
+  const state = lifeEventPanelState;
+  const target = lifeEventPanelTarget();
+  if (!state?.att || !target) return;
+  const item = person(state.personId);
+  if (!item) return;
+  clearJourneyErrors();
+  const dateResult = buildLifeDate(readJourneyDateRaw());
+  if (!dateResult.ok || !dateResult.date || dateResult.date.type === "unknown") {
+    showJourneyError("attDate", "Choisissez la date de l'attestation.");
+    journeyFocusError("date");
+    return;
+  }
+  const comment = (document.getElementById("journeyAttComment")?.value || "").trim();
+  const sourceIds = [...document.querySelectorAll("[data-journey-source-check]:checked")].map(input => input.dataset.journeySourceCheck);
+  const proofIds = [...document.querySelectorAll("[data-journey-proof-check]:checked")].map(input => input.dataset.journeyProofCheck);
+  const selectedDocumentIds = [...document.querySelectorAll("[data-journey-document-check]:checked")].map(input => input.dataset.journeyDocumentCheck);
+  const attestations = lifeEventPanelAttestations(target);
+  const attId = state.att.mode === "add" ? doc(refs.people).id : state.att.attId;
+  const candidate = { id: attId, date: dateResult.date };
+  if (hasSimilarLifeAttestation(attestations, candidate) && !window.confirm("Attestation potentiellement identique : une attestation à cette date existe déjà. Enregistrer quand même ?")) return;
+  const previousAttestation = attestations.find(value => value.id === attId);
+  const availableDocumentIds = new Set(documents.filter(documentItem => (documentItem.personIds || []).includes(item.id)).map(documentItem => documentItem.id));
+  const unavailableExistingDocumentIds = (previousAttestation?.documentIds || []).filter(id => !availableDocumentIds.has(id));
+  const documentIds = [...new Set([...unavailableExistingDocumentIds, ...selectedDocumentIds])];
+  const record = { id: attId, date: dateResult.date, comment, documentIds, sourceIds, proofIds };
+  const next = state.att.mode === "add" ? [...attestations, record] : attestations.map(value => value.id === attId ? record : value);
+  const saved = await lifeEventWriteAttestations(target, next);
+  if (!saved) return;
+  toast(state.att.mode === "add" ? "Attestation enregistrée." : "Attestation modifiée.");
+  lifeEventPanelState = { ...state, att: null };
+  renderLifeEventPanel();
+}
+
+async function lifeEventDeleteAttestation(attId) {
+  const state = lifeEventPanelState;
+  const target = lifeEventPanelTarget();
+  if (!state || !target) return;
+  if (!window.confirm("Supprimer cette attestation ?")) return;
+  const next = lifeEventPanelAttestations(target).filter(value => value.id !== attId);
+  const saved = await lifeEventWriteAttestations(target, next);
+  if (!saved) return;
+  toast("Attestation supprimée.");
+  if (state.att?.attId === attId) lifeEventPanelState = { ...state, att: null };
+  renderLifeEventPanel();
+}
+
+function recomputePersonPageStickyAfterLifeEventPanel() {
+  const actions = $("personPageHeaderActions");
+  if (!actions) return;
+  setPersonPageStickyActionsVisible(actions.getBoundingClientRect().bottom <= 0);
+}
+
+function applyJourneyDateTypeToggle(dateTypeButton) {
+  const container = dateTypeButton.closest("[data-journey-date]");
+  if (!container) return;
+  container.querySelectorAll(".date-type-button").forEach(button => button.classList.toggle("active", button === dateTypeButton));
+  container.querySelectorAll("[data-journey-panel]").forEach(panel => { panel.hidden = panel.dataset.journeyPanel !== dateTypeButton.dataset.journeyDateType; });
+}
+
+$("lifeEventDialog").addEventListener("click", event => {
+  const dialog = $("lifeEventDialog");
+  if (event.target === dialog) { closeLifeEventPanel(); return; }
+  if (event.target.closest("#lifeEventCloseBtn")) { closeLifeEventPanel(); return; }
+  if (event.target.closest("#lifeEventPrevBtn")) { lifeEventPanelNavigate(-1); return; }
+  if (event.target.closest("#lifeEventNextBtn")) { lifeEventPanelNavigate(1); return; }
+  /* Liens vers Document / Preuve / Conclusion : protection de sortie identique
+     au Parcours détaillé, puis les gestionnaires globaux prennent le relais. */
+  const leaveLink = event.target.closest("[data-view-document], [data-view-proof], [data-view-conclusion]");
+  if (leaveLink) {
+    if (!lifeEventPanelConfirmDiscard()) { event.preventDefault(); event.stopPropagation(); return; }
+    if (personPageInlineEditing && !requestPersonPageInlineExit()) { event.preventDefault(); event.stopPropagation(); return; }
+    closeLifeEventPanel({ restoreFocus: false, restoreScroll: false });
+    return;
+  }
+  const openSource = event.target.closest("[data-journey-open-source]");
+  if (openSource) {
+    if (!lifeEventPanelConfirmDiscard()) return;
+    const sourceId = openSource.dataset.journeyOpenSource;
+    closeLifeEventPanel({ restoreFocus: false, restoreScroll: false });
+    openGenealogyItem("source", sourceId, null, null, personPageContext());
+    return;
+  }
+  const dateType = event.target.closest("[data-journey-date-type]");
+  if (dateType) { applyJourneyDateTypeToggle(dateType); return; }
+  if (event.target.closest("[data-life-event-manage]")) {
+    if (!lifeEventPanelState || personPageInlineEditing) return;
+    enterPersonPageInlineEdit();
+    renderLifeEventPanel();
+    $("lifeEventDialogTitle").focus({ preventScroll: true });
+    return;
+  }
+  if (event.target.closest("[data-life-event-att-add]")) {
+    const state = lifeEventPanelState;
+    if (!state) return;
+    lifeEventPanelState = { ...state, att: { mode: "add", baseline: null } };
+    renderLifeEventPanel();
+    return;
+  }
+  const editButton = event.target.closest("[data-life-event-att-edit]");
+  if (editButton) {
+    const state = lifeEventPanelState;
+    if (!state) return;
+    lifeEventPanelState = { ...state, att: { mode: "edit", attId: editButton.dataset.lifeEventAttEdit, baseline: null } };
+    renderLifeEventPanel();
+    return;
+  }
+  const deleteButton = event.target.closest("[data-life-event-att-delete]");
+  if (deleteButton) { lifeEventDeleteAttestation(deleteButton.dataset.lifeEventAttDelete); return; }
+  if (event.target.closest("[data-journey-attestation-save]")) { lifeEventSaveAttestation(); return; }
+  const cancelButton = event.target.closest("[data-journey-attestation-cancel]");
+  if (cancelButton) {
+    const state = lifeEventPanelState;
+    if (!state?.att || !lifeEventPanelConfirmDiscard()) return;
+    lifeEventPanelState = { ...state, att: null };
+    renderLifeEventPanel();
+  }
+});
+
+$("lifeEventDialog").addEventListener("cancel", event => {
+  if (lifeEventPanelState?.att && !lifeEventPanelConfirmDiscard()) event.preventDefault();
+});
+
+$("lifeEventDialog").addEventListener("close", () => {
+  const state = lifeEventPanelState;
+  const intent = lifeEventPanelCloseIntent;
+  lifeEventPanelState = null;
+  lifeEventPanelCloseIntent = { restoreFocus: true, restoreScroll: true };
+  lifeEventSheetTouchStart = null;
+  if (intent.restoreScroll) window.scrollTo({ left: 0, top: lifeEventPanelScrollY, behavior: "instant" });
+  if (intent.restoreFocus && state) document.querySelector(`[data-life-event="${CSS.escape(state.eventId)}"]`)?.focus({ preventScroll: true });
+  recomputePersonPageStickyAfterLifeEventPanel();
+});
+
+/* Le volet est modale : le défilement de la fiche reste figé derrière le
+   fond, sans déplacer la position mémorisée à la fermeture. */
+function lifeEventPanelBlockBackgroundScroll(event) {
+  if (event.target instanceof Element && event.target.closest(".life-event-dialog-body")) return;
+  event.preventDefault();
+}
+$("lifeEventDialog").addEventListener("wheel", lifeEventPanelBlockBackgroundScroll, { passive: false });
+$("lifeEventDialog").addEventListener("touchmove", lifeEventPanelBlockBackgroundScroll, { passive: false });
+
+/* Fermeture par geste vers le bas depuis l'en-tête du bottom sheet (mobile) :
+   le geste démarre uniquement sur l'en-tête, hors du défilement interne. */
+$("lifeEventDialog").addEventListener("touchstart", event => {
+  lifeEventSheetTouchStart = window.matchMedia("(max-width: 760px)").matches && event.target.closest(".life-event-dialog-head") ? event.touches[0].clientY : null;
+}, { passive: true });
+$("lifeEventDialog").addEventListener("touchend", event => {
+  if (lifeEventSheetTouchStart == null) return;
+  const deltaY = event.changedTouches[0].clientY - lifeEventSheetTouchStart;
+  lifeEventSheetTouchStart = null;
+  if (deltaY >= 60) closeLifeEventPanel();
+}, { passive: true });
 
 function updateMarriedNameVisibility() {
   // Le champ historique reste nommé `marriedName` pour préserver les données,
@@ -13336,7 +13671,10 @@ function setView(view) {
     if (!confirmTranscriptionWorkshopClose()) return false;
     teardownTranscriptionWorkshop();
   }
-  if (view !== "personDetail") clearPersonPageStickyActions();
+  if (view !== "personDetail") {
+    closeLifeEventPanel({ restoreFocus: false, restoreScroll: false });
+    clearPersonPageStickyActions();
+  }
   if (view !== "transcriptionWorkshop") activeView = view;
   /* Contexte de navigation commun : mémorise la vue quittée (Archives :
      filtres et défilement) pour la restaurer au retour. */
