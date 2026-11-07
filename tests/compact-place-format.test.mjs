@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { formatCompactPlace, toIsoAlpha3 } from "../js/place-format.js";
+import { countryNameToIsoAlpha3, formatCompactPlace, toIsoAlpha3 } from "../js/place-format.js";
 
 const app = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
 const renderer = await readFile(new URL("../js/tree-renderer.js", import.meta.url), "utf8");
@@ -14,6 +14,14 @@ test("convertit les codes pays alpha-2 structurés en ISO alpha-3", () => {
   assert.equal(toIsoAlpha3("US"), "USA");
   assert.equal(toIsoAlpha3("ita"), "ITA");
   assert.equal(toIsoAlpha3("XX"), "");
+});
+
+test("convertit uniquement les noms de pays connus vers leur code ISO alpha-3", () => {
+  assert.equal(countryNameToIsoAlpha3("Italie"), "ITA");
+  assert.equal(countryNameToIsoAlpha3("Italia"), "ITA");
+  assert.equal(countryNameToIsoAlpha3("Suisse"), "CHE");
+  assert.equal(countryNameToIsoAlpha3("Brésil"), "BRA");
+  assert.equal(countryNameToIsoAlpha3("pays inconnu"), "");
 });
 
 test("formate une sélection GeoNames structurée pour la lecture rapide", () => {
@@ -46,7 +54,7 @@ test("l'arbre utilise le formateur commun pour naissance et décès", () => {
 });
 
 test("les aperçus documentaires réutilisent le même formateur", () => {
-  assert.match(app, /import \{ formatCompactPlace \} from "\.\/place-format\.js"/);
+  assert.match(app, /import \{[^}]*formatCompactPlace[^}]*\} from "\.\/place-format\.js"/);
   assert.match(app, /formatCompactPlace\(item\.place, item\.placeInfo\)/);
 });
 
@@ -57,4 +65,3 @@ test("l'Annuaire Liste et Cartes ne reçoit pas un lieu qu'il n'affichait pas", 
   assert.ok(!directoryRenderer.includes("deathPlaceInfo"));
   assert.ok(!directoryRenderer.includes("formatCompactPlace"));
 });
-

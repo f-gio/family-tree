@@ -621,7 +621,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         padding: style.paddingLeft
       };
     }));
-    assert.deepEqual(desktopJourneyButtons.map(button => button.label), ["Ajouter une résidence", "Ajouter", "Ajouter"], "libellés desktop volontairement courts pour un alignement équilibré");
+    assert.deepEqual(desktopJourneyButtons.map(button => button.label), ["Ajouter", "Ajouter", "Ajouter"], "libellés CTA harmonisés sur les trois catégories");
     assert.ok(desktopJourneyButtons.every(button => button.icon === "#icon-plus" && button.height >= 44), "CTA standards, icône + distincte du texte et cibles ≥ 44 px");
     assert.ok(desktopJourneyButtons.every(button => button.color === "rgb(40, 75, 63)"), "texte et icône vert foncé sur tous les CTA");
     assert.equal(await page.locator("#personPageDetailedJourney").evaluate(section => [...section.querySelectorAll(".life-journey-column")].every(column => {
@@ -825,7 +825,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         padding: style.paddingLeft
       };
     }));
-    assert.deepEqual(mobileJourneyButtons.map(button => button.label), ["Ajouter une résidence", "Ajouter une activité", "Ajouter un événement"], "libellés mobiles complets sous chaque titre");
+    assert.deepEqual(mobileJourneyButtons.map(button => button.label), ["Ajouter", "Ajouter", "Ajouter"], "libellés mobiles harmonisés");
     assert.ok(mobileJourneyButtons.every(button => button.top >= button.titleBottom && button.right <= 390), "CTA compacts alignés sous le titre, sans débordement horizontal");
     assert.ok(mobileJourneyButtons.every(button => button.color === "rgb(40, 75, 63)"), "texte vert foncé sur les CTA mobiles");
     const referenceMobileCta = await page.locator("#linkDocumentBtn").evaluate(button => {
@@ -872,10 +872,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(journey.lifeEvents[0].place, "Lieu historique sans suggestion", "saisie libre conservée sans suggestion géographique");
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Agriculteur/);
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /Recensement de Biella/);
-    const eventRow = page.locator('#personPageDetailedJourney .life-entry[data-journey-kind="event"]');
-    assert.match(await eventRow.locator("summary").innerText(), /Recensement · Recensement de Biella · 1901/, "intitulé distinct restitué après le type");
+    const eventRow = page.locator('#personPageDetailedJourney [data-journey-kind="event"]');
+    assert.match(await eventRow.locator(".life-entry-summary").innerText(), /Recensement · Recensement de Biella · 1901/, "intitulé distinct restitué après le type");
     assert.equal(await eventRow.locator(".life-entry-place").innerText(), "Lieu historique sans suggestion", "lieu affiché directement sous le titre");
-    assert.doesNotMatch(await eventRow.locator(".life-entry-body").innerText(), /\bLieu\b/, "aucun libellé LIEU redondant dans l’événement");
+    assert.equal(await eventRow.locator(".life-entry-body").count(), 0, "aucun dépliage ni espace vide quand l’événement n’a aucune information complémentaire");
+    assert.equal(await eventRow.locator(".life-entry-chevron").count(), 0, "aucun chevron trompeur sur une carte vide");
     await eventRow.locator('[data-journey-edit^="event:"]').click();
     await page.fill("#journeyPlace", "Var");
     await page.waitForSelector(".location-suggestion");
@@ -890,6 +891,27 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(journey.lifeEvents[0].countryCode, "ITA", "code ISO alpha-3 stocké à la suite d'une sélection GeoNames fiable");
     assert.equal(journey.lifeEvents[0].region, "Province de Varese, Lombardie", "région source conservée sans modification");
     assert.equal(await eventRow.locator(".life-entry-place").innerText(), "Varese, Lombardie (ITA)", "lieu compact, province doublon écarté et code ISO visible");
+    await eventRow.locator('[data-journey-attestation-add]').click();
+    await page.locator('[data-journey-date-type="year"]').click();
+    await page.fill("#journeyDateYear", "1902");
+    await page.fill("#journeyAttComment", "Mention au recensement");
+    await page.locator('[data-journey-attestation-save]').click();
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.lifeEvents[0].attestations.length, 1, "attestation événementielle enregistrée indépendamment");
+    assert.equal(await eventRow.locator(".life-entry-chevron").count(), 1, "chevron affiché dès qu’une attestation apporte des détails");
+    assert.equal(await eventRow.locator(".life-attestation").count(), 1, "détails de l’attestation consultables");
+    await eventRow.locator('[data-journey-attestation-edit^="event:"]').click();
+    await page.fill("#journeyAttComment", "Commentaire modifié");
+    await page.locator('[data-journey-attestation-save]').click();
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    assert.match(await eventRow.innerText(), /Commentaire modifié/, "attestation d’événement modifiable");
+    const eventAttestationDeleteIndex = dialogMessages.length;
+    await eventRow.locator('[data-journey-attestation-delete]').click();
+    for (let i = 0; i < 60 && dialogMessages.length === eventAttestationDeleteIndex; i++) await page.waitForTimeout(50);
+    assert.match(dialogMessages[eventAttestationDeleteIndex] || "", /Supprimer cette attestation/, "confirmation de suppression d’attestation événementielle");
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.lifeEvents[0].attestations.length, 0, "suppression individuelle de l’attestation événementielle");
     await page.setViewportSize({ width: 1280, height: 900 });
     const editJourneyWithData = await page.locator("#personPageDetailedJourney").evaluate(section => {
       const columns = [...section.querySelectorAll(".life-journey-column")];
@@ -912,7 +934,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.lifeEvents[0].label, "  RECENSEMENT  ", "valeur historique conservée sans normalisation en écriture");
-    assert.match(await eventRow.locator("summary").innerText(), /^Recensement · 1901/, "intitulé identique au type omis du rendu");
+    assert.match(await eventRow.locator(".life-entry-summary").innerText(), /^Recensement · 1901/, "intitulé identique au type omis du rendu");
     await eventRow.locator('[data-journey-edit^="event:"]').click();
     await page.fill("#journeyLabel", "");
     await page.fill("#journeyPlace", "");
@@ -922,7 +944,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.lifeEvents[0].label, "", "intitulé vide enregistré sans valeur automatique");
-    assert.match(await eventRow.locator("summary").innerText(), /^Recensement · 1901/, "titre de l’événement sans intitulé");
+    assert.match(await eventRow.locator(".life-entry-summary").innerText(), /^Recensement · 1901/, "titre de l’événement sans intitulé");
     assert.equal(await eventRow.locator(".life-entry-place").count(), 0, "aucune ligne de lieu vide");
     const mobileJourneyDataLayout = await page.locator("#personPageDetailedJourney").evaluate(section => {
       const columns = [...section.querySelectorAll(".life-journey-column")];

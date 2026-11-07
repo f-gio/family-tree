@@ -17,6 +17,38 @@ function clean(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+const COUNTRY_NAMES = Object.freeze({
+  IT: ["italie", "italia", "italy"], FR: ["france"], CH: ["suisse", "svizzera", "switzerland"],
+  DE: ["allemagne", "germania", "germany"], AT: ["autriche", "austria"], BE: ["belgique", "belgio", "belgium"],
+  ES: ["espagne", "spagna", "spain"], PT: ["portugal"], GB: ["royaume-uni", "regno unito", "united kingdom"],
+  US: ["etats-unis", "stati uniti", "united states"], CA: ["canada"], NL: ["pays-bas", "paesi bassi", "netherlands"],
+  LU: ["luxembourg", "lussemburgo"], SM: ["saint-marin", "san marino"], VA: ["vatican", "citta del vaticano", "vatican city"]
+});
+
+function normalizeCountryName(value) {
+  return clean(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr-FR").replace(/[’']/g, "'").trim();
+}
+
+export function countryNameToIsoAlpha3(countryName) {
+  const name = normalizeCountryName(countryName);
+  if (!name) return "";
+  const locales = ["fr", "en", "it", "es", "de"];
+  for (const [alpha2, alpha3] of Object.entries(ISO_ALPHA_2_TO_3)) {
+    for (const locale of locales) {
+      try {
+        const localizedName = new Intl.DisplayNames([locale], { type: "region" }).of(alpha2);
+        if (localizedName && normalizeCountryName(localizedName) === name) return alpha3;
+      } catch {
+        break;
+      }
+    }
+  }
+  for (const [alpha2, aliases] of Object.entries(COUNTRY_NAMES)) {
+    if (aliases.some(alias => normalizeCountryName(alias) === name)) return ISO_ALPHA_2_TO_3[alpha2] || "";
+  }
+  return "";
+}
+
 export function toIsoAlpha3(countryCode) {
   const code = clean(countryCode).toUpperCase();
   if (/^[A-Z]{3}$/.test(code)) return code;
