@@ -43,7 +43,7 @@ window.__personPageTest = {
     setView("directory");
   },
   update(id, data) {
-    window.__personPageUpdates = [...(window.__personPageUpdates || []), { id, firstName: data.firstName, place: data.place, birthDateInfo: data.birthDateInfo }];
+    window.__personPageUpdates = [...(window.__personPageUpdates || []), { id, firstName: data.firstName, place: data.place, birthDate: data.birthDate, birthDateInfo: data.birthDateInfo, deathDate: data.deathDate, deathDateInfo: data.deathDateInfo }];
     people = people.map(item => item.id === id ? { ...item, ...data, updatedAt: { toDate: () => new Date("2026-11-04T12:00:00Z") }, updatedByName: "Archiviste" } : item);
   },
   updateFamilyDetails(id, data) {
@@ -263,6 +263,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         panelWidth: panel.getBoundingClientRect().width,
         editorWidth: editor.getBoundingClientRect().width,
         nameVariantAddDisplay: getComputedStyle(document.querySelector("#personNameVariantsSection .person-name-variants-add")).display,
+        nativeDateVisualWrappers: document.querySelectorAll("#personForm [data-person-date-control]").length,
         timelineHidden: timeline.hidden,
         documentCards: documentCards.length,
         documentCardTitles: documentCards.map(card => card.querySelector("h3")?.textContent.trim()),
@@ -340,6 +341,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(inlineDesktop.panelDisplay, "block", "édition inline desktop : carte Identité pleine largeur");
     assert.ok(inlineDesktop.panelWidth >= inlineDesktop.editorWidth - 64, "carte Identité occupe toute la largeur utile");
     assert.equal(inlineDesktop.nameVariantAddDisplay, "flex", "disposition desktop des variantes inchangée");
+    assert.equal(inlineDesktop.nativeDateVisualWrappers, 0, "aucun calque Date ajouté sur desktop");
     assert.equal(inlineDesktop.timelineHidden, true, "timeline masquée pendant la modification");
     assert.equal(inlineDesktop.documentCards, 2, "Documents associés et Recherches forment deux cartes distinctes");
     assert.deepEqual(inlineDesktop.documentCardTitles, ["Documents associés", "Recherches"]);
@@ -915,6 +917,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     for (const width of [320, 375, 390]) {
       await page.setViewportSize({ width, height: 844 });
+      await page.waitForFunction(() => document.querySelectorAll("#personForm [data-person-date-control]").length === 2);
       for (const kind of ["birth", "death"]) {
         for (const dateType of ["exact", "year", "about", "between", "unknown"]) {
           await page.locator(`#personForm [data-date-prefix="${kind}"][data-date-type="${dateType}"]`).evaluate(button => button.click());
@@ -932,15 +935,20 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
             const placeBox = group.querySelector(".life-place .field").getBoundingClientRect();
             const placeStyle = getComputedStyle(group.querySelector(".life-place .field"));
             const fieldMetrics = field => {
-              const box = field.getBoundingClientRect();
-              const fieldStyle = getComputedStyle(field);
+              const visualControl = field.closest("[data-person-date-control]");
+              const frame = visualControl || field;
+              const visual = visualControl?.querySelector("[data-person-date-visual]") || field;
+              const box = frame.getBoundingClientRect();
+              const frameStyle = getComputedStyle(frame);
+              const fieldStyle = getComputedStyle(visual);
               return {
                 left: box.left, right: box.right, width: box.width, height: box.height,
                 type: field.getAttribute("type"), textAlign: fieldStyle.textAlign,
                 lineHeight: fieldStyle.lineHeight, paddingLeft: fieldStyle.paddingLeft,
                 paddingRight: fieldStyle.paddingRight, paddingTop: fieldStyle.paddingTop,
-                paddingBottom: fieldStyle.paddingBottom, borderRadius: fieldStyle.borderTopLeftRadius,
-                borderWidth: fieldStyle.borderTopWidth
+                paddingBottom: fieldStyle.paddingBottom, borderRadius: frameStyle.borderTopLeftRadius,
+                borderWidth: frameStyle.borderTopWidth,
+                valueText: visualControl ? visual.textContent : field.value
               };
             };
             return {
@@ -2472,9 +2480,13 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     const url = route.request().url();
     if (new URL(url).pathname.endsWith("/js/app.js")) {
       const response = await route.fetch();
+      let source = await response.text();
+      const update = 'await updateDoc(doc(db, "people", id), data);';
+      assert.ok(source.includes(update), "sauvegarde personne interceptable sans Firestore distant");
+      source = source.split(update).join("await window.__personPageTest.update(id, data);");
       return route.fulfill({
         response,
-        body: `${await response.text()}\n${hooks}\nwindow.__personPageWebkitHarness = { openEdit() { const item = people.find(value => value.id === "person-page-a"); $("authScreen").hidden = true; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); } };`
+        body: `${source}\n${hooks}\nwindow.__personPageWebkitHarness = { openEdit() { const item = people.find(value => value.id === "person-page-d"); window.__personPageWebkitFixture = { ...item }; $("authScreen").hidden = true; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); }, savedDates() { const data = window.__personPageUpdates.at(-1) || {}; return { birth: data.birthDateInfo || null, death: data.deathDateInfo || null }; }, reopenSaved() { const data = window.__personPageUpdates.at(-1) || {}; openPerson({ ...window.__personPageWebkitFixture, ...data }, "directory"); } };`
       });
     }
     if (new URL(url).pathname.endsWith("/js/firebase-environment.js")) {
@@ -2493,6 +2505,33 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     await page.evaluate(() => window.__personPageWebkitHarness.openEdit());
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     await page.evaluate(() => { document.getElementById("authScreen").hidden = true; });
+    const initialVisualDates = await page.evaluate(() => ["birth", "death"].map(kind => ({
+      kind,
+      value: document.getElementById(`${kind}Date`).value,
+      visual: document.querySelector(`[data-person-date-visual="${kind}"]`).textContent,
+      visualAriaHidden: document.querySelector(`[data-person-date-visual="${kind}"]`).getAttribute("aria-hidden"),
+      inputAriaHidden: document.getElementById(`${kind}Date`).getAttribute("aria-hidden"),
+      labelled: Boolean(document.getElementById(`${kind}Date`).labels?.length)
+    })));
+    assert.deepEqual(initialVisualDates, [
+      { kind: "birth", value: "1904-08-25", visual: "25 août 1904", visualAriaHidden: "true", inputAriaHidden: null, labelled: true },
+      { kind: "death", value: "1931-07-28", visual: "28 juillet 1931", visualAriaHidden: "true", inputAriaHidden: null, labelled: true }
+    ], "valeurs françaises initiales affichées une seule fois, le contrôle natif reste accessible");
+    const nativeFocus = await page.locator("#birthDate").evaluate(input => {
+      input.focus({ preventScroll: true });
+      const wrapper = input.closest("[data-person-date-control]");
+      return {
+        focused: document.activeElement === input,
+        outlineWidth: getComputedStyle(wrapper).outlineWidth,
+        boxShadow: getComputedStyle(wrapper).boxShadow,
+        pointerEvents: getComputedStyle(input).pointerEvents
+      };
+    });
+    assert.equal(nativeFocus.focused, true, "le contrôle natif reste focalisable");
+    assert.equal(nativeFocus.outlineWidth, "3px", "focus visible reporté sur le champ visuel");
+    assert.notEqual(nativeFocus.boxShadow, "none", "indicateur de focus du champ visuel présent");
+    assert.notEqual(nativeFocus.pointerEvents, "none", "le contrôle natif conserve la zone tactile");
+    await page.locator("#birthDate").evaluate(input => input.blur());
     const nativeDateControlSupported = await page.locator("#birthDate").evaluate(input => input.type === "date");
     if (!nativeDateControlSupported) t.diagnostic("Ce WebKit Playwright expose input[type=date] comme text : il vérifie le layout mais ne simule pas le contrôle natif iOS.");
 
@@ -2505,27 +2544,36 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
             const group = control.parentElement;
             const date = group.querySelector(".date-value-panel:not([hidden]) .field");
             const place = group.querySelector(".life-place .field");
-            const measureField = element => {
-              const box = element.getBoundingClientRect();
-              const style = getComputedStyle(element);
+            const measureField = (element, frame = element, visible = element) => {
+              const box = frame.getBoundingClientRect();
+              const style = getComputedStyle(visible);
+              const frameStyle = getComputedStyle(frame);
               return {
                 left: box.left, right: box.right, width: box.width, height: box.height,
                 paddingLeft: style.paddingLeft, paddingRight: style.paddingRight,
                 paddingTop: style.paddingTop, paddingBottom: style.paddingBottom,
                 lineHeight: style.lineHeight, textAlign: style.textAlign,
-                borderRadius: style.borderTopLeftRadius, borderWidth: style.borderTopWidth
+                borderRadius: frameStyle.borderTopLeftRadius, borderWidth: frameStyle.borderTopWidth,
+                valueText: visible.textContent ?? element.value
               };
             };
+            const visualControl = date?.closest("[data-person-date-control]");
+            const visual = visualControl?.querySelector("[data-person-date-visual]") || date;
             return {
               dateId: date?.id,
               dateType: date?.type,
               dateTypeAttribute: date?.getAttribute("type"),
-              date: date ? measureField(date) : null,
+              date: date ? measureField(date, visualControl || date, visual) : null,
               place: measureField(place),
               overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
               dateInputAppearance: date ? getComputedStyle(date).webkitAppearance : null,
               dateInputMinWidth: date ? getComputedStyle(date).minWidth : null,
-              dateInputBoxSizing: date ? getComputedStyle(date).boxSizing : null
+              dateInputBoxSizing: date ? getComputedStyle(date).boxSizing : null,
+              dateInputOpacity: date ? getComputedStyle(date).opacity : null,
+              dateInputPointerEvents: date ? getComputedStyle(date).pointerEvents : null,
+              dateInputAriaHidden: date?.getAttribute("aria-hidden") ?? null,
+              dateVisualAriaHidden: visualControl?.querySelector("[data-person-date-visual]")?.getAttribute("aria-hidden") ?? null,
+              dateInputTabIndex: date?.tabIndex ?? null
             };
           });
           assert.equal(measure.overflow, 0, `${width}px : ${kind}/${dateType} sans débordement horizontal`);
@@ -2541,7 +2589,14 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
           assert.ok(["left", "start"].includes(measure.date.textAlign), `${width}px : contenu Date ${kind}/${dateType} aligné à gauche`);
           assert.equal(measure.date.borderRadius, measure.place.borderRadius, `${width}px : arrondi Date ${kind}/${dateType} conservé`);
           assert.equal(measure.date.borderWidth, measure.place.borderWidth, `${width}px : bordure Date ${kind}/${dateType} conservée`);
-          if (dateType === "exact") assert.equal(measure.dateInputAppearance, "none", `${width}px : rendu intrinsèque WebKit neutralisé sans changer le type=date`);
+          if (dateType === "exact") {
+            assert.equal(measure.dateInputAppearance, "none", `${width}px : contrôle natif préservé sous le calque visuel`);
+            assert.equal(measure.dateInputOpacity, "0", `${width}px : input natif transparent mais présent`);
+            assert.notEqual(measure.dateInputPointerEvents, "none", `${width}px : input natif continue de recevoir les touchers`);
+            assert.equal(measure.dateInputAriaHidden, null, `${width}px : input natif reste accessible`);
+            assert.equal(measure.dateVisualAriaHidden, "true", `${width}px : valeur visuelle exclue de l'annonce en double`);
+            assert.ok(measure.dateInputTabIndex >= 0, `${width}px : input natif reste focalisable`);
+          }
           assert.equal(measure.dateInputMinWidth, "0px", `${width}px : min-width natif maîtrisé`);
           assert.equal(measure.dateInputBoxSizing, "border-box", `${width}px : largeur calculée bordure comprise`);
           if (dateType === "exact") assert.equal(measure.dateTypeAttribute, "date", `${width}px : ${kind} garde son contrôle date natif (${measure.dateId}/${measure.dateType})`);
@@ -2576,6 +2631,41 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     });
     assert.equal(await page.locator("#personNameVariantsList .person-name-variants-item").count(), 1, "ajout de variante toujours fonctionnel");
     assert.match(await page.locator("#personNameVariantsList").innerText(), /Arianna de Safari/);
+    for (const kind of ["birth", "death"]) {
+      await page.locator(`#personForm [data-date-prefix="${kind}"][data-date-type="exact"]`).evaluate(button => button.click());
+    }
+
+    await page.locator("#birthDate").evaluate(input => {
+      input.value = "1905-01-02";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    assert.equal(await page.locator('[data-person-date-visual="birth"]').innerText(), "2 janvier 1905", "calque synchronisé sur input");
+    await page.locator("#birthDate").evaluate(input => {
+      input.value = "";
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    assert.equal(await page.locator('[data-person-date-control="birth"]').getAttribute("class").then(value => value.includes("is-empty")), true, "effacement synchronisé au changement");
+    await page.locator("#birthDate").evaluate(input => {
+      input.value = "1905-01-02";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await page.locator("#deathDate").evaluate(input => {
+      input.value = "1932-04-03";
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.locator("#savePersonBtn").evaluate(button => button.click());
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden, undefined, { timeout: 10000 });
+    const savedDates = await page.evaluate(() => window.__personPageWebkitHarness.savedDates());
+    assert.deepEqual(savedDates, {
+      birth: { type: "exact", value: "1905-01-02" },
+      death: { type: "exact", value: "1932-04-03" }
+    }, `dates structurées conservées à l'enregistrement : ${JSON.stringify(savedDates)}`);
+    await page.evaluate(() => window.__personPageWebkitHarness.reopenSaved());
+    await page.waitForFunction(() => document.getElementById("personDialog").open);
+    assert.equal(await page.inputValue("#birthDate"), "1905-01-02", "date enregistrée rechargée à la réouverture");
+    assert.equal(await page.locator('[data-person-date-visual="birth"]').innerText(), "2 janvier 1905", "valeur enregistrée rechargée dans le calque visuel");
+    assert.equal(await page.inputValue("#deathDate"), "1932-04-03", "date de décès enregistrée rechargée à la réouverture");
+    assert.equal(await page.locator('[data-person-date-visual="death"]').innerText(), "3 avril 1932", "date de décès visuelle rechargée");
 
   } finally {
     await context.close();

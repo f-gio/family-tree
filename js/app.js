@@ -457,6 +457,61 @@ function dateInfoOf(item, prefix) {
   return normalizeGenealogyDate(item?.[`${prefix}DateInfo`], item?.[`${prefix}Date`]);
 }
 
+function updatePersonNativeDateVisual(prefix) {
+  if (!["birth", "death"].includes(prefix)) return;
+  const input = $(`${prefix}Date`);
+  const visual = document.querySelector(`[data-person-date-visual="${prefix}"]`);
+  const control = document.querySelector(`[data-person-date-control="${prefix}"]`);
+  if (!input || !visual || !control) return;
+  const formatted = input.value ? formatGenealogyDate({ type: "exact", value: input.value }) : "";
+  visual.textContent = formatted === "—" ? "" : formatted;
+  control.classList.toggle("is-empty", !visual.textContent);
+}
+
+const personNativeDateVisualInputs = new WeakSet();
+
+function synchronizePersonNativeDateVisualControls() {
+  const mobile = window.matchMedia("(max-width: 760px)").matches;
+  for (const prefix of ["birth", "death"]) {
+    const input = $(`${prefix}Date`);
+    const label = input?.closest("label");
+    if (!input || !label) continue;
+    let control = input.closest("[data-person-date-control]");
+    if (!mobile) {
+      if (control) {
+        label.insertBefore(input, control);
+        control.remove();
+      }
+      input.removeAttribute("data-person-date-input");
+      continue;
+    }
+    if (!control) {
+      control = document.createElement("span");
+      control.className = "person-native-date-control";
+      control.dataset.personDateControl = prefix;
+      const visual = document.createElement("span");
+      visual.className = "person-native-date-visual";
+      visual.dataset.personDateVisual = prefix;
+      visual.setAttribute("aria-hidden", "true");
+      label.insertBefore(control, input);
+      control.append(visual, input);
+    }
+    input.dataset.personDateInput = prefix;
+    if (!personNativeDateVisualInputs.has(input)) {
+      const sync = () => updatePersonNativeDateVisual(prefix);
+      input.addEventListener("input", sync);
+      input.addEventListener("change", sync);
+      personNativeDateVisualInputs.add(input);
+    }
+    updatePersonNativeDateVisual(prefix);
+  }
+}
+
+const personDateMobileMedia = window.matchMedia("(max-width: 760px)");
+if (personDateMobileMedia.addEventListener) personDateMobileMedia.addEventListener("change", synchronizePersonNativeDateVisualControls);
+else personDateMobileMedia.addListener(synchronizePersonNativeDateVisualControls);
+synchronizePersonNativeDateVisualControls();
+
 function setGenealogyDateType(prefix, type = "unknown") {
   document.querySelectorAll(`[data-date-prefix="${prefix}"]`).forEach(button => {
     const active = button.dataset.dateType === type;
@@ -466,6 +521,7 @@ function setGenealogyDateType(prefix, type = "unknown") {
   document.querySelectorAll(`[data-date-panel^="${prefix}-"]`).forEach(panel => { panel.hidden = panel.dataset.datePanel !== `${prefix}-${type === "about" ? "year" : type}`; });
   const control = document.querySelector(`[data-date-control="${prefix}"]`);
   if (control) control.dataset.dateType = type;
+  updatePersonNativeDateVisual(prefix);
 }
 
 function setGenealogyDateForm(prefix, value, legacyExact = "") {
