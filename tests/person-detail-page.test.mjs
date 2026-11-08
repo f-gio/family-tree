@@ -2495,6 +2495,7 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
               date: date ? rect(date) : null,
               place: rect(place),
               overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              dateInputAppearance: date ? getComputedStyle(date).webkitAppearance : null,
               dateInputMinWidth: date ? getComputedStyle(date).minWidth : null,
               dateInputBoxSizing: date ? getComputedStyle(date).boxSizing : null
             };
@@ -2503,6 +2504,7 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
           assert.ok(measure.date && measure.date.width > 0, `${width}px : contrôle Date ${kind}/${dateType} visible`);
           assert.equal(Math.round(measure.date.left), Math.round(measure.place.left), `${width}px : Date ${kind}/${dateType} alignée à gauche sur Lieu`);
           assert.equal(Math.round(measure.date.right), Math.round(measure.place.right), `${width}px : Date ${kind}/${dateType} alignée à droite sur Lieu`);
+          if (dateType === "exact") assert.equal(measure.dateInputAppearance, "none", `${width}px : rendu intrinsèque WebKit neutralisé sans changer le type=date`);
           assert.equal(measure.dateInputMinWidth, "0px", `${width}px : min-width natif maîtrisé`);
           assert.equal(measure.dateInputBoxSizing, "border-box", `${width}px : largeur calculée bordure comprise`);
           if (dateType === "exact") assert.equal(measure.dateTypeAttribute, "date", `${width}px : ${kind} garde son contrôle date natif (${measure.dateId}/${measure.dateType})`);

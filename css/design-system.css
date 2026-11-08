@@ -6789,33 +6789,17 @@ dialog.life-event-dialog[open] { display: flex; }
   #personForm .event-information-group .life-place .field {
     width: 100%;
   }
-  /* Safari iOS can size the native date value by its intrinsic text width even
-     when the input border box is constrained. Bound both the host and its UA
-     shadow text parts without suppressing the native date picker. */
+  /* Safari iOS gives the native appearance an intrinsic visual width that can
+     exceed a narrow grid track. Reset only its painting; type=date and its
+     native picker remain intact, while the field keeps the shared .field skin. */
   #personForm .event-information-group input[type="date"].field {
     display: block;
     inline-size: 100%;
     min-inline-size: 0;
     max-inline-size: 100%;
     box-sizing: border-box;
-  }
-  #personForm .event-information-group input[type="date"].field::-webkit-date-and-time-value {
-    display: block;
-    width: 100%;
-    inline-size: 100%;
-    min-width: 0;
-    min-inline-size: 0;
-    max-width: 100%;
-    max-inline-size: 100%;
-    box-sizing: border-box;
-    text-align: left;
-  }
-  #personForm .event-information-group input[type="date"].field::-webkit-datetime-edit {
-    min-width: 0;
-    min-inline-size: 0;
-    max-width: 100%;
-    max-inline-size: 100%;
-    box-sizing: border-box;
+    -webkit-appearance: none;
+    appearance: none;
   }
   #personForm .event-information-group > .major-event-attestation-control,
   #familyDetailsDialog .family-union-attestation-control {
