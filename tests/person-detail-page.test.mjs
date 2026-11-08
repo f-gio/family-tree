@@ -412,10 +412,62 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.match(menuKeyboard.outline, /solid 2px/, "contour de focus du menu visible");
     await page.keyboard.press("Escape");
     await page.locator("#personPageActions > summary").click();
+    await page.evaluate(() => {
+      window.__relationBuilderScrollCalls = 0;
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function (...args) {
+        window.__relationBuilderScrollCalls++;
+        window.__relationBuilderScrollBehavior = args[0]?.behavior || "auto";
+        return original.apply(this, args);
+      };
+    });
     await page.locator("#toggleRelationBuilderBtn").click();
     await page.waitForFunction(() => !document.getElementById("relationBuilder").hidden);
+    await page.waitForTimeout(60);
+    assert.equal(await page.evaluate(() => window.__relationBuilderScrollCalls), 0, "aucun scroll automatique du lien familial sur desktop");
     await page.locator("#closeRelationBuilderBtn").click();
     await page.waitForFunction(() => document.getElementById("relationBuilder").hidden);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator("#toggleRelationBuilderBtn").scrollIntoViewIfNeeded();
+    await page.locator("#toggleRelationBuilderBtn").click();
+    await page.waitForFunction(() => !document.getElementById("relationBuilder").hidden);
+    await page.waitForFunction(() => {
+      const builder = document.getElementById("relationBuilder");
+      const headerBottom = document.querySelector(".topbar").getBoundingClientRect().bottom;
+      const top = builder.getBoundingClientRect().top;
+      return top >= headerBottom + 4 && top <= headerBottom + 150;
+    }, undefined, { timeout: 3000 });
+    const mobileRelationScroll = await page.evaluate(() => {
+      const builder = document.getElementById("relationBuilder");
+      const box = builder.getBoundingClientRect();
+      const header = document.querySelector(".topbar").getBoundingClientRect();
+      const footer = document.querySelector("#personPageEditHost .person-actions").getBoundingClientRect();
+      const select = builder.querySelector("[data-relation-add-panel=parent] select").getBoundingClientRect();
+      return {
+        calls: window.__relationBuilderScrollCalls,
+        scrollY: window.scrollY,
+        top: box.top,
+        headerBottom: header.bottom,
+        footerTop: footer.top,
+        selectBottom: select.bottom,
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+      };
+    });
+    assert.ok(mobileRelationScroll.calls > 0, "ouverture mobile défile vers le formulaire familial");
+    assert.ok(mobileRelationScroll.top >= mobileRelationScroll.headerBottom + 4 && mobileRelationScroll.top <= mobileRelationScroll.headerBottom + 150, `formulaire positionné sous l’en-tête fixe avec une marge confortable : ${JSON.stringify(mobileRelationScroll)}`);
+    assert.ok(mobileRelationScroll.selectBottom < mobileRelationScroll.footerTop, "premier champ visible au-dessus du footer fixe");
+    assert.ok(mobileRelationScroll.pageOverflow <= 1, "ouverture du formulaire sans débordement horizontal");
+    await page.locator("#closeRelationBuilderBtn").click();
+    await page.waitForFunction(() => document.getElementById("relationBuilder").hidden);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.evaluate(() => { window.__relationBuilderScrollBehavior = ""; });
+    await page.locator("#toggleRelationBuilderBtn").click();
+    await page.waitForFunction(() => !document.getElementById("relationBuilder").hidden);
+    await page.waitForFunction(() => window.__relationBuilderScrollBehavior === "instant");
+    assert.equal(await page.evaluate(() => window.__relationBuilderScrollBehavior), "instant", "défilement immédiat si Réduire les animations est activé");
+    await page.locator("#closeRelationBuilderBtn").click();
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.setViewportSize({ width: 1280, height: 850 });
     await page.locator("#firstName").fill("Adélaïde");
     await page.locator("#birthYear").fill("1891");
     await page.locator("#place").fill("Palermo modifiée");
@@ -858,6 +910,65 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     /* Profession et événement ponctuel indépendants. */
     await page.locator("#personPageEditBtn").click();
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+    for (const width of [320, 375, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const kind of ["birth", "death"]) {
+        for (const dateType of ["exact", "year", "about", "between", "unknown"]) {
+          await page.locator(`#personForm [data-date-prefix="${kind}"][data-date-type="${dateType}"]`).evaluate(button => button.click());
+          const layout = await page.locator(`#personForm [data-date-control="${kind}"]`).evaluate(control => {
+            const group = control.parentElement;
+            const groupBox = group.getBoundingClientRect();
+            const style = getComputedStyle(group);
+            const insetLeft = Number.parseFloat(style.paddingLeft) || 0;
+            const insetRight = Number.parseFloat(style.paddingRight) || 0;
+            const elements = [
+              ...group.querySelectorAll(".date-type-switch, .date-value-panel:not([hidden]), .life-place, .major-event-attestation-control")
+            ].filter(element => element.getBoundingClientRect().height > 0);
+            const fields = [...group.querySelectorAll(".date-value-panel:not([hidden]) .field, .life-place .field")]
+              .filter(field => field.getBoundingClientRect().height > 0);
+            return {
+              overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              groupLeft: groupBox.left + insetLeft,
+              groupRight: groupBox.right - insetRight,
+              elements: elements.map(element => { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right }; }),
+              fields: fields.map(field => { const box = field.getBoundingClientRect(); return { left: box.left, right: box.right, width: box.width }; })
+            };
+          });
+          assert.ok(layout.overflow <= 1, `${width}px : ${kind}/${dateType} sans débordement horizontal`);
+          assert.ok(layout.elements.every(element => element.left >= layout.groupLeft - 1 && element.right <= layout.groupRight + 1), `${width}px : ${kind}/${dateType} contenus dans la carte`);
+          assert.ok(layout.fields.every(field => field.width > 0 && field.left >= layout.groupLeft - 1 && field.right <= layout.groupRight + 1), `${width}px : champs ${kind}/${dateType} entièrement accessibles`);
+        }
+      }
+      await page.locator('#personForm [data-date-prefix="birth"][data-date-type="year"]').evaluate(button => button.click());
+      await page.locator('#personForm [data-date-prefix="death"][data-date-type="year"]').evaluate(button => button.click());
+      const variants = await page.evaluate(() => {
+        const container = document.querySelector("#personNameVariantsSection .person-name-variants-add");
+        const kind = document.getElementById("nameVariantKind").getBoundingClientRect();
+        const value = document.getElementById("nameVariantValue").getBoundingClientRect();
+        const button = document.getElementById("addNameVariantBtn").getBoundingClientRect();
+        const box = container.getBoundingClientRect();
+        return {
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          kind, value, button, box,
+          stacked: value.top > kind.bottom - 1,
+          buttonCentered: Math.abs((button.left + button.right) / 2 - (box.left + box.right) / 2) <= 2,
+          buttonBelow: button.top >= Math.max(kind.bottom, value.bottom) - 1
+        };
+      });
+      assert.ok(variants.overflow <= 1, `${width}px : variantes sans débordement horizontal`);
+      assert.ok(variants.kind.width > 0 && variants.value.width > 0, `${width}px : les deux champs restent accessibles`);
+      assert.equal(variants.stacked, width === 320, `${width}px : champs côte à côte si possible, empilés à 320px`);
+      assert.ok(variants.buttonCentered && variants.buttonBelow, `${width}px : bouton Ajouter centré sous les champs`);
+      const majorCtas = await page.evaluate(() => ["birth", "death"].map(kind => {
+        const group = document.getElementById(`${kind}AttestationControl`).parentElement.getBoundingClientRect();
+        const control = document.getElementById(`${kind}AttestationControl`).getBoundingClientRect();
+        const button = document.querySelector(`#${kind}AttestationControl .life-attestation-add`).getBoundingClientRect();
+        return { centerDiff: Math.abs((control.left + control.right) / 2 - (group.left + group.right) / 2), buttonVisible: button.width > 0 && button.height > 0 };
+      }));
+      assert.ok(majorCtas.every(item => item.buttonVisible && item.centerDiff <= 2), `${width}px : CTA d’attestation Naissance/Décès centrés`);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('#personPageDetailedJourney [data-journey-add="profession"]').click();
     await page.fill("#journeyLabel", "Agriculteur");
     await page.setViewportSize({ width: 390, height: 844 });
@@ -870,7 +981,9 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       return {
         label: button.innerText.trim(),
         top: Math.round(box.top),
+        bottom: Math.round(box.bottom),
         right: Math.round(box.right),
+        titleTop: Math.round(title.top),
         titleBottom: Math.round(title.bottom),
         headRightGap: Math.round(button.closest(".life-journey-column-head").getBoundingClientRect().right - box.right),
         height: Math.round(box.height),
@@ -883,8 +996,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       };
     }));
     assert.deepEqual(mobileJourneyButtons.map(button => button.label), ["Ajouter", "Ajouter", "Ajouter"], "libellés mobiles harmonisés");
-    assert.ok(mobileJourneyButtons.every(button => button.top >= button.titleBottom && button.right <= 390), "CTA compacts alignés sous le titre, sans débordement horizontal");
-    assert.ok(mobileJourneyButtons.every(button => button.headRightGap <= 2), "les trois CTA principaux sont alignés à droite sur mobile");
+    assert.ok(mobileJourneyButtons.every(button => button.top < button.titleBottom && button.bottom > button.titleTop && button.right <= 390), "CTA alignés sur la ligne du titre, sans débordement horizontal");
+    assert.ok(mobileJourneyButtons.every(button => button.headRightGap <= 2), "les trois CTA principaux sont à droite du titre sur mobile");
     assert.ok(mobileJourneyButtons.every(button => button.color === "rgb(40, 75, 63)"), "texte vert foncé sur les CTA mobiles");
     const referenceMobileCta = await page.locator("#linkDocumentBtn").evaluate(button => {
       const box = button.getBoundingClientRect();
@@ -901,7 +1014,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     }
     assert.ok((await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)) <= 1, "édition mobile sans débordement horizontal");
 
-    /* Largeurs mobiles représentatives : une seule ligne, CTA à droite, aucun débordement. */
+    /* Largeurs mobiles représentatives : CTA dans l'en-tête et aucun débordement. */
     for (const narrowWidth of [375, 320]) {
       await page.setViewportSize({ width: narrowWidth, height: 844 });
       await page.waitForTimeout(120);
@@ -914,12 +1027,21 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         const head = document.querySelector("#personPageDetailedJourney .life-journey-column-head");
         const headBox = head.getBoundingClientRect();
         const headBtn = head.querySelector(":scope > .btn").getBoundingClientRect();
+        const headTitle = head.querySelector("h4").getBoundingClientRect();
+        const headers = [...document.querySelectorAll("#personPageDetailedJourney .life-journey-column-head")].map(item => {
+          const title = item.querySelector("h4").getBoundingClientRect();
+          const button = item.querySelector(":scope > .btn").getBoundingClientRect();
+          const bounds = item.getBoundingClientRect();
+          return { sameLine: button.top < title.bottom && button.bottom > title.top, rightGap: Math.round(bounds.right - button.right) };
+        });
         return {
           footerHeight: Math.round(box.height),
           addRightGap: Math.round(box.right - addBox.right),
           addUnclipped: add.scrollWidth <= add.clientWidth + 1 && add.scrollHeight <= add.clientHeight + 1,
           trashWidth: Math.round(trashBox.width),
           headRightGap: Math.round(headBox.right - headBtn.right),
+          headSameLine: headBtn.top < headTitle.bottom && headBtn.bottom > headTitle.top,
+          headers,
           pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
         };
       });
@@ -927,7 +1049,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       assert.ok(narrow.addRightGap <= 2, `${narrowWidth} px : Ajouter une attestation aligné à droite`);
       assert.equal(narrow.addUnclipped, true, `${narrowWidth} px : libellé entier, sans troncature ni rognage`);
       assert.ok(narrow.trashWidth >= 44, `${narrowWidth} px : poubelle conservée à 44 px`);
-      assert.ok(narrow.headRightGap <= 2, `${narrowWidth} px : CTA principal aligné à droite`);
+      assert.ok(narrow.headSameLine && narrow.headRightGap <= 2, `${narrowWidth} px : CTA de catégorie sur la ligne du sous-titre, à droite`);
+      assert.ok(narrow.headers.length === 3 && narrow.headers.every(header => header.sameLine && header.rightGap <= 2), `${narrowWidth} px : les trois catégories gardent leur CTA lisible sur la même ligne`);
       assert.ok(narrow.pageOverflow <= 1, `${narrowWidth} px : aucun débordement horizontal`);
     }
     await page.setViewportSize({ width: 390, height: 844 });
@@ -2246,6 +2369,26 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => document.getElementById("familyDetailsDialog").open, undefined, { timeout: 5000 });
     const marriageAdd = page.locator("#familyMarriageAttestationControl [data-journey-attestation-add]");
     assert.equal(await marriageAdd.innerText(), "Ajouter une attestation");
+    for (const width of [320, 375, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const unionCta = await page.evaluate(() => {
+        const section = document.querySelector(".family-union-attestation-section");
+        const layout = section.querySelector(".family-union-attestation-layout").getBoundingClientRect();
+        const control = section.querySelector("#familyMarriageAttestationControl").getBoundingClientRect();
+        const button = section.querySelector("#familyMarriageAttestationControl .life-attestation-add").getBoundingClientRect();
+        return {
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          centerDiff: Math.abs((control.left + control.right) / 2 - (layout.left + layout.right) / 2),
+          buttonVisible: button.width > 0 && button.height > 0,
+          sectionRight: section.getBoundingClientRect().right,
+          buttonRight: button.right
+        };
+      });
+      assert.ok(unionCta.overflow <= 1, `${width}px : détails de l’union sans débordement`);
+      assert.ok(unionCta.buttonVisible && unionCta.centerDiff <= 2, `${width}px : CTA d’attestation d’union centré`);
+      assert.ok(unionCta.buttonRight <= unionCta.sectionRight + 1, `${width}px : CTA d’union entièrement visible`);
+    }
+    await page.setViewportSize({ width: 1280, height: 850 });
     for (const width of [320, 375, 390, 1280]) {
       await page.setViewportSize({ width, height: width < 600 ? 844 : 850 });
       const layout = await page.evaluate(() => {

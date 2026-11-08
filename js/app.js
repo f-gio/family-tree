@@ -3892,7 +3892,18 @@ function setRelationBuilderOpen(open, kind = "parent") {
   $("toggleRelationBuilderBtn").setAttribute("aria-expanded", String(open));
   if (open) {
     setRelationBuilderKind(kind);
-    setTimeout(() => document.querySelector(`[data-relation-add-panel="${kind}"] select`)?.focus(), 30);
+    const mobile = window.matchMedia("(max-width: 760px)").matches;
+    setTimeout(() => {
+      const select = document.querySelector(`[data-relation-add-panel="${kind}"] select`);
+      if (mobile) select?.focus({ preventScroll: true });
+      else select?.focus();
+      if (!mobile || $("relationBuilder").hidden) return;
+      requestAnimationFrame(() => {
+        if ($("relationBuilder").hidden) return;
+        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        $("relationBuilder").scrollIntoView({ behavior: reducedMotion ? "instant" : "smooth", block: "start" });
+      });
+    }, 30);
   } else {
     $("toggleRelationBuilderBtn").focus();
   }

@@ -6765,3 +6765,80 @@ dialog.life-event-dialog[open] { display: flex; }
   .person-detail-header-actions #personPageActions { margin-left: 0; }
   body:has(#personPageEditHost:not([hidden])) .person-detail-header-actions #personPageViewTreeBtn { grid-column: 1 / -1; justify-self: center; }
 }
+
+/* Ajustements ergonomiques mobiles limités aux formulaires de modification. */
+@media (max-width: 760px) {
+  #personForm .event-information-group {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  #personForm .event-information-group > *,
+  #personForm .event-information-group .date-value-panel,
+  #personForm .event-information-group .date-value-panel > label,
+  #personForm .event-information-group .date-value-panel .field,
+  #personForm .event-information-group .life-place,
+  #personForm .event-information-group .life-place .field {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  #personForm .event-information-group .date-type-switch,
+  #personForm .event-information-group .date-value-panel,
+  #personForm .event-information-group .date-value-panel .field,
+  #personForm .event-information-group .life-place .field {
+    width: 100%;
+  }
+  #personForm .event-information-group > .major-event-attestation-control,
+  #familyDetailsDialog .family-union-attestation-control {
+    justify-self: center;
+    justify-content: center;
+    width: max-content;
+    max-width: 100%;
+    margin-inline: auto;
+  }
+
+  #personForm .person-name-variants-add {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+    gap: var(--space-2);
+  }
+  #personForm .person-name-variants-add > label,
+  #personForm .person-name-variants-add > label .field {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  #personForm #addNameVariantBtn { grid-column: 1 / -1; justify-self: center; }
+
+  #personPageEditHost #personPageDetailedJourney .person-detail-journey-columns { gap: var(--space-4); }
+  #personPageEditHost #personPageDetailedJourney .life-journey-column { gap: var(--space-2); }
+  #personPageEditHost #personPageDetailedJourney .life-journey-column-head {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    width: 100%;
+  }
+  #personPageEditHost #personPageDetailedJourney .life-journey-column-head h4 {
+    flex: 1 1 auto;
+    align-items: flex-start;
+  }
+  #personPageEditHost #personPageDetailedJourney .life-journey-column-head > .btn {
+    flex: 0 0 auto;
+    align-self: center;
+  }
+
+  #personPageEditHost #relationBuilder,
+  #personDialog #relationBuilder {
+    scroll-margin-top: calc(var(--control-touch) + env(safe-area-inset-top) + 5rem + var(--space-3));
+    scroll-margin-bottom: calc(var(--control-touch) + env(safe-area-inset-bottom) + var(--space-4));
+  }
+}
+
+@media (max-width: 359px) {
+  #personForm .person-name-variants-add { grid-template-columns: minmax(0, 1fr); }
+  #personForm #addNameVariantBtn { grid-column: 1; }
+}
