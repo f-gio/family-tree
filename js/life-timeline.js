@@ -1,5 +1,5 @@
 import { formatGenealogyDate, genealogyDateSortValue, normalizeGenealogyDate } from "./genealogy-date.js";
-import { formatCompactPlace } from "./place-format.js";
+import { countryNameToIsoAlpha3, formatCompactPlace, toIsoAlpha3 } from "./place-format.js";
 import { normalizeRelationType, normalizeEndType, RELATION_TYPE_LABELS, END_TYPE_LABELS } from "./family-relations.js";
 import { formatLifeDate, lifeDateSortValue, lifeEventKindLabel } from "./life-journey.js";
 
@@ -20,13 +20,9 @@ function isFundamentalJourneyEvent(entry = {}) {
 
 function journeyEventPlace(entry = {}) {
   const place = String(entry.place || "").trim();
-  const region = String(entry.region || "").trim();
-  const country = String(entry.country || "").trim();
-  const code = String(entry.countryCode || "").trim().toLocaleUpperCase("fr-FR");
-  const location = [...new Set([place, region].filter(Boolean))].join(", ");
-  if (code) return `${location}${location ? " " : ""}(${code})`;
-  if (country && normalizedEventFact(country) !== normalizedEventFact(location)) return [location, country].filter(Boolean).join(", ");
-  return location;
+  if (!place) return "";
+  const code = toIsoAlpha3(entry.countryCode) || countryNameToIsoAlpha3(entry.country);
+  return formatCompactPlace(place, { name: place, countryCode: code });
 }
 
 function exactUtcDate(value, legacyExact = "") {
@@ -135,6 +131,7 @@ export function lifeTimelineEvents(person, { people = [], families = [] } = {}) 
       const detail = [additionalKind, place, description].filter(Boolean).join(" · ");
       return {
         id: `detailed-event-${entry.id}`,
+        entryId: entry.id,
         type: "journey-event",
         title,
         date: formatLifeDate(entry.dateInfo),

@@ -2202,20 +2202,16 @@ label .field { margin-top: var(--space-2); }
 .life-journey-visibility-toggle {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: space-between;
+  gap: var(--space-3);
   min-height: var(--control-touch);
   color: var(--color-text-label);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
-  cursor: pointer;
 }
-.life-journey-visibility-toggle input[type="checkbox"] {
-  flex: 0 0 auto;
-  width: 1.125rem;
-  height: 1.125rem;
-  margin: 0;
-  accent-color: var(--color-brand);
-}
+.life-journey-visibility-toggle > span { min-width: 0; }
+.life-journey-visibility-switch { flex: 0 0 auto; margin-left: auto; }
+.life-journey-visibility-switch button { min-width: 3.5rem; }
 .life-entry-pending-attestations { gap: var(--space-2); }
 .life-entry-pending-attestations .life-attestation { padding-top: var(--space-2); }
 
@@ -6700,80 +6696,13 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 }
 .timeline-event-trigger:hover .timeline-event-chevron { color: var(--color-text); }
 
-dialog.life-event-dialog {
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0;
+.life-entry-card.is-journey-event-target {
+  scroll-margin-top: calc(var(--person-page-anchor-offset, 8rem) + var(--space-3));
+  outline: 3px solid rgb(40 75 63 / 28%);
+  outline-offset: 2px;
+  box-shadow: var(--shadow-focus);
+  transition: outline-color var(--transition-fast), box-shadow var(--transition-fast);
 }
-/* Le display n'est posé qu'ouvert : la règle UA dialog:not([open]) → none
-   reste maîtresse, sinon la boîte fermée intercepterait les clics. */
-dialog.life-event-dialog[open] { display: flex; }
-.life-event-dialog .life-event-dialog-head {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
-  border-bottom: var(--border-subtle);
-}
-.life-event-dialog .life-event-dialog-head h3 {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-  line-height: var(--leading-tight);
-}
-.life-event-dialog-nav { display: flex; flex: 0 0 auto; gap: var(--space-1); }
-.life-event-dialog .life-event-dialog-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  flex: 1 1 auto;
-  gap: var(--space-4);
-  align-content: start;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: var(--space-4) var(--space-4) max(var(--space-4), env(safe-area-inset-bottom, 0px));
-}
-.life-event-facts { display: grid; gap: var(--space-3); min-width: 0; }
-.life-event-facts .source-detail-fact > span { color: var(--color-text); font-size: var(--text-md); line-height: 1.4; overflow-wrap: anywhere; }
-.life-event-attestations { display: grid; gap: var(--space-3); min-width: 0; }
-.life-event-attestations h4 { margin: 0; color: var(--color-text); font: var(--weight-semibold) var(--text-lg)/var(--leading-tight) var(--font-display); }
-.life-event-dialog .life-entry-actions > .btn.life-attestation-add {
-  width: auto;
-  flex: 0 1 auto;
-  min-width: 0;
-  border: var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  color: var(--color-brand);
-}
-.life-event-dialog .life-entry-actions > .btn.life-attestation-add:hover,
-.life-event-dialog .life-entry-actions > .btn.life-attestation-add:focus-visible {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface-soft);
-  color: var(--color-brand);
-}
-
-@media (min-width: 761px) {
-  dialog.life-event-dialog {
-    position: fixed;
-    inset: 0 0 0 auto;
-    width: min(27.5rem, calc(100vw - 2rem));
-    max-width: none;
-    height: 100dvh;
-    max-height: none;
-    margin: 0;
-    border: 0;
-    border-left: var(--border-default);
-    border-radius: 0;
-  }
-  dialog.life-event-dialog::backdrop { background: rgb(27 38 33 / 30%); }
-}
-
 @media (min-width: 961px) {
   .person-detail-content #personPageDocuments .person-doc-gallery,
   .person-page-edit-host #personDocumentsPanel .person-doc-gallery {

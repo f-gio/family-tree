@@ -2163,167 +2163,22 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Carlo"));
     assert.equal(await stickyBar.evaluate(bar => bar.classList.contains("is-visible")), false, "autre fiche ouverte : barre initialement masquée");
 
-    /* Lot 2C-4 — volet des événements du Parcours de vie. */
-    const lifeEventDialog = page.locator("#lifeEventDialog");
+        /* Parcours de vie : les jalons fondamentaux restent visibles, sans volet. */
     const lifeTriggers = page.locator('#personPageTimeline [data-life-event]');
-
-    // Événement absent = aucun déclencheur : Carlo n'a pas de décès renseigné.
-    assert.equal(await lifeTriggers.count(), 2, "Carlo : naissance et mariage seulement");
-    assert.equal(await page.locator('#personPageTimeline [data-life-event="death"]').count(), 0, "décès absent non rendu, aucun panneau vide possible");
-
-    // Consultation desktop : volet latéral superposé, fiche non redimensionnée.
+    assert.equal(await lifeTriggers.count(), 0, "Carlo : naissance et mariage non interactifs");
+    assert.equal(await page.locator('#personPageTimeline .timeline-title').count(), 2, "Carlo : naissance et mariage affichés");
     await page.evaluate(() => window.__personPageTest.openDirectory());
     await page.locator('#directoryList [data-directory-person="person-page-a"]').click();
-    await page.waitForFunction(() => !document.getElementById("personDetailView").hidden && document.querySelectorAll('#personPageTimeline [data-life-event]').length === 3, undefined, { timeout: 10000 });
+    await page.waitForFunction(() => !document.getElementById("personDetailView").hidden && document.querySelectorAll('#personPageTimeline .timeline-title').length === 3, undefined, { timeout: 10000 });
     await page.setViewportSize({ width: 1280, height: 850 });
-    assert.equal(await lifeTriggers.count(), 3, "Ada : naissance, mariage et décès interactifs");
-    assert.deepEqual(await lifeTriggers.evaluateAll(nodes => nodes.map(node => node.dataset.lifeEvent)), ["birth", "union-person-page-family", "death"], "ordre des événements identique à la frise");
-    assert.equal(await page.locator('#personPageTimeline .life-attestation, #personPageTimeline [data-life-event-att-add]').count(), 0, "aucun compteur ni bouton permanent dans la frise");
-    const heroWidthBefore = await page.locator(".person-detail-hero").evaluate(el => Math.round(el.getBoundingClientRect().width));
-    await lifeTriggers.first().scrollIntoViewIfNeeded();
-    const desktopScroll = await page.evaluate(() => window.scrollY);
-    await lifeTriggers.first().click();
-    assert.equal(await lifeEventDialog.evaluate(d => d.open), true, "volet ouvert depuis la frise");
-    await page.waitForTimeout(250);
-    const desktopPanel = await lifeEventDialog.evaluate(d => {
-      const box = d.getBoundingClientRect();
-      const body = d.querySelector(".life-event-dialog-body");
-      return {
-        position: getComputedStyle(d).position,
-        width: Math.round(box.width),
-        left: Math.round(box.left),
-        viewportWidth: document.documentElement.clientWidth,
-        height: Math.round(box.height),
-        viewportHeight: window.innerHeight,
-        title: document.getElementById("lifeEventDialogTitle").textContent,
-        focusTitle: document.activeElement === document.getElementById("lifeEventDialogTitle"),
-        facts: [...d.querySelectorAll(".life-event-facts .source-detail-fact")].map(f => `${f.querySelector("strong")?.textContent.trim()} ${f.querySelector("span")?.textContent.trim()}`),
-        attestationRows: d.querySelectorAll(".life-attestation").length,
-        addButton: d.querySelectorAll("[data-life-event-att-add]").length,
-        empty: d.querySelector(".life-event-attestations .card-meta")?.textContent || "",
-        bodyOverflowY: getComputedStyle(body).overflowY
-      };
-    });
-    assert.equal(desktopPanel.position, "fixed", "volet superposé en position fixe");
-    assert.ok(desktopPanel.width >= 420 && desktopPanel.width <= 480, `volet de 420 à 480 px (${desktopPanel.width}px)`);
-    assert.ok(desktopPanel.left >= desktopPanel.viewportWidth - desktopPanel.width - 2, "volet ancré sur le côté droit");
-    assert.ok(desktopPanel.height >= desktopPanel.viewportHeight - 1, "volet pleine hauteur");
-    assert.equal(desktopPanel.title, "Naissance", "titre de l’événement sélectionné");
-    assert.equal(desktopPanel.focusTitle, true, "focus placé sur le titre à l’ouverture");
-    assert.deepEqual(desktopPanel.facts, ["Date 1891", "Lieu Palermo modifiée"], "données existantes affichées sans champ inventé");
-    assert.equal(desktopPanel.attestationRows, 0, "aucune attestation existante");
-    assert.equal(desktopPanel.addButton, 0, "consultation : aucune action de modification exposée");
-    assert.match(desktopPanel.empty, /Aucune attestation renseignée/, "état vide discret");
-    assert.equal(desktopPanel.bodyOverflowY, "auto", "défilement indépendant dans le volet");
-    assert.equal(await page.locator(".person-detail-hero").evaluate(el => Math.round(el.getBoundingClientRect().width)), heroWidthBefore, "largeur de la fiche inchangée par le volet");
+    assert.equal(await page.locator('#personPageTimeline [data-life-event]').count(), 0, "Ada : naissance, mariage et décès non interactifs");
+    assert.deepEqual(await page.locator('#personPageTimeline .timeline-title').allTextContents(), ["Naissance", "Mariage", "Décès"], "ordre des jalons fondamentaux");
+    await page.locator('#personPageTimeline .timeline-jalon').first().click();
+    assert.equal(await page.locator('#lifeEventDialog').count(), 0, "aucun volet latéral pour un jalon fondamental");
+    assert.equal(await page.locator('#personPageEditHost').isHidden(), true, "aucune activation de Modification");
+    assert.equal(await page.locator('.life-entry-card.is-journey-event-target').count(), 0, "aucune cible du Parcours détaillé pour un jalon fondamental");
 
-    // Navigation entre événements sans fermer le volet.
-    await page.locator("#lifeEventNextBtn").click();
-    assert.equal(await lifeEventDialog.evaluate(d => d.open), true, "navigation interne sans fermeture");
-    assert.equal(await page.locator("#lifeEventDialogTitle").textContent(), "Mariage", "titre du mariage");
-    const marriageFacts = await lifeEventDialog.locator(".life-event-facts").innerText();
-    assert.match(marriageFacts, /conjoint\s+Carlo Rossi/i, "conjoint issu de la relation partagée");
-    assert.match(marriageFacts, /1888/, "date du mariage");
-    await page.locator("#lifeEventNextBtn").click();
-    assert.equal(await page.locator("#lifeEventDialogTitle").textContent(), "Décès", "titre du décès");
-    assert.equal(await page.locator("#lifeEventNextBtn").isDisabled(), true, "bouton suivant désactivé en fin de liste");
-    await page.locator("#lifeEventPrevBtn").click();
-    assert.equal(await page.locator("#lifeEventPrevBtn").isDisabled(), false, "bouton précédent réactivé");
-
-    // Fermeture par X : scroll conservé et focus rendu à l'événement.
-    await page.locator("#lifeEventCloseBtn").click();
-    assert.equal(await lifeEventDialog.evaluate(d => d.open), false, "volet fermé par X");
-    await page.waitForFunction(expected => window.scrollY === expected, desktopScroll, { timeout: 3000 });
-    await page.waitForFunction(() => document.activeElement?.dataset?.lifeEvent === "union-person-page-family", undefined, { timeout: 3000 });
-
-    // Échap puis clic sur le fond.
-    await lifeTriggers.first().click();
-    await page.keyboard.press("Escape");
-    assert.equal(await lifeEventDialog.evaluate(d => d.open), false, "Échap ferme le volet");
-    await lifeTriggers.first().click();
-    await page.mouse.click(12, 12);
-    assert.equal(await lifeEventDialog.evaluate(d => d.open), false, "clic sur le fond ferme le volet");
-
-    // Bottom sheet mobile : ancrage bas, sans débordement, CTA sticky masqué.
-    await page.setViewportSize({ width: 390, height: 844 });
-    const mobileScroll = await page.evaluate(() => {
-      const trigger = document.querySelector('#personPageTimeline [data-life-event]');
-      const triggerTop = trigger.getBoundingClientRect().top + window.scrollY;
-      const actions = document.getElementById("personPageHeaderActions").getBoundingClientRect();
-      const actionsBottom = actions.bottom + window.scrollY;
-      const target = Math.max(actionsBottom + 10, triggerTop - window.innerHeight + 160);
-      return Math.max(0, Math.min(target, triggerTop - 24));
-    });
-    await page.evaluate(y => window.scrollTo({ top: y, behavior: "instant" }), mobileScroll);
-    await page.waitForFunction(() => document.getElementById("personPageStickyActions").classList.contains("is-visible"), undefined, { timeout: 5000 });
-    await lifeTriggers.first().click();
-    assert.equal(await stickyBar.evaluate(bar => bar.classList.contains("is-visible")), false, "CTA sticky masqué pendant l’ouverture du volet");
-    await page.waitForTimeout(250);
-    const mobilePanel = await lifeEventDialog.evaluate(d => {
-      const box = d.getBoundingClientRect();
-      const body = d.querySelector(".life-event-dialog-body");
-      return {
-        open: d.open,
-        bottomGap: Math.round(window.innerHeight - box.bottom),
-        width: Math.round(box.width),
-        viewportWidth: document.documentElement.clientWidth,
-        maxHeight: Math.round(Number.parseFloat(getComputedStyle(d).maxHeight)),
-        viewportHeight: window.innerHeight,
-        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-        bodyOverflowY: getComputedStyle(body).overflowY
-      };
-    });
-    assert.equal(mobilePanel.open, true, "bottom sheet ouvert");
-    assert.ok(mobilePanel.bottomGap <= 1, `bottom sheet ancré en bas (${mobilePanel.bottomGap}px)`);
-    assert.ok(Math.abs(mobilePanel.width - mobilePanel.viewportWidth) <= 2, "pleine largeur sur mobile");
-    assert.ok(mobilePanel.maxHeight <= mobilePanel.viewportHeight * 0.9 + 1, `hauteur maximale ≤ 90% de la zone visible (${mobilePanel.maxHeight}px)`);
-    assert.ok(mobilePanel.pageOverflow <= 1, "aucun débordement horizontal du volet mobile");
-    assert.equal(mobilePanel.bodyOverflowY, "auto", "contenu défilable dans le volet mobile");
-    await page.locator("#lifeEventCloseBtn").click();
-    await page.waitForFunction(() => document.getElementById("personPageStickyActions").classList.contains("is-visible"), undefined, { timeout: 3000 });
-
-    // Fermeture par geste vers le bas depuis l'en-tête (uniquement mobile).
-    await lifeTriggers.first().click();
-    const swipeClosed = await lifeEventDialog.evaluate(d => {
-      const head = d.querySelector(".life-event-dialog-head");
-      const touch = (target, y) => new Touch({ identifier: 1, target, clientX: 60, clientY: y });
-      head.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true, touches: [touch(head, 120)] }));
-      d.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, changedTouches: [touch(head, 260)] }));
-      return d.open;
-    });
-    assert.equal(swipeClosed, false, "geste vers le bas depuis l’en-tête ferme le bottom sheet");
-
-    // Largeurs mobiles représentatives.
-    for (const narrowWidth of [320, 375, 390]) {
-      await page.setViewportSize({ width: narrowWidth, height: 844 });
-      await lifeTriggers.first().scrollIntoViewIfNeeded();
-      await lifeTriggers.first().click();
-      await page.waitForTimeout(250);
-      const narrow = await lifeEventDialog.evaluate(d => {
-        const box = d.getBoundingClientRect();
-        return {
-          open: d.open,
-          bottomGap: Math.round(window.innerHeight - box.bottom),
-          width: Math.round(box.width),
-          viewportWidth: document.documentElement.clientWidth,
-          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
-        };
-      });
-      assert.equal(narrow.open, true, `${narrowWidth}px : volet ouvert`);
-      assert.ok(narrow.overflow <= 1, `${narrowWidth}px : aucun débordement horizontal`);
-      assert.ok(narrow.bottomGap <= 1, `${narrowWidth}px : ancrage en bas`);
-      assert.ok(Math.abs(narrow.width - narrow.viewportWidth) <= 2, `${narrowWidth}px : pleine largeur`);
-      await page.locator("#lifeEventCloseBtn").click();
-    }
-
-    // Consultation : le volet est strictement en lecture seule.
-    await page.setViewportSize({ width: 1280, height: 850 });
-    await lifeTriggers.first().click();
-    await page.waitForTimeout(250);
-    assert.equal(await lifeEventDialog.locator("[data-life-event-manage], [data-life-event-att-add], [data-life-event-att-edit], [data-life-event-att-delete], [data-journey-attestation-add]").count(), 0, "consultation : aucune action d’édition des attestations");
-    await page.locator("#lifeEventCloseBtn").click();
-
-    // Naissance : le CTA est dans les champs du fait majeur, en Modification.
+// Naissance : le CTA est dans les champs du fait majeur, en Modification.
     await page.locator("#personPageEditBtn").click();
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden, undefined, { timeout: 10000 });
     assert.equal(await page.locator("#personLifeTimeline").isHidden(), true, "frise toujours masquée en Modification");
@@ -2456,13 +2311,9 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.evaluate(() => window.__personPageTest.openDirectory());
     await page.locator('#directoryList [data-directory-person="person-page-b"]').click();
     await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Carlo"));
-    await page.locator('#personPageTimeline [data-life-event="union-person-page-family"]').click();
-    assert.equal(await lifeEventDialog.locator(".life-attestation").count(), 1, "un seul jeu d’attestations de mariage partagé");
-    assert.match(await lifeEventDialog.locator(".life-attestation").innerText(), /Acte de mariage partagé/, "attestation visible depuis la fiche du conjoint");
-    await page.locator("#lifeEventPrevBtn").click();
-    assert.match(await lifeEventDialog.locator(".life-event-attestations").innerText(), /Aucune attestation renseignée/, "attestations de naissance indépendantes entre personnes");
-    assert.equal(await lifeEventDialog.locator("[data-life-event-manage], [data-life-event-att-add], [data-life-event-att-edit], [data-life-event-att-delete]").count(), 0, "consultation du conjoint toujours en lecture seule");
-    await page.locator("#lifeEventCloseBtn").click();
+    await page.locator('#personPageTimeline .timeline-jalon.union').click();
+    assert.equal(await page.locator('#lifeEventDialog').count(), 0, "union fondamentale sans volet latéral");
+    assert.equal(await page.locator('#personPageEditHost').isHidden(), true, "union fondamentale sans activation de Modification");
 
     assert.deepEqual(errors, [], `aucune erreur JavaScript : ${errors.join(" | ")}`);
   } finally {
@@ -2760,7 +2611,9 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     await page.fill("#journeyPlace", "Orino");
     await page.locator('#personPageDetailedJourney [data-journey-date-type="year"]').evaluate(button => button.click());
     await page.fill("#journeyDateYear", "1910");
-    assert.equal(await page.locator("#journeyEventShowInLifeTimeline").isChecked(), false, "visibilité du Parcours de vie désactivée par défaut");
+    assert.equal(await page.locator("#journeyEventShowInLifeTimeline").inputValue(), "false", "visibilité du Parcours de vie désactivée par défaut");
+    assert.equal(await page.locator('[data-journey-event-show-in-life-timeline="false"]').getAttribute("aria-pressed"), "true", "Non sélectionné par défaut");
+    assert.equal(await page.locator('[data-journey-event-show-in-life-timeline="true"]').getAttribute("aria-pressed"), "false", "Oui désactivé par défaut");
     await stageAttestation(1911, "Acte de baptême", "person-page-document");
     assert.equal(await page.inputValue("#journeyDateYear"), "1910", "les champs de l'événement sont conservés pendant l'ajout de l'attestation");
     await stageAttestation(1912, "Mention marginale");
@@ -2776,15 +2629,15 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     await tap('#personPageEditHost [data-close="personDialog"]');
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     let timelineIds = await page.locator("#personPageTimeline [data-life-event]").evaluateAll(buttons => buttons.map(button => button.dataset.lifeEvent));
+    let timelineTitles = await page.locator("#personPageTimeline .timeline-title").allTextContents();
     assert.equal(timelineIds.filter(id => id.startsWith("detailed-event-")).length, 0, "un événement désactivé reste absent de la frise");
-    assert.equal(timelineIds.filter(id => id === "birth").length, 1, "naissance fondamentale présente une seule fois");
-    assert.equal(timelineIds.filter(id => id === "union-person-page-family").length, 1, "union fondamentale présente une seule fois");
-    assert.equal(timelineIds.filter(id => id === "death").length, 1, "décès fondamental présent une seule fois");
+    assert.deepEqual(timelineTitles, ["Naissance", "Mariage", "Décès"], "jalons fondamentaux présents une seule fois");
 
     await page.locator("#personPageEditBtn").evaluate(button => button.click());
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     await page.locator('#personPageEditHost [data-journey-edit^="event:"]').evaluate(button => button.click());
-    await page.locator("#journeyEventShowInLifeTimeline").evaluate(input => { input.checked = true; input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await page.locator('[data-journey-event-show-in-life-timeline="true"]').evaluate(button => button.click());
+    assert.equal(await page.locator("#journeyEventShowInLifeTimeline").inputValue(), "true", "Oui sélectionné");
     await page.fill("#journeyDateYear", "1908");
     await page.fill("#journeyPlace", "Palermo");
     await tap('#personPageDetailedJourney [data-journey-save="event"]');
@@ -2792,20 +2645,58 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     await tap('#personPageEditHost [data-close="personDialog"]');
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     timelineIds = await page.locator("#personPageTimeline [data-life-event]").evaluateAll(buttons => buttons.map(button => button.dataset.lifeEvent));
+    timelineTitles = await page.locator("#personPageTimeline .timeline-title").allTextContents();
     const detailedTimelineId = timelineIds.find(id => id.startsWith("detailed-event-"));
     assert.ok(detailedTimelineId, "le baptême opt-in apparaît dans le Parcours de vie");
-    assert.ok(timelineIds.indexOf("birth") < timelineIds.indexOf(detailedTimelineId) && timelineIds.indexOf(detailedTimelineId) < timelineIds.indexOf("death"), "événement inséré selon sa date entre les jalons connus");
+    assert.deepEqual(timelineTitles, ["Naissance", "Mariage", "Baptême d’Ada", "Décès"], "événement inséré selon sa date entre les jalons connus");
     assert.equal(await page.locator(`#personPageTimeline [data-life-event="${detailedTimelineId}"] .timeline-date`).innerText(), "1908", "la frise reflète la date modifiée");
-    await page.locator(`#personPageTimeline [data-life-event="${detailedTimelineId}"]`).evaluate(button => button.click());
-    await page.waitForFunction(() => document.getElementById("lifeEventDialog").open);
-    assert.equal(await page.locator("#lifeEventDialog .life-attestation").count(), 2, "les attestations du même événement restent consultables depuis la frise");
-    assert.equal(await page.locator('#lifeEventDialog [data-view-document="person-page-document"]').count(), 1, "document associé à l’attestation accessible sans duplication");
-    await page.locator("#lifeEventCloseBtn").evaluate(button => button.click());
+    const detailedTrigger = page.locator(`#personPageTimeline [data-life-event="${detailedTimelineId}"]`);
+    await detailedTrigger.evaluate(button => button.click());
+    const detailedEntryId = detailedTimelineId.replace("detailed-event-", "");
+    const detailedCard = page.locator(`#personPageDetailedJourney [data-journey-id="${detailedEntryId}"]`);
+    await page.waitForFunction(id => {
+      const card = document.querySelector(`#personPageDetailedJourney [data-journey-id="${id}"]`);
+      return card && card.classList.contains("is-journey-event-target") && (!card.querySelector("details") || card.querySelector("details").open);
+    }, detailedEntryId, { timeout: 5000 });
+    assert.equal(await page.locator('#lifeEventDialog').count(), 0, "aucun volet latéral pour un événement du Parcours détaillé");
+    assert.equal(await page.locator('#personPageEditHost').isHidden(), true, "la navigation n’active pas la Modification");
+    assert.equal(await detailedCard.locator(".life-attestation").count(), 2, "les attestations du même événement restent consultables dans la carte");
+    assert.equal(await detailedCard.locator('[data-view-document="person-page-document"]').count(), 1, "document associé accessible depuis la carte");
+    await page.waitForFunction(() => !document.querySelector(".life-entry-card.is-journey-event-target"), undefined, { timeout: 3000 });
+
+    for (const width of [320, 375, 390, 1280]) {
+      await page.setViewportSize({ width, height: width < 600 ? 844 : 850 });
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+      if (width === 1280) {
+        await detailedTrigger.focus();
+        await page.keyboard.press("Enter");
+      } else {
+        await detailedTrigger.evaluate(button => button.click());
+      }
+      await page.waitForFunction(id => {
+        const card = document.querySelector(`#personPageDetailedJourney [data-journey-id="${id}"]`);
+        if (!card || !card.classList.contains("is-journey-event-target")) return false;
+        const header = document.querySelector(".topbar")?.getBoundingClientRect();
+        const box = card.getBoundingClientRect();
+        return !header || (box.top >= header.bottom + 4 && box.top < window.innerHeight);
+      }, detailedEntryId, { timeout: 5000 });
+      const metrics = await page.evaluate(() => ({
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        editHidden: document.getElementById("personPageEditHost").hidden,
+        dialogCount: document.querySelectorAll("#lifeEventDialog").length
+      }));
+      assert.equal(metrics.overflow, 0, `${width}px : aucun débordement horizontal`);
+      assert.equal(metrics.editHidden, true, `${width}px : Modification non activée`);
+      assert.equal(metrics.dialogCount, 0, `${width}px : aucun volet latéral`);
+      await page.waitForFunction(() => !document.querySelector(".life-entry-card.is-journey-event-target"), undefined, { timeout: 3000 });
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
 
     await page.locator("#personPageEditBtn").evaluate(button => button.click());
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     await page.locator('#personPageEditHost [data-journey-edit^="event:"]').evaluate(button => button.click());
-    await page.locator("#journeyEventShowInLifeTimeline").evaluate(input => { input.checked = false; input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await page.locator('[data-journey-event-show-in-life-timeline="false"]').evaluate(button => button.click());
+    assert.equal(await page.locator("#journeyEventShowInLifeTimeline").inputValue(), "false", "retour à Non");
     await tap('#personPageDetailedJourney [data-journey-save="event"]');
     await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents[0]?.showInLifeTimeline === false);
     journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());

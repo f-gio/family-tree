@@ -86,6 +86,8 @@ const BASE = { birthDate: "", deathDate: "", place: "", deathPlace: "" };
       { id: "baptism", kind: "baptism", label: "Baptême de Rosa", dateInfo: { type: "exact", value: "1885-08-15" }, place: "Orino", region: "Varese", country: "Italie", description: "Paroisse Saint-Victor", showInLifeTimeline: true, attestations: [{ id: "a1" }] },
       { id: "hidden", kind: "census", label: "Recensement caché", dateInfo: { type: "year", year: 1891 }, showInLifeTimeline: false },
       { id: "visible-year", kind: "census", label: "", dateInfo: { type: "year", year: 1895 }, showInLifeTimeline: true },
+      { id: "no-country", kind: "census", label: "Recensement sans pays", dateInfo: { type: "year", year: 1896 }, place: "Jossigny", showInLifeTimeline: true },
+      { id: "no-place", kind: "naturalization", label: "Naturalisation", dateInfo: { type: "year", year: 1897 }, country: "France", showInLifeTimeline: true },
       { id: "unknown-date", kind: "immigration", label: "Arrivée en France", dateInfo: { type: "unknown" }, showInLifeTimeline: true },
       { id: "duplicate-marriage", kind: "marriage", label: "Mariage", dateInfo: { type: "exact", value: "1900-01-01" }, showInLifeTimeline: true },
       { id: "duplicate-birth-label", kind: "other", label: "Naissance", dateInfo: { type: "exact", value: "1880-01-01" }, showInLifeTimeline: true },
@@ -97,12 +99,15 @@ const BASE = { birthDate: "", deathDate: "", place: "", deathPlace: "" };
     people: [person, partner],
     families: [{ id: "union", partnerIds: [person.id, partner.id], childIds: [], relationType: "marriage", unionDateInfo: { type: "year", year: 1890 } }]
   });
-  assert.deepEqual(events.map(event => event.id), ["birth", "detailed-event-baptism", "union-union", "detailed-event-visible-year", "death", "detailed-event-unknown-date"]);
+  assert.deepEqual(events.map(event => event.id), ["birth", "detailed-event-baptism", "union-union", "detailed-event-visible-year", "detailed-event-no-country", "detailed-event-no-place", "death", "detailed-event-unknown-date"]);
   assert.equal(events[1].title, "Baptême de Rosa");
   assert.equal(events[1].date, "15 août 1885");
-  assert.match(events[1].detail, /Baptême.*Orino.*Varese.*Paroisse Saint-Victor/);
+  assert.match(events[1].detail, /Baptême.*Orino \(ITA\).*Paroisse Saint-Victor/);
+  assert.doesNotMatch(events[1].detail, /Varese/, "la région n'apparaît plus dans la frise");
+  assert.equal(events[4].detail, "Recensement · Jossigny", "sans pays : aucune parenthèse vide");
+  assert.equal(events[5].detail, "", "sans localité : aucun lieu inventé");
   assert.equal(events[3].title, "Recensement");
-  assert.equal(events[5].date, "—", "aucune date exacte inventée pour un événement non daté");
+  assert.equal(events[7].date, "—", "aucune date exacte inventée pour un événement non daté");
   assert.equal(events.some(event => event.id === "detailed-event-hidden"), false, "option absente ou désactivée = frise inchangée");
   assert.equal(events.some(event => event.id.startsWith("detailed-event-duplicate")), false, "pas de doublon naissance/mariage fondamental");
 }
