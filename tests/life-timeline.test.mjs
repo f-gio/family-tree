@@ -72,6 +72,41 @@ const BASE = { birthDate: "", deathDate: "", place: "", deathPlace: "" };
   assert.equal(unions[1].detail, "avec Marie Blanc");
 }
 
+// Seuls les événements détaillés explicitement visibles rejoignent la frise,
+// sans recopier naissance/mariage/décès, et les dates inconnues restent en fin.
+{
+  const person = {
+    ...BASE,
+    id: "p-visible",
+    firstName: "Rosa",
+    lastName: "Conti",
+    birthDateInfo: { type: "year", year: 1880 },
+    deathDateInfo: { type: "year", year: 1940 },
+    lifeEvents: [
+      { id: "baptism", kind: "baptism", label: "Baptême de Rosa", dateInfo: { type: "exact", value: "1885-08-15" }, place: "Orino", region: "Varese", country: "Italie", description: "Paroisse Saint-Victor", showInLifeTimeline: true, attestations: [{ id: "a1" }] },
+      { id: "hidden", kind: "census", label: "Recensement caché", dateInfo: { type: "year", year: 1891 }, showInLifeTimeline: false },
+      { id: "visible-year", kind: "census", label: "", dateInfo: { type: "year", year: 1895 }, showInLifeTimeline: true },
+      { id: "unknown-date", kind: "immigration", label: "Arrivée en France", dateInfo: { type: "unknown" }, showInLifeTimeline: true },
+      { id: "duplicate-marriage", kind: "marriage", label: "Mariage", dateInfo: { type: "exact", value: "1900-01-01" }, showInLifeTimeline: true },
+      { id: "duplicate-birth-label", kind: "other", label: "Naissance", dateInfo: { type: "exact", value: "1880-01-01" }, showInLifeTimeline: true },
+      { id: "legacy-hidden", kind: "studies", label: "Études", dateInfo: { type: "year", year: 1901 } }
+    ]
+  };
+  const partner = { ...BASE, id: "partner", firstName: "Émile", lastName: "Conti" };
+  const events = lifeTimelineEvents(person, {
+    people: [person, partner],
+    families: [{ id: "union", partnerIds: [person.id, partner.id], childIds: [], relationType: "marriage", unionDateInfo: { type: "year", year: 1890 } }]
+  });
+  assert.deepEqual(events.map(event => event.id), ["birth", "detailed-event-baptism", "union-union", "detailed-event-visible-year", "death", "detailed-event-unknown-date"]);
+  assert.equal(events[1].title, "Baptême de Rosa");
+  assert.equal(events[1].date, "15 août 1885");
+  assert.match(events[1].detail, /Baptême.*Orino.*Varese.*Paroisse Saint-Victor/);
+  assert.equal(events[3].title, "Recensement");
+  assert.equal(events[5].date, "—", "aucune date exacte inventée pour un événement non daté");
+  assert.equal(events.some(event => event.id === "detailed-event-hidden"), false, "option absente ou désactivée = frise inchangée");
+  assert.equal(events.some(event => event.id.startsWith("detailed-event-duplicate")), false, "pas de doublon naissance/mariage fondamental");
+}
+
 // Partenaire sans fiche personne, foyer monoparental ou foyer à plusieurs
 // parents : aucun jalon d'union (cohérence avec la notion de couple réel).
 {

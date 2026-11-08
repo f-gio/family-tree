@@ -1,9 +1,32 @@
 import { formatGenealogyDate, genealogyDateSortValue, normalizeGenealogyDate } from "./genealogy-date.js";
 import { formatCompactPlace } from "./place-format.js";
 import { normalizeRelationType, normalizeEndType, RELATION_TYPE_LABELS, END_TYPE_LABELS } from "./family-relations.js";
+import { formatLifeDate, lifeDateSortValue, lifeEventKindLabel } from "./life-journey.js";
 
 function personName(item) {
   return [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ");
+}
+
+function normalizedEventFact(value = "") {
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLocaleLowerCase("fr-FR");
+}
+
+function isFundamentalJourneyEvent(entry = {}) {
+  const kind = normalizedEventFact(entry.kind);
+  const label = normalizedEventFact(entry.label);
+  return ["birth", "death", "marriage", "union"].includes(kind)
+    || ["naissance", "deces", "mariage", "union"].includes(label);
+}
+
+function journeyEventPlace(entry = {}) {
+  const place = String(entry.place || "").trim();
+  const region = String(entry.region || "").trim();
+  const country = String(entry.country || "").trim();
+  const code = String(entry.countryCode || "").trim().toLocaleUpperCase("fr-FR");
+  const location = [...new Set([place, region].filter(Boolean))].join(", ");
+  if (code) return `${location}${location ? " " : ""}(${code})`;
+  if (country && normalizedEventFact(country) !== normalizedEventFact(location)) return [location, country].filter(Boolean).join(", ");
+  return location;
 }
 
 function exactUtcDate(value, legacyExact = "") {
@@ -100,5 +123,40 @@ export function lifeTimelineEvents(person, { people = [], families = [] } = {}) 
     });
   }
 
+  const detailedEvents = (Array.isArray(person.lifeEvents) ? person.lifeEvents : [])
+    .filter(entry => entry?.showInLifeTimeline === true && !isFundamentalJourneyEvent(entry))
+    .map(entry => {
+      const kindLabel = lifeEventKindLabel(entry.kind) || String(entry.kind || "Événement");
+      const customLabel = String(entry.label || "").replace(/\s+/g, " ").trim();
+      const title = customLabel || kindLabel;
+      const additionalKind = customLabel && normalizedEventFact(customLabel) !== normalizedEventFact(kindLabel) ? kindLabel : "";
+      const place = journeyEventPlace(entry);
+      const description = String(entry.description || "").trim();
+      const detail = [additionalKind, place, description].filter(Boolean).join(" · ");
+      return {
+        id: `detailed-event-${entry.id}`,
+        type: "journey-event",
+        title,
+        date: formatLifeDate(entry.dateInfo),
+        detail,
+        age: lifeEventAgeAt(person, entry.dateInfo),
+        sortValue: lifeDateSortValue(entry.dateInfo)
+      };
+    });
+  detailedEvents.sort((left, right) => {
+    if (left.sortValue == null && right.sortValue == null) return 0;
+    if (left.sortValue == null) return 1;
+    if (right.sortValue == null) return -1;
+    return left.sortValue - right.sortValue;
+  });
+  for (const detailedEvent of detailedEvents) {
+    if (detailedEvent.sortValue == null) {
+      events.push(detailedEvent);
+      continue;
+    }
+    const insertionIndex = events.findIndex(event => event.sortValue != null && event.sortValue > detailedEvent.sortValue);
+    if (insertionIndex < 0) events.push(detailedEvent);
+    else events.splice(insertionIndex, 0, detailedEvent);
+  }
   return events;
 }

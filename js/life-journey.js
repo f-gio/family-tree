@@ -4,10 +4,35 @@ export const LIFE_DATE_TYPES = Object.freeze(["exact", "year", "about", "before"
 
 const LIFE_EXTENDED_DATE_TYPES = new Set(["before", "after", "attested"]);
 
-export const LIFE_EVENT_KINDS = Object.freeze(["census", "migration", "military", "studies", "other"]);
+export const LIFE_EVENT_KIND_GROUPS = Object.freeze([
+  { label: "Religieux", kinds: Object.freeze(["baptism"]) },
+  { label: "Administratif", kinds: Object.freeze(["census", "naturalization"]) },
+  { label: "Migration", kinds: Object.freeze(["emigration", "immigration", "return"]) },
+  { label: "Militaire", kinds: Object.freeze(["military", "mobilization", "demobilization"]) },
+  { label: "Familial et juridique", kinds: Object.freeze(["adoption", "recognition", "divorce", "separation"]) },
+  { label: "Autre", kinds: Object.freeze(["other"]) }
+].map(group => Object.freeze(group)));
+
+/* Anciens codes encore acceptés à l'édition pour conserver les enregistrements historiques. */
+export const LIFE_EVENT_LEGACY_KINDS = Object.freeze(["migration", "studies"]);
+export const LIFE_EVENT_KINDS = Object.freeze([
+  ...LIFE_EVENT_KIND_GROUPS.flatMap(group => group.kinds),
+  ...LIFE_EVENT_LEGACY_KINDS
+]);
 
 const LIFE_EVENT_KIND_LABELS = Object.freeze({
+  baptism: "Baptême",
   census: "Recensement",
+  naturalization: "Naturalisation",
+  emigration: "Émigration",
+  immigration: "Immigration",
+  return: "Retour au pays",
+  mobilization: "Mobilisation",
+  demobilization: "Démobilisation",
+  adoption: "Adoption",
+  recognition: "Reconnaissance",
+  divorce: "Divorce",
+  separation: "Séparation",
   migration: "Migration / déplacement",
   military: "Service militaire",
   studies: "Études / formation",
@@ -91,9 +116,11 @@ export function validateLifeProfession(input = {}) {
   return { ok: Object.keys(errors).length === 0, errors };
 }
 
-export function validateLifeEvent(input = {}) {
+export function validateLifeEvent(input = {}, { allowLegacyKind = false, requireOtherLabel = false } = {}) {
   const errors = {};
-  if (!LIFE_EVENT_KINDS.includes(input.kind)) errors.kind = "Choisissez un type d'événement.";
+  const kind = typeof input.kind === "string" ? input.kind.trim() : "";
+  if ((!kind && !allowLegacyKind) || (kind && !LIFE_EVENT_KINDS.includes(kind) && !allowLegacyKind)) errors.kind = "Choisissez un type d'événement.";
+  if (requireOtherLabel && kind === "other" && !String(input.label || "").trim()) errors.label = "Précisez la nature de l’événement.";
   return { ok: Object.keys(errors).length === 0, errors };
 }
 

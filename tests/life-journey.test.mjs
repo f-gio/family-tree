@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   LIFE_DATE_TYPES,
   LIFE_EVENT_KINDS,
+  LIFE_EVENT_KIND_GROUPS,
+  LIFE_EVENT_LEGACY_KINDS,
   lifeEventKindLabel,
   normalizeLifeDate,
   formatLifeDate,
@@ -21,7 +23,18 @@ import {
 
 test("types de date et types d'événement", () => {
   assert.deepEqual([...LIFE_DATE_TYPES], ["exact", "year", "about", "before", "after", "attested", "between", "unknown"]);
-  assert.deepEqual([...LIFE_EVENT_KINDS], ["census", "migration", "military", "studies", "other"]);
+  assert.deepEqual(LIFE_EVENT_KIND_GROUPS.map(group => [group.label, [...group.kinds]]), [
+    ["Religieux", ["baptism"]],
+    ["Administratif", ["census", "naturalization"]],
+    ["Migration", ["emigration", "immigration", "return"]],
+    ["Militaire", ["military", "mobilization", "demobilization"]],
+    ["Familial et juridique", ["adoption", "recognition", "divorce", "separation"]],
+    ["Autre", ["other"]]
+  ]);
+  assert.deepEqual([...LIFE_EVENT_KINDS], ["baptism", "census", "naturalization", "emigration", "immigration", "return", "military", "mobilization", "demobilization", "adoption", "recognition", "divorce", "separation", "other", "migration", "studies"]);
+  assert.deepEqual([...LIFE_EVENT_LEGACY_KINDS], ["migration", "studies"]);
+  assert.equal(lifeEventKindLabel("baptism"), "Baptême");
+  assert.equal(lifeEventKindLabel("return"), "Retour au pays");
   assert.equal(lifeEventKindLabel("census"), "Recensement");
   assert.equal(lifeEventKindLabel("other"), "Autre événement");
   assert.equal(lifeEventKindLabel("birth"), "", "naissance n'est pas un type d'événement générique");
@@ -95,6 +108,10 @@ test("validations des entrées", () => {
   assert.equal(validateLifeProfession({ label: "" }).ok, false);
   assert.equal(validateLifeProfession({ label: "Agriculteur" }).ok, true);
   assert.equal(validateLifeEvent({ kind: "census", label: "Recensement de Biella" }).ok, true);
+  assert.equal(validateLifeEvent({ kind: "baptism" }).ok, true);
+  assert.equal(validateLifeEvent({ kind: "other", label: "" }, { requireOtherLabel: true }).ok, false, "Autre événement exige un intitulé en création");
+  assert.equal(validateLifeEvent({ kind: "other", label: "Cérémonie" }, { requireOtherLabel: true }).ok, true);
+  assert.equal(validateLifeEvent({ kind: "legacy-old-code" }, { allowLegacyKind: true }).ok, true, "un ancien type reste modifiable");
   assert.equal(validateLifeEvent({ kind: "", label: "x" }).ok, false);
   assert.match(validateLifeEvent({ kind: "", label: "x" }).errors.kind, /type d'événement/);
   assert.equal(validateLifeEvent({ kind: "census", label: "" }).ok, true, "l’intitulé d’un événement est facultatif");

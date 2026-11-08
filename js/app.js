@@ -92,7 +92,7 @@ import {
 import { PROOF_FACT_KINDS, PROOF_FACT_KIND_LABELS, PROOF_RELATION_LABELS, showProofFamilyRelation, validateProofGuidedFields, buildProofGuidedInput } from "./genealogy-proof-form.js";
 import { BACKUP_ARCHIVE_VERSION, createBackupArchiveManifest, compareBackupCaptureMarkers, generateBackupZip, readBackupZip, prepareBackupRestorePlan } from "./backup-archive.js";
 import { personNameVariants, nameVariantLabel, validateNameVariant, personNameVariantsSearchText, nameVariantsWritePlan } from "./person-name-variants.js";
-import { LIFE_DATE_TYPES, LIFE_EVENT_KINDS, lifeEventKindLabel, formatLifeDate, buildLifeDate, personLifeList, lifeAttestations, validateLifeResidence, validateLifeProfession, validateLifeEvent, validateLifeAttestation, hasSimilarLifeAttestation, toggleIdInList, compareLifeEntries } from "./life-journey.js";
+import { LIFE_DATE_TYPES, LIFE_EVENT_KINDS, LIFE_EVENT_KIND_GROUPS, lifeEventKindLabel, formatLifeDate, buildLifeDate, personLifeList, lifeAttestations, validateLifeResidence, validateLifeProfession, validateLifeEvent, validateLifeAttestation, hasSimilarLifeAttestation, toggleIdInList, compareLifeEntries } from "./life-journey.js";
 
 const firebaseEnvironment = resolveFirebaseEnvironment(window.location);
 if (!firebaseEnvironment.allowed || !firebaseConfigurationMatchesEnvironment(firebaseEnvironment.environment, firebaseEnvironment.firebaseConfig)) {
@@ -274,6 +274,8 @@ const personFields = ["firstName", "middleName", "lastName", "marriedName", "gen
 let personNameVariantsDraft = [];
 let journeyEditor = null;
 let journeyEditorBaseline = null;
+let journeyPendingEntryAttestations = [];
+let journeyPendingEntryAttestationParent = null;
 const journeyExpanded = new Set();
 let journeyLocationControl = null;
 let journeyLocationInput = null;
@@ -2282,6 +2284,7 @@ function personPageTimelineMarkup(item) {
 }
 
 function personPageEventDocuments(item, event) {
+  if (event.type === "journey-event") return [];
   const factTypes = event.type === "birth" ? ["birth"] : event.type === "death" ? ["death"] : ["marriage", "union"];
   const familyId = event.type === "union" && String(event.id).startsWith("union-") ? String(event.id).slice("union-".length) : "";
   const ids = new Set(genealogyRecords.genealogyProofs
@@ -2607,7 +2610,7 @@ function compactJourneyEventPlace(entry = {}) {
 function journeyEntrySummary(kind, entry) {
   const date = entry.dateInfo ? formatLifeDate(entry.dateInfo) : "";
   if (kind === "event") {
-    const kindLabel = lifeEventKindLabel(entry.kind);
+    const kindLabel = lifeEventKindLabel(entry.kind) || String(entry.kind || "Événement");
     const label = String(entry.label || "").replace(/\s+/g, " ").trim();
     const distinctLabel = label && normalizeJourneyEventLabel(label) !== normalizeJourneyEventLabel(kindLabel) ? label : "";
     return [kindLabel, distinctLabel, date || "Date inconnue"].filter(Boolean).join(" · ");
@@ -2642,6 +2645,43 @@ function journeyEntryMarkup(kind, entry, item, { editable = false } = {}) {
   return `<article class="life-entry-card" data-journey-entry-kind="${kind}" data-journey-id="${esc(entry.id)}">${content}${actions}</article>`;
 }
 
+function journeyEventKindOptionsMarkup(entry = null) {
+  const groupedKinds = new Set(LIFE_EVENT_KIND_GROUPS.flatMap(group => group.kinds));
+  const groups = LIFE_EVENT_KIND_GROUPS.map(group => `<optgroup label="${esc(group.label)}">${group.kinds.map(value => `<option value="${esc(value)}"${entry?.kind === value ? " selected" : ""}>${esc(lifeEventKindLabel(value))}</option>`).join("")}</optgroup>`).join("");
+  if (!entry || groupedKinds.has(entry.kind)) return groups;
+  const value = String(entry.kind || "");
+  const label = lifeEventKindLabel(value) || value || "Type non renseigné";
+  return `${groups}<optgroup label="Type historique"><option value="${esc(value)}" selected>${esc(label)}</option></optgroup>`;
+}
+
+function syncJourneyEventLabelRequirement() {
+  const input = $("journeyLabel");
+  const marker = document.querySelector("[data-journey-event-label-required]");
+  if (!input || !marker) return;
+  const required = journeyEditor?.type === "event"
+    && journeyEditor.mode === "add"
+    && $("journeyEventKind")?.value === "other";
+  input.required = required;
+  marker.hidden = !required;
+}
+
+function journeyPendingEntryAttestationsMarkup() {
+  if (!journeyPendingEntryAttestations.length) return "";
+  const rows = journeyPendingEntryAttestations.map(attestation => {
+    const date = formatLifeDate(attestation.date);
+    const associations = [
+      (attestation.documentIds || []).length ? `${attestation.documentIds.length} document${attestation.documentIds.length > 1 ? "s" : ""}` : "",
+      (attestation.sourceIds || []).length ? `${attestation.sourceIds.length} source${attestation.sourceIds.length > 1 ? "s" : ""}` : "",
+      (attestation.proofIds || []).length ? `${attestation.proofIds.length} preuve${attestation.proofIds.length > 1 ? "s" : ""}` : ""
+    ].filter(Boolean).join(" · ");
+    return `<div class="life-attestation">
+      <div class="life-attestation-head"><strong>${esc(date)}</strong>${attestation.comment ? `<span class="life-entry-meta">${esc(attestation.comment)}</span>` : ""}</div>
+      <div class="life-attestation-links">${associations ? `<span class="life-entry-meta">${esc(associations)}</span>` : ""}<button class="btn icon-btn life-delete-icon" type="button" aria-label="Retirer l’attestation du ${esc(date)} avant l’enregistrement" title="Retirer cette attestation" data-pending-entry-attestation-remove="${esc(attestation.id)}">${icon("trash")}</button></div>
+    </div>`;
+  }).join("");
+  return `<div class="life-attestations life-entry-pending-attestations" aria-label="Attestations à enregistrer">${rows}</div>`;
+}
+
 function journeyEntryFormMarkup(kind, entry) {
   const editing = Boolean(entry);
   const dateInfo = editing ? entry.dateInfo : null;
@@ -2665,9 +2705,10 @@ function journeyEntryFormMarkup(kind, entry) {
     </div>
     <label>Notes<textarea class="field" id="journeyNotes" rows="2" maxlength="800">${editing ? esc(entry.notes || "") : ""}</textarea></label>`;
   } else {
+    const requiredOtherLabel = !editing && journeyEditor?.mode === "add" && (journeyEditor.eventKind || "baptism") === "other";
     fields = `<div class="life-journey-form-row life-journey-form-row--split">
-      <label>Type *<select class="field" id="journeyEventKind">${LIFE_EVENT_KINDS.map(value => `<option value="${value}"${editing && entry.kind === value ? " selected" : ""}>${esc(lifeEventKindLabel(value))}</option>`).join("")}</select></label>
-      <label>Intitulé<input class="field" id="journeyLabel" autocomplete="off" spellcheck="false" maxlength="120" value="${editing ? esc(entry.label || "") : ""}"></label>
+      <label>Type *<select class="field" id="journeyEventKind">${journeyEventKindOptionsMarkup(editing ? entry : null)}</select></label>
+      <label>Intitulé <span class="life-journey-required-marker" data-journey-event-label-required${requiredOtherLabel ? "" : " hidden"}>*</span><input class="field" id="journeyLabel" autocomplete="off" spellcheck="false" maxlength="120"${requiredOtherLabel ? " required" : ""} value="${editing ? esc(entry.label || "") : ""}"></label>
     </div>
     ${journeyErrorMarkup("kind")}
     ${journeyErrorMarkup("label")}
@@ -2676,12 +2717,15 @@ function journeyEntryFormMarkup(kind, entry) {
         <label>Région<input class="field" id="journeyRegion" autocomplete="off" spellcheck="false" maxlength="140" value="${editing ? esc(entry.region || "") : ""}"></label>
         <label>Pays<input class="field" id="journeyCountry" autocomplete="off" spellcheck="false" maxlength="80" value="${editing ? esc(entry.country || "") : ""}"></label>
       </div>
-      <label>Description<textarea class="field" id="journeyDescription" rows="2" maxlength="800">${editing ? esc(entry.description || "") : ""}</textarea></label>`;
+      <label>Description<textarea class="field" id="journeyDescription" rows="2" maxlength="800">${editing ? esc(entry.description || "") : ""}</textarea></label>
+      <label class="life-journey-visibility-toggle"><input type="checkbox" id="journeyEventShowInLifeTimeline"${editing && entry.showInLifeTimeline === true ? " checked" : ""}><span>Afficher dans le Parcours de vie</span></label>`;
   }
   const legend = kind === "residence" ? "Période connue" : kind === "profession" ? "Période connue" : "Date de l’événement";
+  const pendingAttestationButton = `<div class="life-entry-actions"><button class="btn small tertiary life-attestation-add" type="button" data-journey-entry-attestation-add>${icon("plus")}<span>Ajouter une attestation</span></button></div>`;
   return `<div class="life-journey-form" data-journey-form>
     ${fields}
     <fieldset class="life-fields"><legend>${legend}</legend>${journeyDateFormMarkup(dateInfo)}${journeyErrorMarkup("date")}</fieldset>
+    ${journeyPendingEntryAttestationsMarkup()}${pendingAttestationButton}
     <div class="life-journey-form-actions">
       <button class="btn small" type="button" data-journey-cancel>Annuler</button>
       <button class="btn small primary" type="button" data-journey-save="${kind}">Enregistrer</button>
@@ -2689,7 +2733,7 @@ function journeyEntryFormMarkup(kind, entry) {
   </div>`;
 }
 
-function journeyAttestationFormMarkup(item, entry, attestation) {
+function journeyAttestationFormMarkup(item, entry, attestation, { pendingEntry = false } = {}) {
   const linkedDocuments = documents.filter(record => (record.personIds || []).includes(item.id));
   const sources = genealogyRecords.sourceDocuments.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id));
   const proofs = genealogyRecords.genealogyProofs.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id));
@@ -2713,12 +2757,13 @@ function journeyAttestationFormMarkup(item, entry, attestation) {
   const sourcesGroup = `<section class="life-journey-justification-group"><strong>Sources</strong>${sourceChecks}</section>`;
   const proofsGroup = `<section class="life-journey-justification-group"><strong>Preuves</strong>${proofChecks}</section>`;
   return `<div class="life-journey-form" data-journey-form>
+    ${pendingEntry ? `<p class="hint">Cette attestation sera enregistrée avec l’élément du Parcours détaillé.</p>` : ""}
     <fieldset class="life-fields"><legend>Date de l’attestation</legend>${journeyDateFormMarkup(attestation?.date)}${journeyErrorMarkup("attDate")}</fieldset>
     <label>Commentaire<input class="field" id="journeyAttComment" maxlength="300" value="${attestation ? esc(attestation.comment || "") : ""}"></label>
     <div class="life-journey-justifications">${documentsGroup}${sourcesGroup}${proofsGroup}</div>
     <div class="life-journey-form-actions">
       <button class="btn small" type="button" data-journey-attestation-cancel>Annuler</button>
-      <button class="btn small primary" type="button" data-journey-attestation-save>Enregistrer</button>
+      <button class="btn small primary" type="button" data-journey-attestation-save>${pendingEntry ? "Ajouter à l’élément" : "Enregistrer"}</button>
     </div>
   </div>`;
 }
@@ -2734,6 +2779,10 @@ function personPageDetailedJourneyMarkup(item, { editable = personPageInlineEdit
   };
   const addLabel = kind => editable ? `<button class="btn small life-journey-add" type="button" data-journey-add="${kind}" aria-label="${esc(`Ajouter ${kind === "residence" ? "une résidence" : kind === "profession" ? "une activité" : "un événement"}`)}">${icon("plus")}<span>Ajouter</span></button>` : "";
   const categoryHead = (kind, title, iconName) => `<div class="life-journey-column-head"><h4>${icon(iconName, "life-journey-category-icon")}<span class="source-detail-fact"><strong>${title}</strong></span></h4>${addLabel(kind)}</div>`;
+  const pendingAttestationForm = editable && journeyEditor?.type === "attestation" && journeyEditor.pendingEntry
+    ? journeyAttestationFormMarkup(item, null, null, { pendingEntry: true })
+    : "";
+  const pendingAttestationKind = pendingAttestationForm ? journeyEditor.entryKind : "";
   const residencesEditor = editable && journeyEditor?.type === "residence" && !journeyEditor.entryId ? journeyEntryFormMarkup("residence", null) : "";
   const professionEditor = editable && journeyEditor?.type === "profession" && !journeyEditor.entryId ? journeyEntryFormMarkup("profession", null) : "";
   const eventEditor = editable && journeyEditor?.type === "event" && !journeyEditor.entryId ? journeyEntryFormMarkup("event", null) : "";
@@ -2742,17 +2791,17 @@ function personPageDetailedJourneyMarkup(item, { editable = personPageInlineEdit
     <div class="person-detail-journey-columns">
       <div class="life-journey-column">
         ${categoryHead("residence", "Résidences", "home")}
-        ${residencesEditor}
+        ${pendingAttestationKind === "residence" ? pendingAttestationForm : residencesEditor}
         ${residences.length ? residences.map(entry => journeyEntryMarkup("residence", entry, item, { editable })).join("") : `<p class="life-journey-empty"><span class="person-detail-empty-value">Aucune résidence renseignée</span></p>`}
       </div>
       <div class="life-journey-column">
         ${categoryHead("profession", "Professions et activités", "procedures")}
-        ${professionEditor}
+        ${pendingAttestationKind === "profession" ? pendingAttestationForm : professionEditor}
         ${professions.length ? professions.map(entry => journeyEntryMarkup("profession", entry, item, { editable })).join("") : `<p class="life-journey-empty"><span class="person-detail-empty-value">Aucune activité renseignée</span></p>`}
       </div>
       <div class="life-journey-column">
         ${categoryHead("event", "Événements de vie", "calendar")}
-        ${eventEditor}
+        ${pendingAttestationKind === "event" ? pendingAttestationForm : eventEditor}
         ${events.length ? events.map(entry => journeyEntryMarkup("event", entry, item, { editable })).join("") : `<p class="life-journey-empty"><span class="person-detail-empty-value">Aucun événement renseigné</span></p>`}
       </div>
     </div>
@@ -2901,6 +2950,8 @@ function finishPersonPageInlineEdit({ refresh = true } = {}) {
     destroyJourneyLocationAutocomplete();
     journeyEditor = null;
     journeyEditorBaseline = null;
+    journeyPendingEntryAttestations = [];
+    journeyPendingEntryAttestationParent = null;
     personPageInlineEditing = false;
     const template = document.createElement("template");
     template.innerHTML = personPageDetailedJourneyMarkup(activePersonPageItem, { editable: false });
@@ -2949,7 +3000,7 @@ function finishPersonPageInlineEdit({ refresh = true } = {}) {
 
 function requestPersonPageInlineExit() {
   if (!personPageInlineEditing) return true;
-  const journeyDirty = journeyEditor && journeyFormSnapshot() !== journeyEditorBaseline;
+  const journeyDirty = journeyEditorHasUnsavedChanges();
   if ((personPageInlineDirty() || journeyDirty) && !confirm("Vos modifications ne sont pas enregistrées. Abandonner les modifications ?")) return false;
   finishPersonPageInlineEdit();
   return true;
@@ -3292,6 +3343,16 @@ function handlePersonPageContentClick(event) {
     applyJourneyDateTypeToggle(journeyDateType);
     return;
   }
+  if (event.target.closest("[data-journey-entry-attestation-add]")) {
+    journeyOpenPendingEntryAttestation();
+    return;
+  }
+  const pendingAttestationRemove = event.target.closest("[data-pending-entry-attestation-remove]");
+  if (pendingAttestationRemove) {
+    journeyPendingEntryAttestations = journeyPendingEntryAttestations.filter(value => value.id !== pendingAttestationRemove.dataset.pendingEntryAttestationRemove);
+    renderJourneySection({ preserveForm: true });
+    return;
+  }
   const journeyAdd = event.target.closest("[data-journey-add]");
   if (journeyAdd) return journeyOpenEditor({ type: journeyAdd.dataset.journeyAdd, mode: "add" });
   const journeyEdit = event.target.closest("[data-journey-edit]");
@@ -3373,6 +3434,9 @@ const handleMajorEventAttestationClick = event => {
   event.stopPropagation();
 };
 $("personForm").addEventListener("click", handleMajorEventAttestationClick);
+$("personForm").addEventListener("change", event => {
+  if (event.target?.id === "journeyEventKind") syncJourneyEventLabelRequirement();
+});
 $("familyDetailsForm").addEventListener("click", handleMajorEventAttestationClick);
 $("personPageEditHost").addEventListener("click", event => {
   if (!personPageInlineEditing) return;
@@ -3458,6 +3522,12 @@ function lifeEventPanelTarget() {
   if (!item) return null;
   if (state.eventId === "birth") return { kind: "birth", id: item.id, field: "birthAttestations", container: item };
   if (state.eventId === "death") return { kind: "death", id: item.id, field: "deathAttestations", container: item };
+  const detailedEventPrefix = "detailed-event-";
+  if (state.eventId.startsWith(detailedEventPrefix)) {
+    const entryId = state.eventId.slice(detailedEventPrefix.length);
+    const entry = personLifeList(item, "lifeEvents").find(value => value.id === entryId && value.showInLifeTimeline === true);
+    return entry ? { kind: "journey-event", id: entry.id, field: "attestations", container: entry } : null;
+  }
   if (!state.eventId.startsWith("union-")) return null;
   const family = families.find(value => value.id === state.eventId.slice("union-".length));
   return family ? { kind: "union", id: family.id, field: "marriageAttestations", container: family } : null;
@@ -3476,6 +3546,11 @@ function lifeEventPanelFactsMarkup(event, target) {
     fact("Lieu", formatCompactPlace(item.place, item.birthPlaceInfo));
   } else if (event.type === "death") {
     fact("Lieu", formatCompactPlace(item.deathPlace, item.deathPlaceInfo));
+  } else if (event.type === "journey-event") {
+    const entry = target.container;
+    fact("Type", lifeEventKindLabel(entry.kind) || entry.kind);
+    fact("Lieu", compactJourneyEventPlace(entry));
+    fact("Description", entry.description);
   } else {
     const family = target.container;
     fact("Lieu", family.unionPlace);
@@ -4160,6 +4235,8 @@ function openFamilyDetails(familyId) {
     const previousKind = journeyEditor.entryKind || journeyEditor.type;
     journeyEditor = null;
     journeyEditorBaseline = null;
+    journeyPendingEntryAttestations = [];
+    journeyPendingEntryAttestationParent = null;
     renderJourneyEditorSurface(previousKind);
   }
   const family = families.find(item => item.id === familyId);
@@ -13959,8 +14036,17 @@ $("personForm").addEventListener("submit", async event => {
     journeyEditor = null;
     journeyEditorBaseline = null;
     renderJourneyEditorSurface(editorKind);
-  } else if (personPageInlineEditing && journeyEditor && journeyFormSnapshot() !== journeyEditorBaseline
+  } else if ((journeyEditor?.pendingEntry || journeyPendingEntryAttestations.length) && journeyEditorHasUnsavedChanges()
     && !confirm("Le formulaire du Parcours détaillé contient des modifications non enregistrées. Les abandonner avant d’enregistrer la fiche ?")) return;
+  else if (personPageInlineEditing && journeyEditor && journeyEditorHasUnsavedChanges()
+    && !confirm("Le formulaire du Parcours détaillé contient des modifications non enregistrées. Les abandonner avant d’enregistrer la fiche ?")) return;
+  if (journeyEditor?.pendingEntry || journeyPendingEntryAttestations.length) {
+    journeyEditor = null;
+    journeyEditorBaseline = null;
+    journeyPendingEntryAttestations = [];
+    journeyPendingEntryAttestationParent = null;
+    if (personPageInlineEditing) renderJourneySection({ preserveForm: false });
+  }
   personFormSaving = true;
   const saveButton = $("savePersonBtn");
   setButtonPending(saveButton, true);
@@ -14078,12 +14164,13 @@ function readJourneyDateRaw() {
 function journeyFormValues() {
   if (!document.querySelector("[data-journey-form]")) return null;
   const values = {};
-  for (const key of ["journeyPlace", "journeyLabel", "journeyRegion", "journeyCountry", "journeyAddress", "journeyNotes", "journeyDescription", "journeyEventKind", "journeyAttComment"]) {
+  for (const key of ["journeyPlace", "journeyLabel", "journeyRegion", "journeyCountry", "journeyAddress", "journeyNotes", "journeyDescription", "journeyEventKind", "journeyEventShowInLifeTimeline", "journeyAttComment"]) {
     const field = document.getElementById(key);
-    if (field) values[key] = field.value;
+    if (field) values[key] = field.type === "checkbox" ? field.checked : field.value;
   }
   values.placeInfo = journeyLocationControl?.getValue().placeInfo || null;
   values.date = readJourneyDateRaw();
+  values.pendingEntryAttestations = journeyPendingEntryAttestations.map(attestation => ({ ...attestation }));
   values.documents = [...document.querySelectorAll("[data-journey-document-check]:checked")].map(input => input.dataset.journeyDocumentCheck);
   values.sources = [...document.querySelectorAll("[data-journey-source-check]:checked")].map(input => input.dataset.journeySourceCheck);
   values.proofs = [...document.querySelectorAll("[data-journey-proof-check]:checked")].map(input => input.dataset.journeyProofCheck);
@@ -14129,9 +14216,11 @@ function initializeJourneyLocationAutocomplete(placeInfo = null) {
 
 function restoreJourneyFormValues(values) {
   if (!values || !document.querySelector("[data-journey-form]")) return;
-  for (const key of ["journeyLabel", "journeyRegion", "journeyCountry", "journeyAddress", "journeyNotes", "journeyDescription", "journeyEventKind", "journeyAttComment"]) {
+  for (const key of ["journeyLabel", "journeyRegion", "journeyCountry", "journeyAddress", "journeyNotes", "journeyDescription", "journeyEventKind", "journeyEventShowInLifeTimeline", "journeyAttComment"]) {
     const field = document.getElementById(key);
-    if (field && Object.hasOwn(values, key)) field.value = values[key];
+    if (!field || !Object.hasOwn(values, key)) continue;
+    if (field.type === "checkbox") field.checked = values[key] === true;
+    else field.value = values[key];
   }
   const place = $("journeyPlace");
   if (place) {
@@ -14164,6 +14253,7 @@ function restoreJourneyFormValues(values) {
   document.querySelectorAll("[data-journey-document-check]").forEach(input => { input.checked = documentIds.has(input.dataset.journeyDocumentCheck); });
   document.querySelectorAll("[data-journey-source-check]").forEach(input => { input.checked = sources.has(input.dataset.journeySourceCheck); });
   document.querySelectorAll("[data-journey-proof-check]").forEach(input => { input.checked = proofs.has(input.dataset.journeyProofCheck); });
+  syncJourneyEventLabelRequirement();
 }
 
 function showJourneyError(key, message) {
@@ -14180,10 +14270,18 @@ function clearJourneyErrors() {
   });
 }
 
-function journeyConfirmDiscard() {
-  if (!journeyEditor) return true;
+function journeyEditorHasUnsavedChanges({ includePendingParent = true } = {}) {
+  if (!journeyEditor) return false;
   const snapshot = journeyFormSnapshot();
-  if (snapshot == null || snapshot === journeyEditorBaseline) return true;
+  const draftChanged = snapshot !== null && snapshot !== journeyEditorBaseline;
+  const parentDraft = includePendingParent && journeyEditor.pendingEntry ? journeyPendingEntryAttestationParent : null;
+  const parentChanged = parentDraft?.baseline != null
+    && JSON.stringify(parentDraft.values) !== parentDraft.baseline;
+  return draftChanged || parentChanged;
+}
+
+function journeyConfirmDiscard() {
+  if (!journeyEditorHasUnsavedChanges()) return true;
   return window.confirm("Abandonner les modifications en cours ?");
 }
 
@@ -14200,8 +14298,23 @@ function renderJourneySection({ preserveForm = true } = {}) {
   current.replaceWith(replacement);
   if (values) restoreJourneyFormValues(values);
   initializeJourneyLocationAutocomplete(values?.placeInfo || null);
+  syncJourneyEventLabelRequirement();
   if (journeyEditor && journeyEditorBaseline === null) journeyEditorBaseline = journeyFormSnapshot();
   if (focusedId) replacement.querySelector(`#${CSS.escape(focusedId)}`)?.focus({ preventScroll: true });
+}
+
+function journeyOpenPendingEntryAttestation() {
+  if (!journeyEditor || journeyEditor.type === "attestation" || !["residence", "profession", "event"].includes(journeyEditor.type)) return;
+  const values = journeyFormValues();
+  if (!values) return;
+  journeyPendingEntryAttestationParent = {
+    editor: { ...journeyEditor },
+    baseline: journeyEditorBaseline,
+    values
+  };
+  journeyEditor = { type: "attestation", entryKind: journeyPendingEntryAttestationParent.editor.type, mode: "add", pendingEntry: true };
+  journeyEditorBaseline = null;
+  renderJourneySection({ preserveForm: false });
 }
 
 function journeyOpenEditor(next) {
@@ -14210,8 +14323,12 @@ function journeyOpenEditor(next) {
   if (previousEditor) {
     journeyEditor = null;
     journeyEditorBaseline = null;
+    journeyPendingEntryAttestations = [];
+    journeyPendingEntryAttestationParent = null;
     renderJourneyEditorSurface(previousEditor.entryKind || previousEditor.type);
   }
+  journeyPendingEntryAttestations = [];
+  journeyPendingEntryAttestationParent = null;
   journeyEditor = next;
   journeyEditorBaseline = null;
   if (next.entryId && !isMajorEventAttestationKind(next.entryKind)) journeyExpanded.add(next.entryId);
@@ -14220,10 +14337,25 @@ function journeyOpenEditor(next) {
 
 function journeyCancelEditor() {
   if (!journeyEditor) return;
-  if (!journeyConfirmDiscard()) return;
   const previousEditor = journeyEditor;
+  if (previousEditor.pendingEntry && journeyPendingEntryAttestationParent) {
+    const draftChanged = journeyEditorHasUnsavedChanges({ includePendingParent: false });
+    if (draftChanged && !window.confirm("Abandonner les modifications de cette attestation ?")) return;
+    const parent = journeyPendingEntryAttestationParent;
+    journeyPendingEntryAttestationParent = null;
+    journeyEditor = parent.editor;
+    journeyEditorBaseline = parent.baseline;
+    renderJourneyEditorSurface(parent.editor.type);
+    restoreJourneyFormValues(parent.values);
+    return;
+  }
+  if (!journeyConfirmDiscard()) return;
   journeyEditor = null;
   journeyEditorBaseline = null;
+  if (previousEditor.type !== "attestation") {
+    journeyPendingEntryAttestations = [];
+    journeyPendingEntryAttestationParent = null;
+  }
   renderJourneyEditorSurface(previousEditor.entryKind || previousEditor.type);
 }
 
@@ -14257,6 +14389,7 @@ function readJourneyEntryForm(type) {
     ...locationFields,
     countryCode: journeyEventCountryCode(placeSelection),
     description: document.getElementById("journeyDescription")?.value || "",
+    showInLifeTimeline: document.getElementById("journeyEventShowInLifeTimeline")?.checked === true,
     date
   };
 }
@@ -14285,11 +14418,17 @@ async function journeySaveEntry() {
     journeyFocusError("date");
     return;
   }
+  const existingEvent = type === "event" && journeyEditor.mode === "edit"
+    ? personLifeList(activePersonPageItem, "lifeEvents").find(entry => entry.id === journeyEditor.entryId)
+    : null;
   const check = type === "residence"
     ? validateLifeResidence(raw)
     : type === "profession"
       ? validateLifeProfession(raw)
-      : validateLifeEvent(raw);
+      : validateLifeEvent(raw, {
+        allowLegacyKind: !!existingEvent && (!raw.kind || !LIFE_EVENT_KINDS.includes(raw.kind)),
+        requireOtherLabel: journeyEditor.mode === "add" && raw.kind === "other"
+      });
   if (!check.ok) {
     for (const [key, message] of Object.entries(check.errors)) showJourneyError(key, message);
     journeyFocusError(Object.keys(check.errors)[0]);
@@ -14302,16 +14441,23 @@ async function journeySaveEntry() {
   if (!item) return;
   const field = journeyFieldFor(type);
   const list = personLifeList(item, field).map(entry => ({ ...entry }));
+  const pendingAttestations = journeyPendingEntryAttestations.map(attestation => ({
+    ...attestation,
+    documentIds: [...(attestation.documentIds || [])],
+    sourceIds: [...(attestation.sourceIds || [])],
+    proofIds: [...(attestation.proofIds || [])]
+  }));
   let entryId;
   let next;
   if (journeyEditor.mode === "add") {
     entryId = doc(refs.people).id;
-    next = [...list, { id: entryId, ...entryFields, attestations: [] }];
+    next = [...list, { id: entryId, ...entryFields, attestations: pendingAttestations }];
   } else {
     entryId = journeyEditor.entryId;
     next = list.map(entry => {
       if (entry.id !== entryId) return entry;
       const updated = { ...entry, ...entryFields };
+      if (pendingAttestations.length) updated.attestations = [...lifeAttestations(entry), ...pendingAttestations];
       if (type === "event" && !countryCode) delete updated.countryCode;
       return updated;
     });
@@ -14322,6 +14468,8 @@ async function journeySaveEntry() {
   toast(`${label} ${journeyEditor.mode === "add" ? "enregistrée" : "modifiée"}.`);
   journeyEditor = null;
   journeyEditorBaseline = null;
+  journeyPendingEntryAttestations = [];
+  journeyPendingEntryAttestationParent = null;
   journeyExpanded.add(entryId);
   if (personPageInlineEditing) renderJourneySection({ preserveForm: false });
   else refreshOpenPersonPage();
@@ -14346,6 +14494,31 @@ async function journeySaveAttestation() {
   const selectedSourceIds = [...document.querySelectorAll("[data-journey-source-check]:checked")].map(input => input.dataset.journeySourceCheck);
   const selectedProofIds = [...document.querySelectorAll("[data-journey-proof-check]:checked")].map(input => input.dataset.journeyProofCheck);
   const selectedDocumentIds = [...document.querySelectorAll("[data-journey-document-check]:checked")].map(input => input.dataset.journeyDocumentCheck);
+  if (journeyEditor.pendingEntry) {
+    const parent = journeyPendingEntryAttestationParent;
+    if (!parent) return;
+    const candidate = { id: doc(refs.people).id, date: dateResult.date };
+    if (hasSimilarLifeAttestation(journeyPendingEntryAttestations, candidate)
+      && !window.confirm("Attestation potentiellement identique : une attestation à cette date existe déjà. Enregistrer quand même ?")) return;
+    const availableDocumentIds = new Set(documents.filter(documentItem => (documentItem.personIds || []).includes(item.id)).map(documentItem => documentItem.id));
+    const availableSourceIds = new Set(genealogyRecords.sourceDocuments.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id)).map(record => record.id));
+    const availableProofIds = new Set(genealogyRecords.genealogyProofs.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id)).map(record => record.id));
+    journeyPendingEntryAttestations = [...journeyPendingEntryAttestations, {
+      id: candidate.id,
+      date: dateResult.date,
+      comment,
+      documentIds: [...new Set(selectedDocumentIds.filter(id => availableDocumentIds.has(id)))],
+      sourceIds: [...new Set(selectedSourceIds.filter(id => availableSourceIds.has(id)))],
+      proofIds: [...new Set(selectedProofIds.filter(id => availableProofIds.has(id)))]
+    }];
+    journeyPendingEntryAttestationParent = null;
+    journeyEditor = parent.editor;
+    journeyEditorBaseline = parent.baseline;
+    renderJourneyEditorSurface(parent.editor.type);
+    restoreJourneyFormValues(parent.values);
+    toast("Attestation ajoutée au formulaire.");
+    return;
+  }
   const field = majorTarget?.field || journeyFieldFor(entryKind);
   const list = majorTarget ? null : personLifeList(item, field).map(entry => ({ ...entry, attestations: lifeAttestations(entry).map(value => ({ ...value })) }));
   const entry = majorTarget ? null : list.find(value => value.id === entryId);

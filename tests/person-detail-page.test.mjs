@@ -44,7 +44,12 @@ window.__personPageTest = {
   },
   update(id, data) {
     window.__personPageUpdates = [...(window.__personPageUpdates || []), { id, firstName: data.firstName, place: data.place, birthDate: data.birthDate, birthDateInfo: data.birthDateInfo, deathDate: data.deathDate, deathDateInfo: data.deathDateInfo }];
-    people = people.map(item => item.id === id ? { ...item, ...data, updatedAt: { toDate: () => new Date("2026-11-04T12:00:00Z") }, updatedByName: "Archiviste" } : item);
+    const current = people.find(item => item.id === id) || (activePersonPageItem?.id === id ? activePersonPageItem : { id });
+    const updated = { ...current, ...data, updatedAt: { toDate: () => new Date("2026-11-04T12:00:00Z") }, updatedByName: "Archiviste" };
+    people = people.some(item => item.id === id)
+      ? people.map(item => item.id === id ? updated : item)
+      : [...people, updated];
+    if (activePersonPageItem?.id === id) activePersonPageItem = updated;
   },
   updateFamilyDetails(id, data) {
     families = families.map(item => item.id === id ? { ...item, ...data } : item);
@@ -999,6 +1004,9 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       }));
       assert.ok(majorCtas.every(item => item.buttonVisible && item.centerDiff <= 2), `${width}px : CTA d’attestation Naissance/Décès centrés`);
     }
+    await page.setViewportSize({ width: 1280, height: 850 });
+    await page.waitForFunction(() => document.querySelectorAll("#personForm [data-person-date-control]").length === 0);
+    assert.equal(await page.locator("#personNameVariantsSection .person-name-variants-add").evaluate(element => getComputedStyle(element).display), "flex", "retour à la disposition desktop d’origine");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('#personPageDetailedJourney [data-journey-add="profession"]').click();
     await page.fill("#journeyLabel", "Agriculteur");
@@ -2486,7 +2494,7 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
       source = source.split(update).join("await window.__personPageTest.update(id, data);");
       return route.fulfill({
         response,
-        body: `${source}\n${hooks}\nwindow.__personPageWebkitHarness = { openEdit() { const item = people.find(value => value.id === "person-page-d"); window.__personPageWebkitFixture = { ...item }; $("authScreen").hidden = true; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); }, savedDates() { const data = window.__personPageUpdates.at(-1) || {}; return { birth: data.birthDateInfo || null, death: data.deathDateInfo || null }; }, reopenSaved() { const data = window.__personPageUpdates.at(-1) || {}; openPerson({ ...window.__personPageWebkitFixture, ...data }, "directory"); } };`
+        body: `${source}\n${hooks}\nwindow.__personPageWebkitHarness = { openEdit() { const item = people.find(value => value.id === "person-page-a"); item.birthDateInfo = { type: "exact", value: "1904-08-25" }; item.deathDateInfo = { type: "exact", value: "1931-07-28" }; people = people.map(value => value.id === item.id ? item : value); window.__personPageWebkitFixture = { ...item }; $("authScreen").hidden = true; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); }, savedDates() { const data = window.__personPageUpdates.at(-1) || {}; return { birth: data.birthDateInfo || null, death: data.deathDateInfo || null }; }, reopenSaved() { const data = window.__personPageUpdates.at(-1) || {}; const item = { ...window.__personPageWebkitFixture, ...data }; window.__personPageWebkitFixture = item; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); }, journeyLists() { const item = activePersonPageItem || {}; return { residences: item.residences || [], professions: item.professions || [], lifeEvents: item.lifeEvents || [] }; }, writeCount() { return (window.__personPageUpdates || []).length; }, addLegacyEvent() { const item = activePersonPageItem; const event = { id: "webkit-legacy-event", kind: "studies", label: "Études historiques", dateInfo: { type: "year", year: 1912 }, attestations: [] }; item.lifeEvents = [...(item.lifeEvents || []), event]; people = people.map(value => value.id === item.id ? item : value); renderJourneySection({ preserveForm: false }); } };`
       });
     }
     if (new URL(url).pathname.endsWith("/js/firebase-environment.js")) {
@@ -2498,6 +2506,23 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
       : route.abort("blockedbyclient").catch(() => {});
   });
   const page = await context.newPage();
+  const webkitDialogs = [];
+  page.on("dialog", async dialog => { webkitDialogs.push(dialog.message()); await dialog.accept(); });
+  const stageAttestation = async (year, comment, documentId = "") => {
+    await page.locator("#personPageDetailedJourney [data-journey-entry-attestation-add]").evaluate(button => button.click());
+    await page.waitForSelector("#personPageDetailedJourney [data-journey-attestation-save]");
+    await page.locator('#personPageDetailedJourney [data-journey-date-type="year"]').evaluate(button => button.click());
+    await page.fill("#journeyDateYear", String(year));
+    await page.fill("#journeyAttComment", comment);
+    if (documentId) {
+      await page.locator(`[data-journey-document-check="${documentId}"]`).evaluate(input => {
+        input.checked = true;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    }
+    await page.locator("#personPageDetailedJourney [data-journey-attestation-save]").evaluate(button => button.click());
+    await page.waitForSelector("#personPageDetailedJourney [data-journey-entry-attestation-add]");
+  };
   try {
     await page.goto(server.baseURL, { waitUntil: "load" });
     await page.waitForFunction(() => typeof window.__personPageWebkitHarness === "object");
@@ -2661,11 +2686,148 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
       death: { type: "exact", value: "1932-04-03" }
     }, `dates structurées conservées à l'enregistrement : ${JSON.stringify(savedDates)}`);
     await page.evaluate(() => window.__personPageWebkitHarness.reopenSaved());
-    await page.waitForFunction(() => document.getElementById("personDialog").open);
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     assert.equal(await page.inputValue("#birthDate"), "1905-01-02", "date enregistrée rechargée à la réouverture");
     assert.equal(await page.locator('[data-person-date-visual="birth"]').innerText(), "2 janvier 1905", "valeur enregistrée rechargée dans le calque visuel");
     assert.equal(await page.inputValue("#deathDate"), "1932-04-03", "date de décès enregistrée rechargée à la réouverture");
     assert.equal(await page.locator('[data-person-date-visual="death"]').innerText(), "3 avril 1932", "date de décès visuelle rechargée");
+
+    await page.locator('#personPageEditHost [data-close="personDialog"]').evaluate(button => button.click());
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+    await page.evaluate(() => window.__personPageTest.seed());
+    await page.evaluate(() => window.__personPageWebkitHarness.openEdit());
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    await page.evaluate(() => { document.getElementById("authScreen").hidden = true; });
+
+    const tap = async selector => page.locator(selector).evaluate(element => element.click());
+    const entryWrites = await page.evaluate(() => window.__personPageWebkitHarness.writeCount());
+    await tap('#personPageDetailedJourney [data-journey-add="residence"]');
+    await page.fill("#journeyPlace", "Orino");
+    await stageAttestation(1886, "Acte de résidence", "person-page-document");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), entryWrites, "une attestation en attente ne crée aucune écriture séparée");
+    assert.equal((await page.evaluate(() => window.__personPageWebkitHarness.journeyLists())).residences.length, 0, "pas d'association orpheline avant l'enregistrement de la résidence");
+    await tap('#personPageDetailedJourney [data-journey-save="residence"]');
+    await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().residences.length === 1);
+    let journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
+    assert.equal(journeyLists.residences[0].attestations.length, 1, "résidence et attestation enregistrées ensemble");
+    assert.deepEqual(journeyLists.residences[0].attestations[0].documentIds, ["person-page-document"], "justificatif inclus dans l'écriture unique");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), entryWrites + 1, "un seul point d'écriture pour résidence et attestation");
+
+    const beforeCancelledProfession = await page.evaluate(() => window.__personPageWebkitHarness.writeCount());
+    await tap('#personPageDetailedJourney [data-journey-add="profession"]');
+    await page.fill("#journeyLabel", "Brouillon d’activité");
+    await tap("#personPageDetailedJourney [data-journey-entry-attestation-add]");
+    await page.waitForSelector("#personPageDetailedJourney [data-journey-attestation-save]");
+    await page.locator('#personPageDetailedJourney [data-journey-date-type="year"]').evaluate(button => button.click());
+    await page.fill("#journeyDateYear", "1891");
+    await page.fill("#journeyAttComment", "Attestation abandonnée");
+    await tap("#personPageDetailedJourney [data-journey-attestation-cancel]");
+    await page.waitForFunction(() => Boolean(document.querySelector('#personPageDetailedJourney [data-journey-save="profession"]')));
+    await tap("#personPageDetailedJourney [data-journey-cancel]");
+    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"));
+    journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
+    assert.equal(journeyLists.professions.length, 0, "annulation avant l'enregistrement ne crée pas la profession ni son attestation");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeCancelledProfession, "aucune écriture lors de l'annulation");
+    assert.ok(webkitDialogs.some(message => /Abandonner/.test(message)), "l'abandon du brouillon est confirmé");
+
+    const beforeProfession = await page.evaluate(() => window.__personPageWebkitHarness.writeCount());
+    await tap('#personPageDetailedJourney [data-journey-add="profession"]');
+    await page.fill("#journeyLabel", "Agricultrice");
+    await stageAttestation(1895, "Registre professionnel");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeProfession, "attestation de profession en attente sans écriture séparée");
+    await tap('#personPageDetailedJourney [data-journey-save="profession"]');
+    await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().professions.length === 1);
+    journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
+    assert.equal(journeyLists.professions[0].attestations.length, 1, "profession et attestation enregistrées ensemble");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeProfession + 1, "profession et attestation dans une seule écriture");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeProfession + 1, "un seul point d'écriture pour profession et attestation");
+
+    const beforeEvent = await page.evaluate(() => window.__personPageWebkitHarness.writeCount());
+    await tap('#personPageDetailedJourney [data-journey-add="event"]');
+    const eventKinds = await page.locator("#journeyEventKind optgroup").evaluateAll(groups => groups.map(group => group.label));
+    assert.deepEqual(eventKinds, ["Religieux", "Administratif", "Migration", "Militaire", "Familial et juridique", "Autre"], "six catégories présentées comme groupes non sélectionnables");
+    for (const kind of ["baptism", "census", "naturalization", "emigration", "immigration", "return", "military", "mobilization", "demobilization", "adoption", "recognition", "divorce", "separation", "other"]) {
+      await page.selectOption("#journeyEventKind", kind);
+      assert.equal(await page.locator("#journeyEventKind").inputValue(), kind, `${kind} sélectionnable directement`);
+    }
+    assert.equal(await page.locator("#journeyLabel").getAttribute("required"), "", "intitulé obligatoire pour Autre événement à la création");
+    await tap('#personPageDetailedJourney [data-journey-save="event"]');
+    assert.ok(await page.locator("#journeyError-label").isVisible(), "Autre événement refusé sans intitulé");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeEvent, "validation sans écriture");
+    await page.selectOption("#journeyEventKind", "baptism");
+    assert.equal(await page.locator("#journeyLabel").getAttribute("required"), null, "intitulé facultatif pour les types prédéfinis");
+    await page.fill("#journeyLabel", "Baptême d’Ada");
+    await page.fill("#journeyPlace", "Orino");
+    await page.locator('#personPageDetailedJourney [data-journey-date-type="year"]').evaluate(button => button.click());
+    await page.fill("#journeyDateYear", "1910");
+    assert.equal(await page.locator("#journeyEventShowInLifeTimeline").isChecked(), false, "visibilité du Parcours de vie désactivée par défaut");
+    await stageAttestation(1911, "Acte de baptême", "person-page-document");
+    assert.equal(await page.inputValue("#journeyDateYear"), "1910", "les champs de l'événement sont conservés pendant l'ajout de l'attestation");
+    await stageAttestation(1912, "Mention marginale");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeEvent, "attestations événementielles en attente sans écriture séparée");
+    await tap('#personPageDetailedJourney [data-journey-save="event"]');
+    await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents.length === 1);
+    journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
+    assert.equal(journeyLists.lifeEvents[0].showInLifeTimeline, false, "baptême conservé dans le Parcours détaillé sans affichage de frise");
+    assert.equal(journeyLists.lifeEvents[0].attestations.length, 2, "plusieurs attestations sauvegardées avec l'événement");
+    assert.deepEqual(journeyLists.lifeEvents[0].attestations[0].documentIds, ["person-page-document"]);
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeEvent + 1, "événement et attestations enregistrés en une seule écriture");
+
+    await tap('#personPageEditHost [data-close="personDialog"]');
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+    let timelineIds = await page.locator("#personPageTimeline [data-life-event]").evaluateAll(buttons => buttons.map(button => button.dataset.lifeEvent));
+    assert.equal(timelineIds.filter(id => id.startsWith("detailed-event-")).length, 0, "un événement désactivé reste absent de la frise");
+    assert.equal(timelineIds.filter(id => id === "birth").length, 1, "naissance fondamentale présente une seule fois");
+    assert.equal(timelineIds.filter(id => id === "union-person-page-family").length, 1, "union fondamentale présente une seule fois");
+    assert.equal(timelineIds.filter(id => id === "death").length, 1, "décès fondamental présent une seule fois");
+
+    await page.locator("#personPageEditBtn").evaluate(button => button.click());
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    await page.locator('#personPageEditHost [data-journey-edit^="event:"]').evaluate(button => button.click());
+    await page.locator("#journeyEventShowInLifeTimeline").evaluate(input => { input.checked = true; input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await page.fill("#journeyDateYear", "1908");
+    await page.fill("#journeyPlace", "Palermo");
+    await tap('#personPageDetailedJourney [data-journey-save="event"]');
+    await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents[0]?.showInLifeTimeline === true);
+    await tap('#personPageEditHost [data-close="personDialog"]');
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+    timelineIds = await page.locator("#personPageTimeline [data-life-event]").evaluateAll(buttons => buttons.map(button => button.dataset.lifeEvent));
+    const detailedTimelineId = timelineIds.find(id => id.startsWith("detailed-event-"));
+    assert.ok(detailedTimelineId, "le baptême opt-in apparaît dans le Parcours de vie");
+    assert.ok(timelineIds.indexOf("birth") < timelineIds.indexOf(detailedTimelineId) && timelineIds.indexOf(detailedTimelineId) < timelineIds.indexOf("death"), "événement inséré selon sa date entre les jalons connus");
+    assert.equal(await page.locator(`#personPageTimeline [data-life-event="${detailedTimelineId}"] .timeline-date`).innerText(), "1908", "la frise reflète la date modifiée");
+    await page.locator(`#personPageTimeline [data-life-event="${detailedTimelineId}"]`).evaluate(button => button.click());
+    await page.waitForFunction(() => document.getElementById("lifeEventDialog").open);
+    assert.equal(await page.locator("#lifeEventDialog .life-attestation").count(), 2, "les attestations du même événement restent consultables depuis la frise");
+    assert.equal(await page.locator('#lifeEventDialog [data-view-document="person-page-document"]').count(), 1, "document associé à l’attestation accessible sans duplication");
+    await page.locator("#lifeEventCloseBtn").evaluate(button => button.click());
+
+    await page.locator("#personPageEditBtn").evaluate(button => button.click());
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    await page.locator('#personPageEditHost [data-journey-edit^="event:"]').evaluate(button => button.click());
+    await page.locator("#journeyEventShowInLifeTimeline").evaluate(input => { input.checked = false; input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await tap('#personPageDetailedJourney [data-journey-save="event"]');
+    await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents[0]?.showInLifeTimeline === false);
+    journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
+    assert.equal(journeyLists.lifeEvents.length, 1, "masquer de la frise ne supprime pas l'élément détaillé");
+    assert.equal(journeyLists.lifeEvents[0].attestations.length, 2, "masquer de la frise conserve ses attestations");
+
+    const deleteEventIndex = webkitDialogs.length;
+    await page.locator('#personPageEditHost [data-journey-delete^="event:"]').evaluate(button => button.click());
+    await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents.length === 0);
+    assert.match(webkitDialogs[deleteEventIndex] || "", /Supprimer cet événement/);
+    await tap('#personPageEditHost [data-close="personDialog"]');
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+    assert.equal(await page.locator('#personPageTimeline [data-life-event^="detailed-event-"]').count(), 0, "suppression retire l'événement des deux affichages");
+
+    await page.locator("#personPageEditBtn").evaluate(button => button.click());
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    await page.evaluate(() => window.__personPageWebkitHarness.addLegacyEvent());
+    await page.locator('#personPageDetailedJourney [data-journey-edit="event:webkit-legacy-event"]').evaluate(button => button.click());
+    assert.equal(await page.locator("#journeyEventKind").inputValue(), "studies", "ancien type conservé à la réouverture");
+    assert.equal(await page.locator('#journeyEventKind optgroup[label="Type historique"] option[value="studies"]').evaluate(option => option.selected), true, "ancien type proposé comme option historique sélectionnée");
+    await tap('#personPageDetailedJourney [data-journey-save="event"]');
+    await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents.some(event => event.id === "webkit-legacy-event" && event.kind === "studies"));
 
   } finally {
     await context.close();
