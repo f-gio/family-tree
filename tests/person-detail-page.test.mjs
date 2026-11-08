@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
 import { isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 const svg = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#557a65"/></svg>');
@@ -262,6 +262,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         panelDisplay: getComputedStyle(panel).display,
         panelWidth: panel.getBoundingClientRect().width,
         editorWidth: editor.getBoundingClientRect().width,
+        nameVariantAddDisplay: getComputedStyle(document.querySelector("#personNameVariantsSection .person-name-variants-add")).display,
         timelineHidden: timeline.hidden,
         documentCards: documentCards.length,
         documentCardTitles: documentCards.map(card => card.querySelector("h3")?.textContent.trim()),
@@ -338,6 +339,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     });
     assert.equal(inlineDesktop.panelDisplay, "block", "édition inline desktop : carte Identité pleine largeur");
     assert.ok(inlineDesktop.panelWidth >= inlineDesktop.editorWidth - 64, "carte Identité occupe toute la largeur utile");
+    assert.equal(inlineDesktop.nameVariantAddDisplay, "flex", "disposition desktop des variantes inchangée");
     assert.equal(inlineDesktop.timelineHidden, true, "timeline masquée pendant la modification");
     assert.equal(inlineDesktop.documentCards, 2, "Documents associés et Recherches forment deux cartes distinctes");
     assert.deepEqual(inlineDesktop.documentCardTitles, ["Documents associés", "Recherches"]);
@@ -927,17 +929,20 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
             ].filter(element => element.getBoundingClientRect().height > 0);
             const fields = [...group.querySelectorAll(".date-value-panel:not([hidden]) .field, .life-place .field")]
               .filter(field => field.getBoundingClientRect().height > 0);
+            const placeBox = group.querySelector(".life-place .field").getBoundingClientRect();
             return {
               overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
               groupLeft: groupBox.left + insetLeft,
               groupRight: groupBox.right - insetRight,
               elements: elements.map(element => { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right }; }),
-              fields: fields.map(field => { const box = field.getBoundingClientRect(); return { left: box.left, right: box.right, width: box.width }; })
+              fields: fields.map(field => { const box = field.getBoundingClientRect(); return { left: box.left, right: box.right, width: box.width }; }),
+              place: { left: placeBox.left, right: placeBox.right }
             };
           });
           assert.ok(layout.overflow <= 1, `${width}px : ${kind}/${dateType} sans débordement horizontal`);
           assert.ok(layout.elements.every(element => element.left >= layout.groupLeft - 1 && element.right <= layout.groupRight + 1), `${width}px : ${kind}/${dateType} contenus dans la carte`);
           assert.ok(layout.fields.every(field => field.width > 0 && field.left >= layout.groupLeft - 1 && field.right <= layout.groupRight + 1), `${width}px : champs ${kind}/${dateType} entièrement accessibles`);
+          assert.ok(layout.fields.filter(field => field.width > 0).every(field => Math.abs(field.left - layout.place.left) <= 1 && Math.abs(field.right - layout.place.right) <= 1), `${width}px : ${kind}/${dateType} partage les limites horizontales du champ Lieu`);
         }
       }
       await page.locator('#personForm [data-date-prefix="birth"][data-date-type="year"]').evaluate(button => button.click());
@@ -951,15 +956,15 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         return {
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           kind, value, button, box,
-          stacked: value.top > kind.bottom - 1,
-          buttonCentered: Math.abs((button.left + button.right) / 2 - (box.left + box.right) / 2) <= 2,
+          stacked: value.top >= kind.bottom - 1,
+          buttonRight: Math.abs(button.right - box.right) <= 2,
           buttonBelow: button.top >= Math.max(kind.bottom, value.bottom) - 1
         };
       });
       assert.ok(variants.overflow <= 1, `${width}px : variantes sans débordement horizontal`);
       assert.ok(variants.kind.width > 0 && variants.value.width > 0, `${width}px : les deux champs restent accessibles`);
-      assert.equal(variants.stacked, width === 320, `${width}px : champs côte à côte si possible, empilés à 320px`);
-      assert.ok(variants.buttonCentered && variants.buttonBelow, `${width}px : bouton Ajouter centré sous les champs`);
+      assert.equal(variants.stacked, true, `${width}px : variantes empilées verticalement`);
+      assert.ok(variants.buttonRight && variants.buttonBelow, `${width}px : bouton Ajouter aligné à droite sous les champs`);
       const majorCtas = await page.evaluate(() => ["birth", "death"].map(kind => {
         const group = document.getElementById(`${kind}AttestationControl`).parentElement.getBoundingClientRect();
         const control = document.getElementById(`${kind}AttestationControl`).getBoundingClientRect();
@@ -2426,6 +2431,113 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator("#lifeEventCloseBtn").click();
 
     assert.deepEqual(errors, [], `aucune erreur JavaScript : ${errors.join(" | ")}`);
+  } finally {
+    await context.close();
+    await browser.close();
+    await server.close();
+  }
+});
+
+test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fiche Personne", async t => {
+  let browser;
+  try { browser = await webkit.launch({ headless: true }); }
+  catch (error) { t.skip(`WebKit indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  const context = await browser.newContext({
+    locale: "fr-FR",
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 3,
+    hasTouch: true,
+    isMobile: true
+  });
+  await context.route("**/*", async route => {
+    const url = route.request().url();
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
+      const response = await route.fetch();
+      return route.fulfill({
+        response,
+        body: `${await response.text()}\n${hooks}\nwindow.__personPageWebkitHarness = { openEdit() { const item = people.find(value => value.id === "person-page-a"); $("authScreen").hidden = true; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); } };`
+      });
+    }
+    if (new URL(url).pathname.endsWith("/js/firebase-environment.js")) {
+      const response = await route.fetch();
+      return route.fulfill({ response, body: (await response.text()).replaceAll("192.168.1.14", "127.0.0.1") });
+    }
+    return isAllowedRequest(url, server.baseURL) || url.includes("gstatic.com")
+      ? route.continue().catch(() => {})
+      : route.abort("blockedbyclient").catch(() => {});
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(server.baseURL, { waitUntil: "load" });
+    await page.waitForFunction(() => typeof window.__personPageWebkitHarness === "object");
+    await page.evaluate(() => window.__personPageTest.seed());
+    await page.evaluate(() => window.__personPageWebkitHarness.openEdit());
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    await page.evaluate(() => { document.getElementById("authScreen").hidden = true; });
+    const nativeDateControlSupported = await page.locator("#birthDate").evaluate(input => input.type === "date");
+    if (!nativeDateControlSupported) t.diagnostic("Ce WebKit Playwright expose input[type=date] comme text : il vérifie le layout mais ne simule pas le contrôle natif iOS.");
+
+    for (const width of [320, 375, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const kind of ["birth", "death"]) {
+        for (const dateType of ["exact", "year", "about"]) {
+          await page.locator(`#personForm [data-date-prefix="${kind}"][data-date-type="${dateType}"]`).evaluate(button => button.click());
+          const measure = await page.locator(`#personForm [data-date-control="${kind}"]`).evaluate(control => {
+            const group = control.parentElement;
+            const date = group.querySelector(".date-value-panel:not([hidden]) .field");
+            const place = group.querySelector(".life-place .field");
+            const rect = element => { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right, width: box.width }; };
+            return {
+              dateId: date?.id,
+              dateType: date?.type,
+              dateTypeAttribute: date?.getAttribute("type"),
+              date: date ? rect(date) : null,
+              place: rect(place),
+              overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              dateInputMinWidth: date ? getComputedStyle(date).minWidth : null,
+              dateInputBoxSizing: date ? getComputedStyle(date).boxSizing : null
+            };
+          });
+          assert.equal(measure.overflow, 0, `${width}px : ${kind}/${dateType} sans débordement horizontal`);
+          assert.ok(measure.date && measure.date.width > 0, `${width}px : contrôle Date ${kind}/${dateType} visible`);
+          assert.equal(Math.round(measure.date.left), Math.round(measure.place.left), `${width}px : Date ${kind}/${dateType} alignée à gauche sur Lieu`);
+          assert.equal(Math.round(measure.date.right), Math.round(measure.place.right), `${width}px : Date ${kind}/${dateType} alignée à droite sur Lieu`);
+          assert.equal(measure.dateInputMinWidth, "0px", `${width}px : min-width natif maîtrisé`);
+          assert.equal(measure.dateInputBoxSizing, "border-box", `${width}px : largeur calculée bordure comprise`);
+          if (dateType === "exact") assert.equal(measure.dateTypeAttribute, "date", `${width}px : ${kind} garde son contrôle date natif (${measure.dateId}/${measure.dateType})`);
+          else assert.equal(measure.dateType, "number", `${dateType} reste une saisie d’année`);
+        }
+      }
+
+      const variants = await page.evaluate(() => {
+        const add = document.querySelector("#personNameVariantsSection .person-name-variants-add");
+        const type = document.getElementById("nameVariantKind").getBoundingClientRect();
+        const value = document.getElementById("nameVariantValue").getBoundingClientRect();
+        const button = document.getElementById("addNameVariantBtn").getBoundingClientRect();
+        const box = add.getBoundingClientRect();
+        return {
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          stacked: value.top >= type.bottom - 1,
+          fullWidth: Math.abs(type.left - value.left) <= 1 && Math.abs(type.right - value.right) <= 1,
+          buttonRight: Math.abs(button.right - box.right) <= 2,
+          buttonNaturalWidth: button.width > 0 && button.width < box.width
+        };
+      });
+      assert.equal(variants.overflow, 0, `${width}px : variantes sans débordement`);
+      assert.ok(variants.stacked && variants.fullWidth, `${width}px : Type et Variante empilés sur toute la largeur`);
+      assert.ok(variants.buttonRight && variants.buttonNaturalWidth, `${width}px : Ajouter à droite avec sa largeur naturelle`);
+    }
+
+    await page.evaluate(() => {
+      const input = document.getElementById("nameVariantValue");
+      input.value = "Arianna de Safari";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      document.getElementById("addNameVariantBtn").click();
+    });
+    assert.equal(await page.locator("#personNameVariantsList .person-name-variants-item").count(), 1, "ajout de variante toujours fonctionnel");
+    assert.match(await page.locator("#personNameVariantsList").innerText(), /Arianna de Safari/);
+
   } finally {
     await context.close();
     await browser.close();

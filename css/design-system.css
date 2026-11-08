@@ -6789,6 +6789,34 @@ dialog.life-event-dialog[open] { display: flex; }
   #personForm .event-information-group .life-place .field {
     width: 100%;
   }
+  /* Safari iOS can size the native date value by its intrinsic text width even
+     when the input border box is constrained. Bound both the host and its UA
+     shadow text parts without suppressing the native date picker. */
+  #personForm .event-information-group input[type="date"].field {
+    display: block;
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    box-sizing: border-box;
+  }
+  #personForm .event-information-group input[type="date"].field::-webkit-date-and-time-value {
+    display: block;
+    width: 100%;
+    inline-size: 100%;
+    min-width: 0;
+    min-inline-size: 0;
+    max-width: 100%;
+    max-inline-size: 100%;
+    box-sizing: border-box;
+    text-align: left;
+  }
+  #personForm .event-information-group input[type="date"].field::-webkit-datetime-edit {
+    min-width: 0;
+    min-inline-size: 0;
+    max-width: 100%;
+    max-inline-size: 100%;
+    box-sizing: border-box;
+  }
   #personForm .event-information-group > .major-event-attestation-control,
   #familyDetailsDialog .family-union-attestation-control {
     justify-self: center;
@@ -6800,8 +6828,8 @@ dialog.life-event-dialog[open] { display: flex; }
 
   #personForm .person-name-variants-add {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: end;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
     gap: var(--space-2);
   }
   #personForm .person-name-variants-add > label,
@@ -6811,7 +6839,7 @@ dialog.life-event-dialog[open] { display: flex; }
     max-width: 100%;
     box-sizing: border-box;
   }
-  #personForm #addNameVariantBtn { grid-column: 1 / -1; justify-self: center; }
+  #personForm #addNameVariantBtn { grid-column: 1; justify-self: end; }
 
   #personPageEditHost #personPageDetailedJourney .person-detail-journey-columns { gap: var(--space-4); }
   #personPageEditHost #personPageDetailedJourney .life-journey-column { gap: var(--space-2); }
@@ -6836,9 +6864,4 @@ dialog.life-event-dialog[open] { display: flex; }
     scroll-margin-top: calc(var(--control-touch) + env(safe-area-inset-top) + 5rem + var(--space-3));
     scroll-margin-bottom: calc(var(--control-touch) + env(safe-area-inset-bottom) + var(--space-4));
   }
-}
-
-@media (max-width: 359px) {
-  #personForm .person-name-variants-add { grid-template-columns: minmax(0, 1fr); }
-  #personForm #addNameVariantBtn { grid-column: 1; }
 }
