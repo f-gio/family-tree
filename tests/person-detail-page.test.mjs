@@ -930,19 +930,37 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
             const fields = [...group.querySelectorAll(".date-value-panel:not([hidden]) .field, .life-place .field")]
               .filter(field => field.getBoundingClientRect().height > 0);
             const placeBox = group.querySelector(".life-place .field").getBoundingClientRect();
+            const placeStyle = getComputedStyle(group.querySelector(".life-place .field"));
+            const fieldMetrics = field => {
+              const box = field.getBoundingClientRect();
+              const fieldStyle = getComputedStyle(field);
+              return {
+                left: box.left, right: box.right, width: box.width, height: box.height,
+                type: field.getAttribute("type"), textAlign: fieldStyle.textAlign,
+                lineHeight: fieldStyle.lineHeight, paddingLeft: fieldStyle.paddingLeft,
+                paddingRight: fieldStyle.paddingRight, paddingTop: fieldStyle.paddingTop,
+                paddingBottom: fieldStyle.paddingBottom, borderRadius: fieldStyle.borderTopLeftRadius,
+                borderWidth: fieldStyle.borderTopWidth
+              };
+            };
             return {
               overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
               groupLeft: groupBox.left + insetLeft,
               groupRight: groupBox.right - insetRight,
               elements: elements.map(element => { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right }; }),
-              fields: fields.map(field => { const box = field.getBoundingClientRect(); return { left: box.left, right: box.right, width: box.width }; }),
-              place: { left: placeBox.left, right: placeBox.right }
+              fields: fields.map(fieldMetrics),
+              place: { ...fieldMetrics(group.querySelector(".life-place .field")), left: placeBox.left, right: placeBox.right, textAlign: placeStyle.textAlign }
             };
           });
           assert.ok(layout.overflow <= 1, `${width}px : ${kind}/${dateType} sans débordement horizontal`);
           assert.ok(layout.elements.every(element => element.left >= layout.groupLeft - 1 && element.right <= layout.groupRight + 1), `${width}px : ${kind}/${dateType} contenus dans la carte`);
           assert.ok(layout.fields.every(field => field.width > 0 && field.left >= layout.groupLeft - 1 && field.right <= layout.groupRight + 1), `${width}px : champs ${kind}/${dateType} entièrement accessibles`);
-          assert.ok(layout.fields.filter(field => field.width > 0).every(field => Math.abs(field.left - layout.place.left) <= 1 && Math.abs(field.right - layout.place.right) <= 1), `${width}px : ${kind}/${dateType} partage les limites horizontales du champ Lieu`);
+          const dateFields = layout.fields.filter(field => field.type);
+          assert.ok(dateFields.every(field => Math.abs(field.left - layout.place.left) <= 1 && Math.abs(field.right - layout.place.right) <= 1), `${width}px : ${kind}/${dateType} partage les limites horizontales du champ Lieu`);
+          assert.ok(dateFields.every(field => Math.abs(field.height - layout.place.height) <= 1), `${width}px : ${kind}/${dateType} à la hauteur du champ Lieu`);
+          assert.ok(dateFields.every(field => field.paddingLeft === layout.place.paddingLeft && field.paddingRight === layout.place.paddingRight && field.paddingTop === layout.place.paddingTop && field.paddingBottom === layout.place.paddingBottom), `${width}px : ${kind}/${dateType} reprend le retrait du champ Lieu`);
+          assert.ok(dateFields.every(field => field.lineHeight === layout.place.lineHeight && field.borderRadius === layout.place.borderRadius && field.borderWidth === layout.place.borderWidth), `${width}px : ${kind}/${dateType} garde le centrage vertical et le style du champ Lieu`);
+          assert.ok(dateFields.every(field => ["left", "start"].includes(field.textAlign)), `${width}px : ${kind}/${dateType} aligné à gauche`);
         }
       }
       await page.locator('#personForm [data-date-prefix="birth"][data-date-type="year"]').evaluate(button => button.click());
@@ -2487,13 +2505,23 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
             const group = control.parentElement;
             const date = group.querySelector(".date-value-panel:not([hidden]) .field");
             const place = group.querySelector(".life-place .field");
-            const rect = element => { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right, width: box.width }; };
+            const measureField = element => {
+              const box = element.getBoundingClientRect();
+              const style = getComputedStyle(element);
+              return {
+                left: box.left, right: box.right, width: box.width, height: box.height,
+                paddingLeft: style.paddingLeft, paddingRight: style.paddingRight,
+                paddingTop: style.paddingTop, paddingBottom: style.paddingBottom,
+                lineHeight: style.lineHeight, textAlign: style.textAlign,
+                borderRadius: style.borderTopLeftRadius, borderWidth: style.borderTopWidth
+              };
+            };
             return {
               dateId: date?.id,
               dateType: date?.type,
               dateTypeAttribute: date?.getAttribute("type"),
-              date: date ? rect(date) : null,
-              place: rect(place),
+              date: date ? measureField(date) : null,
+              place: measureField(place),
               overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
               dateInputAppearance: date ? getComputedStyle(date).webkitAppearance : null,
               dateInputMinWidth: date ? getComputedStyle(date).minWidth : null,
@@ -2504,6 +2532,15 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
           assert.ok(measure.date && measure.date.width > 0, `${width}px : contrôle Date ${kind}/${dateType} visible`);
           assert.equal(Math.round(measure.date.left), Math.round(measure.place.left), `${width}px : Date ${kind}/${dateType} alignée à gauche sur Lieu`);
           assert.equal(Math.round(measure.date.right), Math.round(measure.place.right), `${width}px : Date ${kind}/${dateType} alignée à droite sur Lieu`);
+          assert.ok(Math.abs(measure.date.height - measure.place.height) <= 1, `${width}px : Date ${kind}/${dateType} de même hauteur que Lieu`);
+          assert.deepEqual(
+            [measure.date.paddingLeft, measure.date.paddingRight, measure.date.paddingTop, measure.date.paddingBottom, measure.date.lineHeight],
+            [measure.place.paddingLeft, measure.place.paddingRight, measure.place.paddingTop, measure.place.paddingBottom, measure.place.lineHeight],
+            `${width}px : retrait et centrage vertical Date ${kind}/${dateType} identiques à Lieu`
+          );
+          assert.ok(["left", "start"].includes(measure.date.textAlign), `${width}px : contenu Date ${kind}/${dateType} aligné à gauche`);
+          assert.equal(measure.date.borderRadius, measure.place.borderRadius, `${width}px : arrondi Date ${kind}/${dateType} conservé`);
+          assert.equal(measure.date.borderWidth, measure.place.borderWidth, `${width}px : bordure Date ${kind}/${dateType} conservée`);
           if (dateType === "exact") assert.equal(measure.dateInputAppearance, "none", `${width}px : rendu intrinsèque WebKit neutralisé sans changer le type=date`);
           assert.equal(measure.dateInputMinWidth, "0px", `${width}px : min-width natif maîtrisé`);
           assert.equal(measure.dateInputBoxSizing, "border-box", `${width}px : largeur calculée bordure comprise`);

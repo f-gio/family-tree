@@ -6789,15 +6789,23 @@ dialog.life-event-dialog[open] { display: flex; }
   #personForm .event-information-group .life-place .field {
     width: 100%;
   }
-  /* Safari iOS gives the native appearance an intrinsic visual width that can
-     exceed a narrow grid track. Reset only its painting; type=date and its
-     native picker remain intact, while the field keeps the shared .field skin. */
-  #personForm .event-information-group input[type="date"].field {
+  /* Les panneaux Date partagent les dimensions et le retrait du champ Lieu. */
+  #personForm .event-information-group .date-value-panel .field {
     display: block;
     inline-size: 100%;
     min-inline-size: 0;
     max-inline-size: 100%;
+    height: var(--control-touch);
+    min-height: var(--control-touch);
+    padding: 0 var(--space-3);
+    line-height: inherit;
+    text-align: left;
     box-sizing: border-box;
+  }
+  /* Safari iOS peut peindre le contrôle date avec une largeur intrinsèque
+     supérieure à sa piste de grille. Neutraliser l'apparence seule conserve
+     input[type=date] et son picker natif, tout en respectant la boîte CSS. */
+  #personForm .event-information-group input[type="date"].field {
     -webkit-appearance: none;
     appearance: none;
   }
