@@ -2401,16 +2401,86 @@ function journeyDocumentLinks(ids) {
   }).join("");
 }
 
-function journeyAttestationsMarkup(kind, entry, item, { editable = false } = {}) {
+function journeyAttestationRowsMarkup(kind, entry, item, { editable = false } = {}) {
   const attestations = lifeAttestations(entry);
-  const editingAttestation = journeyEditor?.type === "attestation" && journeyEditor.entryId === entry.id;
+  const editingAttestation = journeyEditor?.type === "attestation" && journeyEditor.entryKind === kind && journeyEditor.entryId === entry.id;
   const rows = attestations.map(attestation => `<div class="life-attestation">
     <div class="life-attestation-head"><strong>${esc(formatLifeDate(attestation.date))}</strong>${attestation.comment ? `<span class="life-entry-meta">${esc(attestation.comment)}</span>` : ""}</div>
     <div class="life-attestation-links">${journeyDocumentLinks(attestation.documentIds)}${journeySourceLinks(item, attestation.sourceIds, "source")}${journeySourceLinks(item, attestation.proofIds, "proof")}${editable ? `<button class="btn small" type="button" data-journey-attestation-edit="${kind}:${esc(entry.id)}:${esc(attestation.id)}">Modifier</button><button class="btn icon-btn life-delete-icon" type="button" aria-label="Supprimer l’attestation du ${esc(formatLifeDate(attestation.date))}" title="Supprimer l’attestation" data-journey-attestation-delete="${kind}:${esc(entry.id)}:${esc(attestation.id)}">${icon("trash")}</button>` : ""}</div>
   </div>`).join("");
   const form = editable && editingAttestation ? journeyAttestationFormMarkup(item, entry, attestations.find(value => value.id === journeyEditor.attId) || null) : "";
-  const content = `${rows}${form}`;
+  return `${rows}${form}`;
+}
+
+function journeyAttestationAddButtonMarkup(entryId) {
+  return `<button class="btn small tertiary life-attestation-add" type="button" data-journey-attestation-add="${esc(entryId)}">${icon("plus")}<span>Ajouter une attestation</span></button>`;
+}
+
+function journeyAttestationsMarkup(kind, entry, item, { editable = false } = {}) {
+  const content = journeyAttestationRowsMarkup(kind, entry, item, { editable });
   return content ? `<div class="life-attestations">${content}</div>` : "";
+}
+
+function majorEventAttestationTarget(kind, entryId = "") {
+  if (["birth", "death"].includes(kind)) {
+    const id = entryId || $("personId")?.value || activePersonPageItem?.id || "";
+    const item = person(id);
+    if (!item) return null;
+    return { kind, id, field: kind === "birth" ? "birthAttestations" : "deathAttestations", container: item, person: item };
+  }
+  if (kind !== "marriage") return null;
+  const familyId = entryId || $("familyDetailsId")?.value || "";
+  const family = families.find(value => value.id === familyId);
+  const currentId = $("personId")?.value || activePersonPageItem?.id || activeId || "";
+  const item = person(currentId);
+  const hasUnionEvent = item && lifeTimelineEvents(item, { people, families }).some(event => event.id === `union-${familyId}`);
+  if (!family || !hasUnionEvent) return null;
+  return { kind, id: family.id, field: "marriageAttestations", container: family, person: item };
+}
+
+function renderMajorEventAttestations(kind) {
+  const controlId = kind === "birth" ? "birthAttestationControl" : kind === "death" ? "deathAttestationControl" : "familyMarriageAttestationControl";
+  const listId = kind === "birth" ? "birthAttestationList" : kind === "death" ? "deathAttestationList" : "familyMarriageAttestationList";
+  const control = $(controlId);
+  const list = $(listId);
+  if (!control || !list) return;
+  control.classList.toggle("family-union-attestation-control", kind === "marriage");
+  list.classList.toggle("family-union-attestation-list", kind === "marriage");
+  const target = majorEventAttestationTarget(kind);
+  if (!target) {
+    control.hidden = true;
+    list.hidden = true;
+    control.replaceChildren();
+    list.replaceChildren();
+    return;
+  }
+  control.dataset.journeyKind = kind;
+  control.dataset.journeyEntryId = target.id;
+  const editingAttestation = journeyEditor?.type === "attestation"
+    && journeyEditor.entryKind === kind
+    && journeyEditor.entryId === target.id;
+  control.innerHTML = editingAttestation ? "" : journeyAttestationAddButtonMarkup(target.id);
+  control.hidden = Boolean(editingAttestation);
+  const entry = { id: target.id, attestations: lifeAttestations({ attestations: target.container[target.field] }) };
+  const rowsAndForm = journeyAttestationRowsMarkup(kind, entry, target.person, { editable: true });
+  list.innerHTML = rowsAndForm ? `<div class="life-attestations">${rowsAndForm}</div>` : "";
+  list.hidden = !rowsAndForm;
+  if (editingAttestation && journeyEditorBaseline === null) journeyEditorBaseline = journeyFormSnapshot();
+}
+
+function isMajorEventAttestationKind(kind) {
+  return ["birth", "death", "marriage"].includes(kind);
+}
+
+function renderJourneyEditorSurface(kind) {
+  if (kind === "birth" || kind === "death") {
+    renderMajorEventAttestations("birth");
+    renderMajorEventAttestations("death");
+  } else if (kind === "marriage") {
+    renderMajorEventAttestations("marriage");
+  } else {
+    renderJourneySection({ preserveForm: false });
+  }
 }
 
 function journeyEntryFactsMarkup(kind, entry) {
@@ -3241,6 +3311,13 @@ $("personForm").addEventListener("click", event => {
   event.stopPropagation();
   requestPersonPageInlineExit();
 });
+const handleMajorEventAttestationClick = event => {
+  if (!event.target.closest("[data-major-event-attestations]")) return;
+  handlePersonPageContentClick(event);
+  event.stopPropagation();
+};
+$("personForm").addEventListener("click", handleMajorEventAttestationClick);
+$("familyDetailsForm").addEventListener("click", handleMajorEventAttestationClick);
 $("personPageEditHost").addEventListener("click", event => {
   if (!personPageInlineEditing) return;
   const documentsToggle = event.target.closest("[data-person-page-documents-toggle]");
@@ -3360,26 +3437,14 @@ function lifeEventPanelAttestations(target) {
   return lifeAttestations({ attestations: target.container[target.field] });
 }
 
-function lifeEventPanelAttestationsMarkup(target, { editable = false } = {}) {
+function lifeEventPanelAttestationsMarkup(target) {
   const state = lifeEventPanelState;
   const item = person(state.personId);
   const attestations = lifeEventPanelAttestations(target);
-  const editingAttId = editable && state.att?.mode === "edit" ? state.att.attId : "";
-  const adding = editable && Boolean(state.att?.mode === "add");
-  const rows = attestations.map(attestation => `<div class="life-attestation">
-    <div class="life-attestation-head"><strong>${esc(formatLifeDate(attestation.date))}</strong>${attestation.comment ? `<span class="life-entry-meta">${esc(attestation.comment)}</span>` : ""}</div>
-    <div class="life-attestation-links">${journeyDocumentLinks(attestation.documentIds)}${journeySourceLinks(item, attestation.sourceIds, "source")}${journeySourceLinks(item, attestation.proofIds, "proof")}${editable ? `<button class="btn small" type="button" data-life-event-att-edit="${esc(attestation.id)}">Modifier</button><button class="btn icon-btn life-delete-icon" type="button" aria-label="Supprimer l’attestation du ${esc(formatLifeDate(attestation.date))}" title="Supprimer l’attestation" data-life-event-att-delete="${esc(attestation.id)}">${icon("trash")}</button>` : ""}</div>
-  </div>`).join("");
-  const form = editable && (adding || editingAttId)
-    ? journeyAttestationFormMarkup(item, null, editingAttId ? attestations.find(value => value.id === editingAttId) || null : null)
-    : "";
-  /* La frise du Parcours de vie reste masquée en Modification (comportement
-     validé) : la bascule « Gérer les attestations » ouvre la Modification
-     comme le CTA « Modifier la fiche », puis le volet devient éditable. */
-  const manageButton = !editable ? `<div class="life-entry-actions"><button class="btn small" type="button" data-life-event-manage>Gérer les attestations</button></div>` : "";
-  const addButton = editable && !state.att ? `<div class="life-entry-actions"><button class="btn small tertiary life-attestation-add" type="button" data-life-event-att-add>${icon("plus")}<span>Ajouter une attestation</span></button></div>` : "";
-  const empty = !attestations.length && !state.att ? `<p class="card-meta">Aucune attestation renseignée.</p>` : "";
-  return `<section class="life-event-attestations" aria-label="Attestations"><h4>Attestations</h4>${empty}${rows}${manageButton}${form}${addButton}</section>`;
+  const entry = { id: target.id, attestations };
+  const rows = journeyAttestationRowsMarkup("life-event-panel", entry, item, { editable: false });
+  const empty = !attestations.length ? `<p class="card-meta">Aucune attestation renseignée.</p>` : "";
+  return `<section class="life-event-attestations" aria-label="Attestations"><h4>Attestations</h4>${empty}${rows ? `<div class="life-attestations">${rows}</div>` : ""}</section>`;
 }
 
 function renderLifeEventPanel() {
@@ -3396,38 +3461,23 @@ function renderLifeEventPanel() {
   $("lifeEventDialogTitle").textContent = event.title;
   $("lifeEventPrevBtn").disabled = index <= 0;
   $("lifeEventNextBtn").disabled = index >= events.length - 1;
-  $("lifeEventDialogBody").innerHTML = `${lifeEventPanelFactsMarkup(event, target)}${lifeEventPanelAttestationsMarkup(target, { editable: personPageInlineEditing })}`;
-  if (state.att && !state.att.baseline) lifeEventPanelState = { ...state, att: { ...state.att, baseline: journeyFormSnapshot() } };
-}
-
-function lifeEventPanelConfirmDiscard() {
-  const baseline = lifeEventPanelState?.att?.baseline;
-  if (!baseline) return true;
-  const snapshot = journeyFormSnapshot();
-  if (snapshot == null || snapshot === baseline) return true;
-  return window.confirm("Abandonner les modifications en cours ?");
+  $("lifeEventDialogBody").innerHTML = `${lifeEventPanelFactsMarkup(event, target)}${lifeEventPanelAttestationsMarkup(target)}`;
 }
 
 function openLifeEventPanel(eventId) {
   const item = activePersonPageItem;
   const dialog = $("lifeEventDialog");
-  if (!item || !dialog || $("personDetailView").hidden) return;
+  if (!item || !dialog || $("personDetailView").hidden || personPageInlineEditing || !$("personPageEditHost").hidden) return;
   const events = lifeEventPanelEvents();
   if (!events.some(value => value.id === eventId)) return;
-  /* Un seul formulaire actif : referme un éventuel formulaire du Parcours
-     détaillé (avec confirmation s'il est sale) avant d'ouvrir le volet. */
-  if (journeyEditor) {
-    if (!journeyConfirmDiscard()) return;
-    journeyCancelEditor();
-  }
   if (dialog.open) {
-    lifeEventPanelState = { ...lifeEventPanelState, eventId, att: null };
+    lifeEventPanelState = { ...lifeEventPanelState, eventId };
     renderLifeEventPanel();
     return;
   }
   lifeEventPanelScrollY = window.scrollY;
   lifeEventPanelCloseIntent = { restoreFocus: true, restoreScroll: true };
-  lifeEventPanelState = { personId: item.id, eventId, att: null };
+  lifeEventPanelState = { personId: item.id, eventId };
   setPersonPageStickyActionsVisible(false);
   renderLifeEventPanel();
   dialog.showModal();
@@ -3437,7 +3487,6 @@ function openLifeEventPanel(eventId) {
 function closeLifeEventPanel({ restoreFocus = true, restoreScroll = true } = {}) {
   const dialog = $("lifeEventDialog");
   if (!dialog?.open) return;
-  if (lifeEventPanelState?.att && !lifeEventPanelConfirmDiscard()) return;
   lifeEventPanelCloseIntent = { restoreFocus, restoreScroll };
   dialog.close();
 }
@@ -3445,79 +3494,11 @@ function closeLifeEventPanel({ restoreFocus = true, restoreScroll = true } = {})
 function lifeEventPanelNavigate(delta) {
   const state = lifeEventPanelState;
   if (!state) return;
-  if (state.att && !lifeEventPanelConfirmDiscard()) return;
   const events = lifeEventPanelEvents();
   const index = events.findIndex(value => value.id === state.eventId);
   const next = events[index + delta];
   if (!next) return;
-  lifeEventPanelState = { ...state, eventId: next.id, att: null };
-  renderLifeEventPanel();
-}
-
-async function lifeEventWriteAttestations(target, next) {
-  try {
-    if (target.kind === "union") {
-      await updateDoc(doc(db, "families", target.id), { marriageAttestations: next, updatedAt: serverTimestamp() });
-      families = families.map(family => family.id === target.id ? { ...family, marriageAttestations: next } : family);
-      return true;
-    }
-    if (target.kind === "birth") await updateDoc(doc(db, "people", target.id), { birthAttestations: next });
-    else await updateDoc(doc(db, "people", target.id), { deathAttestations: next });
-    const updated = { ...(person(target.id) || activePersonPageItem || {}), [target.field]: next };
-    people = people.map(value => value.id === target.id ? updated : value);
-    if (activePersonPageItem?.id === target.id) activePersonPageItem = updated;
-    return true;
-  } catch (error) {
-    console.error(error);
-    toast("Enregistrement impossible : vérifiez votre connexion puis réessayez.", "error");
-    return false;
-  }
-}
-
-async function lifeEventSaveAttestation() {
-  const state = lifeEventPanelState;
-  const target = lifeEventPanelTarget();
-  if (!state?.att || !target) return;
-  const item = person(state.personId);
-  if (!item) return;
-  clearJourneyErrors();
-  const dateResult = buildLifeDate(readJourneyDateRaw());
-  if (!dateResult.ok || !dateResult.date || dateResult.date.type === "unknown") {
-    showJourneyError("attDate", "Choisissez la date de l'attestation.");
-    journeyFocusError("date");
-    return;
-  }
-  const comment = (document.getElementById("journeyAttComment")?.value || "").trim();
-  const sourceIds = [...document.querySelectorAll("[data-journey-source-check]:checked")].map(input => input.dataset.journeySourceCheck);
-  const proofIds = [...document.querySelectorAll("[data-journey-proof-check]:checked")].map(input => input.dataset.journeyProofCheck);
-  const selectedDocumentIds = [...document.querySelectorAll("[data-journey-document-check]:checked")].map(input => input.dataset.journeyDocumentCheck);
-  const attestations = lifeEventPanelAttestations(target);
-  const attId = state.att.mode === "add" ? doc(refs.people).id : state.att.attId;
-  const candidate = { id: attId, date: dateResult.date };
-  if (hasSimilarLifeAttestation(attestations, candidate) && !window.confirm("Attestation potentiellement identique : une attestation à cette date existe déjà. Enregistrer quand même ?")) return;
-  const previousAttestation = attestations.find(value => value.id === attId);
-  const availableDocumentIds = new Set(documents.filter(documentItem => (documentItem.personIds || []).includes(item.id)).map(documentItem => documentItem.id));
-  const unavailableExistingDocumentIds = (previousAttestation?.documentIds || []).filter(id => !availableDocumentIds.has(id));
-  const documentIds = [...new Set([...unavailableExistingDocumentIds, ...selectedDocumentIds])];
-  const record = { id: attId, date: dateResult.date, comment, documentIds, sourceIds, proofIds };
-  const next = state.att.mode === "add" ? [...attestations, record] : attestations.map(value => value.id === attId ? record : value);
-  const saved = await lifeEventWriteAttestations(target, next);
-  if (!saved) return;
-  toast(state.att.mode === "add" ? "Attestation enregistrée." : "Attestation modifiée.");
-  lifeEventPanelState = { ...state, att: null };
-  renderLifeEventPanel();
-}
-
-async function lifeEventDeleteAttestation(attId) {
-  const state = lifeEventPanelState;
-  const target = lifeEventPanelTarget();
-  if (!state || !target) return;
-  if (!window.confirm("Supprimer cette attestation ?")) return;
-  const next = lifeEventPanelAttestations(target).filter(value => value.id !== attId);
-  const saved = await lifeEventWriteAttestations(target, next);
-  if (!saved) return;
-  toast("Attestation supprimée.");
-  if (state.att?.attId === attId) lifeEventPanelState = { ...state, att: null };
+  lifeEventPanelState = { ...state, eventId: next.id };
   renderLifeEventPanel();
 }
 
@@ -3544,57 +3525,17 @@ $("lifeEventDialog").addEventListener("click", event => {
      au Parcours détaillé, puis les gestionnaires globaux prennent le relais. */
   const leaveLink = event.target.closest("[data-view-document], [data-view-proof], [data-view-conclusion]");
   if (leaveLink) {
-    if (!lifeEventPanelConfirmDiscard()) { event.preventDefault(); event.stopPropagation(); return; }
     if (personPageInlineEditing && !requestPersonPageInlineExit()) { event.preventDefault(); event.stopPropagation(); return; }
     closeLifeEventPanel({ restoreFocus: false, restoreScroll: false });
     return;
   }
   const openSource = event.target.closest("[data-journey-open-source]");
   if (openSource) {
-    if (!lifeEventPanelConfirmDiscard()) return;
     const sourceId = openSource.dataset.journeyOpenSource;
     closeLifeEventPanel({ restoreFocus: false, restoreScroll: false });
     openGenealogyItem("source", sourceId, null, null, personPageContext());
     return;
   }
-  const dateType = event.target.closest("[data-journey-date-type]");
-  if (dateType) { applyJourneyDateTypeToggle(dateType); return; }
-  if (event.target.closest("[data-life-event-manage]")) {
-    if (!lifeEventPanelState || personPageInlineEditing) return;
-    enterPersonPageInlineEdit();
-    renderLifeEventPanel();
-    $("lifeEventDialogTitle").focus({ preventScroll: true });
-    return;
-  }
-  if (event.target.closest("[data-life-event-att-add]")) {
-    const state = lifeEventPanelState;
-    if (!state) return;
-    lifeEventPanelState = { ...state, att: { mode: "add", baseline: null } };
-    renderLifeEventPanel();
-    return;
-  }
-  const editButton = event.target.closest("[data-life-event-att-edit]");
-  if (editButton) {
-    const state = lifeEventPanelState;
-    if (!state) return;
-    lifeEventPanelState = { ...state, att: { mode: "edit", attId: editButton.dataset.lifeEventAttEdit, baseline: null } };
-    renderLifeEventPanel();
-    return;
-  }
-  const deleteButton = event.target.closest("[data-life-event-att-delete]");
-  if (deleteButton) { lifeEventDeleteAttestation(deleteButton.dataset.lifeEventAttDelete); return; }
-  if (event.target.closest("[data-journey-attestation-save]")) { lifeEventSaveAttestation(); return; }
-  const cancelButton = event.target.closest("[data-journey-attestation-cancel]");
-  if (cancelButton) {
-    const state = lifeEventPanelState;
-    if (!state?.att || !lifeEventPanelConfirmDiscard()) return;
-    lifeEventPanelState = { ...state, att: null };
-    renderLifeEventPanel();
-  }
-});
-
-$("lifeEventDialog").addEventListener("cancel", event => {
-  if (lifeEventPanelState?.att && !lifeEventPanelConfirmDiscard()) event.preventDefault();
 });
 
 $("lifeEventDialog").addEventListener("close", () => {
@@ -3864,6 +3805,8 @@ function openPerson(item = null, source = "tree", { showDialog = true } = {}) {
   $("toggleRelationBuilderBtn").setAttribute("aria-expanded", "false");
   setRelationBuilderKind("parent");
   setPersonSection("identity");
+  renderMajorEventAttestations("birth");
+  renderMajorEventAttestations("death");
   if (showDialog) {
     $("personDialog").showModal();
     setTimeout(() => $("firstName").focus(), 30);
@@ -4145,6 +4088,13 @@ function updateEndDetailsVisibility() {
 }
 
 function openFamilyDetails(familyId) {
+  if (journeyEditor && !journeyConfirmDiscard()) return;
+  if (journeyEditor) {
+    const previousKind = journeyEditor.entryKind || journeyEditor.type;
+    journeyEditor = null;
+    journeyEditorBaseline = null;
+    renderJourneyEditorSurface(previousKind);
+  }
   const family = families.find(item => item.id === familyId);
   if (!family) return toast("Cette relation est introuvable", "error");
   const current = person(activeId);
@@ -4168,6 +4118,7 @@ function openFamilyDetails(familyId) {
   const relevantLinks = normalizedParentChildLinks(family).filter(link => currentIsPartner ? link.parentId === activeId : currentIsChild ? link.childId === activeId : true);
   $("filiationDetailsTitle").textContent = currentIsChild ? "Liens avec les parents" : "Liens avec les enfants";
   $("filiationEditors").innerHTML = relevantLinks.map((link, index) => `<div class="filiation-editor"><span><strong>${esc(nameOf(link.parentId))}</strong> → ${esc(nameOf(link.childId))}</span><label>Type de filiation<select class="field" data-filiation-index="${index}" data-parent-id="${link.parentId}" data-child-id="${link.childId}"><option value="unknown" ${link.type === "unknown" ? "selected" : ""}>Non précisée</option><option value="biological" ${link.type === "biological" ? "selected" : ""}>Biologique</option><option value="adoptive" ${link.type === "adoptive" ? "selected" : ""}>Adoptive</option><option value="uncertain" ${link.type === "uncertain" ? "selected" : ""}>Incertaine</option></select></label></div>`).join("") || '<p class="hint">Aucun lien parent-enfant à modifier pour cette personne.</p>';
+  renderMajorEventAttestations("marriage");
   if ($("personDialog").open) $("personDialog").close();
   $("familyDetailsDialog").showModal();
 }
@@ -4190,6 +4141,13 @@ function returnFromFamilyDetails() {
 
 async function saveFamilyDetails(event) {
   event.preventDefault();
+  if (journeyEditor?.type === "attestation" && journeyEditor.entryKind === "marriage"
+    && journeyEditor.entryId === $("familyDetailsId").value) {
+    if (!journeyConfirmDiscard()) return;
+    journeyEditor = null;
+    journeyEditorBaseline = null;
+    renderMajorEventAttestations("marriage");
+  }
   const submitButton = event.submitter;
   const familyId = $("familyDetailsId").value;
   const family = families.find(item => item.id === familyId);
@@ -13928,7 +13886,13 @@ $("signupForm").addEventListener("submit", async event => {
 $("personForm").addEventListener("submit", async event => {
   event.preventDefault();
   if (personFormSaving) return;
-  if (personPageInlineEditing && journeyEditor && journeyFormSnapshot() !== journeyEditorBaseline
+  if (journeyEditor?.type === "attestation" && isMajorEventAttestationKind(journeyEditor.entryKind)) {
+    if (!journeyConfirmDiscard()) return;
+    const editorKind = journeyEditor.entryKind;
+    journeyEditor = null;
+    journeyEditorBaseline = null;
+    renderJourneyEditorSurface(editorKind);
+  } else if (personPageInlineEditing && journeyEditor && journeyFormSnapshot() !== journeyEditorBaseline
     && !confirm("Le formulaire du Parcours détaillé contient des modifications non enregistrées. Les abandonner avant d’enregistrer la fiche ?")) return;
   personFormSaving = true;
   const saveButton = $("savePersonBtn");
@@ -14175,18 +14139,25 @@ function renderJourneySection({ preserveForm = true } = {}) {
 
 function journeyOpenEditor(next) {
   if (journeyEditor && !journeyConfirmDiscard()) return;
+  const previousEditor = journeyEditor;
+  if (previousEditor) {
+    journeyEditor = null;
+    journeyEditorBaseline = null;
+    renderJourneyEditorSurface(previousEditor.entryKind || previousEditor.type);
+  }
   journeyEditor = next;
   journeyEditorBaseline = null;
-  if (next.entryId) journeyExpanded.add(next.entryId);
-  renderJourneySection({ preserveForm: false });
+  if (next.entryId && !isMajorEventAttestationKind(next.entryKind)) journeyExpanded.add(next.entryId);
+  renderJourneyEditorSurface(next.entryKind || next.type);
 }
 
 function journeyCancelEditor() {
   if (!journeyEditor) return;
   if (!journeyConfirmDiscard()) return;
+  const previousEditor = journeyEditor;
   journeyEditor = null;
   journeyEditorBaseline = null;
-  renderJourneySection({ preserveForm: false });
+  renderJourneyEditorSurface(previousEditor.entryKind || previousEditor.type);
 }
 
 function readJourneyEntryForm(type) {
@@ -14292,9 +14263,12 @@ async function journeySaveEntry() {
 async function journeySaveAttestation() {
   if (!journeyEditor || journeyEditor.type !== "attestation") return;
   clearJourneyErrors();
-  const item = activePersonPageItem;
+  const item = activePersonPageItem || person($("personId")?.value || "");
   const entryKind = journeyEditor.entryKind;
   const entryId = journeyEditor.entryId;
+  const majorTarget = isMajorEventAttestationKind(entryKind) ? majorEventAttestationTarget(entryKind, entryId) : null;
+  if (!item) return;
+  if (isMajorEventAttestationKind(entryKind) && !majorTarget) return;
   const dateResult = buildLifeDate(readJourneyDateRaw());
   if (!dateResult.ok || !dateResult.date || dateResult.date.type === "unknown") {
     showJourneyError("attDate", "Choisissez la date de l'attestation.");
@@ -14302,34 +14276,49 @@ async function journeySaveAttestation() {
     return;
   }
   const comment = (document.getElementById("journeyAttComment")?.value || "").trim();
-  const sourceIds = [...document.querySelectorAll("[data-journey-source-check]:checked")].map(input => input.dataset.journeySourceCheck);
-  const proofIds = [...document.querySelectorAll("[data-journey-proof-check]:checked")].map(input => input.dataset.journeyProofCheck);
+  const selectedSourceIds = [...document.querySelectorAll("[data-journey-source-check]:checked")].map(input => input.dataset.journeySourceCheck);
+  const selectedProofIds = [...document.querySelectorAll("[data-journey-proof-check]:checked")].map(input => input.dataset.journeyProofCheck);
   const selectedDocumentIds = [...document.querySelectorAll("[data-journey-document-check]:checked")].map(input => input.dataset.journeyDocumentCheck);
-  const field = journeyFieldFor(entryKind);
-  const list = personLifeList(item, field).map(entry => ({ ...entry, attestations: lifeAttestations(entry).map(value => ({ ...value })) }));
-  const entry = list.find(value => value.id === entryId);
-  if (!entry) return;
-  const attestations = lifeAttestations(entry);
+  const field = majorTarget?.field || journeyFieldFor(entryKind);
+  const list = majorTarget ? null : personLifeList(item, field).map(entry => ({ ...entry, attestations: lifeAttestations(entry).map(value => ({ ...value })) }));
+  const entry = majorTarget ? null : list.find(value => value.id === entryId);
+  if (!majorTarget && !entry) return;
+  const attestations = majorTarget
+    ? lifeAttestations({ attestations: majorTarget.container[field] })
+    : lifeAttestations(entry);
   const attId = journeyEditor.mode === "add" ? doc(refs.people).id : journeyEditor.attId;
   const candidate = { id: attId, date: dateResult.date };
   if (hasSimilarLifeAttestation(attestations, candidate) && !window.confirm("Attestation potentiellement identique : une attestation à cette date existe déjà. Enregistrer quand même ?")) return;
   const previousAttestation = attestations.find(value => value.id === attId);
   const availableDocumentIds = new Set(documents.filter(documentItem => (documentItem.personIds || []).includes(item.id)).map(documentItem => documentItem.id));
+  const availableSourceIds = new Set(genealogyRecords.sourceDocuments.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id)).map(record => record.id));
+  const availableProofIds = new Set(genealogyRecords.genealogyProofs.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id)).map(record => record.id));
   const unavailableExistingDocumentIds = (previousAttestation?.documentIds || []).filter(id => !availableDocumentIds.has(id));
+  const unavailableExistingSourceIds = majorTarget ? (previousAttestation?.sourceIds || []).filter(id => !availableSourceIds.has(id)) : [];
+  const unavailableExistingProofIds = majorTarget ? (previousAttestation?.proofIds || []).filter(id => !availableProofIds.has(id)) : [];
   const documentIds = [...new Set([...unavailableExistingDocumentIds, ...selectedDocumentIds])];
+  const sourceIds = [...new Set([...unavailableExistingSourceIds, ...selectedSourceIds])];
+  const proofIds = [...new Set([...unavailableExistingProofIds, ...selectedProofIds])];
   const record = { id: attId, date: dateResult.date, comment, documentIds, sourceIds, proofIds };
   const nextAttestations = journeyEditor.mode === "add"
     ? [...attestations, record]
     : attestations.map(value => value.id === attId ? record : value);
-  const next = list.map(value => value.id === entryId ? { ...value, attestations: nextAttestations } : value);
-  const saved = await journeyWriteSnapshot(item.id, field, next);
+  const next = majorTarget
+    ? nextAttestations
+    : list.map(value => value.id === entryId ? { ...value, attestations: nextAttestations } : value);
+  const saved = majorTarget
+    ? await lifeEventWriteAttestations(majorTarget, next)
+    : await journeyWriteSnapshot(item.id, field, next);
   if (!saved) return;
   toast(journeyEditor.mode === "add" ? "Attestation enregistrée." : "Attestation modifiée.");
   journeyEditor = null;
   journeyEditorBaseline = null;
-  journeyExpanded.add(entryId);
-  if (personPageInlineEditing) renderJourneySection({ preserveForm: false });
-  else refreshOpenPersonPage();
+  if (majorTarget) renderJourneyEditorSurface(entryKind);
+  else {
+    journeyExpanded.add(entryId);
+    if (personPageInlineEditing) renderJourneySection({ preserveForm: false });
+    else refreshOpenPersonPage();
+  }
 }
 
 async function journeyDeleteEntry(type, entryId) {
@@ -14361,22 +14350,29 @@ async function journeyDeleteEntry(type, entryId) {
 
 async function journeyDeleteAttestation(type, entryId, attId) {
   if (!journeyConfirmDiscard()) return;
-  const item = activePersonPageItem;
+  const item = activePersonPageItem || person($("personId")?.value || "");
   if (!item) return;
-  const field = journeyFieldFor(type);
-  const list = personLifeList(item, field);
+  const majorTarget = isMajorEventAttestationKind(type) ? majorEventAttestationTarget(type, entryId) : null;
+  if (isMajorEventAttestationKind(type) && !majorTarget) return;
+  const field = majorTarget?.field || journeyFieldFor(type);
+  const list = majorTarget ? null : personLifeList(item, field);
   if (!window.confirm("Supprimer cette attestation ?")) return;
-  const next = list.map(value => value.id === entryId
-    ? { ...value, attestations: lifeAttestations(value).filter(item => item.id !== attId) }
-    : value);
-  const saved = await journeyWriteSnapshot(item.id, field, next);
+  const next = majorTarget
+    ? lifeAttestations({ attestations: majorTarget.container[field] }).filter(value => value.id !== attId)
+    : list.map(value => value.id === entryId
+      ? { ...value, attestations: lifeAttestations(value).filter(item => item.id !== attId) }
+      : value);
+  const saved = majorTarget
+    ? await lifeEventWriteAttestations(majorTarget, next)
+    : await journeyWriteSnapshot(item.id, field, next);
   if (!saved) return;
   toast("Attestation supprimée.");
   if (journeyEditor?.attId === attId) {
     journeyEditor = null;
     journeyEditorBaseline = null;
   }
-  if (personPageInlineEditing) renderJourneySection({ preserveForm: false });
+  if (majorTarget) renderJourneyEditorSurface(type);
+  else if (personPageInlineEditing) renderJourneySection({ preserveForm: false });
   else refreshOpenPersonPage();
 }
 
@@ -14395,6 +14391,28 @@ async function journeyWriteSnapshot(personId, field, value) {
     return false;
   }
 }
+
+async function lifeEventWriteAttestations(target, next) {
+  try {
+    if (target.kind === "marriage") {
+      await updateDoc(doc(db, "families", target.id), { marriageAttestations: next, updatedAt: serverTimestamp() });
+      const updated = { ...target.container, marriageAttestations: next };
+      families = families.map(item => item.id === target.id ? updated : item);
+    } else {
+      const field = target.kind === "birth" ? "birthAttestations" : "deathAttestations";
+      await updateDoc(doc(db, "people", target.id), { [field]: next });
+      const updated = { ...target.container, [field]: next };
+      people = people.map(item => item.id === target.id ? updated : item);
+      if (activePersonPageItem?.id === target.id) activePersonPageItem = updated;
+    }
+    return true;
+  } catch (error) {
+    console.error(error);
+    toast("Enregistrement impossible : vérifiez votre connexion puis réessayez.", "error");
+    return false;
+  }
+}
+
 $("personForm").addEventListener("invalid", () => setPersonSection("identity"), true);
 
 async function removeDirectoryPersonPermanently(id) {
@@ -14507,6 +14525,27 @@ $("relationsList").onclick = event => {
 document.querySelectorAll("[data-date-prefix]").forEach(button => button.onclick = () => setGenealogyDateType(button.dataset.datePrefix, button.dataset.dateType));
 $("familyEndType").onchange = updateEndDetailsVisibility;
 $("familyDetailsForm").addEventListener("submit", saveFamilyDetails);
+$("familyDetailsDialog").addEventListener("click", event => {
+  if (!event.target.closest('[data-close="familyDetailsDialog"]')) return;
+  if (journeyEditor?.type !== "attestation" || journeyEditor.entryKind !== "marriage"
+    || journeyEditor.entryId !== $("familyDetailsId").value) return;
+  if (!journeyConfirmDiscard()) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  journeyEditor = null;
+  journeyEditorBaseline = null;
+  renderMajorEventAttestations("marriage");
+});
+$("familyDetailsDialog").addEventListener("cancel", event => {
+  if (journeyEditor?.type !== "attestation" || journeyEditor.entryKind !== "marriage"
+    || journeyEditor.entryId !== $("familyDetailsId").value) return;
+  if (!journeyConfirmDiscard()) { event.preventDefault(); return; }
+  journeyEditor = null;
+  journeyEditorBaseline = null;
+  renderMajorEventAttestations("marriage");
+});
 $("familyDetailsDialog").addEventListener("close", () => { if (familyDetailsReturnContext) returnFromFamilyDetails(); });
 
 document.addEventListener("click", event => {

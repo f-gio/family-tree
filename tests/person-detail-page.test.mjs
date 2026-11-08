@@ -46,6 +46,9 @@ window.__personPageTest = {
     window.__personPageUpdates = [...(window.__personPageUpdates || []), { id, firstName: data.firstName, place: data.place, birthDateInfo: data.birthDateInfo }];
     people = people.map(item => item.id === id ? { ...item, ...data, updatedAt: { toDate: () => new Date("2026-11-04T12:00:00Z") }, updatedByName: "Archiviste" } : item);
   },
+  updateFamilyDetails(id, data) {
+    families = families.map(item => item.id === id ? { ...item, ...data } : item);
+  },
   openTree() { renderTree(); setView("tree"); },
   openDirectory() { setView("directory"); },
   openEvidenceModal(section = "documents") {
@@ -125,9 +128,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       const update = 'await updateDoc(doc(db, "people", id), data);';
       assert.ok(source.includes(update), "les points de sauvegarde people passent par le hook du harnais");
       source = source.split(update).join("await window.__personPageTest.update(id, data);");
+      const familyUpdate = 'await withButtonPending(submitButton, () => updateDoc(doc(db, "families", familyId), data));';
+      assert.ok(source.includes(familyUpdate), "la sauvegarde des détails de relation reste testable via le harnais");
+      source = source.split(familyUpdate).join('await withButtonPending(submitButton, () => window.__personPageTest.updateFamilyDetails(familyId, data));');
       const lifeEventUpdates = [
-        ['await updateDoc(doc(db, "people", target.id), { birthAttestations: next });', 'await window.__personPageTest.updateLifeEventAttestations("birth", next);'],
-        ['await updateDoc(doc(db, "people", target.id), { deathAttestations: next });', 'await window.__personPageTest.updateLifeEventAttestations("death", next);'],
+        ['await updateDoc(doc(db, "people", target.id), { [field]: next });', 'await window.__personPageTest.updateLifeEventAttestations(target.kind, next);'],
         ['await updateDoc(doc(db, "families", target.id), { marriageAttestations: next, updatedAt: serverTimestamp() });', 'await window.__personPageTest.updateLifeEventAttestations("marriage", next);']
       ];
       for (const [hookSource, hookTarget] of lifeEventUpdates) {
@@ -677,7 +682,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.match(await page.locator("#journeyError-place").innerText(), /commune ou le lieu/, "erreur de validation inline");
     assert.ok(await page.locator("#personPageDetailedJourney [data-journey-form]").isVisible(), "formulaire conservé après erreur");
     await page.fill("#journeyPlace", "Ori");
-    await page.waitForSelector(".location-suggestion");
+    await page.waitForSelector(".location-suggestion:visible");
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
     assert.equal(await page.inputValue("#journeyRegion"), "Varese, Lombardia", "région GeoNames renseignée après sélection clavier");
@@ -928,8 +933,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(120);
     await page.fill("#journeyPlace", "Mon");
-    await page.waitForSelector(".location-suggestion");
-    await page.locator(".location-suggestion").first().evaluate(option => {
+    await page.waitForSelector(".location-suggestion:visible");
+    await page.locator(".location-suggestion:visible").first().evaluate(option => {
       option.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "touch", pointerId: 1 }));
       option.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -968,7 +973,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await eventCard.locator('[data-journey-attestation-add]').count(), 1, "pied d’actions disponible événement replié");
     await eventCard.locator('[data-journey-edit^="event:"]').click();
     await page.fill("#journeyPlace", "Var");
-    await page.waitForSelector(".location-suggestion");
+    await page.waitForSelector(".location-suggestion:visible");
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
     assert.equal(await page.inputValue("#journeyRegion"), "Province de Varese, Lombardie", "régions GeoNames disponibles dans le formulaire événement");
@@ -2149,24 +2154,32 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       await page.locator("#lifeEventCloseBtn").click();
     }
 
-    // Modification : gestion complète via la bascule du volet, frise préservée.
+    // Consultation : le volet est strictement en lecture seule.
     await page.setViewportSize({ width: 1280, height: 850 });
     await lifeTriggers.first().click();
     await page.waitForTimeout(250);
-    assert.equal(await page.locator("[data-life-event-manage]").count(), 1, "consultation : bascule unique vers la Modification");
-    await page.locator("[data-life-event-manage]").click();
+    assert.equal(await lifeEventDialog.locator("[data-life-event-manage], [data-life-event-att-add], [data-life-event-att-edit], [data-life-event-att-delete], [data-journey-attestation-add]").count(), 0, "consultation : aucune action d’édition des attestations");
+    await page.locator("#lifeEventCloseBtn").click();
+
+    // Naissance : le CTA est dans les champs du fait majeur, en Modification.
+    await page.locator("#personPageEditBtn").click();
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden, undefined, { timeout: 10000 });
-    assert.equal(await lifeEventDialog.evaluate(d => d.open), true, "volet maintenu ouvert pendant la bascule en Modification");
-    assert.equal(await page.locator("[data-life-event-manage]").count(), 0, "volet en Modification : plus de bouton de bascule");
-    assert.equal(await page.locator("#personLifeTimeline").isHidden(), true, "frise du Parcours de vie toujours masquée en Modification (comportement validé)");
-    assert.equal(await page.locator("[data-life-event-att-add]").count(), 1, "ajout d’attestation disponible en Modification");
-    await page.locator("[data-life-event-att-add]").click();
+    assert.equal(await page.locator("#personLifeTimeline").isHidden(), true, "frise toujours masquée en Modification");
+    const birthAdd = page.locator("#birthAttestationControl [data-journey-attestation-add]");
+    assert.equal(await birthAdd.innerText(), "Ajouter une attestation");
+    const desktopBirthLayout = await page.evaluate(() => {
+      const place = document.querySelector("#place").getBoundingClientRect();
+      const button = document.querySelector("#birthAttestationControl .life-attestation-add").getBoundingClientRect();
+      return { buttonLeft: button.left, placeRight: place.right };
+    });
+    assert.ok(desktopBirthLayout.buttonLeft >= desktopBirthLayout.placeRight - 2, "desktop : CTA aligné à droite des champs Naissance");
+    await birthAdd.click();
     await page.locator('[data-journey-attestation-save]').click();
-    assert.ok(await page.locator("#journeyError-attDate").isVisible(), "date de l’attestation obligatoire (validation réutilisée)");
-    assert.deepEqual(await page.locator("#lifeEventDialog .life-journey-justification-group > strong").allTextContents(), ["Documents associés", "Sources", "Preuves"], "sélecteurs Documents/Sources/Preuves réutilisés");
-    assert.equal(await page.locator("[data-journey-document-check]").count(), 4, "documents rattachés proposés");
-    assert.equal(await page.locator("[data-journey-source-check]").count(), 1, "source liée proposée");
-    assert.equal(await page.locator("[data-journey-proof-check]").count(), 1, "preuve liée proposée");
+    assert.ok(await page.locator("#journeyError-attDate").isVisible(), "date de l’attestation obligatoire");
+    assert.deepEqual(await page.locator("#personForm .life-journey-justification-group > strong").allTextContents(), ["Documents associés", "Sources", "Preuves"], "sélecteurs de justification conservés dans le formulaire");
+    assert.equal(await page.locator("[data-journey-document-check]").count(), 4);
+    assert.equal(await page.locator("[data-journey-source-check]").count(), 1);
+    assert.equal(await page.locator("[data-journey-proof-check]").count(), 1);
     await page.locator('[data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1892");
     await page.locator('[data-journey-document-check="person-page-document"]').check();
@@ -2175,42 +2188,98 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator('[data-journey-attestation-save]').click();
     await page.waitForFunction(() => window.__personPageTest.journeyState().birthAttestations.length === 1, undefined, { timeout: 5000 });
     let lifeState = await page.evaluate(() => window.__personPageTest.journeyState());
-    assert.deepEqual(lifeState.birthAttestations[0].documentIds, ["person-page-document"], "associations de documents enregistrées");
-    assert.deepEqual(lifeState.birthAttestations[0].sourceIds, ["person-page-source"], "association source enregistrée");
-    assert.equal(await page.evaluate(() => (window.__personPageLifeEventWrites || []).at(-1)?.kind), "birth", "écriture sur la fiche personne pour la naissance");
-    assert.equal(await lifeEventDialog.locator(".life-attestation").count(), 1, "attestation affichée dans le volet");
-    await page.locator("[data-life-event-att-edit]").click();
+    assert.deepEqual(lifeState.birthAttestations[0].documentIds, ["person-page-document"]);
+    assert.deepEqual(lifeState.birthAttestations[0].sourceIds, ["person-page-source"]);
+    assert.equal(await page.evaluate(() => (window.__personPageLifeEventWrites || []).at(-1)?.kind), "birth", "naissance enregistrée sur la fiche personne");
+    assert.equal(await page.locator("#birthAttestationList .life-attestation").count(), 1, "attestation rendue sous les champs Naissance");
+
+    // Les fenêtres mobiles gardent le CTA dans son groupe sans débordement.
+    for (const narrowWidth of [320, 375, 390]) {
+      await page.setViewportSize({ width: narrowWidth, height: 844 });
+      const narrow = await page.evaluate(() => {
+        const group = document.querySelector("#birthAttestationControl").parentElement.getBoundingClientRect();
+        const control = document.querySelector("#birthAttestationControl").getBoundingClientRect();
+        return { overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth, groupRight: group.right, controlRight: control.right };
+      });
+      assert.ok(narrow.overflow <= 1, `${narrowWidth}px : aucun débordement horizontal`);
+      assert.ok(narrow.controlRight <= narrow.groupRight + 1, `${narrowWidth}px : CTA contenu dans le groupe Naissance`);
+    }
+    await page.setViewportSize({ width: 1280, height: 850 });
+
+    // Enregistrer la fiche ne perd pas les attestations ; modifier et supprimer restent intégrés au même groupe.
+    await page.locator("#savePersonBtn").click();
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden, undefined, { timeout: 10000 });
+    lifeState = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(lifeState.birthAttestations.length, 1, "la sauvegarde de la fiche conserve l’attestation");
+    await page.locator("#personPageEditBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    await page.locator('#birthAttestationList [data-journey-attestation-edit^="birth:"]').click();
     await page.fill("#journeyAttComment", "Acte de naissance retrouvé");
     await page.locator('[data-journey-attestation-save]').click();
-    await page.waitForFunction(() => (window.__personPageTest.journeyState().birthAttestations[0]?.comment || "") === "Acte de naissance retrouvé", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => window.__personPageTest.journeyState().birthAttestations[0]?.comment === "Acte de naissance retrouvé", undefined, { timeout: 5000 });
     const deleteAttestationIndex = dialogMessages.length;
-    await page.locator("[data-life-event-att-delete]").click();
+    await page.locator('#birthAttestationList [data-journey-attestation-delete^="birth:"]').click();
     for (let i = 0; i < 60 && dialogMessages.length === deleteAttestationIndex; i++) await page.waitForTimeout(50);
-    assert.match(dialogMessages[deleteAttestationIndex] || "", /Supprimer cette attestation/, "confirmation de suppression d’attestation");
+    assert.match(dialogMessages[deleteAttestationIndex] || "", /Supprimer cette attestation/);
     await page.waitForFunction(() => window.__personPageTest.journeyState().birthAttestations.length === 0, undefined, { timeout: 5000 });
-    assert.equal(await page.evaluate(() => window.__personPageTest.documentExists("person-page-document")), true, "suppression d’attestation sans suppression du document original");
+    assert.equal(await page.evaluate(() => window.__personPageTest.documentExists("person-page-document")), true, "suppression sans supprimer le document original");
 
-    // Mariage : attestations portées par le document families, partagé sans doublon.
-    await page.locator("#lifeEventNextBtn").click();
-    assert.equal(await page.locator("#lifeEventDialogTitle").textContent(), "Mariage", "navigation vers le mariage en Modification");
-    await page.locator("[data-life-event-att-add]").click();
+    // Décès : même intégration, avec stockage indépendant sur la fiche personne.
+    await page.locator("#deathAttestationControl [data-journey-attestation-add]").click();
+    await page.locator('[data-journey-date-type="year"]').click();
+    await page.fill("#journeyDateYear", "1932");
+    await page.fill("#journeyAttComment", "Acte de décès consulté");
+    await page.locator('[data-journey-attestation-save]').click();
+    await page.waitForFunction(() => window.__personPageTest.journeyState().deathAttestations.length === 1, undefined, { timeout: 5000 });
+    assert.equal(await page.evaluate(() => (window.__personPageLifeEventWrites || []).at(-1)?.kind), "death", "décès enregistré dans son champ propre");
+    await page.locator("#savePersonBtn").click();
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden, undefined, { timeout: 10000 });
+    lifeState = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(lifeState.deathAttestations.length, 1, "la sauvegarde de la fiche conserve l’attestation de décès");
+    await page.locator("#personPageEditBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+
+    // Union : attestation partagée portée par families et conservée par la sauvegarde des détails.
+    const familyEdit = page.locator('#personPageEditHost [data-edit-family="person-page-family"]').first();
+    await familyEdit.evaluate(button => { button.closest("details").open = true; });
+    await familyEdit.click();
+    await page.waitForFunction(() => document.getElementById("familyDetailsDialog").open, undefined, { timeout: 5000 });
+    const marriageAdd = page.locator("#familyMarriageAttestationControl [data-journey-attestation-add]");
+    assert.equal(await marriageAdd.innerText(), "Ajouter une attestation");
+    for (const width of [320, 375, 390, 1280]) {
+      await page.setViewportSize({ width, height: width < 600 ? 844 : 850 });
+      const layout = await page.evaluate(() => {
+        const section = document.querySelector(".family-union-attestation-section").getBoundingClientRect();
+        const button = document.querySelector("#familyMarriageAttestationControl .life-attestation-add").getBoundingClientRect();
+        return { overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth, sectionRight: section.right, buttonRight: button.right };
+      });
+      assert.ok(layout.overflow <= 1, `${width}px : pas de débordement dans les détails de l’union`);
+      assert.ok(layout.buttonRight <= layout.sectionRight + 1, `${width}px : CTA contenu dans la section Union`);
+    }
+    await page.setViewportSize({ width: 1280, height: 850 });
+    await marriageAdd.click();
     await page.locator('[data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1888");
     await page.fill("#journeyAttComment", "Acte de mariage partagé");
     await page.locator('[data-journey-attestation-save]').click();
     await page.waitForFunction(() => (window.__personPageTest.journeyState().families.find(f => f.id === "person-page-family")?.marriageAttestations || []).length === 1, undefined, { timeout: 5000 });
-    assert.equal(await page.evaluate(() => (window.__personPageLifeEventWrites || []).at(-1)?.kind), "marriage", "écriture sur le document famille partagé");
-    await page.locator("#lifeEventCloseBtn").click();
+    assert.equal(await page.evaluate(() => (window.__personPageLifeEventWrites || []).at(-1)?.kind), "marriage", "mariage enregistré sur la famille partagée");
+    await page.locator("#unionPlace").fill("Palermo modifié");
+    await page.locator('#familyDetailsForm button[type="submit"]').click();
+    await page.waitForFunction(() => !document.getElementById("familyDetailsDialog").open, undefined, { timeout: 5000 });
+    lifeState = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(lifeState.families.find(f => f.id === "person-page-family").marriageAttestations.length, 1, "la sauvegarde des détails conserve l’attestation d’union");
     await page.locator('#personPageEditHost [data-close="personDialog"]').click();
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     await page.evaluate(() => window.__personPageTest.openDirectory());
     await page.locator('#directoryList [data-directory-person="person-page-b"]').click();
     await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Carlo"));
     await page.locator('#personPageTimeline [data-life-event="union-person-page-family"]').click();
-    assert.equal(await lifeEventDialog.locator(".life-attestation").count(), 1, "un seul jeu d’attestations de mariage partagé, sans doublon");
+    assert.equal(await lifeEventDialog.locator(".life-attestation").count(), 1, "un seul jeu d’attestations de mariage partagé");
     assert.match(await lifeEventDialog.locator(".life-attestation").innerText(), /Acte de mariage partagé/, "attestation visible depuis la fiche du conjoint");
     await page.locator("#lifeEventPrevBtn").click();
     assert.match(await lifeEventDialog.locator(".life-event-attestations").innerText(), /Aucune attestation renseignée/, "attestations de naissance indépendantes entre personnes");
+    assert.equal(await lifeEventDialog.locator("[data-life-event-manage], [data-life-event-att-add], [data-life-event-att-edit], [data-life-event-att-delete]").count(), 0, "consultation du conjoint toujours en lecture seule");
     await page.locator("#lifeEventCloseBtn").click();
 
     assert.deepEqual(errors, [], `aucune erreur JavaScript : ${errors.join(" | ")}`);
