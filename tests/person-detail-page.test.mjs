@@ -957,14 +957,14 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           kind, value, button, box,
           stacked: value.top >= kind.bottom - 1,
-          buttonRight: Math.abs(button.right - box.right) <= 2,
+          buttonCentered: Math.abs((button.left + button.right) / 2 - (box.left + box.right) / 2) <= 2,
           buttonBelow: button.top >= Math.max(kind.bottom, value.bottom) - 1
         };
       });
       assert.ok(variants.overflow <= 1, `${width}px : variantes sans débordement horizontal`);
       assert.ok(variants.kind.width > 0 && variants.value.width > 0, `${width}px : les deux champs restent accessibles`);
       assert.equal(variants.stacked, true, `${width}px : variantes empilées verticalement`);
-      assert.ok(variants.buttonRight && variants.buttonBelow, `${width}px : bouton Ajouter aligné à droite sous les champs`);
+      assert.ok(variants.buttonCentered && variants.buttonBelow, `${width}px : bouton Ajouter centré sous les champs`);
       const majorCtas = await page.evaluate(() => ["birth", "death"].map(kind => {
         const group = document.getElementById(`${kind}AttestationControl`).parentElement.getBoundingClientRect();
         const control = document.getElementById(`${kind}AttestationControl`).getBoundingClientRect();
@@ -2522,13 +2522,13 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           stacked: value.top >= type.bottom - 1,
           fullWidth: Math.abs(type.left - value.left) <= 1 && Math.abs(type.right - value.right) <= 1,
-          buttonRight: Math.abs(button.right - box.right) <= 2,
+          buttonCentered: Math.abs((button.left + button.right) / 2 - (box.left + box.right) / 2) <= 2,
           buttonNaturalWidth: button.width > 0 && button.width < box.width
         };
       });
       assert.equal(variants.overflow, 0, `${width}px : variantes sans débordement`);
       assert.ok(variants.stacked && variants.fullWidth, `${width}px : Type et Variante empilés sur toute la largeur`);
-      assert.ok(variants.buttonRight && variants.buttonNaturalWidth, `${width}px : Ajouter à droite avec sa largeur naturelle`);
+      assert.ok(variants.buttonCentered && variants.buttonNaturalWidth, `${width}px : Ajouter centré avec sa largeur naturelle`);
     }
 
     await page.evaluate(() => {

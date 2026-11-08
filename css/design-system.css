@@ -6823,7 +6823,7 @@ dialog.life-event-dialog[open] { display: flex; }
     max-width: 100%;
     box-sizing: border-box;
   }
-  #personForm #addNameVariantBtn { grid-column: 1; justify-self: end; }
+  #personForm #addNameVariantBtn { grid-column: 1; justify-self: center; }
 
   #personPageEditHost #personPageDetailedJourney .person-detail-journey-columns { gap: var(--space-4); }
   #personPageEditHost #personPageDetailedJourney .life-journey-column { gap: var(--space-2); }
