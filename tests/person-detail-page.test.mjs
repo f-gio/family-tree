@@ -2905,7 +2905,15 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         const scroller = document.scrollingElement || document.documentElement;
         if (scroller.scrollTop > 0) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
       });
-      await page.locator('#relationsList [data-family-card="partner:person-page-family"] .family-card-actions [data-edit-family]').evaluate(button => button.scrollIntoView({ block: "center", behavior: "instant" }));
+      /* Centrage actif : la condition est re-vérifiée jusqu'à stabilisation
+         pour ne pas dépendre du timing du scroll après un changement de taille. */
+      await page.waitForFunction(() => {
+        const button = document.querySelector('#relationsList [data-family-card="partner:person-page-family"] .family-card-actions [data-edit-family]');
+        const footer = document.querySelector("#personPageEditHost .person-actions");
+        if (!button || !footer) return false;
+        button.scrollIntoView({ block: "center", behavior: "instant" });
+        return button.getBoundingClientRect().bottom <= footer.getBoundingClientRect().top + 1;
+      }, undefined, { timeout: 5000 });
       const footerClearance = await page.evaluate(() => {
         const button = document.querySelector('#relationsList [data-family-card="partner:person-page-family"] .family-card-actions [data-edit-family]');
         const footer = document.querySelector("#personPageEditHost .person-actions");
