@@ -2387,6 +2387,13 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       return groups.find(group => group.querySelector("h4")?.textContent === "Partenaires et unions")?.innerText || "";
     });
     assert.match(partnerCounterText, /1 attestation/, "compteur de mariage issu de l’union concernée");
+    const desktopIndicatorAxis = await page.evaluate(() => {
+      const indicator = document.querySelector("#personPageTimeline .timeline-attestation-indicator");
+      if (!indicator) return null;
+      return { marginLeft: Number.parseFloat(getComputedStyle(indicator).marginLeft) };
+    });
+    assert.ok(desktopIndicatorAxis, "indicateur d’attestation présent dans la frise desktop");
+    assert.equal(desktopIndicatorAxis.marginLeft, 0, "desktop : décalage du compteur inchangé (règle mobile non appliquée)");
     assert.equal(await page.locator('#personPageFamily [data-family-card="partner:person-page-family"] .relation-person-attestation-count').innerText(), "1 attestation", "compteur sans précision du type d’attestation");
     await page.evaluate(() => window.__personPageTest.openDirectory());
     await page.locator('#directoryList [data-directory-person="person-page-b"]').click();
@@ -2646,32 +2653,67 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await modParentGroup.locator(".family-parent-line [data-remove-child]").count(), 0, "aucune dissociation individuelle du parent");
     const parentBlockDesktop = await modParentGroup.evaluate(group => {
       const rows = [...group.querySelectorAll(".family-parent-line")];
-      const modifier = group.querySelector(".family-parent-actions [data-edit-family]").getBoundingClientRect();
+      const modifierButton = group.querySelector(".family-parent-actions [data-edit-family]");
+      const modifier = modifierButton.getBoundingClientRect();
       const unlink = group.querySelector(".family-parent-actions [data-remove-child]").getBoundingClientRect();
       const style = getComputedStyle(group);
+      const modifierStyle = getComputedStyle(modifierButton);
       return {
         border: style.borderTopWidth,
         radius: style.borderTopLeftRadius,
         rowSeparator: getComputedStyle(rows[1]).borderTopWidth,
+        paddingLeft: Number.parseFloat(style.paddingLeft),
+        groupLeft: group.getBoundingClientRect().left,
+        groupRight: group.getBoundingClientRect().right,
         modifierLeft: modifier.left,
+        modifierRight: modifier.right,
         unlinkLeft: unlink.left,
         unlinkRight: unlink.right,
-        groupRight: group.getBoundingClientRect().right
+        modifierStyle: {
+          height: Math.round(modifier.height),
+          paddingInline: modifierStyle.paddingInlineStart,
+          fontSize: modifierStyle.fontSize,
+          fontWeight: modifierStyle.fontWeight,
+          borderWidth: modifierStyle.borderTopWidth
+        }
       };
     });
+    const parentDesktopModifierStyle = parentBlockDesktop.modifierStyle;
     assert.notEqual(parentBlockDesktop.border, "0px", "contour unique autour du groupe Parents");
     assert.notEqual(parentBlockDesktop.radius, "0px", "rayon des cartes Famille conservé");
     assert.notEqual(parentBlockDesktop.rowSeparator, "0px", "séparateur entre les deux parents");
-    assert.ok(parentBlockDesktop.modifierLeft < parentBlockDesktop.unlinkLeft, "Modifier à gauche et Dissocier à droite");
+    assert.ok(parentBlockDesktop.modifierLeft < parentBlockDesktop.unlinkLeft, "Modifier avant Dissocier");
     assert.ok(parentBlockDesktop.unlinkRight <= parentBlockDesktop.groupRight + 1, "action de groupe contenue dans la carte");
+    assert.ok(Math.abs(parentBlockDesktop.modifierLeft - (parentBlockDesktop.groupLeft + parentBlockDesktop.paddingLeft)) <= 2, "Modifier aligné au bord gauche du bloc Parents");
+    assert.ok(parentBlockDesktop.unlinkLeft - parentBlockDesktop.modifierRight <= 12, "espacement compact entre Modifier et Dissocier");
+    let parentMobileCta = null;
     for (const width of [320, 375, 390]) {
       await page.setViewportSize({ width, height: 844 });
       const mobileParentActions = await modParentGroup.evaluate(group => {
-        const buttons = [...group.querySelectorAll(".family-parent-actions .btn")].map(button => button.getBoundingClientRect());
-        return { overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth, group: group.getBoundingClientRect(), buttons };
+        const style = getComputedStyle(group);
+        const modifier = group.querySelector(".family-parent-actions [data-edit-family]");
+        const unlink = group.querySelector(".family-parent-actions [data-remove-child]");
+        const mBox = modifier.getBoundingClientRect();
+        const uBox = unlink.getBoundingClientRect();
+        const mStyle = getComputedStyle(modifier);
+        const uStyle = getComputedStyle(unlink);
+        return {
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          group: group.getBoundingClientRect(),
+          paddingLeft: Number.parseFloat(style.paddingLeft),
+          buttons: [mBox, uBox].map(box => ({ left: Math.round(box.left), right: Math.round(box.right) })),
+          modifier: { left: Math.round(mBox.left), width: Math.round(mBox.width), height: Math.round(mBox.height), fontSize: mStyle.fontSize, fontWeight: mStyle.fontWeight, borderWidth: mStyle.borderTopWidth },
+          gap: Math.round(uBox.left - mBox.right),
+          unlinkBorderColor: uStyle.borderTopColor
+        };
       });
       assert.ok(mobileParentActions.overflow <= 1, `${width}px : bloc Parents sans débordement`);
       assert.ok(mobileParentActions.buttons.every(button => button.left >= mobileParentActions.group.left && button.right <= mobileParentActions.group.right + 1), `${width}px : actions Parents contenues`);
+      assert.ok(Math.abs(mobileParentActions.modifier.left - (mobileParentActions.group.left + mobileParentActions.paddingLeft)) <= 2, `${width}px : actions Parents alignées à gauche`);
+      assert.ok(mobileParentActions.modifier.width < mobileParentActions.group.width / 2, `${width}px : Modifier ajusté au texte sans étirement (${mobileParentActions.modifier.width}px)`);
+      assert.equal(mobileParentActions.unlinkBorderColor, "rgba(0, 0, 0, 0)", `${width}px : Dissocier Parents sans encadrement`);
+      assert.ok(mobileParentActions.gap >= 4 && mobileParentActions.gap <= 12, `${width}px : espacement CTA Parents harmonisé (${mobileParentActions.gap}px)`);
+      parentMobileCta = mobileParentActions;
     }
     await page.setViewportSize({ width: 1280, height: 850 });
     await modParentActions.locator('[data-edit-family="person-page-family"]').click();
@@ -2704,6 +2746,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await modChildCard.locator(".family-card-aside .relation-person-attestation-count").innerText(), "2 attestations", "compteur dans l’en-tête en modification");
     const modChildPanel = modChildCard.locator(".family-card-panel");
     assert.equal(await modChildPanel.locator('[data-edit-family="person-page-family"]').innerText(), "Modifier", "Modifier enfant dans le panneau");
+    const childDesktopModifierStyle = await modChildPanel.locator('[data-edit-family="person-page-family"]').evaluate(button => {
+      const style = getComputedStyle(button);
+      return { height: Math.round(button.getBoundingClientRect().height), paddingInline: style.paddingInlineStart, fontSize: style.fontSize, fontWeight: style.fontWeight, borderWidth: style.borderTopWidth };
+    });
+    assert.deepEqual(childDesktopModifierStyle, parentDesktopModifierStyle, "Modifier enfant identique à celui des Parents (desktop)");
     assert.equal(await modChildPanel.locator("[data-remove-child]").innerText(), "Dissocier", "libellé visible unique enfant");
     assert.equal(await modChildPanel.locator("[data-remove-child]").getAttribute("aria-label"), "Dissocier cet enfant", "nom accessible enfant conservé");
     assert.ok(await modChildPanel.locator("[data-view-document]").count() >= 1, "documents de naissance dans le panneau");
@@ -2737,12 +2784,67 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await modPartnerPanel.locator("[data-remove-partner]").innerText(), "Dissocier", "libellé visible unique partenaire");
     assert.equal(await modPartnerPanel.locator("[data-remove-partner]").getAttribute("aria-label"), "Dissocier ce partenaire", "nom accessible partenaire conservé");
     assert.equal(await modPartnerPanel.locator('[data-edit-family="person-page-family"]').innerText(), "Modifier", "Modifier partenaire dans le panneau");
+    const partnerDesktopModifierStyle = await modPartnerPanel.locator('[data-edit-family="person-page-family"]').evaluate(button => {
+      const style = getComputedStyle(button);
+      return { height: Math.round(button.getBoundingClientRect().height), paddingInline: style.paddingInlineStart, fontSize: style.fontSize, fontWeight: style.fontWeight, borderWidth: style.borderTopWidth };
+    });
+    assert.deepEqual(partnerDesktopModifierStyle, parentDesktopModifierStyle, "Modifier partenaire identique à celui des Parents (desktop)");
     assert.doesNotMatch(await modPartnerPanel.innerText(), /Palermo/, "lieu absent du panneau Partenaires en Modification");
     await modPartnerPanel.locator('[data-edit-family="person-page-family"]').click();
     await page.waitForFunction(() => document.getElementById("familyDetailsDialog").open, undefined, { timeout: 5000 });
     assert.match(await page.locator("#familyDetailsTitle").innerText(), /Union avec/, "formulaire d’union existant");
     await page.locator('#familyDetailsDialog [data-close="familyDetailsDialog"]').first().click();
     await page.waitForFunction(() => !document.getElementById("familyDetailsDialog").open);
+    for (const width of [320, 375, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const mobileCtas = await page.evaluate(() => {
+        const measure = (cardSelector, removeSelector) => {
+          const card = document.querySelector(cardSelector);
+          const cardStyle = getComputedStyle(card);
+          const cardBox = card.getBoundingClientRect();
+          const modifier = card.querySelector(".family-card-actions [data-edit-family]");
+          const unlink = card.querySelector(`.family-card-actions ${removeSelector}`);
+          const mBox = modifier.getBoundingClientRect();
+          const uBox = unlink.getBoundingClientRect();
+          const mStyle = getComputedStyle(modifier);
+          const uStyle = getComputedStyle(unlink);
+          return {
+            cardLeft: Math.round(cardBox.left),
+            cardWidth: Math.round(cardBox.width),
+            paddingLeft: Number.parseFloat(cardStyle.paddingLeft),
+            modifier: { left: Math.round(mBox.left), width: Math.round(mBox.width), height: Math.round(mBox.height), fontSize: mStyle.fontSize, fontWeight: mStyle.fontWeight, borderWidth: mStyle.borderTopWidth },
+            unlink: { borderColor: uStyle.borderTopColor },
+            gap: Math.round(uBox.left - mBox.right),
+            overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+          };
+        };
+        const footer = document.querySelector("#personPageEditHost .person-actions");
+        return {
+          child: measure('#relationsList [data-family-card="child:person-page-family"]', "[data-remove-child]"),
+          partner: measure('#relationsList [data-family-card="partner:person-page-family"]', "[data-remove-partner]"),
+          footerPresent: Boolean(footer) && footer.getBoundingClientRect().height > 0
+        };
+      });
+      for (const [label, card] of [["enfant", mobileCtas.child], ["partenaire", mobileCtas.partner]]) {
+        assert.ok(card.overflow <= 1, `${width}px : carte ${label} sans débordement`);
+        assert.ok(Math.abs(card.modifier.left - (card.cardLeft + card.paddingLeft)) <= 2, `${width}px : CTA ${label} alignés à gauche`);
+        assert.ok(card.modifier.width < card.cardWidth / 2, `${width}px : Modifier ${label} ajusté au texte (${card.modifier.width}px)`);
+        assert.equal(card.modifier.height, parentMobileCta.modifier.height, `${width}px : hauteur Modifier ${label} identique au modèle Parents`);
+        assert.equal(card.modifier.fontSize, parentMobileCta.modifier.fontSize, `${width}px : typographie Modifier ${label} identique`);
+        assert.equal(card.unlink.borderColor, "rgba(0, 0, 0, 0)", `${width}px : Dissocier ${label} sans encadrement`);
+        assert.ok(card.gap >= 4 && card.gap <= 12, `${width}px : espacement CTA ${label} harmonisé (${card.gap}px)`);
+      }
+      assert.equal(mobileCtas.child.gap, mobileCtas.partner.gap, `${width}px : même espacement pour l’enfant et le partenaire`);
+      assert.equal(mobileCtas.footerPresent, true, `${width}px : footer fixe Enregistrer/Annuler conservé`);
+      await page.locator('#relationsList [data-family-card="partner:person-page-family"] .family-card-actions [data-edit-family]').evaluate(button => button.scrollIntoView({ block: "center", behavior: "instant" }));
+      const footerClearance = await page.evaluate(() => {
+        const button = document.querySelector('#relationsList [data-family-card="partner:person-page-family"] .family-card-actions [data-edit-family]');
+        const footer = document.querySelector("#personPageEditHost .person-actions");
+        return { buttonBottom: Math.round(button.getBoundingClientRect().bottom), footerTop: Math.round(footer.getBoundingClientRect().top) };
+      });
+      assert.ok(footerClearance.buttonBottom <= footerClearance.footerTop + 1, `${width}px : CTA partenaire au-dessus du footer fixe (${footerClearance.buttonBottom}px / ${footerClearance.footerTop}px)`);
+    }
+    await page.setViewportSize({ width: 1280, height: 850 });
     await page.evaluate(() => {
       const toggle = document.querySelector('#relationsList [data-family-card="partner:person-page-family"] [data-family-card-toggle]');
       if (toggle && toggle.getAttribute("aria-expanded") !== "true") toggle.click();
@@ -3147,6 +3249,20 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     assert.equal(await page.locator(`#personPageTimeline [data-life-event="${detailedTimelineId}"] .timeline-date`).innerText(), "1908", "la frise reflète la date modifiée");
     assert.equal(await page.locator("#personPageTimeline .timeline-attestation-indicator").count(), 1, "indicateur d’attestation affiché");
     assert.match(await page.locator("#personPageTimeline .timeline-attestation-indicator").innerText(), /2 attestations/, "nombre d’attestations réel");
+    const webkitIndicatorAxis = await page.evaluate(() => {
+      const indicator = document.querySelector("#personPageTimeline .timeline-attestation-indicator");
+      if (!indicator) return null;
+      const date = indicator.closest(".timeline-jalon")?.querySelector(".timeline-date");
+      if (!date) return null;
+      const dateBox = date.getBoundingClientRect();
+      const datePadding = Number.parseFloat(getComputedStyle(date).paddingLeft);
+      return {
+        indicatorLeft: Math.round(indicator.getBoundingClientRect().left),
+        dateTextLeft: Math.round(dateBox.left + datePadding)
+      };
+    });
+    assert.ok(webkitIndicatorAxis, "indicateur d’attestation présent dans la frise mobile");
+    assert.ok(Math.abs(webkitIndicatorAxis.indicatorLeft - webkitIndicatorAxis.dateTextLeft) <= 1, `mobile : compteur aligné sur la colonne date/lieu (${webkitIndicatorAxis.indicatorLeft} / ${webkitIndicatorAxis.dateTextLeft})`);
     const detailedTrigger = page.locator(`#personPageTimeline [data-life-event="${detailedTimelineId}"]`);
     const detailedButtonId = await detailedTrigger.getAttribute("id");
     const detailedEntryId = detailedTimelineId.replace("detailed-event-", "");
