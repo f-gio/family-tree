@@ -43,7 +43,7 @@ for (const [name, source] of [["index.html", html], ["app.js", app], ["tree-rend
   const missingType = buttons.filter(button => !/\btype=(?:"button"|'button'|"submit"|'submit')/.test(button));
   assert.deepEqual(missingType, [], `${name} contient un bouton sans type explicite`);
 }
-assert.match(app, /type="button" data-remove-\$\{removeType\}/);
+assert.match(app, /type="button" data-remove-partner="\$\{esc\(family\.id\)\}"/);
 assert.match(app, /\[data-remove-partner\],\[data-remove-child\]/);
 
 // 32 — présence et conventions des écrans/parcours demandés.

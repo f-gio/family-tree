@@ -10,7 +10,7 @@ window.__personPageTest = {
     people = [
       { id: "person-page-a", firstName: "Ada", middleName: "Maria", lastName: "Rossi", marriedName: "Bianchi", gender: "F", branch: "Ramo Conti", birthDateInfo: { type: "year", year: 1890 }, place: "Palermo", deathDateInfo: { type: "year", year: 1931 }, deathPlace: "Metz", notes: "Note de consultation", photoUrl: "${svg}", updatedAt: { toDate: () => new Date("2026-10-24T03:30:00Z") }, updatedByName: "Archiviste", inTree: true },
       { id: "person-page-b", firstName: "Carlo", lastName: "Rossi", gender: "M", birthDateInfo: { type: "year", year: 1860 }, place: "Palermo" },
-      { id: "person-page-c", firstName: "Lina", lastName: "Rossi", gender: "F", birthAttestations: [{ id: "lina-birth-attestation", comment: "Acte de naissance de Lina" }] },
+      { id: "person-page-c", firstName: "Lina", lastName: "Rossi", gender: "F", birthAttestations: [{ id: "lina-birth-attestation", comment: "Acte de naissance de Lina", documentIds: ["person-page-document"] }, { id: "lina-birth-attestation-2", comment: "Second acte de naissance de Lina", documentIds: ["person-page-pdf"] }] },
       { id: "person-page-d", firstName: "Rosa", middleName: "Margherita", lastName: "Conti", gender: "F", birthDateInfo: { type: "exact", value: "1904-08-25" }, place: "Esch-sur-Alzette", deathDateInfo: { type: "exact", value: "1931-07-28" }, deathPlace: "Metz", inTree: true },
       { id: "person-page-e", firstName: "Émile", lastName: "Conti", gender: "M", birthDateInfo: { type: "exact", value: "1902-02-02" }, inTree: true }
     ];
@@ -176,7 +176,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       const textOf = title => groups.find(group => group.querySelector("h4")?.textContent === title)?.innerText || "";
       return { parents: textOf("Parents"), partners: textOf("Partenaires et unions"), children: textOf("Enfants") };
     });
-    assert.match(earlyFamilyCounters.children, /1 attestation de naissance/, "compteur de naissance de l’enfant dans Famille");
+    assert.match(earlyFamilyCounters.children, /2 attestations de naissance/, "compteur de naissance de l’enfant dans Famille");
     assert.doesNotMatch(earlyFamilyCounters.partners, /attestation/, "aucun compteur avant l’attestation de mariage");
     assert.doesNotMatch(earlyFamilyCounters.parents, /attestation/, "aucun compteur d’attestation dans Parents");
     const desktopJourneyPresentation = await page.evaluate(() => {
@@ -1665,7 +1665,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           assert.ok(Math.abs(item.dotCenter - item.contentCenter) <= 2, `${width}px : pastille ${index + 1} alignée sur le centre de son bloc (${Math.round(item.dotCenter)} / ${Math.round(item.contentCenter)})`);
           assert.notEqual(item.iconDisplay, "none", `${width}px : icône de l'événement ${index + 1} visible`);
           assert.ok(item.iconLeft <= item.titleLeft, `${width}px : icône de l'événement ${index + 1} à gauche du libellé`);
-          assert.ok(item.iconWidth <= 16, `${width}px : icône de l'événement ${index + 1} discrète (${item.iconWidth}px)`);
+          assert.ok(item.iconWidth <= 18, `${width}px : icône de l'événement ${index + 1} lisible à 18 px (${item.iconWidth}px)`);
         });
         assert.ok(layout.timelineLayout.headingToLine >= 22 && layout.timelineLayout.headingToLine <= 30, `${width}px : respiration titre → ligne (${Math.round(layout.timelineLayout.headingToLine)}px)`);
         assert.ok(layout.timelineLayout.lineToContent >= 18 && layout.timelineLayout.lineToContent <= 24, `${width}px : respiration ligne → informations (${Math.round(layout.timelineLayout.lineToContent)}px)`);
@@ -2320,8 +2320,10 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
 
     // Union : attestation partagée portée par families et conservée par la sauvegarde des détails.
-    const familyEdit = page.locator('#personPageEditHost [data-edit-family="person-page-family"]').first();
-    await familyEdit.evaluate(button => { button.closest("details").open = true; });
+    const partnerCard = page.locator('#personPageEditHost [data-family-card="partner:person-page-family"]');
+    await partnerCard.locator("[data-family-card-toggle]").click();
+    await page.waitForFunction(() => document.querySelector('[data-family-card="partner:person-page-family"] .family-card-panel')?.hidden === false);
+    const familyEdit = partnerCard.locator('[data-edit-family="person-page-family"]');
     await familyEdit.click();
     await page.waitForFunction(() => document.getElementById("familyDetailsDialog").open, undefined, { timeout: 5000 });
     const marriageAdd = page.locator("#familyMarriageAttestationControl [data-journey-attestation-add]");
@@ -2361,6 +2363,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator('[data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1888");
     await page.fill("#journeyAttComment", "Acte de mariage partagé");
+    await page.locator('[data-journey-document-check="person-page-document"]').check();
     await page.locator('[data-journey-attestation-save]').click();
     await page.waitForFunction(() => (window.__personPageTest.journeyState().families.find(f => f.id === "person-page-family")?.marriageAttestations || []).length === 1, undefined, { timeout: 5000 });
     assert.equal(await page.evaluate(() => (window.__personPageLifeEventWrites || []).at(-1)?.kind), "marriage", "mariage enregistré sur la famille partagée");
@@ -2388,6 +2391,263 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.locator('#lifeEventDialog').count(), 0, "union sans volet latéral");
     assert.equal(await page.locator('#personPageEditHost').isHidden(), true, "union sans activation de Modification");
     await page.locator('#personPageTimeline [data-life-event="union-person-page-family"]').click();
+
+    /* Harmonisation Famille : icônes, cartes dépliables, liens d'attestations et actions explicites. */
+    await page.evaluate(() => document.querySelector('[data-person-page-section="family"]').click());
+
+    // Icônes du Parcours de vie : rendu réel à 18 px, filaire et sans fond.
+    const familyIcons = await page.evaluate(() => {
+      const results = {};
+      const host = document.createElement("div");
+      host.className = "person-page-timeline";
+      const jalon = document.createElement("div");
+      jalon.className = "timeline-jalon journey-event";
+      host.appendChild(jalon);
+      document.getElementById("personPageFamily").appendChild(host);
+      for (const id of ["icon-shield-military", "icon-church"]) {
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("class", "ui-icon timeline-icon");
+        const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+        use.setAttribute("href", "#" + id);
+        svg.appendChild(use);
+        jalon.appendChild(svg);
+        const box = svg.getBoundingClientRect();
+        const style = getComputedStyle(svg);
+        const symbol = document.getElementById(id);
+        const paths = [...symbol.querySelectorAll("path")];
+        let length = 0;
+        for (const path of paths) {
+          try { length += path.getTotalLength ? path.getTotalLength() : 0; } catch { /* géométrie indisponible */ }
+        }
+        results[id] = { width: Math.round(box.width), color: style.color, bg: style.backgroundColor, paths: paths.length, length: Math.round(length) };
+        svg.remove();
+      }
+      host.remove();
+      return results;
+    });
+    assert.ok(familyIcons["icon-shield-military"].width >= 16 && familyIcons["icon-shield-military"].width <= 18, `Service militaire à 18 px (${familyIcons["icon-shield-military"].width}px)`);
+    assert.equal(familyIcons["icon-shield-military"].color, "rgb(70, 98, 122)", "Service militaire en bleu source");
+    assert.equal(familyIcons["icon-shield-military"].bg, "rgba(0, 0, 0, 0)", "Service militaire sans fond plein");
+    assert.ok(familyIcons["icon-shield-military"].paths >= 2, "bouclier filaire avec emblème distinct");
+    assert.ok(familyIcons["icon-shield-military"].length > 50, "tracé du bouclier lisible");
+    assert.ok(familyIcons["icon-church"].width >= 16 && familyIcons["icon-church"].width <= 18, `Baptême à 18 px (${familyIcons["icon-church"].width}px)`);
+    assert.ok(familyIcons["icon-church"].paths >= 6, "église avec clocher, croix et bâtiment");
+    assert.ok(familyIcons["icon-church"].length > 60, "tracé de l’église suffisamment détaillé");
+    assert.equal(familyIcons["icon-church"].color, "rgb(70, 98, 122)", "Baptême en bleu source");
+
+    // Consultation : aucun menu ⋯ ni action de gestion.
+    assert.equal(await page.locator("#personPageFamily .relation-actions-menu").count(), 0, "aucun menu à trois points en consultation");
+    assert.equal(await page.locator("#personPageFamily [data-edit-family], #personPageFamily [data-remove-partner], #personPageFamily [data-remove-child]").count(), 0, "aucune action de gestion en consultation");
+    assert.equal(await page.locator("#personPageFamily .life-attestation-add").count(), 0, "aucun ajout d’attestation en consultation");
+
+    // Partenaire : compteur unique = lien direct vers la visionneuse existante.
+    const consultPartnerCard = page.locator('#personPageFamily [data-family-card="partner:person-page-family"]');
+    assert.equal(await consultPartnerCard.locator(".family-card-panel").isHidden(), true, "panneau partenaire replié par défaut");
+    const consultPartnerToggle = consultPartnerCard.locator("[data-family-card-toggle]");
+    assert.equal(await consultPartnerToggle.getAttribute("aria-expanded"), "false", "chevron partenaire fermé annoncé");
+    const consultPartnerCounter = consultPartnerCard.locator(".family-card-aside .family-attestation-link");
+    assert.equal(await consultPartnerCounter.innerText(), "1 attestation de mariage", "compteur de mariage affiché");
+    assert.equal(await consultPartnerCounter.getAttribute("data-view-document"), "person-page-document", "compteur unique ouvre directement le document");
+
+    // Panneau déplié : compléments et documents, sans répétition ni action.
+    await consultPartnerToggle.click();
+    await page.waitForFunction(() => document.querySelector('[data-family-card="partner:person-page-family"] .family-card-panel')?.hidden === false);
+    await page.waitForFunction(() => {
+      const svg = document.querySelector('[data-family-card="partner:person-page-family"] [data-family-card-toggle] svg');
+      return svg && getComputedStyle(svg).transform.includes("-1");
+    });
+    const consultPartnerPanel = await consultPartnerCard.locator(".family-card-panel").evaluate(panel => ({
+      docs: panel.querySelectorAll("[data-view-document]").length,
+      text: panel.innerText,
+      borderTop: getComputedStyle(panel).borderTopWidth,
+      actions: panel.querySelectorAll("[data-edit-family], [data-remove-partner]").length
+    }));
+    assert.ok(consultPartnerPanel.docs >= 1, "documents individuellement accessibles dans le panneau");
+    assert.match(consultPartnerPanel.text, /Palermo/, "lieu de l’union complémentaire affiché");
+    assert.doesNotMatch(consultPartnerPanel.text, /Adélaïde|Carlo/, "nom non répété dans le panneau");
+    assert.notEqual(consultPartnerPanel.borderTop, "0px", "séparateur discret");
+    assert.equal(consultPartnerPanel.actions, 0, "aucune action de modification en consultation");
+    await consultPartnerToggle.click();
+    await page.waitForFunction(() => document.querySelector('[data-family-card="partner:person-page-family"] .family-card-panel')?.hidden === true);
+
+    // Ouverture du document depuis le compteur, sans navigation vers une fiche Personne.
+    await consultPartnerCounter.click();
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden, undefined, { timeout: 10000 });
+    assert.match(await page.locator("#viewerTitle").innerText(), /Acte de naissance/, "visionneuse existante ouverte");
+    await page.locator("#documentPageBackBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, undefined, { timeout: 10000 });
+    assert.match(await page.locator("#personPageTitle").textContent(), /Carlo/, "retour à la fiche d’origine");
+    assert.equal((await page.evaluate(() => window.__personPageTest.state())).section, "family", "section Famille restaurée");
+
+    // Le lien du nom reste indépendant du compteur.
+    await consultPartnerCard.locator(".person-detail-relative-link").click();
+    await page.waitForFunction(() => !document.getElementById("personPageTitle").textContent.includes("Carlo"));
+    await page.locator("#personPageBackBtn").click();
+    await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Carlo"));
+    await page.evaluate(() => document.querySelector('[data-person-page-section="family"]').click());
+
+    // Enfant : sélecteur compact de documents, sans ouvrir l’accordéon.
+    const consultChildCard = page.locator('#personPageFamily [data-family-card="child:person-page-family"]');
+    const consultChildToggle = consultChildCard.locator("[data-family-card-toggle]");
+    const consultChildCounter = consultChildCard.locator("[data-family-attestation-picker]");
+    assert.equal(await consultChildCounter.innerText(), "2 attestations de naissance", "compteur de naissance multiplié");
+    assert.equal(await consultChildCard.locator(".family-card-panel").isHidden(), true, "panneau enfant replié par défaut");
+    await consultChildCounter.click();
+    const consultPicker = consultChildCard.locator(".family-attestation-picker");
+    assert.equal(await consultPicker.isVisible(), true, "liste compacte de sélection ouverte");
+    assert.equal(await consultPicker.locator("[data-view-document]").count(), 2, "deux documents au choix");
+    assert.equal(await consultChildCard.locator(".family-card-panel").isHidden(), true, "le compteur n’ouvre pas l’accordéon");
+    assert.match(await page.locator("#personPageTitle").textContent(), /Carlo/, "le compteur ne navigue pas vers une fiche Personne");
+    await page.locator("#personPageFamilyTitle").click();
+    assert.equal(await consultPicker.isHidden(), true, "clic hors liste referme la sélection");
+    await consultChildCounter.click();
+    await consultPicker.locator('[data-view-document="person-page-pdf"]').click();
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden, undefined, { timeout: 10000 });
+    assert.match(await page.locator("#viewerTitle").innerText(), /Registre PDF/, "document choisi ouvert dans la visionneuse");
+    await page.locator("#documentPageBackBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, undefined, { timeout: 10000 });
+    await page.evaluate(() => document.querySelector('[data-person-page-section="family"]').click());
+    await consultChildToggle.click();
+    await page.waitForFunction(() => document.querySelector('[data-family-card="child:person-page-family"] .family-card-panel')?.hidden === false);
+    assert.match(await page.locator("#personPageTitle").textContent(), /Carlo/, "le chevron n’ouvre pas la fiche Personne");
+    await consultChildToggle.click();
+    await page.waitForFunction(() => document.querySelector('[data-family-card="child:person-page-family"] .family-card-panel')?.hidden === true);
+
+    // Mobile : cartes sans débordement, chevrons tactiles et orientés.
+    for (const width of [320, 375, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.evaluate(() => document.querySelector('[data-person-page-section="family"]').click());
+      const mobileCard = await page.evaluate(() => {
+        const card = document.querySelector('#personPageFamily [data-family-card="partner:person-page-family"]');
+        const toggle = card.querySelector("[data-family-card-toggle]");
+        const panel = card.querySelector(".family-card-panel");
+        const counter = card.querySelector(".family-attestation-link");
+        return {
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          expanded: toggle.getAttribute("aria-expanded"),
+          panelHidden: panel.hidden,
+          counterRight: counter ? Math.round(counter.getBoundingClientRect().right) : null,
+          cardRight: Math.round(card.getBoundingClientRect().right),
+          chevronSize: Math.round(toggle.getBoundingClientRect().width)
+        };
+      });
+      assert.ok(mobileCard.overflow <= 1, `${width}px : aucune carte Famille en débordement`);
+      assert.equal(mobileCard.expanded, "false", `${width}px : carte repliée par défaut`);
+      assert.equal(mobileCard.panelHidden, true, `${width}px : panneau masqué par défaut`);
+      assert.ok(mobileCard.chevronSize >= 44, `${width}px : chevron tactile ≥ 44 px (${mobileCard.chevronSize}px)`);
+      assert.ok(mobileCard.counterRight <= mobileCard.cardRight + 1, `${width}px : compteur à droite dans la carte`);
+      await page.locator('#personPageFamily [data-family-card="partner:person-page-family"] [data-family-card-toggle]').click();
+      await page.waitForFunction(() => document.querySelector('[data-family-card="partner:person-page-family"] .family-card-panel')?.hidden === false);
+      await page.waitForFunction(() => {
+        const svg = document.querySelector('[data-family-card="partner:person-page-family"] [data-family-card-toggle] svg');
+        return svg && getComputedStyle(svg).transform.includes("-1");
+      });
+      const mobileOpen = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      assert.ok(mobileOpen <= 1, `${width}px : panneau déplié sans débordement`);
+      await page.locator('#personPageFamily [data-family-card="partner:person-page-family"] [data-family-card-toggle]').click();
+      await page.waitForFunction(() => document.querySelector('[data-family-card="partner:person-page-family"] .family-card-panel')?.hidden === true);
+    }
+    await page.setViewportSize({ width: 1280, height: 850 });
+
+    // Parents : aucune attestation ni chevron en consultation.
+    await page.evaluate(() => window.__personPageTest.openDirectory());
+    await page.locator('#directoryList [data-directory-person="person-page-c"]').click();
+    await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Lina"));
+    await page.evaluate(() => document.querySelector('[data-person-page-section="family"]').click());
+    const parentsGroup = page.locator("#personPageFamily .relation-group", { hasText: "Parents" });
+    assert.equal(await parentsGroup.locator(".relation-person-row").count(), 2, "deux cartes Parents");
+    assert.equal(await parentsGroup.locator("[data-family-card-toggle]").count(), 0, "aucun chevron Parents en consultation");
+    assert.doesNotMatch(await parentsGroup.innerText(), /attestation/, "aucun compteur d’attestation dans Parents");
+    assert.equal(await parentsGroup.locator("[data-edit-family]").count(), 0, "aucune action Modifier en consultation");
+
+    // Modification des Parents : un Modifier par parent, dissociation de groupe conservée.
+    await page.locator("#personPageEditBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    const modParentCards = page.locator('#relationsList [data-family-card="parent:person-page-family"]');
+    assert.equal(await modParentCards.count(), 2, "une carte Modifier par parent");
+    assert.equal(await modParentCards.first().locator("[data-family-card-toggle]").count(), 0, "aucun chevron inutile pour un parent");
+    const modParentActions = modParentCards.first().locator(".family-card-actions--static");
+    assert.equal(await modParentActions.isVisible(), true, "zone d’actions du parent visible");
+    assert.equal(await modParentActions.locator('[data-edit-family="person-page-family"]').innerText(), "Modifier", "bouton Modifier explicite");
+    assert.equal(await page.locator('#relationsList [data-remove-child="person-page-family"][data-person="person-page-c"]').count(), 1, "dissociation du groupe de parents conservée");
+    assert.equal(await page.locator("#relationsList .relation-actions-menu").count(), 0, "aucun menu à trois points en modification");
+    await modParentActions.locator('[data-edit-family="person-page-family"]').click();
+    await page.waitForFunction(() => document.getElementById("familyDetailsDialog").open, undefined, { timeout: 5000 });
+    assert.match(await page.locator("#familyDetailsTitle").innerText(), /Parents de Lina/, "formulaire de relation parent-enfant existant");
+    await page.locator('#familyDetailsDialog [data-close="familyDetailsDialog"]').first().click();
+    await page.waitForFunction(() => !document.getElementById("familyDetailsDialog").open);
+    await page.locator('#personPageEditHost [data-close="personDialog"]').click();
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+
+    // Modification des partenaires et enfants : panneau déplié, actions explicites, confirmations.
+    await page.evaluate(() => window.__personPageTest.openDirectory());
+    await page.locator('#directoryList [data-directory-person="person-page-b"]').click();
+    await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Carlo"));
+    await page.locator("#personPageEditBtn").click();
+    await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    assert.equal(await page.locator("#relationsList .relation-actions-menu").count(), 0, "aucun menu ⋯ en modification");
+    assert.equal(await page.locator("#relationsList .life-attestation-add").count(), 0, "aucune commande d’attestation inutile en modification");
+    const modChildCard = page.locator('#relationsList [data-family-card="child:person-page-family"]');
+    const modChildToggle = modChildCard.locator("[data-family-card-toggle]");
+    assert.equal(await modChildToggle.getAttribute("aria-expanded"), "false", "carte enfant repliée par défaut");
+    assert.equal(await modChildCard.locator(".family-card-aside .family-attestation-link").innerText(), "2 attestations de naissance", "compteur dans l’en-tête en modification");
+    await modChildToggle.click();
+    await page.waitForFunction(() => document.querySelector('#relationsList [data-family-card="child:person-page-family"] .family-card-panel')?.hidden === false);
+    const modChildPanel = modChildCard.locator(".family-card-panel");
+    assert.equal(await modChildPanel.locator('[data-edit-family="person-page-family"]').innerText(), "Modifier", "Modifier enfant dans le panneau");
+    assert.equal(await modChildPanel.locator("[data-remove-child]").innerText(), "Dissocier cet enfant", "libellé Dissocier enfant");
+    assert.ok(await modChildPanel.locator("[data-view-document]").count() >= 1, "documents de naissance dans le panneau");
+    await modChildPanel.locator('[data-edit-family="person-page-family"]').click();
+    await page.waitForFunction(() => document.getElementById("familyDetailsDialog").open, undefined, { timeout: 5000 });
+    await page.locator('#familyDetailsDialog [data-close="familyDetailsDialog"]').first().click();
+    await page.waitForFunction(() => !document.getElementById("familyDetailsDialog").open);
+    await page.evaluate(() => {
+      const toggle = document.querySelector('#relationsList [data-family-card="child:person-page-family"] [data-family-card-toggle]');
+      if (toggle && toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+    });
+    await page.waitForFunction(() => document.querySelector('#relationsList [data-family-card="child:person-page-family"] .family-card-panel')?.hidden === false);
+
+    await page.evaluate(() => {
+      window.__familyConfirmCalls = [];
+      window.__familyOriginalConfirm = window.confirm;
+      window.confirm = message => { window.__familyConfirmCalls.push(message); return false; };
+    });
+    await page.evaluate(() => {
+      const toggle = document.querySelector('#relationsList [data-family-card="child:person-page-family"] [data-family-card-toggle]');
+      if (toggle && toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+      document.querySelector('#relationsList [data-family-card="child:person-page-family"] [data-remove-child]').click();
+    });
+    const childConfirm = await page.evaluate(() => window.__familyConfirmCalls);
+    assert.match(childConfirm[0] || "", /Dissocier ce lien parent-enfant/, "confirmation de dissociation enfant conservée");
+
+    const modPartnerCard = page.locator('#relationsList [data-family-card="partner:person-page-family"]');
+    await modPartnerCard.locator("[data-family-card-toggle]").click();
+    await page.waitForFunction(() => document.querySelector('#relationsList [data-family-card="partner:person-page-family"] .family-card-panel')?.hidden === false);
+    const modPartnerPanel = modPartnerCard.locator(".family-card-panel");
+    assert.equal(await modPartnerPanel.locator("[data-remove-partner]").innerText(), "Dissocier ce partenaire", "libellé Dissocier partenaire");
+    assert.equal(await modPartnerPanel.locator('[data-edit-family="person-page-family"]').innerText(), "Modifier", "Modifier partenaire dans le panneau");
+    await modPartnerPanel.locator('[data-edit-family="person-page-family"]').click();
+    await page.waitForFunction(() => document.getElementById("familyDetailsDialog").open, undefined, { timeout: 5000 });
+    assert.match(await page.locator("#familyDetailsTitle").innerText(), /Union avec/, "formulaire d’union existant");
+    await page.locator('#familyDetailsDialog [data-close="familyDetailsDialog"]').first().click();
+    await page.waitForFunction(() => !document.getElementById("familyDetailsDialog").open);
+    await page.evaluate(() => {
+      const toggle = document.querySelector('#relationsList [data-family-card="partner:person-page-family"] [data-family-card-toggle]');
+      if (toggle && toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+    });
+    await page.waitForFunction(() => document.querySelector('#relationsList [data-family-card="partner:person-page-family"] .family-card-panel')?.hidden === false);
+    await page.evaluate(() => {
+      const toggle = document.querySelector('#relationsList [data-family-card="partner:person-page-family"] [data-family-card-toggle]');
+      if (toggle && toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+      document.querySelector('#relationsList [data-family-card="partner:person-page-family"] [data-remove-partner]').click();
+    });
+    const partnerConfirm = await page.evaluate(() => window.__familyConfirmCalls);
+    assert.match(partnerConfirm.at(-1) || "", /Dissocier ce partenaire/, "confirmation de dissociation partenaire conservée");
+    await page.evaluate(() => { window.confirm = window.__familyOriginalConfirm; delete window.__familyOriginalConfirm; delete window.__familyConfirmCalls; });
+    assert.equal(await page.locator('#relationsList [data-family-card="partner:person-page-family"]').count(), 1, "lien partenaire intact après confirmation refusée");
+    assert.equal(await page.locator('#relationsList [data-family-card="child:person-page-family"]').count(), 1, "lien enfant intact après confirmation refusée");
+    await page.locator('#personPageEditHost [data-close="personDialog"]').click();
+    await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
 
     assert.deepEqual(errors, [], `aucune erreur JavaScript : ${errors.join(" | ")}`);
   } finally {
@@ -2808,7 +3068,7 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
       assert.ok(mobileDetailed.chevronTransform.startsWith("matrix(-1"), `${width}px : chevron bas vers haut à l’ouverture`);
       assert.equal(mobileDetailed.iconBg, "rgba(0, 0, 0, 0)", `${width}px : icône sans carré plein`);
       assert.equal(mobileDetailed.iconColor, "rgb(70, 98, 122)", `${width}px : icône en bleu source`);
-      assert.ok(mobileDetailed.iconWidth >= 14 && mobileDetailed.iconWidth <= 16, `${width}px : taille d’icône visible (${mobileDetailed.iconWidth}px)`);
+      assert.ok(mobileDetailed.iconWidth >= 16 && mobileDetailed.iconWidth <= 18, `${width}px : taille d’icône visible à 18 px (${mobileDetailed.iconWidth}px)`);
       assert.ok(!mobileDetailed.factLabels.includes("Date") && !mobileDetailed.factLabels.includes("Lieu"), `${width}px : date et lieu non répétés dans le panneau`);
       assert.ok(mobileDetailed.factRows <= 2, `${width}px : informations regroupées sans empilement ligne à ligne`);
       assert.ok(mobileDetailed.contentLeft > mobileDetailed.axisLeft, `${width}px : axe de la frise visible à gauche du contenu`);
@@ -2941,7 +3201,46 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
       const textOf = title => groups.find(group => group.querySelector("h4")?.textContent === title)?.innerText || "";
       return { partners: textOf("Partenaires et unions"), children: textOf("Enfants") };
     });
-    assert.match(webkitFamilyCounters.children, /1 attestation de naissance/, "compteur de naissance de l’enfant visible en mobile");
+    assert.match(webkitFamilyCounters.children, /2 attestations de naissance/, "compteur de naissance de l’enfant visible en mobile");
+
+    await page.evaluate(() => document.querySelector('[data-person-page-section="family"]').click());
+    const webkitChildCard = page.locator('#personPageFamily [data-family-card="child:person-page-family"]');
+    const webkitChildToggle = webkitChildCard.locator("[data-family-card-toggle]");
+    assert.equal(await webkitChildToggle.getAttribute("aria-expanded"), "false", "carte enfant repliée par défaut en mobile");
+    await webkitChildToggle.click();
+    assert.equal(await webkitChildCard.locator(".family-card-panel").isVisible(), true, "panneau enfant déplié en mobile");
+    await page.waitForFunction(() => {
+      const svg = document.querySelector('#personPageFamily [data-family-card="child:person-page-family"] [data-family-card-toggle] svg');
+      return svg && getComputedStyle(svg).transform.includes("-1");
+    });
+    const webkitFamilyOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert.ok(webkitFamilyOverflow <= 1, "aucun débordement familial en mobile");
+    await webkitChildToggle.click();
+    assert.equal(await webkitChildCard.locator(".family-card-panel").isHidden(), true, "panneau enfant refermé en mobile");
+    const webkitMilitaryIcon = await page.evaluate(() => {
+      const host = document.createElement("div");
+      host.className = "person-page-timeline";
+      const jalon = document.createElement("div");
+      jalon.className = "timeline-jalon journey-event";
+      host.appendChild(jalon);
+      document.getElementById("personPageFamily").appendChild(host);
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("class", "ui-icon timeline-icon");
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      use.setAttribute("href", "#icon-shield-military");
+      svg.appendChild(use);
+      jalon.appendChild(svg);
+      const box = svg.getBoundingClientRect();
+      const style = getComputedStyle(svg);
+      const color = style.color;
+      const bg = style.backgroundColor;
+      svg.remove();
+      host.remove();
+      return { width: Math.round(box.width), color, bg };
+    });
+    assert.ok(webkitMilitaryIcon.width >= 16 && webkitMilitaryIcon.width <= 18, `bouclier à 18 px en mobile (${webkitMilitaryIcon.width}px)`);
+    assert.equal(webkitMilitaryIcon.color, "rgb(70, 98, 122)", "bouclier bleu source en mobile");
+    assert.equal(webkitMilitaryIcon.bg, "rgba(0, 0, 0, 0)", "bouclier sans fond en mobile");
     assert.doesNotMatch(webkitFamilyCounters.partners, /attestation/, "aucun compteur de mariage sans attestation");
 
     await page.locator("#personPageEditBtn").evaluate(button => button.click());

@@ -45,11 +45,15 @@ test("deux parents peuvent être reliés en une seule opération sans changer le
   assert.match(rules, /match \/families\/\{familyId\}/);
 });
 
-test("les actions secondaires et destructives restent accessibles mais discrètes", () => {
-  assert.match(app, /<details class="relation-actions-menu">/);
-  assert.match(app, /class="relation-menu-action danger"/);
+test("les actions explicites remplacent les menus à trois points", () => {
+  assert.match(app, /data-family-card-toggle/);
+  assert.match(app, /data-edit-family="\$\{esc\(family\.id\)\}"/);
+  assert.match(app, /class="btn tertiary danger"/);
+  assert.match(app, /Dissocier ce partenaire/);
+  assert.match(app, /Dissocier cet enfant/);
+  assert.doesNotMatch(app, /relation-actions-menu/);
   assert.match(css, /\.relation-actions-popover/);
-  assert.match(css, /\.relation-actions-menu summary:focus-visible/);
+  assert.match(css, /\.family-card-chevron:focus-visible/);
   assert.match(app, /Ses liens avec les deux parents seront retirés/);
 });
 
@@ -62,5 +66,5 @@ test("l’édition ciblée d’une filiation préserve les autres liens du foyer
 test("la présentation reste adaptée au mobile", () => {
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.relations-overview \{[^}]*flex-direction: column/);
   assert.match(css, /\.relation-add-grid \{ grid-template-columns: minmax\(0, 1fr\)/);
-  assert.match(css, /\.relation-actions-menu summary \{ width: var\(--control-touch\)/);
+  assert.match(css, /\.family-card-chevron \{[^}]*width: var\(--control-touch\)/);
 });

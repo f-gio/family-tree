@@ -2414,7 +2414,7 @@ label .field { margin-top: var(--space-2); }
 .timeline-date { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--color-text); }
 .timeline-detail { display: block; margin-left: calc(1.125rem + var(--space-2)); font-size: var(--text-xs); color: var(--color-text-muted); line-height: 1.35; }
 .timeline-line { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
-.timeline-icon { width: 1.125rem; height: 1.125rem; flex: 0 0 auto; color: var(--color-accent); }
+.timeline-icon { width: 1.125rem; height: 1.125rem; flex: 0 0 auto; stroke-width: 2; color: var(--color-accent); }
 
 /* Hiérarchie des informations du panneau desktop : groupes libellé/valeur
    alignés horizontalement avec retour à la ligne, attestations séparées d'un
@@ -2606,6 +2606,92 @@ label .field { margin-top: var(--space-2); }
 }
 .relation-person-attestation-count .ui-icon { width: 0.875rem; height: 0.875rem; }
 
+/* Cartes Famille dépliables : en-tête compact, compteur d'attestations à
+   droite, chevron bas/haut et panneau replié par défaut. Le panneau n'est
+   créé que lorsqu'il a un contenu utile (aucun panneau vide). */
+.family-relation-card { display: block; position: relative; }
+.family-card-head {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr) auto;
+  grid-template-areas: "avatar copy aside";
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.family-card-head > .relation-person-avatar { grid-area: avatar; }
+.family-card-head > .relation-person-copy { grid-area: copy; min-width: 0; }
+.family-card-head > .family-card-aside {
+  grid-area: aside;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.family-card-chevron {
+  display: grid;
+  place-items: center;
+  width: var(--control-touch);
+  height: var(--control-touch);
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.family-card-chevron .ui-icon { width: 1.125rem; height: 1.125rem; transition: transform 160ms ease; }
+.family-card-chevron[aria-expanded="true"] .ui-icon { transform: rotate(180deg); }
+.family-card-chevron:hover { background: var(--color-surface-muted); color: var(--color-brand); }
+.family-card-chevron:focus-visible { outline: 0; box-shadow: var(--shadow-focus); }
+.family-attestation-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-touch);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-brand);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: 1.35;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.family-attestation-link:hover { color: var(--color-brand-hover); }
+.family-attestation-link:focus-visible { outline: 0; border-radius: var(--radius-sm); box-shadow: var(--shadow-focus); }
+.family-attestation-link .ui-icon { width: 0.875rem; height: 0.875rem; flex: 0 0 auto; }
+.family-card-panel {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: var(--border-subtle);
+}
+.family-card-panel[hidden] { display: none; }
+.family-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.family-card-actions--static { margin-top: var(--space-3); }
+
+/* Mobile : le compteur passe sous le nom, aligné à droite, pour préserver
+   la largeur du texte et éviter tout débordement à 320 px. */
+@media (max-width: 760px) {
+  .family-card--with-counter .family-card-head { grid-template-areas: "avatar copy chevron" ". counter counter"; }
+  .family-card--with-counter .family-card-aside { display: contents; }
+  .family-card--with-counter .family-card-aside > .family-card-chevron { grid-area: chevron; }
+  .family-card--with-counter .family-card-aside > .family-attestation-link,
+  .family-card--with-counter .family-card-aside > .relation-person-attestation-count { grid-area: counter; justify-self: end; }
+}
+
 .relation-group-empty {
   margin: 0;
   padding: var(--space-3);
@@ -2617,25 +2703,6 @@ label .field { margin-top: var(--space-2); }
 }
 
 .relation-group-footer { display: flex; justify-content: flex-end; margin-top: var(--space-2); }
-
-.relation-actions-menu { position: relative; }
-.relation-actions-menu summary {
-  display: grid;
-  place-items: center;
-  width: var(--icon-button-size);
-  height: var(--icon-button-size);
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  font-size: var(--text-xl);
-  font-weight: var(--weight-bold);
-  line-height: 1;
-  list-style: none;
-  cursor: pointer;
-}
-.relation-actions-menu summary::-webkit-details-marker { display: none; }
-.relation-actions-menu summary:hover,
-.relation-actions-menu summary:focus-visible { background: var(--color-surface-muted); color: var(--color-brand); }
-.relation-actions-menu summary:focus-visible { outline: 0; box-shadow: var(--shadow-focus); }
 
 .relation-actions-popover {
   position: absolute;
@@ -2651,23 +2718,6 @@ label .field { margin-top: var(--space-2); }
   background: var(--color-surface);
   box-shadow: var(--shadow-medium);
 }
-
-.relation-menu-action {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--control-md);
-  padding-inline: var(--space-3);
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text);
-  font: var(--weight-medium) var(--text-md)/1.2 var(--font-ui);
-  text-align: left;
-}
-.relation-menu-action:hover { background: var(--color-surface-muted); }
-.relation-menu-action.danger { color: var(--color-danger); }
-.relation-menu-action.danger:hover { background: var(--color-danger-soft); }
 
 .person-section-panel .relation-builder {
   display: grid;
@@ -3084,6 +3134,7 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .account-dropdown:not([hidden]),
 .directory-filter-dialog[open],
 .relation-actions-menu[open] .relation-actions-popover,
+.family-attestation-picker:not([hidden]),
 [data-person-panel]:not([hidden]),
 [data-date-panel]:not([hidden]) { animation: ft-reveal 140ms ease-out; }
 
@@ -4415,7 +4466,6 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   .relation-add-actions .btn { width: 100%; }
   .relation-kind-button { min-height: var(--control-touch); }
   .relation-person-row { grid-template-columns: 2.75rem minmax(0, 1fr) var(--control-touch); }
-  .relation-actions-menu summary { width: var(--control-touch); height: var(--control-touch); }
   .relation-actions-popover { right: 0; max-width: min(17rem, calc(100vw - 3rem)); }
   .relation-group-footer .btn { width: 100%; }
 
@@ -4936,7 +4986,7 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   dialog::backdrop,
   .account-dropdown:not([hidden]),
   .directory-filter-dialog[open],
-  .relation-actions-menu[open] .relation-actions-popover,
+  .family-attestation-picker:not([hidden]),
   [data-person-panel]:not([hidden]),
   [data-date-panel]:not([hidden]),
   .loading-surface::after { animation: none; }
@@ -6575,7 +6625,7 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   .person-page-timeline .timeline-dot { display: block; z-index: 1; top: 0; left: 50%; width: 0.875rem; height: 0.875rem; border: 2px solid var(--color-surface); box-shadow: 0 0 0 1px var(--color-border-strong); transform: translateX(-50%); }
   .person-page-timeline .timeline-content { display: block; min-width: 0; padding: 0; text-align: center; }
   .person-page-timeline .timeline-line { display: flex; align-items: baseline; justify-content: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); min-width: 0; }
-  .person-page-timeline .timeline-icon { display: block; width: 0.875rem; height: 0.875rem; align-self: center; }
+  .person-page-timeline .timeline-icon { display: block; width: 1.125rem; height: 1.125rem; align-self: center; }
   .person-page-timeline .timeline-title,
   .person-page-timeline .timeline-age { display: inline; font: var(--weight-semibold) 0.75rem/1.35 var(--font-ui); letter-spacing: 0.04em; text-transform: uppercase; }
   .person-page-timeline .timeline-jalon.birth .timeline-title,
@@ -6770,7 +6820,7 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   .person-page-timeline .timeline-dot { display: block; top: 0.3125rem; left: -1.75rem; width: 0.875rem; height: 0.875rem; border: 2px solid var(--color-surface); box-shadow: 0 0 0 1px var(--color-border-strong); transform: none; }
   .person-page-timeline .timeline-content { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); min-width: 0; padding: 0; text-align: left; }
   .person-page-timeline .timeline-line { display: flex; align-items: baseline; justify-content: flex-start; flex-wrap: wrap; gap: var(--space-1) var(--space-2); min-width: 0; }
-  .person-page-timeline .timeline-icon { display: block; width: 1rem; height: 1rem; align-self: center; }
+  .person-page-timeline .timeline-icon { display: block; width: 1.125rem; height: 1.125rem; align-self: center; }
   .person-page-timeline .timeline-age { display: inline; color: var(--color-text-muted); font-size: var(--text-sm); font-weight: var(--weight-semibold); letter-spacing: normal; text-transform: none; }
   .person-page-timeline .timeline-date { display: block; flex: 0 0 100%; margin: var(--space-1) 0 0; padding-left: calc(1rem + var(--space-2)); color: var(--color-text); font-size: var(--text-md); font-weight: var(--weight-semibold); line-height: 1.4; }
   .person-page-timeline .timeline-detail { display: block; margin: 0 0 0 calc(1rem + var(--space-2)); color: var(--color-text-muted); font-size: var(--text-sm); line-height: 1.4; overflow-wrap: anywhere; }

@@ -42,7 +42,7 @@ assert.match(app, /\["ArrowLeft", "ArrowRight", "Home", "End"\]/);
 assert.match(html, />Ajouter le partenaire</);
 assert.match(html, />Ajouter l’enfant</);
 assert.match(html, />Ajouter le ou les parents</);
-assert.match(app, /detailsLabel = "Détails du lien"/);
+assert.match(app, /data-edit-family="\$\{esc\(family\.id\)\}">Modifier</);
 
 // 27 — transitions courtes et désactivables.
 assert.match(css, /@keyframes ft-reveal/);
