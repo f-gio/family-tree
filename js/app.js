@@ -233,6 +233,7 @@ let personPageActiveSection = "identity";
 let personPageDocumentsExpanded = false;
 let personPageStickyObserver = null;
 let journeyEventHighlightTimer = null;
+let personPageTimelineDetailId = null;
 let personPageInlineEditing = false;
 let personPageInlineInitialDraft = null;
 let personPageInlineHome = null;
@@ -2274,7 +2275,7 @@ function personPageTimelineMarkup(item) {
     const docsMarkup = personPageEventDocuments(item, event).map(documentItem => `<button class="btn small" type="button" data-view-document="${esc(documentItem.id)}">${icon("document")}<span>${esc(documentDisplayLabel(documentItem))}</span></button>`).join("");
     return timelineItemHtml(event, { interactive: true }).replace(/<\/li>$/, `${docsMarkup ? `<div class="person-page-event-documents" aria-label="Documents associés à l’événement">${docsMarkup}</div>` : ""}</li>`);
   }).join("");
-  return `<section id="personPageTimeline" aria-labelledby="personPageTimelineTitle"><h3 id="personPageTimelineTitle">Parcours de vie</h3><ol class="person-page-timeline">${eventMarkup}</ol></section>`;
+  return `<section id="personPageTimeline" aria-labelledby="personPageTimelineTitle"><h3 id="personPageTimelineTitle">Parcours de vie</h3><ol class="person-page-timeline">${eventMarkup}</ol><div class="person-page-timeline-detail" id="personPageTimelineDetail" hidden></div></section>`;
 }
 
 function personPageEventDocuments(item, event) {
@@ -2409,7 +2410,9 @@ function journeyErrorMarkup(key) {
 
 function journeyDateFormMarkup(dateInfo) {
   const type = LIFE_DATE_TYPES.includes(dateInfo?.type) ? dateInfo.type : "exact";
-  const buttons = [["exact", "Date précise"], ["year", "Année"], ["about", "Vers"], ["before", "Avant"], ["after", "Après"], ["attested", "Attesté"], ["between", "Entre"], ["unknown", "Inconnue"]];
+  const legacyDateLabels = { before: "Avant", after: "Après", attested: "Attesté" };
+  const buttons = [["exact", "Date précise"], ["year", "Année"], ["about", "Vers"], ["between", "Entre"], ["unknown", "Inconnue"]];
+  if (legacyDateLabels[type]) buttons.push([type, legacyDateLabels[type]]);
   const iso = (["exact", "before", "after", "attested"].includes(dateInfo?.type) && dateInfo.value) ? dateInfo.value : "";
   const year = (type === "year" || type === "about") && dateInfo?.year ? dateInfo.year : "";
   const from = type === "between" && dateInfo?.from ? dateInfo.from : "";
@@ -2712,7 +2715,7 @@ function journeyEntryFormMarkup(kind, entry) {
         <label>Pays<input class="field" id="journeyCountry" autocomplete="off" spellcheck="false" maxlength="80" value="${editing ? esc(entry.country || "") : ""}"></label>
       </div>
       <label>Description<textarea class="field" id="journeyDescription" rows="2" maxlength="800">${editing ? esc(entry.description || "") : ""}</textarea></label>
-      <div class="life-journey-visibility-toggle"><span id="journeyEventShowInLifeTimelineLabel">Afficher dans le Parcours de vie</span><div class="view-switch life-journey-visibility-switch" role="group" aria-labelledby="journeyEventShowInLifeTimelineLabel"><button type="button" data-journey-event-show-in-life-timeline="false" aria-pressed="${editing && entry.showInLifeTimeline === true ? "false" : "true"}"${editing && entry.showInLifeTimeline === true ? "" : " class=\"active\""}>Non</button><button type="button" data-journey-event-show-in-life-timeline="true" aria-pressed="${editing && entry.showInLifeTimeline === true ? "true" : "false"}"${editing && entry.showInLifeTimeline === true ? " class=\"active\"" : ""}>Oui</button></div><input type="hidden" id="journeyEventShowInLifeTimeline" value="${editing && entry.showInLifeTimeline === true ? "true" : "false"}"></div>`;
+      <div class="life-journey-visibility-toggle"><span id="journeyEventShowInLifeTimelineLabel">Afficher dans le parcours de vie</span><button class="life-journey-switch" type="button" role="switch" aria-checked="${editing && entry.showInLifeTimeline === true ? "true" : "false"}" aria-labelledby="journeyEventShowInLifeTimelineLabel" data-journey-event-show-in-life-timeline><span class="life-journey-switch-track" aria-hidden="true"><span class="life-journey-switch-knob"></span></span></button><input type="hidden" id="journeyEventShowInLifeTimeline" value="${editing && entry.showInLifeTimeline === true ? "true" : "false"}"></div>`;
   }
   const legend = kind === "residence" ? "Période connue" : kind === "profession" ? "Période connue" : "Date de l’événement";
   const pendingAttestationButton = `<div class="life-entry-actions"><button class="btn small tertiary life-attestation-add" type="button" data-journey-entry-attestation-add>${icon("plus")}<span>Ajouter une attestation</span></button></div>`;
@@ -3320,9 +3323,9 @@ $("personPageSectionNav").addEventListener("click", event => {
   target.scrollIntoView({ block: "start", behavior: "smooth" });
 });
 function handlePersonPageContentClick(event) {
-  const journeyEventTrigger = event.target.closest("[data-journey-event-id]");
-  if (journeyEventTrigger) {
-    navigateToDetailedJourneyEvent(journeyEventTrigger.dataset.journeyEventId);
+  const lifeEventTrigger = event.target.closest("[data-life-event]");
+  if (lifeEventTrigger) {
+    handleTimelineEventActivation(lifeEventTrigger);
     return;
   }
   const documentsToggle = event.target.closest("[data-person-page-documents-toggle]");
@@ -3336,10 +3339,10 @@ function handlePersonPageContentClick(event) {
     applyJourneyDateTypeToggle(journeyDateType);
     return;
   }
-  const visibilityButton = event.target.closest("[data-journey-event-show-in-life-timeline]");
-  if (visibilityButton) {
+  const visibilityToggle = event.target.closest(".life-journey-switch");
+  if (visibilityToggle) {
     const input = $("journeyEventShowInLifeTimeline");
-    if (input) input.value = visibilityButton.dataset.journeyEventShowInLifeTimeline;
+    if (input) input.value = input.value === "true" ? "false" : "true";
     syncJourneyEventVisibilityButtons();
     return;
   }
@@ -3481,7 +3484,157 @@ function timelineTypeIcon(event) {
   return "calendar";
 }
 
+function lifeEventConsultationMarkup(event) {
+  const item = activePersonPageItem || person(activeId);
+  if (!item) return "";
+  const facts = [];
+  const fact = (label, value) => {
+    const normalized = typeof value === "string" ? value.trim() : "";
+    if (normalized && normalized !== "—") facts.push(`<div class="source-detail-fact"><strong>${esc(label)}</strong><span>${esc(normalized)}</span></div>`);
+  };
+  let attestations = [];
+  let documentIds = [];
+  let sourceIds = [];
+  let proofIds = [];
+  if (event.type === "birth") {
+    fact("Date", event.date);
+    fact("Lieu", event.detail);
+    attestations = lifeAttestations({ attestations: item.birthAttestations });
+    documentIds = personPageEventDocuments(item, event).map(documentItem => documentItem.id);
+  } else if (event.type === "death") {
+    fact("Date", event.date);
+    fact("Lieu", event.detail);
+    attestations = lifeAttestations({ attestations: item.deathAttestations });
+    documentIds = personPageEventDocuments(item, event).map(documentItem => documentItem.id);
+  } else if (event.type === "union") {
+    const family = families.find(value => value.id === String(event.id).slice("union-".length));
+    if (!family) return "";
+    fact("Date", event.date);
+    fact("Lieu", formatCompactPlace(family.unionPlace, family.unionPlaceInfo));
+    fact("Conjoint", (family.partnerIds || []).filter(id => id !== item.id).map(nameOf).filter(Boolean).join(" et "));
+    const endType = normalizeEndType(family.endType);
+    if (!["none", "unknown"].includes(endType)) {
+      const endDate = formatGenealogyDate(family.endDateInfo, family.separationDate || family.divorceDate);
+      fact("Fin", [END_TYPE_LABELS[endType], endDate === "—" ? "" : endDate].filter(Boolean).join(" · "));
+    }
+    attestations = lifeAttestations({ attestations: family.marriageAttestations });
+    documentIds = personPageEventDocuments(item, event).map(documentItem => documentItem.id);
+  } else {
+    const entry = personLifeList(item, "lifeEvents").find(value => value.id === event.entryId && value.showInLifeTimeline === true);
+    if (!entry) return "";
+    fact("Type", lifeEventKindLabel(entry.kind) || entry.kind);
+    fact("Date", event.date);
+    fact("Lieu", formatCompactPlace(entry.place, { name: entry.place, countryCode: toIsoAlpha3(entry.countryCode) || countryNameToIsoAlpha3(entry.country) }));
+    fact("Description", entry.description);
+    attestations = lifeAttestations(entry);
+    documentIds = [...new Set(attestations.flatMap(value => value.documentIds || []))];
+    sourceIds = entry.sourceIds || [];
+    proofIds = entry.proofIds || [];
+  }
+  const factMarkup = facts.length ? `<div class="life-event-consultation-facts">${facts.join("")}</div>` : "";
+  const attestationMarkup = `<section class="life-event-attestations" aria-label="Attestations"><h4>Attestations</h4>${attestations.length ? `<div class="life-attestations">${journeyAttestationRowsMarkup("life-event-panel", { id: event.id, attestations }, item, { editable: false })}</div>` : `<p class="card-meta">Aucune attestation renseignée.</p>`}</section>`;
+  const attestedDocumentIds = new Set(attestations.flatMap(value => value.documentIds || []));
+  const attestedSourceIds = new Set(attestations.flatMap(value => value.sourceIds || []));
+  const attestedProofIds = new Set(attestations.flatMap(value => value.proofIds || []));
+  const documentLinks = journeyDocumentLinks(documentIds.filter(id => !attestedDocumentIds.has(id)));
+  const sourceLinks = journeySourceLinks(item, sourceIds.filter(id => !attestedSourceIds.has(id)), "source");
+  const proofLinks = journeySourceLinks(item, proofIds.filter(id => !attestedProofIds.has(id)), "proof");
+  const links = [documentLinks, sourceLinks, proofLinks].filter(Boolean).join("");
+  return `${factMarkup}${attestationMarkup}${links ? `<div class="life-attestation-links">${links}</div>` : ""}`;
+}
+
+function timelineEventContentId(event, suffix = "content") {
+  const slug = String(event.id).replace(/[^a-zA-Z0-9_-]/g, "-");
+  return `timeline-${suffix}-${slug}`;
+}
+
+function timelineDetailPanelMarkup(event, buttonId) {
+  return `<section class="person-page-timeline-detail-panel timeline-detail--${event.type}" id="${buttonId}-panel" role="region" aria-labelledby="${buttonId}"><span class="timeline-detail-marker" aria-hidden="true"></span><h4>${esc(event.title)}</h4>${lifeEventConsultationMarkup(event)}</section>`;
+}
+
+function closeTimelineDetailPanel({ restoreFocus = false } = {}) {
+  const container = $("personPageTimelineDetail");
+  const previousButton = personPageTimelineDetailId ? document.querySelector(`[data-life-event="${CSS.escape(personPageTimelineDetailId)}"]`) : null;
+  if (container) {
+    container.replaceChildren();
+    container.hidden = true;
+  }
+  personPageTimelineDetailId = null;
+  document.querySelectorAll('#personPageTimeline [data-life-event][aria-expanded="true"]').forEach(button => {
+    button.setAttribute("aria-expanded", "false");
+    button.removeAttribute("aria-controls");
+  });
+  if (restoreFocus && previousButton) previousButton.focus({ preventScroll: true });
+}
+
+function toggleTimelineDetailPanel(button, event) {
+  const container = $("personPageTimelineDetail");
+  if (!container) return;
+  if (personPageTimelineDetailId === event.id) {
+    closeTimelineDetailPanel({ restoreFocus: true });
+    return;
+  }
+  closeTimelineDetailPanel();
+  personPageTimelineDetailId = event.id;
+  const contentId = `${button.id}-panel`;
+  container.innerHTML = timelineDetailPanelMarkup(event, button.id);
+  container.hidden = false;
+  button.setAttribute("aria-expanded", "true");
+  button.setAttribute("aria-controls", contentId);
+  const panel = container.querySelector(".person-page-timeline-detail-panel");
+  const triggerBox = button.getBoundingClientRect();
+  const containerBox = container.getBoundingClientRect();
+  const markerLeft = Math.max(12, Math.min(containerBox.width - 12, triggerBox.left + triggerBox.width / 2 - containerBox.left));
+  panel.style.setProperty("--timeline-detail-marker-left", `${markerLeft}px`);
+}
+
+function toggleTimelineAccordion(button, event) {
+  const li = button.closest(".timeline-jalon");
+  if (!li) return;
+  const wasOpen = li.classList.contains("is-open");
+  document.querySelectorAll("#personPageTimeline .timeline-jalon.is-open").forEach(openLi => {
+    openLi.classList.remove("is-open");
+    const openButton = openLi.querySelector("[data-life-event]");
+    if (openButton) {
+      openButton.setAttribute("aria-expanded", "false");
+      openButton.removeAttribute("aria-controls");
+    }
+    openLi.querySelector(".timeline-accordion-content")?.remove();
+  });
+  if (wasOpen) return;
+  const contentId = timelineEventContentId(event);
+  li.classList.add("is-open");
+  button.setAttribute("aria-expanded", "true");
+  button.setAttribute("aria-controls", contentId);
+  const content = document.createElement("div");
+  content.className = "timeline-accordion-content";
+  content.id = contentId;
+  content.setAttribute("role", "region");
+  content.setAttribute("aria-labelledby", button.id);
+  content.innerHTML = `<h4>${esc(event.title)}</h4>${lifeEventConsultationMarkup(event)}`;
+  li.append(content);
+}
+
+function handleTimelineEventActivation(button) {
+  const eventId = button.dataset.lifeEvent;
+  const item = activePersonPageItem || person(activeId);
+  const event = item ? lifeTimelineEvents(item, { people, families }).find(value => value.id === eventId) : null;
+  if (!event) return;
+  if (window.matchMedia("(max-width: 760px)").matches) {
+    closeTimelineDetailPanel();
+    toggleTimelineAccordion(button, event);
+    return;
+  }
+  if (event.type === "journey-event") {
+    closeTimelineDetailPanel();
+    navigateToDetailedJourneyEvent(event.entryId);
+    return;
+  }
+  toggleTimelineDetailPanel(button, event);
+}
+
 function navigateToDetailedJourneyEvent(entryId) {
+  closeTimelineDetailPanel();
   const section = $("personPageDetailedJourney");
   const card = section?.querySelector(`[data-journey-id="${CSS.escape(entryId)}"]`);
   if (!card) return;
@@ -3501,10 +3654,16 @@ function timelineItemHtml(event, { interactive = false } = {}) {
   const date = event.date !== "—" ? `<span class="timeline-date">${esc(event.date)}</span>` : "";
   const detail = event.detail ? `<span class="timeline-detail">${esc(event.detail)}</span>` : "";
   const age = Number.isFinite(event.age) ? `<span class="timeline-age">· ${event.age} an${event.age > 1 ? "s" : ""}</span>` : "";
+  const attestationCount = Number.isInteger(event.attestationCount) ? event.attestationCount : 0;
+  const attestationIndicator = attestationCount > 0
+    ? `<span class="timeline-attestation-indicator">${icon("document")}<span>${attestationCount} attestation${attestationCount > 1 ? "s" : ""}</span></span>`
+    : "";
   const iconMarkup = `<svg class="ui-icon timeline-icon" aria-hidden="true"><use href="#icon-${timelineTypeIcon(event)}"></use></svg>`;
-  const inner = `<span class="timeline-line">${iconMarkup}<strong class="timeline-title">${esc(event.title)}</strong>${age}${date}</span>${detail}`;
-  if (!interactive || event.type !== "journey-event") return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-content">${inner}</div></li>`;
-  return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><button class="timeline-event-trigger" type="button" data-life-event="${esc(event.id)}" data-journey-event-id="${esc(event.entryId)}"><span class="timeline-content">${inner}</span><svg class="ui-icon timeline-event-chevron" aria-hidden="true"><use href="#icon-chevron-right"></use></svg></button></li>`;
+  const inner = `<span class="timeline-line">${iconMarkup}<strong class="timeline-title">${esc(event.title)}</strong>${age}${date}</span>${detail}${attestationIndicator}`;
+  if (!interactive) return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-content">${inner}</div></li>`;
+  const buttonId = timelineEventContentId(event, "trigger");
+  const detailedAttribute = event.type === "journey-event" ? ` data-journey-event-id="${esc(event.entryId)}"` : "";
+  return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><button class="timeline-event-trigger" id="${buttonId}" type="button" aria-expanded="false" data-life-event="${esc(event.id)}"${detailedAttribute}><span class="timeline-content">${inner}</span><svg class="ui-icon timeline-event-chevron" aria-hidden="true"><use href="#icon-chevron-right"></use></svg></button></li>`;
 }
 
 function renderLifeTimeline() {
@@ -14190,10 +14349,9 @@ function syncJourneyEventVisibilityButtons() {
   const input = $("journeyEventShowInLifeTimeline");
   if (!input) return;
   const value = input.value === "true";
-  document.querySelectorAll("[data-journey-event-show-in-life-timeline]").forEach(button => {
-    const active = button.dataset.journeyEventShowInLifeTimeline === String(value);
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", String(active));
+  document.querySelectorAll(".life-journey-switch").forEach(button => {
+    button.setAttribute("aria-checked", String(value));
+    button.classList.toggle("is-on", value);
   });
 }
 

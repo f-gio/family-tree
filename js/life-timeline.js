@@ -1,7 +1,7 @@
 import { formatGenealogyDate, genealogyDateSortValue, normalizeGenealogyDate } from "./genealogy-date.js";
 import { countryNameToIsoAlpha3, formatCompactPlace, toIsoAlpha3 } from "./place-format.js";
 import { normalizeRelationType, normalizeEndType, RELATION_TYPE_LABELS, END_TYPE_LABELS } from "./family-relations.js";
-import { formatLifeDate, lifeDateSortValue, lifeEventKindLabel } from "./life-journey.js";
+import { formatLifeDate, lifeAttestations, lifeDateSortValue, lifeEventKindLabel } from "./life-journey.js";
 
 function personName(item) {
   return [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ");
@@ -65,7 +65,7 @@ export function lifeTimelineEvents(person, { people = [], families = [] } = {}) 
   const birthDate = formatGenealogyDate(person.birthDateInfo, person.birthDate);
   const birthPlace = formatCompactPlace(person.place, person.birthPlaceInfo);
   if (birthDate !== "—" || birthPlace) {
-    events.push({ id: "birth", type: "birth", title: "Naissance", date: birthDate, detail: birthPlace, sortValue: genealogyDateSortValue(person.birthDateInfo, person.birthDate) });
+    events.push({ id: "birth", type: "birth", title: "Naissance", date: birthDate, detail: birthPlace, attestationCount: lifeAttestations({ attestations: person.birthAttestations }).length, sortValue: genealogyDateSortValue(person.birthDateInfo, person.birthDate) });
   }
 
   // Une union n'existe que pour un couple : la personne doit être explicitement
@@ -99,6 +99,7 @@ export function lifeTimelineEvents(person, { people = [], families = [] } = {}) 
         date: unionDate,
         detail: [partners.length ? `avec ${partners.join(" et ")}` : "", endDetail].filter(Boolean).join(" · "),
         age,
+        attestationCount: lifeAttestations({ attestations: family.marriageAttestations }).length,
         sortValue: genealogyDateSortValue(family.unionDateInfo, family.marriageDate || family.unionDate)
       };
     })
@@ -114,6 +115,7 @@ export function lifeTimelineEvents(person, { people = [], families = [] } = {}) 
       title: "Décès",
       date: deathDate,
       detail: deathPlace,
+      attestationCount: lifeAttestations({ attestations: person.deathAttestations }).length,
       age: lifeEventAgeAt(person, person.deathDateInfo, person.deathDate),
       sortValue: genealogyDateSortValue(person.deathDateInfo, person.deathDate)
     });
@@ -136,6 +138,7 @@ export function lifeTimelineEvents(person, { people = [], families = [] } = {}) 
         title,
         date: formatLifeDate(entry.dateInfo),
         detail,
+        attestationCount: lifeAttestations(entry).length,
         age: lifeEventAgeAt(person, entry.dateInfo),
         sortValue: lifeDateSortValue(entry.dateInfo)
       };

@@ -828,10 +828,10 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
       };
     });
-    assert.deepEqual(mobileAttestationDates.types, ["exact", "year", "about", "before", "after", "attested", "between", "unknown"]);
-    assert.deepEqual(mobileAttestationDates.visibleLabels, ["Date précise", "Année", "Vers", "Avant", "Après", "Attesté", "Entre", "Inconnue"], "huit libellés visibles dans le sélecteur mobile");
+    assert.deepEqual(mobileAttestationDates.types, ["exact", "year", "about", "between", "unknown"]);
+    assert.deepEqual(mobileAttestationDates.visibleLabels, ["Date précise", "Année", "Vers", "Entre", "Inconnue"], "cinq libellés visibles dans le sélecteur mobile");
     assert.deepEqual(mobileAttestationDates.active, ["exact"], "type sélectionné identifiable visuellement");
-    assert.ok(mobileAttestationDates.heights.every(height => height >= 44), "cibles tactiles des huit formats ≥ 44 px");
+    assert.ok(mobileAttestationDates.heights.every(height => height >= 44), "cibles tactiles des cinq formats ≥ 44 px");
     assert.equal(mobileAttestationDates.overflowX, "auto", "défilement horizontal limité au sélecteur");
     assert.ok(mobileAttestationDates.scrollsInside, "le sélecteur peut défiler sans élargir la page");
     assert.ok(mobileAttestationDates.pageOverflow <= 1, "sélecteur mobile sans débordement horizontal de page");
@@ -841,8 +841,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       widths: [...container.querySelectorAll("[data-journey-date-type]")].map(button => Math.round(button.getBoundingClientRect().width)),
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
     }));
-    assert.deepEqual(narrowDesktopDates.labels, ["Date précise", "Année", "Vers", "Avant", "Après", "Attesté", "Entre", "Inconnue"], "tous les formats visibles dans une colonne desktop étroite");
-    assert.ok(narrowDesktopDates.widths.every(width => width > 0), "les huit contrôles restent affichés");
+    assert.deepEqual(narrowDesktopDates.labels, ["Date précise", "Année", "Vers", "Entre", "Inconnue"], "les cinq formats visibles dans une colonne desktop étroite");
+    assert.ok(narrowDesktopDates.widths.every(width => width > 0), "les cinq contrôles restent affichés");
     assert.ok(narrowDesktopDates.pageOverflow <= 1, "formulaire desktop étroit sans débordement horizontal");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('[data-journey-attestation-save]').click();
@@ -2163,20 +2163,51 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Carlo"));
     assert.equal(await stickyBar.evaluate(bar => bar.classList.contains("is-visible")), false, "autre fiche ouverte : barre initialement masquée");
 
-        /* Parcours de vie : les jalons fondamentaux restent visibles, sans volet. */
+    /* Parcours de vie desktop : jalons fondamentaux interactifs et panneau intégré. */
     const lifeTriggers = page.locator('#personPageTimeline [data-life-event]');
-    assert.equal(await lifeTriggers.count(), 0, "Carlo : naissance et mariage non interactifs");
+    assert.equal(await lifeTriggers.count(), 2, "Carlo : naissance et mariage interactifs");
     assert.equal(await page.locator('#personPageTimeline .timeline-title').count(), 2, "Carlo : naissance et mariage affichés");
     await page.evaluate(() => window.__personPageTest.openDirectory());
     await page.locator('#directoryList [data-directory-person="person-page-a"]').click();
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden && document.querySelectorAll('#personPageTimeline .timeline-title').length === 3, undefined, { timeout: 10000 });
     await page.setViewportSize({ width: 1280, height: 850 });
-    assert.equal(await page.locator('#personPageTimeline [data-life-event]').count(), 0, "Ada : naissance, mariage et décès non interactifs");
+    assert.equal(await lifeTriggers.count(), 3, "Ada : naissance, mariage et décès interactifs");
     assert.deepEqual(await page.locator('#personPageTimeline .timeline-title').allTextContents(), ["Naissance", "Mariage", "Décès"], "ordre des jalons fondamentaux");
-    await page.locator('#personPageTimeline .timeline-jalon').first().click();
-    assert.equal(await page.locator('#lifeEventDialog').count(), 0, "aucun volet latéral pour un jalon fondamental");
+    assert.equal(await page.locator('#personPageTimeline .timeline-attestation-indicator').count(), 0, "aucun indicateur sans attestation");
+    const desktopChevron = await page.locator('#personPageTimeline .timeline-event-trigger .timeline-event-chevron').first().evaluate(element => getComputedStyle(element).display);
+    assert.equal(desktopChevron, "none", "chevron masqué sur la frise desktop");
+    const birthTrigger = page.locator('#personPageTimeline [data-life-event="birth"]');
+    await birthTrigger.hover();
+    await page.waitForTimeout(250);
+    const hoverBackground = await birthTrigger.evaluate(element => getComputedStyle(element).backgroundColor);
+    assert.notEqual(hoverBackground, "rgba(0, 0, 0, 0)", "survol de toute la zone interactive");
+    await birthTrigger.click();
+    const desktopPanel = page.locator("#personPageTimelineDetail .person-page-timeline-detail-panel");
+    await page.waitForFunction(() => !document.getElementById("personPageTimelineDetail").hidden);
+    assert.equal(await desktopPanel.count(), 1, "panneau intégré ouvert sous la frise");
+    assert.equal(await desktopPanel.getAttribute("aria-labelledby"), await birthTrigger.getAttribute("id"), "panneau associé au déclencheur");
+    assert.equal(await desktopPanel.locator(":scope > h4").innerText(), "Naissance", "type de l’événement affiché");
+    assert.match(await desktopPanel.locator(".life-event-attestations").innerText(), /Aucune attestation renseignée/, "état vide des attestations");
+    assert.equal(await desktopPanel.locator("[data-life-event-manage], [data-life-event-att-add], [data-life-event-att-edit], [data-journey-attestation-add]").count(), 0, "panneau strictement en lecture seule");
+    assert.equal(await page.locator('#lifeEventDialog').count(), 0, "aucun volet latéral");
     assert.equal(await page.locator('#personPageEditHost').isHidden(), true, "aucune activation de Modification");
-    assert.equal(await page.locator('.life-entry-card.is-journey-event-target').count(), 0, "aucune cible du Parcours détaillé pour un jalon fondamental");
+    const borderTop = await desktopPanel.evaluate(element => getComputedStyle(element).borderTopColor);
+    assert.equal(borderTop, "rgb(40, 75, 63)", "bordure supérieure verte pour la Naissance");
+    assert.equal(await desktopPanel.locator(".timeline-detail-marker").count(), 1, "triangle de repérage présent");
+    const selectedBackground = await birthTrigger.evaluate(element => getComputedStyle(element).backgroundColor);
+    assert.notEqual(selectedBackground, hoverBackground, "état sélectionné distinct du survol");
+    assert.equal(await birthTrigger.getAttribute("aria-expanded"), "true", "état ouvert annoncé");
+    await birthTrigger.click();
+    assert.equal(await page.locator("#personPageTimelineDetail").isHidden(), true, "clic sur l’actif referme le panneau");
+    assert.equal(await birthTrigger.getAttribute("aria-expanded"), "false", "état fermé annoncé");
+    await page.locator('#personPageTimeline [data-life-event="union-person-page-family"]').click();
+    assert.equal(await desktopPanel.locator(":scope > h4").innerText(), "Mariage", "changement d’événement actif");
+    assert.equal(await desktopPanel.evaluate(element => getComputedStyle(element).borderTopColor), "rgb(183, 119, 69)", "bordure orange pour l’union");
+    assert.equal(await page.locator('#personPageTimeline [data-life-event="birth"]').getAttribute("aria-expanded"), "false", "ancien événement désactivé");
+    await page.locator('#personPageTimeline [data-life-event="death"]').click();
+    assert.equal(await desktopPanel.locator(":scope > h4").innerText(), "Décès", "remplacement par le décès");
+    assert.equal(await desktopPanel.evaluate(element => getComputedStyle(element).borderTopColor), "rgb(166, 66, 56)", "bordure rouge pour le décès");
+    await page.locator('#personPageTimeline [data-life-event="death"]').click();
 
 // Naissance : le CTA est dans les champs du fait majeur, en Modification.
     await page.locator("#personPageEditBtn").click();
@@ -2311,9 +2342,14 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.evaluate(() => window.__personPageTest.openDirectory());
     await page.locator('#directoryList [data-directory-person="person-page-b"]').click();
     await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Carlo"));
-    await page.locator('#personPageTimeline .timeline-jalon.union').click();
-    assert.equal(await page.locator('#lifeEventDialog').count(), 0, "union fondamentale sans volet latéral");
-    assert.equal(await page.locator('#personPageEditHost').isHidden(), true, "union fondamentale sans activation de Modification");
+    await page.locator('#personPageTimeline [data-life-event="union-person-page-family"]').click();
+    const unionPanel = page.locator("#personPageTimelineDetail .person-page-timeline-detail-panel");
+    assert.equal(await unionPanel.locator(":scope > h4").innerText(), "Mariage", "panneau d’union ouvert");
+    assert.equal(await unionPanel.locator(".life-attestation").count(), 1, "attestation de mariage visible");
+    assert.match(await unionPanel.locator(".life-attestation").innerText(), /Acte de mariage partagé/, "attestation partagée consultable");
+    assert.equal(await page.locator('#lifeEventDialog').count(), 0, "union sans volet latéral");
+    assert.equal(await page.locator('#personPageEditHost').isHidden(), true, "union sans activation de Modification");
+    await page.locator('#personPageTimeline [data-life-event="union-person-page-family"]').click();
 
     assert.deepEqual(errors, [], `aucune erreur JavaScript : ${errors.join(" | ")}`);
   } finally {
@@ -2345,7 +2381,7 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
       source = source.split(update).join("await window.__personPageTest.update(id, data);");
       return route.fulfill({
         response,
-        body: `${source}\n${hooks}\nwindow.__personPageWebkitHarness = { openEdit() { const item = people.find(value => value.id === "person-page-a"); item.birthDateInfo = { type: "exact", value: "1904-08-25" }; item.deathDateInfo = { type: "exact", value: "1931-07-28" }; people = people.map(value => value.id === item.id ? item : value); window.__personPageWebkitFixture = { ...item }; $("authScreen").hidden = true; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); }, savedDates() { const data = window.__personPageUpdates.at(-1) || {}; return { birth: data.birthDateInfo || null, death: data.deathDateInfo || null }; }, reopenSaved() { const data = window.__personPageUpdates.at(-1) || {}; const item = { ...window.__personPageWebkitFixture, ...data }; window.__personPageWebkitFixture = item; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); }, journeyLists() { const item = activePersonPageItem || {}; return { residences: item.residences || [], professions: item.professions || [], lifeEvents: item.lifeEvents || [] }; }, writeCount() { return (window.__personPageUpdates || []).length; }, addLegacyEvent() { const item = activePersonPageItem; const event = { id: "webkit-legacy-event", kind: "studies", label: "Études historiques", dateInfo: { type: "year", year: 1912 }, attestations: [] }; item.lifeEvents = [...(item.lifeEvents || []), event]; people = people.map(value => value.id === item.id ? item : value); renderJourneySection({ preserveForm: false }); } };`
+        body: `${source}\n${hooks}\nwindow.__personPageWebkitHarness = { openEdit() { const item = people.find(value => value.id === "person-page-a"); item.birthDateInfo = { type: "exact", value: "1904-08-25" }; item.deathDateInfo = { type: "exact", value: "1931-07-28" }; people = people.map(value => value.id === item.id ? item : value); window.__personPageWebkitFixture = { ...item }; $("authScreen").hidden = true; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); }, savedDates() { const data = window.__personPageUpdates.at(-1) || {}; return { birth: data.birthDateInfo || null, death: data.deathDateInfo || null }; }, reopenSaved() { const data = window.__personPageUpdates.at(-1) || {}; const item = { ...window.__personPageWebkitFixture, ...data }; window.__personPageWebkitFixture = item; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); }, journeyLists() { const item = activePersonPageItem || {}; return { residences: item.residences || [], professions: item.professions || [], lifeEvents: item.lifeEvents || [] }; }, writeCount() { return (window.__personPageUpdates || []).length; }, addLegacyEvent() { const item = activePersonPageItem; const event = { id: "webkit-legacy-event", kind: "studies", label: "Études historiques", dateInfo: { type: "before", value: "1912-05-01" }, attestations: [] }; item.lifeEvents = [...(item.lifeEvents || []), event]; people = people.map(value => value.id === item.id ? item : value); renderJourneySection({ preserveForm: false }); } };`
       });
     }
     if (new URL(url).pathname.endsWith("/js/firebase-environment.js")) {
@@ -2612,8 +2648,7 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     await page.locator('#personPageDetailedJourney [data-journey-date-type="year"]').evaluate(button => button.click());
     await page.fill("#journeyDateYear", "1910");
     assert.equal(await page.locator("#journeyEventShowInLifeTimeline").inputValue(), "false", "visibilité du Parcours de vie désactivée par défaut");
-    assert.equal(await page.locator('[data-journey-event-show-in-life-timeline="false"]').getAttribute("aria-pressed"), "true", "Non sélectionné par défaut");
-    assert.equal(await page.locator('[data-journey-event-show-in-life-timeline="true"]').getAttribute("aria-pressed"), "false", "Oui désactivé par défaut");
+    assert.equal(await page.locator(".life-journey-switch").getAttribute("aria-checked"), "false", "interrupteur désactivé par défaut");
     await stageAttestation(1911, "Acte de baptême", "person-page-document");
     assert.equal(await page.inputValue("#journeyDateYear"), "1910", "les champs de l'événement sont conservés pendant l'ajout de l'attestation");
     await stageAttestation(1912, "Mention marginale");
@@ -2636,8 +2671,9 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     await page.locator("#personPageEditBtn").evaluate(button => button.click());
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     await page.locator('#personPageEditHost [data-journey-edit^="event:"]').evaluate(button => button.click());
-    await page.locator('[data-journey-event-show-in-life-timeline="true"]').evaluate(button => button.click());
-    assert.equal(await page.locator("#journeyEventShowInLifeTimeline").inputValue(), "true", "Oui sélectionné");
+    await page.locator(".life-journey-switch").evaluate(button => button.click());
+    assert.equal(await page.locator("#journeyEventShowInLifeTimeline").inputValue(), "true", "interrupteur activé");
+    assert.equal(await page.locator(".life-journey-switch").getAttribute("aria-checked"), "true", "état activé annoncé");
     await page.fill("#journeyDateYear", "1908");
     await page.fill("#journeyPlace", "Palermo");
     await tap('#personPageDetailedJourney [data-journey-save="event"]');
@@ -2650,53 +2686,95 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     assert.ok(detailedTimelineId, "le baptême opt-in apparaît dans le Parcours de vie");
     assert.deepEqual(timelineTitles, ["Naissance", "Mariage", "Baptême d’Ada", "Décès"], "événement inséré selon sa date entre les jalons connus");
     assert.equal(await page.locator(`#personPageTimeline [data-life-event="${detailedTimelineId}"] .timeline-date`).innerText(), "1908", "la frise reflète la date modifiée");
+    assert.equal(await page.locator("#personPageTimeline .timeline-attestation-indicator").count(), 1, "indicateur d’attestation affiché");
+    assert.match(await page.locator("#personPageTimeline .timeline-attestation-indicator").innerText(), /2 attestations/, "nombre d’attestations réel");
     const detailedTrigger = page.locator(`#personPageTimeline [data-life-event="${detailedTimelineId}"]`);
-    await detailedTrigger.evaluate(button => button.click());
+    const detailedButtonId = await detailedTrigger.getAttribute("id");
     const detailedEntryId = detailedTimelineId.replace("detailed-event-", "");
     const detailedCard = page.locator(`#personPageDetailedJourney [data-journey-id="${detailedEntryId}"]`);
+
+    // Mobile : accordéons intégrés, un seul ouvert, sans navigation parasite.
+    for (const width of [320, 375, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+      await detailedTrigger.evaluate(button => button.click());
+      await page.waitForFunction(() => {
+        const open = document.querySelectorAll("#personPageTimeline .timeline-jalon.is-open");
+        return open.length === 1 && open[0].querySelector(".timeline-accordion-content");
+      });
+      const mobileDetailed = await page.evaluate(() => {
+        const open = document.querySelector("#personPageTimeline .timeline-jalon.is-open");
+        const content = open?.querySelector(".timeline-accordion-content");
+        const button = open?.querySelector("[data-life-event]");
+        const chevron = button?.querySelector(".timeline-event-chevron");
+        return {
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          editHidden: document.getElementById("personPageEditHost").hidden,
+          dialogCount: document.querySelectorAll("#lifeEventDialog").length,
+          targetCount: document.querySelectorAll(".life-entry-card.is-journey-event-target").length,
+          expanded: button?.getAttribute("aria-expanded"),
+          contentId: content?.id,
+          labelledBy: content?.getAttribute("aria-labelledby"),
+          attestations: content?.querySelectorAll(".life-attestation").length || 0,
+          documentLinks: content?.querySelectorAll('[data-view-document="person-page-document"]').length || 0,
+          chevronTransform: chevron ? getComputedStyle(chevron).transform : ""
+        };
+      });
+      assert.equal(mobileDetailed.overflow, 0, `${width}px : aucun débordement horizontal`);
+      assert.equal(mobileDetailed.editHidden, true, `${width}px : Modification non activée`);
+      assert.equal(mobileDetailed.dialogCount, 0, `${width}px : aucun volet latéral`);
+      assert.equal(mobileDetailed.targetCount, 0, `${width}px : aucune navigation vers le Parcours détaillé`);
+      assert.equal(mobileDetailed.expanded, "true", `${width}px : accordéon ouvert annoncé`);
+      assert.ok(mobileDetailed.contentId && mobileDetailed.labelledBy === detailedButtonId, `${width}px : contenu associé au déclencheur`);
+      assert.equal(mobileDetailed.attestations, 2, `${width}px : attestations affichées`);
+      assert.equal(mobileDetailed.documentLinks, 1, `${width}px : document accessible`);
+      assert.notEqual(mobileDetailed.chevronTransform, "none", `${width}px : chevron pivoté`);
+      await detailedTrigger.evaluate(button => button.click());
+      await page.waitForFunction(() => document.querySelectorAll("#personPageTimeline .timeline-jalon.is-open").length === 0);
+
+      await page.locator('#personPageTimeline [data-life-event="birth"]').evaluate(button => button.click());
+      await page.waitForFunction(() => document.querySelectorAll("#personPageTimeline .timeline-jalon.is-open").length === 1);
+      const mobileFundamental = await page.evaluate(() => ({
+        openIsBirth: document.querySelector("#personPageTimeline .timeline-jalon.is-open [data-life-event]")?.dataset.lifeEvent === "birth",
+        detailedOpen: document.querySelectorAll("#personPageTimeline .timeline-jalon.is-open [data-journey-event-id]").length > 0,
+        text: document.querySelector("#personPageTimeline .timeline-jalon.is-open .timeline-accordion-content")?.innerText || ""
+      }));
+      assert.equal(mobileFundamental.openIsBirth, true, `${width}px : Naissance ouverte`);
+      assert.equal(mobileFundamental.detailedOpen, false, `${width}px : seul un événement ouvert`);
+      assert.match(mobileFundamental.text, /Naissance/, `${width}px : contenu de Naissance affiché`);
+      await page.locator('#personPageTimeline [data-life-event="birth"]').evaluate(button => button.click());
+      await page.waitForFunction(() => document.querySelectorAll("#personPageTimeline .timeline-jalon.is-open").length === 0);
+    }
+
+    // Desktop : navigation clavier vers la carte détaillée.
+    await page.setViewportSize({ width: 1280, height: 850 });
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+    await detailedTrigger.focus();
+    await page.keyboard.press("Enter");
     await page.waitForFunction(id => {
       const card = document.querySelector(`#personPageDetailedJourney [data-journey-id="${id}"]`);
       return card && card.classList.contains("is-journey-event-target") && (!card.querySelector("details") || card.querySelector("details").open);
     }, detailedEntryId, { timeout: 5000 });
-    assert.equal(await page.locator('#lifeEventDialog').count(), 0, "aucun volet latéral pour un événement du Parcours détaillé");
-    assert.equal(await page.locator('#personPageEditHost').isHidden(), true, "la navigation n’active pas la Modification");
-    assert.equal(await detailedCard.locator(".life-attestation").count(), 2, "les attestations du même événement restent consultables dans la carte");
-    assert.equal(await detailedCard.locator('[data-view-document="person-page-document"]').count(), 1, "document associé accessible depuis la carte");
+    const desktopMetrics = await page.evaluate(() => ({
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      editHidden: document.getElementById("personPageEditHost").hidden,
+      dialogCount: document.querySelectorAll("#lifeEventDialog").length,
+      detailPanelHidden: document.getElementById("personPageTimelineDetail")?.hidden
+    }));
+    assert.equal(desktopMetrics.overflow, 0, "1280px : aucun débordement horizontal");
+    assert.equal(desktopMetrics.editHidden, true, "1280px : Modification non activée");
+    assert.equal(desktopMetrics.dialogCount, 0, "1280px : aucun volet latéral");
+    assert.equal(desktopMetrics.detailPanelHidden, true, "1280px : panneau fondamental fermé lors de la navigation détaillée");
+    assert.equal(await detailedCard.locator(".life-attestation").count(), 2, "attestations consultables dans la carte");
     await page.waitForFunction(() => !document.querySelector(".life-entry-card.is-journey-event-target"), undefined, { timeout: 3000 });
-
-    for (const width of [320, 375, 390, 1280]) {
-      await page.setViewportSize({ width, height: width < 600 ? 844 : 850 });
-      await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
-      if (width === 1280) {
-        await detailedTrigger.focus();
-        await page.keyboard.press("Enter");
-      } else {
-        await detailedTrigger.evaluate(button => button.click());
-      }
-      await page.waitForFunction(id => {
-        const card = document.querySelector(`#personPageDetailedJourney [data-journey-id="${id}"]`);
-        if (!card || !card.classList.contains("is-journey-event-target")) return false;
-        const header = document.querySelector(".topbar")?.getBoundingClientRect();
-        const box = card.getBoundingClientRect();
-        return !header || (box.top >= header.bottom + 4 && box.top < window.innerHeight);
-      }, detailedEntryId, { timeout: 5000 });
-      const metrics = await page.evaluate(() => ({
-        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-        editHidden: document.getElementById("personPageEditHost").hidden,
-        dialogCount: document.querySelectorAll("#lifeEventDialog").length
-      }));
-      assert.equal(metrics.overflow, 0, `${width}px : aucun débordement horizontal`);
-      assert.equal(metrics.editHidden, true, `${width}px : Modification non activée`);
-      assert.equal(metrics.dialogCount, 0, `${width}px : aucun volet latéral`);
-      await page.waitForFunction(() => !document.querySelector(".life-entry-card.is-journey-event-target"), undefined, { timeout: 3000 });
-    }
     await page.setViewportSize({ width: 390, height: 844 });
 
     await page.locator("#personPageEditBtn").evaluate(button => button.click());
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     await page.locator('#personPageEditHost [data-journey-edit^="event:"]').evaluate(button => button.click());
-    await page.locator('[data-journey-event-show-in-life-timeline="false"]').evaluate(button => button.click());
-    assert.equal(await page.locator("#journeyEventShowInLifeTimeline").inputValue(), "false", "retour à Non");
+    await page.locator(".life-journey-switch").evaluate(button => button.click());
+    assert.equal(await page.locator("#journeyEventShowInLifeTimeline").inputValue(), "false", "retour à désactivé");
+    assert.equal(await page.locator(".life-journey-switch").getAttribute("aria-checked"), "false", "état désactivé annoncé");
     await tap('#personPageDetailedJourney [data-journey-save="event"]');
     await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents[0]?.showInLifeTimeline === false);
     journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
@@ -2717,8 +2795,10 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     await page.locator('#personPageDetailedJourney [data-journey-edit="event:webkit-legacy-event"]').evaluate(button => button.click());
     assert.equal(await page.locator("#journeyEventKind").inputValue(), "studies", "ancien type conservé à la réouverture");
     assert.equal(await page.locator('#journeyEventKind optgroup[label="Type historique"] option[value="studies"]').evaluate(option => option.selected), true, "ancien type proposé comme option historique sélectionnée");
+    assert.equal(await page.locator('#personPageDetailedJourney [data-journey-date-type="before"]').count(), 1, "critère historique Avant affiché pour cet enregistrement");
+    assert.equal(await page.locator('#personPageDetailedJourney [data-journey-date-type="before"]').evaluate(button => button.classList.contains("active")), true, "critère historique restauré");
     await tap('#personPageDetailedJourney [data-journey-save="event"]');
-    await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents.some(event => event.id === "webkit-legacy-event" && event.kind === "studies"));
+    await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents.some(event => event.id === "webkit-legacy-event" && event.kind === "studies" && event.dateInfo?.type === "before" && event.dateInfo?.value === "1912-05-01"));
 
   } finally {
     await context.close();
