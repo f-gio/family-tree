@@ -52,7 +52,9 @@ test("les actions explicites remplacent les menus à trois points", () => {
   assert.match(app, /Dissocier ce partenaire/);
   assert.match(app, /Dissocier cet enfant/);
   assert.doesNotMatch(app, /relation-actions-menu/);
-  assert.match(css, /\.relation-actions-popover/);
+  assert.match(app, /function attestationCountMarkup\(count/);
+  assert.doesNotMatch(app, /family-attestation-link|family-attestation-picker/);
+  assert.match(css, /\.relation-person-attestation-count \.ui-icon/);
   assert.match(css, /\.family-card-chevron:focus-visible/);
   assert.match(app, /Ses liens avec les deux parents seront retirés/);
 });

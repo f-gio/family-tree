@@ -2126,6 +2126,8 @@ label .field { margin-top: var(--space-2); }
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }
+.life-entry-attestation-count { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+.life-entry-attestation-count .ui-icon { width: 0.875rem; height: 0.875rem; flex: 0 0 auto; }
 
 .life-entry-body {
   display: grid;
@@ -2599,16 +2601,51 @@ label .field { margin-top: var(--space-2); }
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  margin: var(--space-1) 0 0;
+  margin: 0;
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   line-height: 1.35;
 }
-.relation-person-attestation-count .ui-icon { width: 0.875rem; height: 0.875rem; }
+.relation-person-attestation-count .ui-icon { width: 0.875rem; height: 0.875rem; flex: 0 0 auto; }
 
-/* Cartes Famille dépliables : en-tête compact, compteur d'attestations à
-   droite, chevron bas/haut et panneau replié par défaut. Le panneau n'est
-   créé que lorsqu'il a un contenu utile (aucun panneau vide). */
+/* Modification : les deux parents partagent une seule carte, deux lignes
+   compactes et un pied d'actions commun. */
+.family-parent-group {
+  display: grid;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-soft);
+}
+.family-parent-lines { min-width: 0; }
+.family-parent-line {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding-block: var(--space-2);
+}
+.family-parent-line + .family-parent-line { border-top: var(--border-subtle); }
+.family-parent-copy { display: grid; gap: 2px; min-width: 0; }
+.family-parent-copy strong { overflow-wrap: anywhere; }
+.family-parent-view-link { min-height: var(--control-touch); white-space: nowrap; }
+.family-parent-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: var(--border-subtle);
+}
+.family-parent-actions .btn { min-width: 0; min-height: var(--control-touch); }
+
+/* Cartes Famille dépliables : compteur en troisième ligne en Consultation,
+   latéral en Modification ; chevron et panneau replié par défaut. */
 .family-relation-card { display: block; position: relative; }
 .family-card-head {
   display: grid;
@@ -2644,26 +2681,6 @@ label .field { margin-top: var(--space-2); }
 .family-card-chevron[aria-expanded="true"] .ui-icon { transform: rotate(180deg); }
 .family-card-chevron:hover { background: var(--color-surface-muted); color: var(--color-brand); }
 .family-card-chevron:focus-visible { outline: 0; box-shadow: var(--shadow-focus); }
-.family-attestation-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-height: var(--control-touch);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--color-brand);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  line-height: 1.35;
-  text-align: left;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
-.family-attestation-link:hover { color: var(--color-brand-hover); }
-.family-attestation-link:focus-visible { outline: 0; border-radius: var(--radius-sm); box-shadow: var(--shadow-focus); }
-.family-attestation-link .ui-icon { width: 0.875rem; height: 0.875rem; flex: 0 0 auto; }
 .family-card-panel {
   display: grid;
   gap: var(--space-3);
@@ -2682,14 +2699,17 @@ label .field { margin-top: var(--space-2); }
 }
 .family-card-actions--static { margin-top: var(--space-3); }
 
-/* Mobile : le compteur passe sous le nom, aligné à droite, pour préserver
-   la largeur du texte et éviter tout débordement à 320 px. */
+/* Mobile Consultation : compteur sous la relation ; en Modification il
+   conserve sa colonne latérale, sous le chevron si la largeur l'exige. */
 @media (max-width: 760px) {
-  .family-card--with-counter .family-card-head { grid-template-areas: "avatar copy chevron" ". counter counter"; }
-  .family-card--with-counter .family-card-aside { display: contents; }
-  .family-card--with-counter .family-card-aside > .family-card-chevron { grid-area: chevron; }
-  .family-card--with-counter .family-card-aside > .family-attestation-link,
-  .family-card--with-counter .family-card-aside > .relation-person-attestation-count { grid-area: counter; justify-self: end; }
+.family-card--counter-aside .family-card-head { grid-template-areas: "avatar copy chevron" ". counter counter"; }
+  .family-card--counter-aside .family-card-aside { display: contents; }
+  .family-card--counter-aside .family-card-aside > .family-card-chevron { grid-area: chevron; }
+  .family-card--counter-aside .family-card-aside > .relation-person-attestation-count { grid-area: counter; justify-self: end; }
+  .family-parent-line { grid-template-columns: 2.75rem minmax(0, 1fr) auto; gap: var(--space-2); }
+  .family-parent-view-link { grid-column: 3; justify-self: end; min-height: var(--control-touch); }
+  .family-parent-actions { align-items: stretch; }
+  .family-parent-actions .btn { flex: 1 1 0; justify-content: center; white-space: normal; text-align: center; }
 }
 
 .relation-group-empty {
@@ -2703,21 +2723,6 @@ label .field { margin-top: var(--space-2); }
 }
 
 .relation-group-footer { display: flex; justify-content: flex-end; margin-top: var(--space-2); }
-
-.relation-actions-popover {
-  position: absolute;
-  right: 0;
-  top: calc(100% + var(--space-1));
-  z-index: 8;
-  display: grid;
-  width: max-content;
-  min-width: 13rem;
-  padding: var(--space-2);
-  border: var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-medium);
-}
 
 .person-section-panel .relation-builder {
   display: grid;
@@ -3133,8 +3138,6 @@ dialog[open] { animation: ft-dialog-in 150ms ease-out; }
 dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .account-dropdown:not([hidden]),
 .directory-filter-dialog[open],
-.relation-actions-menu[open] .relation-actions-popover,
-.family-attestation-picker:not([hidden]),
 [data-person-panel]:not([hidden]),
 [data-date-panel]:not([hidden]) { animation: ft-reveal 140ms ease-out; }
 
@@ -4466,7 +4469,6 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   .relation-add-actions .btn { width: 100%; }
   .relation-kind-button { min-height: var(--control-touch); }
   .relation-person-row { grid-template-columns: 2.75rem minmax(0, 1fr) var(--control-touch); }
-  .relation-actions-popover { right: 0; max-width: min(17rem, calc(100vw - 3rem)); }
   .relation-group-footer .btn { width: 100%; }
 
   .identity-overview { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
@@ -4986,7 +4988,6 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   dialog::backdrop,
   .account-dropdown:not([hidden]),
   .directory-filter-dialog[open],
-  .family-attestation-picker:not([hidden]),
   [data-person-panel]:not([hidden]),
   [data-date-panel]:not([hidden]),
   .loading-surface::after { animation: none; }

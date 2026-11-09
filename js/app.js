@@ -2297,49 +2297,45 @@ function personPageRelativeRow(relative, kind, meta = []) {
   return `<article class="relation-person-row person-detail-family-row"><span class="relation-person-avatar">${relationAvatarMarkup(relative)}</span><div class="relation-person-copy"><button class="person-detail-relative-link" type="button" data-open-person-page="${esc(relative.id)}">${esc(name)}</button>${relationMetadata([relationRole(relative, kind), ...meta])}</div></article>`;
 }
 
-/* Cartes Famille dépliables (Consultation et Modification) : en-tête compact
-   (portrait, nom, informations, compteur à droite, chevron), panneau replié
-   par défaut. Le panneau n'est créé que lorsqu'il a un contenu utile ; les
-   actions de Modification vivent dans le panneau déplié. */
+/* Cartes Famille dépliables (Consultation et Modification) : compteur
+   harmonisé, chevron et panneau replié par défaut. Le panneau n'est créé que
+   lorsqu'il a un contenu utile ; les actions de Modification y sont placées. */
+function attestationCountMarkup(count, className = "") {
+  const label = `${count} attestation${count > 1 ? "s" : ""}`;
+  return `<span class="${className}">${icon("document")}<span>${label}</span></span>`;
+}
+
 function familyAttestationCounterData(kind, family, relative) {
   const attestations = kind === "partner"
     ? lifeAttestations({ attestations: family.marriageAttestations })
     : lifeAttestations({ attestations: relative.birthAttestations });
-  const count = attestations.length;
-  if (!count) return null;
   const docs = [...new Set(attestations.flatMap(value => value.documentIds || []))].filter(id => documents.some(record => record.id === id));
-  const label = kind === "partner"
-    ? `${count} attestation${count > 1 ? "s" : ""} ${normalizeRelationType(family.relationType) === "marriage" ? "de mariage" : "d'union"}`
-    : `${count} attestation${count > 1 ? "s" : ""} de naissance`;
-  return { label, docs };
+  return { count: attestations.length, docs };
 }
 
-function familyCounterMarkup(counter, cardId) {
-  if (!counter) return "";
-  const { label, docs } = counter;
-  const iconMarkup = icon("document");
-  if (!docs.length) return `<span class="relation-person-attestation-count">${iconMarkup}<span>${esc(label)}</span></span>`;
-  if (docs.length === 1) return `<button class="family-attestation-link" type="button" data-view-document="${esc(docs[0])}">${iconMarkup}<span>${esc(label)}</span></button>`;
-  const pickerId = `${cardId}-picker`;
-  return `<button class="family-attestation-link" type="button" data-family-attestation-picker aria-expanded="false" aria-controls="${pickerId}">${iconMarkup}<span>${esc(label)}</span></button><div class="relation-actions-popover family-attestation-picker" id="${pickerId}" hidden>${journeyDocumentLinks(docs)}</div>`;
+function familyCounterMarkup(counter) {
+  return counter ? attestationCountMarkup(counter.count, "relation-person-attestation-count") : "";
 }
 
-function familyRelationCardMarkup({ kind, familyId, relative, nameHtml, meta = [], counter = null, panelBody = "", actions = "", staticActions = false }) {
+function familyRelationCardMarkup({ kind, familyId, relative, nameHtml, meta = [], counter = null, counterPlacement = "aside", panelBody = "", actions = "", staticActions = false }) {
   const cardId = `family-card-${kind}-${familyId}-${relative.id}`;
   const expandable = !staticActions && (Boolean(panelBody) || Boolean(actions));
-  const counterHtml = familyCounterMarkup(counter, cardId);
+  const counterHtml = familyCounterMarkup(counter);
+  const counterInAside = counterPlacement === "aside" && Boolean(counterHtml);
+  const counterInCopy = counterPlacement === "copy" ? counterHtml : "";
   const chevronHtml = expandable
     ? `<button class="family-card-chevron" type="button" id="${cardId}-toggle" data-family-card-toggle aria-expanded="false" aria-controls="${cardId}-panel" aria-label="Déplier le détail"><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></button>`
     : "";
-  const aside = counterHtml || chevronHtml ? `<div class="family-card-aside">${counterHtml}${chevronHtml}</div>` : "";
+  const aside = counterInAside || chevronHtml ? `<div class="family-card-aside">${counterInAside ? counterHtml : ""}${chevronHtml}</div>` : "";
   const panel = expandable
     ? `<div class="family-card-panel" id="${cardId}-panel" role="region" aria-labelledby="${cardId}-toggle" hidden>${panelBody}${actions ? `<div class="family-card-actions">${actions}</div>` : ""}</div>`
     : "";
   const staticActionsHtml = staticActions && actions ? `<div class="family-card-actions family-card-actions--static">${actions}</div>` : "";
-  return `<article class="relation-person-row person-detail-family-row family-relation-card${counterHtml ? " family-card--with-counter" : ""}" data-family-card="${kind}:${esc(familyId)}">
+  const cardClasses = ["relation-person-row", "person-detail-family-row", "family-relation-card", counterInAside ? "family-card--counter-aside" : ""].filter(Boolean).join(" ");
+  return `<article class="${cardClasses}" data-family-card="${kind}:${esc(familyId)}">
     <div class="family-card-head">
       <span class="relation-person-avatar">${relationAvatarMarkup(relative)}</span>
-      <div class="relation-person-copy">${nameHtml}${relationMetadata([relationRole(relative, kind), ...meta])}</div>
+      <div class="relation-person-copy">${nameHtml}${relationMetadata([relationRole(relative, kind), ...meta])}${counterInCopy}</div>
       ${aside}
     </div>
     ${panel}${staticActionsHtml}
@@ -2369,9 +2365,7 @@ function personPageFamilyMarkup(item) {
       childCount ? `${childCount} enfant${childCount > 1 ? "s" : ""}` : ""
     ];
     const partnerCounter = familyAttestationCounterData("partner", family, relative);
-    const unionPlace = formatCompactPlace(family.unionPlace, family.unionPlaceInfo);
     const partnerPanelParts = [];
-    if (unionPlace && unionPlace !== "—") partnerPanelParts.push(`<div class="life-event-primary-facts"><div class="source-detail-fact"><strong>Lieu</strong><span>${esc(unionPlace)}</span></div></div>`);
     if (partnerCounter?.docs.length) partnerPanelParts.push(`<div class="life-attestation-links">${journeyDocumentLinks(partnerCounter.docs)}</div>`);
     return { relative, html: familyRelationCardMarkup({
       kind: "partner",
@@ -2380,6 +2374,7 @@ function personPageFamilyMarkup(item) {
       nameHtml: `<button class="person-detail-relative-link" type="button" data-open-person-page="${esc(relative.id)}">${esc(relationOptionName(relative))}</button>`,
       meta,
       counter: partnerCounter,
+      counterPlacement: "copy",
       panelBody: partnerPanelParts.join("")
     }) };
   })).filter(entry => entry.relative).sort((a, b) => comparePeopleBySurname(a.relative, b.relative)).map(entry => entry.html);
@@ -2397,6 +2392,7 @@ function personPageFamilyMarkup(item) {
       nameHtml: `<button class="person-detail-relative-link" type="button" data-open-person-page="${esc(relative.id)}">${esc(relationOptionName(relative))}</button>`,
       meta: [filiation, otherParents.length ? `Avec ${otherParents.join(" et ")}` : ""],
       counter: childCounter,
+      counterPlacement: "copy",
       panelBody: childPanelParts.join("")
     }) };
   })).filter(entry => entry.relative).sort((a, b) => comparePeopleBySurname(a.relative, b.relative)).map(entry => entry.html);
@@ -2691,7 +2687,7 @@ function journeyEntryMarkup(kind, entry, item, { editable = false } = {}) {
   const attestations = lifeAttestations(entry);
   const isEditing = editable && journeyEditor && (journeyEditor.type === kind) && journeyEditor.entryId === entry.id && journeyEditor.type !== "attestation";
   const editingAttestation = editable && journeyEditor?.type === "attestation" && journeyEditor.entryId === entry.id;
-  const countLabel = `<span class="life-entry-meta">${attestations.length} attestation${attestations.length > 1 ? "s" : ""}</span>`;
+  const countLabel = attestationCountMarkup(attestations.length, "life-entry-meta life-entry-attestation-count");
   const eventPlaceText = kind === "event" ? compactJourneyEventPlace(entry) : "";
   const editableForm = isEditing ? journeyEntryFormMarkup(kind, entry) : "";
   const attestationContent = journeyAttestationsMarkup(kind, entry, item, { editable });
@@ -3409,23 +3405,6 @@ function handlePersonPageContentClick(event) {
     if (panel) panel.hidden = open;
     return;
   }
-  const familyPickerToggle = event.target.closest("[data-family-attestation-picker]");
-  if (familyPickerToggle) {
-    event.preventDefault();
-    const open = familyPickerToggle.getAttribute("aria-expanded") === "true";
-    familyPickerToggle.setAttribute("aria-expanded", String(!open));
-    const picker = document.getElementById(familyPickerToggle.getAttribute("aria-controls") || "");
-    if (picker) picker.hidden = open;
-    return;
-  }
-  const familyPickerItem = event.target.closest(".family-attestation-picker [data-view-document]");
-  if (familyPickerItem) {
-    const picker = familyPickerItem.closest(".family-attestation-picker");
-    if (picker) {
-      picker.hidden = true;
-      document.querySelector(`[aria-controls="${CSS.escape(picker.id)}"]`)?.setAttribute("aria-expanded", "false");
-    }
-  }
   const documentsToggle = event.target.closest("[data-person-page-documents-toggle]");
   if (documentsToggle) {
     personPageDocumentsExpanded = !personPageDocumentsExpanded;
@@ -3508,6 +3487,10 @@ function handlePersonPageContentClick(event) {
   if (section) syncPersonPageSectionNav(({ personPageIdentity: "identity", personPageFamily: "family", personPageDocuments: "documents", personPageResearch: "research" })[section.id]);
   const button = event.target.closest("[data-open-person-page]");
   if (!button) return;
+  if (personPageInlineEditing && !requestPersonPageInlineExit()) {
+    event.preventDefault();
+    return;
+  }
   const item = person(button.dataset.openPersonPage);
   if (!item) return toast("Cette personne n’est plus disponible.", "error");
   renderPersonPage(item, personPageContext());
@@ -4082,8 +4065,8 @@ function relationMetadata(parts = []) {
   return values.length ? `<p class="relation-person-meta">${values.map(value => esc(value)).join(" <span aria-hidden=\"true\">·</span> ")}</p>` : "";
 }
 
-function relationGroup(title, entries, emptyLabel, footer = "") {
-  return `<section class="relation-group"><header class="relation-group-head"><h4>${esc(title)}</h4><span>${entries.length}</span></header><div class="relation-group-list">${entries.length ? entries.join("") : `<p class="relation-group-empty">${esc(emptyLabel)}</p>`}</div>${footer}</section>`;
+function relationGroup(title, entries, emptyLabel, footer = "", count = entries.length) {
+  return `<section class="relation-group"><header class="relation-group-head"><h4>${esc(title)}</h4><span>${count}</span></header><div class="relation-group-list">${entries.length ? entries.join("") : `<p class="relation-group-empty">${esc(emptyLabel)}</p>`}</div>${footer}</section>`;
 }
 
 function setRelationBuilderKind(kind = "parent") {
@@ -4129,16 +4112,15 @@ function renderRelations() {
     const relative = person(parentId);
     const filiationType = parentChildLinkType(family, parentId, item.id);
     const filiation = filiationType === "unknown" ? "" : `Filiation ${FILIATION_TYPE_LABELS[filiationType].toLocaleLowerCase("fr-FR")}`;
-    return { relative, family, html: familyRelationCardMarkup({
-      kind: "parent",
-      familyId: family.id,
-      relative,
-      nameHtml: `<strong>${esc(relationOptionName(relative))}</strong>`,
-      meta: [filiation],
-      actions: `<button class="btn small" type="button" data-edit-family="${esc(family.id)}">Modifier</button>`,
-      staticActions: true
-    }) };
+    return { relative, family, filiation };
   })).filter(entry => entry.relative).sort((a, b) => comparePeopleBySurname(a.relative, b.relative));
+  const parentGroupCards = parentFamilies.map(family => {
+    const entries = parentEntries.filter(entry => entry.family.id === family.id);
+    if (!entries.length) return "";
+    const rows = entries.map(({ relative, filiation }) => `<div class="family-parent-line"><span class="relation-person-avatar">${relationAvatarMarkup(relative)}</span><div class="family-parent-copy"><strong>${esc(relationOptionName(relative))}</strong>${relationMetadata([relationRole(relative, "parent"), filiation])}</div><button class="person-detail-relative-link family-parent-view-link" type="button" data-open-person-page="${esc(relative.id)}" aria-label="Voir la fiche de ${esc(relationOptionName(relative))}">Voir la fiche</button></div>`).join("");
+    const actions = `<footer class="family-parent-actions"><button class="btn small" type="button" data-edit-family="${esc(family.id)}">Modifier</button><button class="btn tertiary danger" type="button" data-remove-child="${esc(family.id)}" data-person="${esc(item.id)}">${icon("unlink")}<span>Dissocier de ce groupe de parents</span></button></footer>`;
+    return `<article class="family-parent-group"><div class="family-parent-lines">${rows}</div>${actions}</article>`;
+  }).filter(Boolean);
   const partnerEntries = ownFamilies.flatMap(family => (family.partnerIds || []).filter(id => id !== item.id).map(partnerId => {
     const relative = person(partnerId);
     const relationType = normalizeRelationType(family.relationType);
@@ -4153,9 +4135,7 @@ function renderRelations() {
       childCount ? `${childCount} enfant${childCount > 1 ? "s" : ""}` : ""
     ];
     const partnerCounter = familyAttestationCounterData("partner", family, relative);
-    const unionPlace = formatCompactPlace(family.unionPlace, family.unionPlaceInfo);
     const partnerPanelParts = [];
-    if (unionPlace && unionPlace !== "—") partnerPanelParts.push(`<div class="life-event-primary-facts"><div class="source-detail-fact"><strong>Lieu</strong><span>${esc(unionPlace)}</span></div></div>`);
     if (partnerCounter?.docs.length) partnerPanelParts.push(`<div class="life-attestation-links">${journeyDocumentLinks(partnerCounter.docs)}</div>`);
     const partnerActions = `<button class="btn small" type="button" data-edit-family="${esc(family.id)}">Modifier</button><button class="btn tertiary danger" type="button" data-remove-partner="${esc(family.id)}" data-person="${esc(relative.id)}">${icon("unlink")}<span>Dissocier ce partenaire</span></button>`;
     return { relative, family, html: familyRelationCardMarkup({
@@ -4200,11 +4180,8 @@ function renderRelations() {
   if (!total) {
     $("relationsList").innerHTML = emptyState({ iconName: "link", title: "Aucun lien familial", description: "Ajoutez un parent, un partenaire ou un enfant pour commencer à relier cette personne à l’arbre." });
   } else {
-    const parentFooter = parentFamilies.length
-      ? `<div class="relation-group-footer">${parentFamilies.map(family => `<button class="btn tertiary danger" type="button" data-remove-child="${family.id}" data-person="${item.id}">${icon("unlink")}<span>Dissocier de ce groupe de parents</span></button>`).join("")}</div>`
-      : "";
     $("relationsList").innerHTML = [
-      relationGroup("Parents", parentEntries.map(entry => entry.html), "Aucun parent renseigné", parentFooter),
+      relationGroup("Parents", parentGroupCards, "Aucun parent renseigné", "", parentEntries.length),
       relationGroup("Partenaires et unions", partnerEntries.map(entry => entry.html), "Aucun partenaire renseigné"),
       relationGroup("Enfants", childEntries.map(entry => entry.html), "Aucun enfant renseigné")
     ].join("");
@@ -14930,12 +14907,6 @@ $("familyDetailsDialog").addEventListener("cancel", event => {
 $("familyDetailsDialog").addEventListener("close", () => { if (familyDetailsReturnContext) returnFromFamilyDetails(); });
 
 document.addEventListener("click", event => {
-  if (!event.target.closest("[data-family-attestation-picker], [data-family-attestation-picker] *, .family-attestation-picker")) {
-    document.querySelectorAll(".family-attestation-picker:not([hidden])").forEach(picker => {
-      picker.hidden = true;
-      if (picker.id) document.querySelector(`[aria-controls="${CSS.escape(picker.id)}"]`)?.setAttribute("aria-expanded", "false");
-    });
-  }
   const closeButton = event.target.closest("[data-close]");
   if (closeButton) close(closeButton.dataset.close);
   if (event.target.closest("[data-empty-add-person]")) openPerson(null, "directory");
