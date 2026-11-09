@@ -90,6 +90,15 @@ window.__personPageTest = {
     openGenealogyContribution({ official: true, reviseItem: { kind: "proof", record: { id: "person-page-proof" }, data: {} } });
     return document.getElementById("genealogyContributionDialog").open;
   },
+  addJourneyLayoutFixtures() {
+    const item = people.find(value => value.id === "person-page-a");
+    const residences = item.residences || [];
+    item.residences = [...residences, { id: "long-title-residence", place: "Metz-sur-l'Esch-sur-Alzette-la-Grande", region: "", country: "", dateInfo: { type: "between", from: 1925, to: 1931 }, attestations: [{ id: "long-title-att-1", comment: "Premier justificatif", documentIds: ["person-page-document"] }, { id: "long-title-att-2", comment: "Second justificatif", documentIds: ["person-page-document"] }] }];
+    const lifeEvents = item.lifeEvents || [];
+    item.lifeEvents = [...lifeEvents, { id: "static-detail-event", kind: "studies", label: "Études" }];
+    people = people.map(value => value.id === item.id ? item : value);
+    renderJourneySection();
+  },
   state() {
     return {
       pageVisible: !$('personDetailView').hidden,
@@ -2804,10 +2813,16 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           const cardBox = card.getBoundingClientRect();
           const modifier = card.querySelector(".family-card-actions [data-edit-family]");
           const unlink = card.querySelector(`.family-card-actions ${removeSelector}`);
+          const copy = card.querySelector(".relation-person-copy");
+          const counter = card.querySelector(".relation-person-attestation-count");
+          const chevron = card.querySelector(".family-card-chevron");
           const mBox = modifier.getBoundingClientRect();
           const uBox = unlink.getBoundingClientRect();
           const mStyle = getComputedStyle(modifier);
           const uStyle = getComputedStyle(unlink);
+          const copyBox = copy.getBoundingClientRect();
+          const counterBox = counter.getBoundingClientRect();
+          const chevronBox = chevron.getBoundingClientRect();
           return {
             cardLeft: Math.round(cardBox.left),
             cardWidth: Math.round(cardBox.width),
@@ -2815,6 +2830,9 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
             modifier: { left: Math.round(mBox.left), width: Math.round(mBox.width), height: Math.round(mBox.height), fontSize: mStyle.fontSize, fontWeight: mStyle.fontWeight, borderWidth: mStyle.borderTopWidth },
             unlink: { borderColor: uStyle.borderTopColor },
             gap: Math.round(uBox.left - mBox.right),
+            copy: { left: Math.round(copyBox.left), right: Math.round(copyBox.right), bottom: Math.round(copyBox.bottom) },
+            counter: { left: Math.round(counterBox.left), top: Math.round(counterBox.top), tag: counter.tagName, decoration: getComputedStyle(counter).textDecorationLine },
+            chevron: { left: Math.round(chevronBox.left), width: Math.round(chevronBox.width) },
             overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
           };
         };
@@ -2833,9 +2851,28 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.equal(card.modifier.fontSize, parentMobileCta.modifier.fontSize, `${width}px : typographie Modifier ${label} identique`);
         assert.equal(card.unlink.borderColor, "rgba(0, 0, 0, 0)", `${width}px : Dissocier ${label} sans encadrement`);
         assert.ok(card.gap >= 4 && card.gap <= 12, `${width}px : espacement CTA ${label} harmonisé (${card.gap}px)`);
+        assert.ok(Math.abs(card.counter.left - card.copy.left) <= 1, `${width}px : compteur ${label} aligné à gauche sous la relation`);
+        assert.ok(card.counter.top >= card.copy.bottom - 1, `${width}px : compteur ${label} en troisième ligne`);
+        assert.equal(card.counter.tag, "SPAN", `${width}px : compteur ${label} non cliquable`);
+        assert.equal(card.counter.decoration, "none", `${width}px : compteur ${label} sans soulignement`);
+        assert.ok(card.chevron.left > card.copy.right, `${width}px : chevron ${label} à droite du bloc texte`);
+        assert.equal(card.chevron.width, 44, `${width}px : chevron ${label} tactile 44 px`);
       }
       assert.equal(mobileCtas.child.gap, mobileCtas.partner.gap, `${width}px : même espacement pour l’enfant et le partenaire`);
       assert.equal(mobileCtas.footerPresent, true, `${width}px : footer fixe Enregistrer/Annuler conservé`);
+      /* Remise à zéro du scroller réel puis centrage : le contrôle du footer
+         ne dépend pas de l'état de scroll précédent. */
+      await page.evaluate(() => {
+        const view = document.getElementById("personDetailView");
+        let node = view?.parentElement || null;
+        while (node && node !== document.documentElement) {
+          const style = getComputedStyle(node);
+          if ((style.overflowY === "auto" || style.overflowY === "scroll") && node.scrollHeight > node.clientHeight) { node.scrollTop = 0; break; }
+          node = node.parentElement;
+        }
+        const scroller = document.scrollingElement || document.documentElement;
+        if (scroller.scrollTop > 0) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      });
       await page.locator('#relationsList [data-family-card="partner:person-page-family"] .family-card-actions [data-edit-family]').evaluate(button => button.scrollIntoView({ block: "center", behavior: "instant" }));
       const footerClearance = await page.evaluate(() => {
         const button = document.querySelector('#relationsList [data-family-card="partner:person-page-family"] .family-card-actions [data-edit-family]');
@@ -2897,6 +2934,87 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         await page.locator('#personPageEditHost [data-close="personDialog"]').click();
         await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
       }
+    }
+    await page.setViewportSize({ width: 1280, height: 850 });
+
+    /* Parcours détaillé : structure stable titre/compteur/chevron sur mobile. */
+    await page.evaluate(() => window.__personPageTest.addJourneyLayoutFixtures());
+    const desktopJourneyDisplay = await page.evaluate(() => {
+      const summary = document.querySelector("#personPageDetailedJourney .life-entry > summary");
+      return summary ? getComputedStyle(summary).display : null;
+    });
+    assert.equal(desktopJourneyDisplay, "flex", "desktop : disposition des cartes du Parcours détaillé inchangée");
+    const measureJourneyCard = cardId => page.evaluate(id => {
+      const card = document.querySelector(`[data-journey-id="${id}"]`);
+      if (!card) return null;
+      const summary = card.querySelector(".life-entry-summary");
+      const title = card.querySelector(".life-entry-title");
+      const counter = card.querySelector(".life-entry-attestation-count");
+      const chevron = card.querySelector(".life-entry-chevron");
+      const style = getComputedStyle(summary);
+      const titleBox = title.getBoundingClientRect();
+      const counterBox = counter.getBoundingClientRect();
+      const chevronBox = chevron ? chevron.getBoundingClientRect() : null;
+      return {
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        display: style.display,
+        columns: style.gridTemplateColumns.split(" ").map(value => Number.parseFloat(value)),
+        titleText: title.textContent.trim(),
+        titleHeight: Math.round(titleBox.height),
+        titleLeft: Math.round(titleBox.left),
+        titleRight: Math.round(titleBox.right),
+        titleBottom: Math.round(titleBox.bottom),
+        counterLeft: Math.round(counterBox.left),
+        counterTop: Math.round(counterBox.top),
+        counterText: counter.textContent.trim(),
+        counterTag: counter.tagName,
+        counterDecoration: getComputedStyle(counter).textDecorationLine,
+        titleWhiteSpace: getComputedStyle(title).whiteSpace,
+        chevron: chevronBox ? { width: Math.round(chevronBox.width), left: Math.round(chevronBox.left) } : null,
+        open: Boolean(card.querySelector("details")?.open)
+      };
+    }, cardId);
+    for (const width of [320, 375, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const longCard = await measureJourneyCard("long-title-residence");
+      assert.ok(longCard, `${width}px : carte à titre long présente`);
+      assert.ok(longCard.overflow <= 1, `${width}px : carte titre long sans débordement`);
+      assert.match(longCard.titleText, /Metz-sur-l'Esch-sur-Alzette-la-Grande · entre 1925 et 1931/, `${width}px : titre complet non tronqué`);
+      assert.ok(longCard.titleHeight >= 30, `${width}px : titre long sur plusieurs lignes (${longCard.titleHeight}px)`);
+      assert.notEqual(longCard.titleWhiteSpace, "nowrap", `${width}px : retour à la ligne du titre autorisé`);
+      assert.ok(longCard.columns[1] >= 43 && longCard.columns[1] <= 45, `${width}px : colonne chevron réservée à 44 px (${longCard.columns[1]}px)`);
+      assert.ok(Math.abs(longCard.titleLeft - longCard.counterLeft) <= 1, `${width}px : compteur sur l’axe du titre`);
+      assert.ok(longCard.counterTop >= longCard.titleBottom, `${width}px : compteur sous le titre`);
+      assert.equal(longCard.counterText, "2 attestations", `${width}px : format du compteur conservé`);
+      assert.equal(longCard.counterTag, "SPAN", `${width}px : compteur non cliquable`);
+      assert.equal(longCard.counterDecoration, "none", `${width}px : compteur sans soulignement`);
+      assert.ok(longCard.chevron && longCard.chevron.width === 44, `${width}px : chevron tactile 44 px`);
+      assert.ok(longCard.chevron.left >= longCard.titleRight, `${width}px : chevron jamais sous le titre (${longCard.chevron.left}px / ${longCard.titleRight}px)`);
+      assert.equal(longCard.open, false, `${width}px : panneau titre long fermé par défaut`);
+
+      await page.locator('[data-journey-id="long-title-residence"] > summary').click();
+      await page.waitForFunction(() => document.querySelector('[data-journey-id="long-title-residence"] details')?.open === true);
+      const openJourney = await page.evaluate(() => {
+        const body = document.querySelector('[data-journey-id="long-title-residence"] .life-entry-body');
+        return {
+          bodyVisible: Boolean(body && body.getClientRects().length),
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+        };
+      });
+      assert.equal(openJourney.bodyVisible, true, `${width}px : panneau ouvert avec contenu`);
+      assert.ok(openJourney.overflow <= 1, `${width}px : panneau ouvert sans débordement`);
+      await page.locator('[data-journey-id="long-title-residence"] > summary').click();
+      await page.waitForFunction(() => document.querySelector('[data-journey-id="long-title-residence"] details')?.open === false);
+
+      const staticCard = await measureJourneyCard("static-detail-event");
+      assert.ok(staticCard, `${width}px : carte sans chevron présente`);
+      assert.ok(staticCard.overflow <= 1, `${width}px : carte sans chevron sans débordement`);
+      assert.ok(staticCard.titleHeight <= 50, `${width}px : titre court sans troncature abusive (${staticCard.titleHeight}px)`);
+      assert.ok(staticCard.titleText.length < longCard.titleText.length, `${width}px : titre court plus court que le titre long`);
+      assert.equal(staticCard.chevron, null, `${width}px : aucun chevron sans contenu dépliable`);
+      assert.ok(staticCard.columns[1] <= 1, `${width}px : aucune colonne réservée au chevron absent (${staticCard.columns[1]}px)`);
+      assert.equal(staticCard.counterText, "0 attestation", `${width}px : compteur zéro conservé`);
+      assert.ok(Math.abs(staticCard.titleLeft - staticCard.counterLeft) <= 1, `${width}px : compteur zéro sur l’axe du titre`);
     }
     await page.setViewportSize({ width: 1280, height: 850 });
 
