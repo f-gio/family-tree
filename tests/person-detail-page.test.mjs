@@ -905,6 +905,18 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.locator('#personPageDetailedJourney [data-journey-add], #personPageDetailedJourney [data-journey-edit], #personPageDetailedJourney [data-journey-delete], #personPageDetailedJourney [data-journey-attestation-add], #personPageDetailedJourney [data-journey-attestation-edit], #personPageDetailedJourney [data-journey-attestation-delete]').count(), 0, "actions et attestations en lecture seule masquées");
     assert.equal(await page.locator('#personPageDetailedJourney [data-journey-open-source="person-page-source"]').count(), 1, "source consultable en mode lecture seule");
     assert.equal(await page.locator('#personPageDetailedJourney [data-view-proof="person-page-proof"]').count(), 1, "preuve consultable en mode lecture seule");
+    const titleColors = await page.evaluate(() => {
+      const title = document.querySelector("#personPageDetailedJourney .life-entry-title");
+      const reference = document.querySelector("#personPageFamily .person-detail-relative-link");
+      return {
+        titleCount: document.querySelectorAll("#personPageDetailedJourney .life-entry-title").length,
+        titleColor: title ? getComputedStyle(title).color : "absent",
+        referenceColor: reference ? getComputedStyle(reference).color : "absent"
+      };
+    });
+    assert.ok(titleColors.titleCount > 0, "cartes Événements de vie présentes en consultation");
+    assert.equal(titleColors.titleColor, "rgb(40, 75, 63)", "titre des cartes en couleur de marque");
+    assert.equal(titleColors.titleColor, titleColors.referenceColor, "titre aligné sur la couleur des noms Parents");
     const consultedAttestations = page.locator('#personPageDetailedJourney [data-journey-kind="residence"]');
     assert.equal(await consultedAttestations.locator(".life-attestation").count(), 2, "attestations existantes toujours consultables");
     assert.doesNotMatch(await consultedAttestations.innerText(), /2 attestations|0 attestation|Aucune attestation renseignée/, "compteur et état vide masqués en consultation");
@@ -2187,7 +2199,19 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await desktopPanel.count(), 1, "panneau intégré ouvert sous la frise");
     assert.equal(await desktopPanel.getAttribute("aria-labelledby"), await birthTrigger.getAttribute("id"), "panneau associé au déclencheur");
     assert.equal(await desktopPanel.locator(":scope > h4").innerText(), "Naissance", "type de l’événement affiché");
-    assert.match(await desktopPanel.locator(".life-event-attestations").innerText(), /Aucune attestation renseignée/, "état vide des attestations");
+    assert.equal(await desktopPanel.locator(".life-event-attestations").count(), 0, "aucune section attestations vide");
+    const birthFacts = await desktopPanel.evaluate(panel => {
+      const box = panel.querySelector(".life-event-primary-facts");
+      const facts = [...panel.querySelectorAll(".life-event-primary-facts .source-detail-fact")];
+      return {
+        display: box ? getComputedStyle(box).display : "absent",
+        labels: facts.map(fact => fact.querySelector("strong")?.textContent),
+        sameRow: facts.length >= 2 ? Math.abs(facts[0].getBoundingClientRect().top - facts[1].getBoundingClientRect().top) <= 2 : null
+      };
+    });
+    assert.equal(birthFacts.display, "flex", "date et lieu regroupés sur une ligne souple");
+    assert.deepEqual(birthFacts.labels, ["Date", "Lieu"], "libellés des informations conservés");
+    assert.equal(birthFacts.sameRow, true, "date et lieu sur la même ligne quand la largeur le permet");
     assert.equal(await desktopPanel.locator("[data-life-event-manage], [data-life-event-att-add], [data-life-event-att-edit], [data-journey-attestation-add]").count(), 0, "panneau strictement en lecture seule");
     assert.equal(await page.locator('#lifeEventDialog').count(), 0, "aucun volet latéral");
     assert.equal(await page.locator('#personPageEditHost').isHidden(), true, "aucune activation de Modification");
@@ -2347,6 +2371,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await unionPanel.locator(":scope > h4").innerText(), "Mariage", "panneau d’union ouvert");
     assert.equal(await unionPanel.locator(".life-attestation").count(), 1, "attestation de mariage visible");
     assert.match(await unionPanel.locator(".life-attestation").innerText(), /Acte de mariage partagé/, "attestation partagée consultable");
+    assert.equal(await unionPanel.locator(".life-event-attestations h4").innerText(), "Attestation", "titre au singulier pour une seule attestation");
     assert.equal(await page.locator('#lifeEventDialog').count(), 0, "union sans volet latéral");
     assert.equal(await page.locator('#personPageEditHost').isHidden(), true, "union sans activation de Modification");
     await page.locator('#personPageTimeline [data-life-event="union-person-page-family"]').click();
@@ -2674,6 +2699,18 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     await page.locator(".life-journey-switch").evaluate(button => button.click());
     assert.equal(await page.locator("#journeyEventShowInLifeTimeline").inputValue(), "true", "interrupteur activé");
     assert.equal(await page.locator(".life-journey-switch").getAttribute("aria-checked"), "true", "état activé annoncé");
+    const toggleTypography = await page.evaluate(() => {
+      const span = document.querySelector(".life-journey-visibility-toggle > span");
+      const label = document.getElementById("journeyEventKind")?.closest("label");
+      const style = element => {
+        const computed = getComputedStyle(element);
+        return { size: computed.fontSize, weight: computed.fontWeight, color: computed.color };
+      };
+      return { text: span?.textContent.trim(), span: span ? style(span) : null, label: label ? style(label) : null };
+    });
+    assert.equal(toggleTypography.text, "Afficher dans le parcours de vie", "libellé du switch inchangé");
+    assert.ok(toggleTypography.span && toggleTypography.label, "libellé du switch et libellé de champ présents");
+    assert.deepEqual(toggleTypography.span, toggleTypography.label, "typographie du switch alignée sur les libellés de champ");
     await page.fill("#journeyDateYear", "1908");
     await page.fill("#journeyPlace", "Palermo");
     await tap('#personPageDetailedJourney [data-journey-save="event"]');
@@ -2691,6 +2728,18 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     const detailedTrigger = page.locator(`#personPageTimeline [data-life-event="${detailedTimelineId}"]`);
     const detailedButtonId = await detailedTrigger.getAttribute("id");
     const detailedEntryId = detailedTimelineId.replace("detailed-event-", "");
+
+    const mobileTitleColors = await page.evaluate(() => {
+      const title = document.querySelector("#personPageDetailedJourney .life-entry-title");
+      const reference = document.querySelector("#personPageFamily .person-detail-relative-link");
+      return {
+        titleColor: title ? getComputedStyle(title).color : "absent",
+        referenceColor: reference ? getComputedStyle(reference).color : "absent"
+      };
+    });
+    assert.equal(mobileTitleColors.titleColor, "rgb(40, 75, 63)", "titre mobile en couleur de marque");
+    assert.equal(mobileTitleColors.titleColor, mobileTitleColors.referenceColor, "titre mobile aligné sur les noms Parents");
+    assert.equal(await detailedTrigger.locator(".timeline-icon use").getAttribute("href"), "#icon-church", "icône sémantique Baptême vers église");
     const detailedCard = page.locator(`#personPageDetailedJourney [data-journey-id="${detailedEntryId}"]`);
 
     // Mobile : accordéons intégrés, un seul ouvert, sans navigation parasite.
@@ -2707,6 +2756,10 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
         const content = open?.querySelector(".timeline-accordion-content");
         const button = open?.querySelector("[data-life-event]");
         const chevron = button?.querySelector(".timeline-event-chevron");
+        const list = document.querySelector("#personPageTimeline .life-timeline-list");
+        const triggerText = open?.querySelector(".timeline-content");
+        const contentBox = content?.getBoundingClientRect();
+        const facts = content ? [...content.querySelectorAll(".life-event-primary-facts .source-detail-fact")] : [];
         return {
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           editHidden: document.getElementById("personPageEditHost").hidden,
@@ -2717,7 +2770,14 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
           labelledBy: content?.getAttribute("aria-labelledby"),
           attestations: content?.querySelectorAll(".life-attestation").length || 0,
           documentLinks: content?.querySelectorAll('[data-view-document="person-page-document"]').length || 0,
-          chevronTransform: chevron ? getComputedStyle(chevron).transform : ""
+          chevronTransform: chevron ? getComputedStyle(chevron).transform : "",
+          attestationHeading: content?.querySelector(".life-event-attestations h4")?.textContent || "",
+          factLabels: facts.map(fact => fact.querySelector("strong")?.textContent || ""),
+          factRows: new Set(facts.map(fact => Math.round(fact.getBoundingClientRect().top))).size,
+          contentLeft: contentBox ? contentBox.left : null,
+          contentPadding: content ? getComputedStyle(content).paddingTop : "",
+          axisLeft: list ? list.getBoundingClientRect().left + 7 : null,
+          textLeft: triggerText ? triggerText.getBoundingClientRect().left : null
         };
       });
       assert.equal(mobileDetailed.overflow, 0, `${width}px : aucun débordement horizontal`);
@@ -2727,10 +2787,18 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
       assert.equal(mobileDetailed.expanded, "true", `${width}px : accordéon ouvert annoncé`);
       assert.ok(mobileDetailed.contentId && mobileDetailed.labelledBy === detailedButtonId, `${width}px : contenu associé au déclencheur`);
       assert.equal(mobileDetailed.attestations, 2, `${width}px : attestations affichées`);
+      assert.equal(mobileDetailed.attestationHeading, "Attestations", `${width}px : titre au pluriel`);
       assert.equal(mobileDetailed.documentLinks, 1, `${width}px : document accessible`);
-      assert.notEqual(mobileDetailed.chevronTransform, "none", `${width}px : chevron pivoté`);
+      assert.ok(mobileDetailed.chevronTransform.startsWith("matrix(-1"), `${width}px : chevron bas vers haut à l’ouverture`);
+      assert.ok(mobileDetailed.factLabels.includes("Date") && mobileDetailed.factLabels.includes("Lieu"), `${width}px : date et lieu conservés`);
+      assert.ok(mobileDetailed.factRows <= 2, `${width}px : informations regroupées sans empilement ligne à ligne`);
+      assert.ok(mobileDetailed.contentLeft > mobileDetailed.axisLeft, `${width}px : axe de la frise visible à gauche du contenu`);
+      assert.ok(mobileDetailed.contentLeft < mobileDetailed.textLeft, `${width}px : contenu élargi sous le titre`);
+      assert.equal(mobileDetailed.contentPadding, "12px", `${width}px : padding interne 12 px`);
       await detailedTrigger.evaluate(button => button.click());
       await page.waitForFunction(() => document.querySelectorAll("#personPageTimeline .timeline-jalon.is-open").length === 0);
+      const closedChevron = await detailedTrigger.evaluate(button => getComputedStyle(button.querySelector(".timeline-event-chevron")).transform);
+      assert.ok(closedChevron.startsWith("matrix(1"), `${width}px : chevron fermé pointant vers le bas`);
 
       await page.locator('#personPageTimeline [data-life-event="birth"]').evaluate(button => button.click());
       await page.waitForFunction(() => document.querySelectorAll("#personPageTimeline .timeline-jalon.is-open").length === 1);
@@ -2746,27 +2814,52 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
       await page.waitForFunction(() => document.querySelectorAll("#personPageTimeline .timeline-jalon.is-open").length === 0);
     }
 
-    // Desktop : navigation clavier vers la carte détaillée.
+    // Desktop : tous les événements ouvrent le panneau intégré, sans navigation.
     await page.setViewportSize({ width: 1280, height: 850 });
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await detailedTrigger.focus();
     await page.keyboard.press("Enter");
-    await page.waitForFunction(id => {
-      const card = document.querySelector(`#personPageDetailedJourney [data-journey-id="${id}"]`);
-      return card && card.classList.contains("is-journey-event-target") && (!card.querySelector("details") || card.querySelector("details").open);
-    }, detailedEntryId, { timeout: 5000 });
-    const desktopMetrics = await page.evaluate(() => ({
-      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      editHidden: document.getElementById("personPageEditHost").hidden,
-      dialogCount: document.querySelectorAll("#lifeEventDialog").length,
-      detailPanelHidden: document.getElementById("personPageTimelineDetail")?.hidden
-    }));
+    await page.waitForFunction(() => !document.getElementById("personPageTimelineDetail").hidden, undefined, { timeout: 5000 });
+    const desktopMetrics = await page.evaluate(id => {
+      const panel = document.querySelector("#personPageTimelineDetail .person-page-timeline-detail-panel");
+      return {
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        editHidden: document.getElementById("personPageEditHost").hidden,
+        dialogCount: document.querySelectorAll("#lifeEventDialog").length,
+        detailPanelHidden: document.getElementById("personPageTimelineDetail")?.hidden,
+        targetCount: document.querySelectorAll(".life-entry-card.is-journey-event-target").length,
+        panelTitle: panel?.querySelector(":scope > h4")?.textContent || "",
+        panelBorder: panel ? getComputedStyle(panel).borderTopColor : "absent",
+        attestations: document.querySelectorAll("#personPageTimelineDetail .life-attestation").length,
+        documentLinks: document.querySelectorAll('#personPageTimelineDetail [data-view-document="person-page-document"]').length,
+        primaryFactsDisplay: panel?.querySelector(".life-event-primary-facts") ? getComputedStyle(panel.querySelector(".life-event-primary-facts")).display : "absent",
+        attestationHeading: panel?.querySelector(".life-event-attestations h4")?.textContent || "",
+        expanded: document.querySelector(`#personPageTimeline [data-life-event="detailed-event-${id}"]`)?.getAttribute("aria-expanded")
+      };
+    }, detailedEntryId);
     assert.equal(desktopMetrics.overflow, 0, "1280px : aucun débordement horizontal");
     assert.equal(desktopMetrics.editHidden, true, "1280px : Modification non activée");
     assert.equal(desktopMetrics.dialogCount, 0, "1280px : aucun volet latéral");
-    assert.equal(desktopMetrics.detailPanelHidden, true, "1280px : panneau fondamental fermé lors de la navigation détaillée");
-    assert.equal(await detailedCard.locator(".life-attestation").count(), 2, "attestations consultables dans la carte");
-    await page.waitForFunction(() => !document.querySelector(".life-entry-card.is-journey-event-target"), undefined, { timeout: 3000 });
+    assert.equal(desktopMetrics.detailPanelHidden, false, "1280px : panneau intégré ouvert pour l’événement de vie");
+    assert.equal(desktopMetrics.targetCount, 0, "1280px : aucune cible du Parcours détaillé");
+    assert.equal(desktopMetrics.expanded, "true", "1280px : déclencheur annonçant le panneau");
+    assert.equal(desktopMetrics.panelTitle, "Baptême d’Ada", "titre de l’événement dans le panneau");
+    assert.equal(desktopMetrics.panelBorder, "rgb(70, 98, 122)", "bordure bleue #46627a pour un événement de vie");
+    assert.equal(desktopMetrics.attestations, 2, "attestations affichées dans le panneau");
+    assert.equal(desktopMetrics.documentLinks, 1, "document accessible depuis le panneau");
+    assert.equal(desktopMetrics.primaryFactsDisplay, "flex", "date et lieu sur une ligne souple");
+    assert.equal(desktopMetrics.attestationHeading, "Attestations", "titre au pluriel pour deux attestations");
+    assert.equal(await detailedCard.locator(".life-attestation").count(), 2, "attestations toujours consultables dans la carte");
+    const desktopTitleColors = await page.evaluate(id => {
+      const title = document.querySelector(`#personPageDetailedJourney [data-journey-id="${id}"] .life-entry-title`);
+      const reference = document.querySelector("#personPageFamily .person-detail-relative-link");
+      return {
+        titleColor: title ? getComputedStyle(title).color : "absent",
+        referenceColor: reference ? getComputedStyle(reference).color : "absent"
+      };
+    }, detailedEntryId);
+    assert.equal(desktopTitleColors.titleColor, "rgb(40, 75, 63)", "titre du panneau : couleur de marque");
+    assert.equal(desktopTitleColors.titleColor, desktopTitleColors.referenceColor, "titre du panneau aligné sur les noms Parents");
     await page.setViewportSize({ width: 390, height: 844 });
 
     await page.locator("#personPageEditBtn").evaluate(button => button.click());

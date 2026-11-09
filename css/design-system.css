@@ -1924,7 +1924,7 @@ label .field { margin-top: var(--space-2); }
 
   #personPageDetailedJourney .life-journey-column-head .source-detail-fact strong { font-size: 0.8125rem; letter-spacing: 0.02em; }
   #personPageDetailedJourney .life-entry-facts .source-detail-fact > span { color: var(--color-text); font-size: 1rem; line-height: 1.4; }
-  #personPageDetailedJourney .life-entry-title { color: var(--color-text); font-size: 1rem; line-height: 1.4; }
+  #personPageDetailedJourney .life-entry-title { color: var(--color-brand); font-size: 1rem; line-height: 1.4; }
 }
 
 .life-journey-column {
@@ -2109,7 +2109,7 @@ label .field { margin-top: var(--space-2); }
 }
 
 .life-entry-title {
-  color: var(--color-text);
+  color: var(--color-brand);
   font-weight: var(--weight-semibold);
   overflow-wrap: anywhere;
 }
@@ -2227,7 +2227,14 @@ label .field { margin-top: var(--space-2); }
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
 }
-.life-journey-visibility-toggle > span { min-width: 0; flex: 1 1 auto; }
+.life-journey-visibility-toggle > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--color-text-label);
+  font-size: 0.8125rem;
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-body);
+}
 .life-journey-switch {
   position: relative;
   flex: 0 0 auto;
@@ -2388,7 +2395,7 @@ label .field { margin-top: var(--space-2); }
 }
 .timeline-attestation-indicator .ui-icon { width: 0.875rem; height: 0.875rem; }
 .timeline-accordion-content {
-  margin: var(--space-2) 0 var(--space-3) calc(1rem + var(--space-2));
+  margin: var(--space-2) 0 var(--space-3) var(--space-2);
   padding: var(--space-3);
   border: var(--border-subtle);
   border-radius: var(--radius-md);
@@ -2405,6 +2412,37 @@ label .field { margin-top: var(--space-2); }
 .timeline-detail { display: block; margin-left: calc(1.125rem + var(--space-2)); font-size: var(--text-xs); color: var(--color-text-muted); line-height: 1.35; }
 .timeline-line { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
 .timeline-icon { width: 1.125rem; height: 1.125rem; flex: 0 0 auto; color: var(--color-accent); }
+
+/* Hiérarchie des informations du panneau desktop et des accordéons mobiles :
+   date et lieu sur une même ligne quand la largeur le permet, attestations
+   séparées d'un filet discret, documents en second. */
+.life-event-primary-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+}
+.life-event-primary-facts .source-detail-fact {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.life-event-primary-facts .source-detail-fact > strong { color: var(--color-text-muted); }
+.life-event-primary-facts .source-detail-fact > span { color: var(--color-text); font-size: var(--text-md); overflow-wrap: anywhere; }
+.life-event-attestations {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-top: var(--space-6);
+  padding-top: var(--space-3);
+  border-top: var(--border-subtle);
+}
+.life-event-attestations h4 { margin: 0; color: var(--color-text); font: var(--weight-semibold) var(--text-md)/1.3 var(--font-display); }
+.life-event-document-links { margin-top: var(--space-4); }
+.timeline-accordion-content .life-attestation-links { flex-wrap: wrap; }
+.timeline-accordion-content .life-attestation-links .btn { white-space: normal; text-align: left; }
 
 /* Autocomplétion géographique commune — la saisie libre reste le contrôle principal. */
 .location-autocomplete { position: relative; min-width: 0; }
@@ -6828,13 +6866,6 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 .timeline-detail--death { --timeline-detail-color: var(--color-danger); }
 .timeline-detail--journey-event { --timeline-detail-color: var(--color-source); }
 
-.life-entry-card.is-journey-event-target {
-  scroll-margin-top: calc(var(--person-page-anchor-offset, 8rem) + var(--space-3));
-  outline: 3px solid rgb(40 75 63 / 28%);
-  outline-offset: 2px;
-  box-shadow: var(--shadow-focus);
-  transition: outline-color var(--transition-fast), box-shadow var(--transition-fast);
-}
 @media (min-width: 961px) {
   .person-detail-content #personPageDocuments .person-doc-gallery,
   .person-page-edit-host #personDocumentsPanel .person-doc-gallery {

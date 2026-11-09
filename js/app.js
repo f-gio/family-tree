@@ -232,7 +232,6 @@ let personPageReturnContext = null;
 let personPageActiveSection = "identity";
 let personPageDocumentsExpanded = false;
 let personPageStickyObserver = null;
-let journeyEventHighlightTimer = null;
 let personPageTimelineDetailId = null;
 let personPageInlineEditing = false;
 let personPageInlineInitialDraft = null;
@@ -3473,6 +3472,23 @@ window.addEventListener("beforeunload", event => {
    mêmes épaisseur/couleurs que le Design System, décoratives (aria-hidden).
    naissance → sparkles · union → heart · séparation/divorce → unlink
    · décès → cross · autre → calendar (repère neutre). */
+const TIMELINE_EVENT_ICONS = Object.freeze({
+  baptism: "church",
+  census: "clipboard-list",
+  naturalization: "id-card",
+  emigration: "plane-takeoff",
+  immigration: "plane-landing",
+  return: "house",
+  military: "rifle",
+  mobilization: "shield-alert",
+  demobilization: "shield-check",
+  adoption: "users",
+  recognition: "file-check",
+  divorce: "heart-crack",
+  separation: "split",
+  other: "calendar-days"
+});
+
 function timelineTypeIcon(event) {
   if (event.type === "birth") return "sparkles";
   if (event.type === "death") return "cross";
@@ -3481,6 +3497,7 @@ function timelineTypeIcon(event) {
     if (text.includes("séparation") || text.includes("divorce")) return "unlink";
     return "heart";
   }
+  if (event.type === "journey-event") return TIMELINE_EVENT_ICONS[event.kind] || "calendar-days";
   return "calendar";
 }
 
@@ -3531,8 +3548,10 @@ function lifeEventConsultationMarkup(event) {
     sourceIds = entry.sourceIds || [];
     proofIds = entry.proofIds || [];
   }
-  const factMarkup = facts.length ? `<div class="life-event-consultation-facts">${facts.join("")}</div>` : "";
-  const attestationMarkup = `<section class="life-event-attestations" aria-label="Attestations"><h4>Attestations</h4>${attestations.length ? `<div class="life-attestations">${journeyAttestationRowsMarkup("life-event-panel", { id: event.id, attestations }, item, { editable: false })}</div>` : `<p class="card-meta">Aucune attestation renseignée.</p>`}</section>`;
+  const factMarkup = facts.length ? `<div class="life-event-primary-facts">${facts.join("")}</div>` : "";
+  const attestationMarkup = attestations.length
+    ? `<section class="life-event-attestations" aria-label="Attestations"><h4>${attestations.length === 1 ? "Attestation" : "Attestations"}</h4><div class="life-attestations">${journeyAttestationRowsMarkup("life-event-panel", { id: event.id, attestations }, item, { editable: false })}</div></section>`
+    : "";
   const attestedDocumentIds = new Set(attestations.flatMap(value => value.documentIds || []));
   const attestedSourceIds = new Set(attestations.flatMap(value => value.sourceIds || []));
   const attestedProofIds = new Set(attestations.flatMap(value => value.proofIds || []));
@@ -3540,7 +3559,10 @@ function lifeEventConsultationMarkup(event) {
   const sourceLinks = journeySourceLinks(item, sourceIds.filter(id => !attestedSourceIds.has(id)), "source");
   const proofLinks = journeySourceLinks(item, proofIds.filter(id => !attestedProofIds.has(id)), "proof");
   const links = [documentLinks, sourceLinks, proofLinks].filter(Boolean).join("");
-  return `${factMarkup}${attestationMarkup}${links ? `<div class="life-attestation-links">${links}</div>` : ""}`;
+  const linksMarkup = links
+    ? `<div class="life-attestation-links${attestations.length ? "" : " life-event-document-links"}">${links}</div>`
+    : "";
+  return `${factMarkup}${attestationMarkup}${linksMarkup}`;
 }
 
 function timelineEventContentId(event, suffix = "content") {
@@ -3625,29 +3647,7 @@ function handleTimelineEventActivation(button) {
     toggleTimelineAccordion(button, event);
     return;
   }
-  if (event.type === "journey-event") {
-    closeTimelineDetailPanel();
-    navigateToDetailedJourneyEvent(event.entryId);
-    return;
-  }
   toggleTimelineDetailPanel(button, event);
-}
-
-function navigateToDetailedJourneyEvent(entryId) {
-  closeTimelineDetailPanel();
-  const section = $("personPageDetailedJourney");
-  const card = section?.querySelector(`[data-journey-id="${CSS.escape(entryId)}"]`);
-  if (!card) return;
-  const details = card.matches("details") ? card : card.querySelector("details");
-  if (details) details.open = true;
-  document.querySelectorAll(".life-entry-card.is-journey-event-target").forEach(element => element.classList.remove("is-journey-event-target"));
-  card.classList.add("is-journey-event-target");
-  if (!card.hasAttribute("tabindex")) card.tabIndex = -1;
-  card.focus({ preventScroll: true });
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  card.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
-  clearTimeout(journeyEventHighlightTimer);
-  journeyEventHighlightTimer = setTimeout(() => card.classList.remove("is-journey-event-target"), 1800);
 }
 
 function timelineItemHtml(event, { interactive = false } = {}) {
@@ -3663,7 +3663,7 @@ function timelineItemHtml(event, { interactive = false } = {}) {
   if (!interactive) return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-content">${inner}</div></li>`;
   const buttonId = timelineEventContentId(event, "trigger");
   const detailedAttribute = event.type === "journey-event" ? ` data-journey-event-id="${esc(event.entryId)}"` : "";
-  return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><button class="timeline-event-trigger" id="${buttonId}" type="button" aria-expanded="false" data-life-event="${esc(event.id)}"${detailedAttribute}><span class="timeline-content">${inner}</span><svg class="ui-icon timeline-event-chevron" aria-hidden="true"><use href="#icon-chevron-right"></use></svg></button></li>`;
+  return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><button class="timeline-event-trigger" id="${buttonId}" type="button" aria-expanded="false" data-life-event="${esc(event.id)}"${detailedAttribute}><span class="timeline-content">${inner}</span><svg class="ui-icon timeline-event-chevron" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></button></li>`;
 }
 
 function renderLifeTimeline() {

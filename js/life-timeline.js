@@ -134,6 +134,7 @@ export function lifeTimelineEvents(person, { people = [], families = [] } = {}) 
       return {
         id: `detailed-event-${entry.id}`,
         entryId: entry.id,
+        kind: entry.kind,
         type: "journey-event",
         title,
         date: formatLifeDate(entry.dateInfo),

@@ -89,17 +89,22 @@ test("le CTA de création continue vers les liens, l’édition conserve Enregis
 });
 
 test("F. parcours de vie : icônes sémantiques du sprite existant", () => {
-  for (const id of ["icon-history", "icon-sparkles", "icon-heart", "icon-cross", "icon-calendar", "icon-unlink"]) {
+  for (const id of ["icon-history", "icon-sparkles", "icon-heart", "icon-cross", "icon-calendar", "icon-unlink", "icon-church", "icon-clipboard-list", "icon-id-card", "icon-plane-takeoff", "icon-plane-landing", "icon-house", "icon-rifle", "icon-shield-alert", "icon-shield-check", "icon-users", "icon-file-check", "icon-heart-crack", "icon-split", "icon-calendar-days"]) {
     assert.ok(html.includes(`<symbol id="${id}"`), `icône manquante : ${id}`);
   }
   assert.match(app, /function timelineTypeIcon\(event\) \{/);
   assert.match(app, /event\.type === "birth"\) return "sparkles"/);
   assert.match(app, /event\.type === "death"\) return "cross"/);
   assert.match(app, /includes\("séparation"\) \|\| text\.includes\("divorce"\)\) return "unlink"/);
+  assert.match(app, /TIMELINE_EVENT_ICONS = Object\.freeze\(\{/);
+  assert.match(app, /baptism: "church"/);
+  assert.match(app, /military: "rifle"/);
+  assert.match(app, /event\.type === "journey-event"\) return TIMELINE_EVENT_ICONS\[event\.kind\] \|\| "calendar-days"/);
   void app.match(/calendar/);
   assert.match(app, /icon-history/);
   assert.match(css, /\.timeline-line \{ display: flex; align-items: center; flex-wrap: wrap; gap: var\(--space-2\); \}/);
   assert.match(css, /\.timeline-icon \{ width: 1\.125rem; height: 1\.125rem;[^}]*color: var\(--color-accent\); \}/);
+  assert.ok(html.includes('id="icon-chevron-down"'), "chevron bas disponible pour les accordéons");
   assert.match(app, /<h3 class="timeline-heading"><svg class="ui-icon timeline-icon" aria-hidden="true"><use href="#icon-history"><\/use><\/svg>Parcours de vie<\/h3>/);
 });
 

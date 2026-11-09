@@ -101,6 +101,8 @@ const BASE = { birthDate: "", deathDate: "", place: "", deathPlace: "" };
   });
   assert.deepEqual(events.map(event => event.id), ["birth", "detailed-event-baptism", "union-union", "detailed-event-visible-year", "detailed-event-no-country", "detailed-event-no-place", "death", "detailed-event-unknown-date"]);
   assert.equal(events[1].title, "Baptême de Rosa");
+  assert.equal(events[1].kind, "baptism", "type brut transmis pour l’iconographie");
+  assert.equal(events[3].kind, "census", "type brut transmis pour les événements sans libellé");
   assert.equal(events[1].date, "15 août 1885");
   assert.match(events[1].detail, /Baptême.*Orino \(ITA\).*Paroisse Saint-Victor/);
   assert.doesNotMatch(events[1].detail, /Varese/, "la région n'apparaît plus dans la frise");

@@ -50,7 +50,7 @@ assert.match(css, /\.content-card:hover/);
 assert.match(css, /var\(--border-subtle\)/);
 
 // 22 — famille SVG, tailles et accessibilité des boutons icônes.
-for (const id of ["tree", "people", "document", "tasks", "close", "trash", "unlink", "eye", "edit", "home", "procedures", "calendar"]) {
+for (const id of ["tree", "people", "document", "tasks", "close", "trash", "unlink", "eye", "edit", "home", "procedures", "calendar", "church", "clipboard-list", "id-card", "plane-takeoff", "plane-landing", "house", "rifle", "shield-alert", "shield-check", "users", "file-check", "heart-crack", "split", "calendar-days"]) {
   assert.ok(html.includes(`id="icon-${id}"`), `Icône manquante : ${id}`);
 }
 assert.match(css, /\.ui-icon \{/);
