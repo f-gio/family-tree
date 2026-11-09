@@ -2177,6 +2177,10 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.locator("#personPageEditBtn").isHidden(), true, "CTA d’origine masqué en modification comme auparavant");
     await page.locator('#personPageEditHost [data-close="personDialog"]').click();
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+    /* Le passage en Modification remonte désormais en haut de la fiche : on
+       recrée l'état « fiche en bas » pour contrôler la réapparition de la
+       barre sticky après la fermeture. */
+    await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "instant" }));
     await page.waitForFunction(() => document.getElementById("personPageStickyActions").classList.contains("is-visible"), undefined, { timeout: 5000 });
     await stickyBar.locator("#personPageStickyViewTreeBtn").click();
     await page.waitForFunction(() => document.getElementById("personDetailView").hidden && !document.getElementById("appMain").hidden);
@@ -2325,8 +2329,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
 
     // Union : attestation partagée portée par families et conservée par la sauvegarde des détails.
     const partnerCard = page.locator('#personPageEditHost [data-family-card="partner:person-page-family"]');
-    await partnerCard.locator("[data-family-card-toggle]").click();
-    await page.waitForFunction(() => document.querySelector('[data-family-card="partner:person-page-family"] .family-card-panel')?.hidden === false);
+    assert.equal(await partnerCard.locator("[data-family-card-toggle]").getAttribute("aria-expanded"), "true", "panneau partenaire ouvert dès l’entrée en Modification");
+    assert.equal(await partnerCard.locator(".family-card-panel").isHidden(), false, "panneau partenaire visible sans interaction");
     const familyEdit = partnerCard.locator('[data-edit-family="person-page-family"]');
     await familyEdit.click();
     await page.waitForFunction(() => document.getElementById("familyDetailsDialog").open, undefined, { timeout: 5000 });
@@ -2450,6 +2454,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await consultPartnerCard.locator(".family-card-panel").isHidden(), true, "panneau partenaire replié par défaut");
     const consultPartnerToggle = consultPartnerCard.locator("[data-family-card-toggle]");
     assert.equal(await consultPartnerToggle.getAttribute("aria-expanded"), "false", "chevron partenaire fermé annoncé");
+    const consultChevron = await consultPartnerToggle.locator("svg").evaluate(svg => getComputedStyle(svg).transform);
+    assert.ok(!consultChevron.includes("-1"), "chevron consultation orienté vers le bas");
     const consultPartnerCounter = consultPartnerCard.locator(".relation-person-copy .relation-person-attestation-count");
     assert.equal(await consultPartnerCounter.innerText(), "1 attestation", "compteur de mariage au format commun");
     assert.equal(await consultPartnerCounter.evaluate(element => element.tagName), "SPAN", "compteur strictement informatif");
@@ -2495,6 +2501,13 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, undefined, { timeout: 10000 });
     assert.match(await page.locator("#personPageTitle").textContent(), /Carlo/, "retour à la fiche d’origine");
     assert.equal((await page.evaluate(() => window.__personPageTest.state())).section, "family", "section Famille restaurée");
+    /* L'état choisi par l'utilisateur est conservé entre les re-rendus :
+       on repasse le panneau partenaire à l'état de référence (fermé). */
+    await page.evaluate(() => {
+      const toggle = document.querySelector('#personPageFamily [data-family-card="partner:person-page-family"] [data-family-card-toggle]');
+      if (toggle && toggle.getAttribute("aria-expanded") === "true") toggle.click();
+    });
+    await page.waitForFunction(() => document.querySelector('[data-family-card="partner:person-page-family"] .family-card-panel')?.hidden === true);
 
     // Le lien du nom reste indépendant du compteur.
     await consultPartnerCard.locator(".person-detail-relative-link").click();
@@ -2524,10 +2537,16 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator("#documentPageBackBtn").click();
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, undefined, { timeout: 10000 });
     await page.evaluate(() => document.querySelector('[data-person-page-section="family"]').click());
-    await consultChildToggle.click();
+    await page.evaluate(() => {
+      const toggle = document.querySelector('#personPageFamily [data-family-card="child:person-page-family"] [data-family-card-toggle]');
+      if (toggle && toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+    });
     await page.waitForFunction(() => document.querySelector('[data-family-card="child:person-page-family"] .family-card-panel')?.hidden === false);
     assert.match(await page.locator("#personPageTitle").textContent(), /Carlo/, "le chevron n’ouvre pas la fiche Personne");
-    await consultChildToggle.click();
+    await page.evaluate(() => {
+      const toggle = document.querySelector('#personPageFamily [data-family-card="child:person-page-family"] [data-family-card-toggle]');
+      if (toggle && toggle.getAttribute("aria-expanded") === "true") toggle.click();
+    });
     await page.waitForFunction(() => document.querySelector('[data-family-card="child:person-page-family"] .family-card-panel')?.hidden === true);
 
     // Mobile : cartes sans débordement, chevrons tactiles et orientés.
@@ -2614,12 +2633,14 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     const modParentGroup = page.locator("#relationsList .family-parent-group");
     assert.equal(await modParentGroup.count(), 1, "un bloc commun pour le groupe Parents");
     assert.equal(await modParentGroup.locator(".family-parent-line").count(), 2, "deux lignes compactes dans le bloc Parents");
-    assert.equal(await modParentGroup.locator(".family-parent-view-link").count(), 2, "un lien Voir la fiche par parent");
+    assert.equal(await modParentGroup.locator(".family-parent-view-link").count(), 0, "aucun lien Voir la fiche individuel");
+    assert.equal(await modParentGroup.locator(".family-parent-line .person-detail-relative-link").count(), 2, "nom cliquable de chaque parent conservé");
     assert.equal(await modParentGroup.locator(".family-parent-line .relation-person-avatar img").count(), 1, "portrait réel conservé lorsqu’il existe");
     assert.equal(await modParentGroup.locator(".family-parent-actions [data-edit-family]").count(), 1, "un seul bouton Modifier dans le groupe");
     const modParentActions = modParentGroup.locator(".family-parent-actions");
     assert.equal(await modParentActions.locator('[data-edit-family="person-page-family"]').innerText(), "Modifier", "bouton Modifier explicite");
-    assert.equal(await modParentActions.locator("[data-remove-child]").innerText(), "Dissocier de ce groupe de parents", "dissociation commune conservée");
+    assert.equal(await modParentActions.locator("[data-remove-child]").innerText(), "Dissocier", "libellé visible unique");
+    assert.equal(await modParentActions.locator("[data-remove-child]").getAttribute("aria-label"), "Dissocier de ce groupe de parents", "nom accessible du groupe conservé");
     assert.equal(await page.locator('#relationsList [data-remove-child="person-page-family"][data-person="person-page-c"]').count(), 1, "dissociation du groupe de parents conservée");
     assert.equal(await page.locator("#relationsList .relation-actions-menu").count(), 0, "aucun menu à trois points en modification");
     assert.equal(await modParentGroup.locator(".family-parent-line [data-remove-child]").count(), 0, "aucune dissociation individuelle du parent");
@@ -2658,8 +2679,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.match(await page.locator("#familyDetailsTitle").innerText(), /Parents de Lina/, "formulaire de relation parent-enfant existant");
     await page.locator('#familyDetailsDialog [data-close="familyDetailsDialog"]').first().click();
     await page.waitForFunction(() => !document.getElementById("familyDetailsDialog").open);
-    await page.locator('#personPageEditHost [data-close="personDialog"]').click();
+    await modParentGroup.locator(".family-parent-line .person-detail-relative-link").first().click();
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+    await page.waitForFunction(() => !document.getElementById("personPageTitle").textContent.includes("Lina"));
+    await page.locator("#personPageBackBtn").click();
+    await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Lina"));
 
     // Modification des partenaires et enfants : panneau déplié, actions explicites, confirmations.
     await page.evaluate(() => window.__personPageTest.openDirectory());
@@ -2671,13 +2695,17 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.locator("#relationsList .life-attestation-add").count(), 0, "aucune commande d’attestation inutile en modification");
     const modChildCard = page.locator('#relationsList [data-family-card="child:person-page-family"]');
     const modChildToggle = modChildCard.locator("[data-family-card-toggle]");
-    assert.equal(await modChildToggle.getAttribute("aria-expanded"), "false", "carte enfant repliée par défaut");
+    assert.equal(await modChildToggle.getAttribute("aria-expanded"), "true", "panneau enfant ouvert par défaut en Modification");
+    assert.equal(await modChildCard.locator(".family-card-panel").isHidden(), false, "panneau enfant visible sans interaction");
+    await page.waitForFunction(() => {
+      const svg = document.querySelector('#relationsList [data-family-card="child:person-page-family"] [data-family-card-toggle] svg');
+      return svg && getComputedStyle(svg).transform.includes("-1");
+    });
     assert.equal(await modChildCard.locator(".family-card-aside .relation-person-attestation-count").innerText(), "2 attestations", "compteur dans l’en-tête en modification");
-    await modChildToggle.click();
-    await page.waitForFunction(() => document.querySelector('#relationsList [data-family-card="child:person-page-family"] .family-card-panel')?.hidden === false);
     const modChildPanel = modChildCard.locator(".family-card-panel");
     assert.equal(await modChildPanel.locator('[data-edit-family="person-page-family"]').innerText(), "Modifier", "Modifier enfant dans le panneau");
-    assert.equal(await modChildPanel.locator("[data-remove-child]").innerText(), "Dissocier cet enfant", "libellé Dissocier enfant");
+    assert.equal(await modChildPanel.locator("[data-remove-child]").innerText(), "Dissocier", "libellé visible unique enfant");
+    assert.equal(await modChildPanel.locator("[data-remove-child]").getAttribute("aria-label"), "Dissocier cet enfant", "nom accessible enfant conservé");
     assert.ok(await modChildPanel.locator("[data-view-document]").count() >= 1, "documents de naissance dans le panneau");
     await modChildPanel.locator('[data-edit-family="person-page-family"]').click();
     await page.waitForFunction(() => document.getElementById("familyDetailsDialog").open, undefined, { timeout: 5000 });
@@ -2703,10 +2731,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.match(childConfirm[0] || "", /Dissocier ce lien parent-enfant/, "confirmation de dissociation enfant conservée");
 
     const modPartnerCard = page.locator('#relationsList [data-family-card="partner:person-page-family"]');
-    await modPartnerCard.locator("[data-family-card-toggle]").click();
-    await page.waitForFunction(() => document.querySelector('#relationsList [data-family-card="partner:person-page-family"] .family-card-panel')?.hidden === false);
+    assert.equal(await modPartnerCard.locator("[data-family-card-toggle]").getAttribute("aria-expanded"), "true", "panneau partenaire ouvert par défaut en Modification");
+    assert.equal(await modPartnerCard.locator(".family-card-panel").isHidden(), false, "panneau partenaire visible sans interaction");
     const modPartnerPanel = modPartnerCard.locator(".family-card-panel");
-    assert.equal(await modPartnerPanel.locator("[data-remove-partner]").innerText(), "Dissocier ce partenaire", "libellé Dissocier partenaire");
+    assert.equal(await modPartnerPanel.locator("[data-remove-partner]").innerText(), "Dissocier", "libellé visible unique partenaire");
+    assert.equal(await modPartnerPanel.locator("[data-remove-partner]").getAttribute("aria-label"), "Dissocier ce partenaire", "nom accessible partenaire conservé");
     assert.equal(await modPartnerPanel.locator('[data-edit-family="person-page-family"]').innerText(), "Modifier", "Modifier partenaire dans le panneau");
     assert.doesNotMatch(await modPartnerPanel.innerText(), /Palermo/, "lieu absent du panneau Partenaires en Modification");
     await modPartnerPanel.locator('[data-edit-family="person-page-family"]').click();
@@ -2731,6 +2760,43 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.locator('#relationsList [data-family-card="child:person-page-family"]').count(), 1, "lien enfant intact après confirmation refusée");
     await page.locator('#personPageEditHost [data-close="personDialog"]').click();
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+
+    // Retour systématique en haut lors du passage Consultation → Modification.
+    const readPersonPageScroll = () => page.evaluate(() => {
+      const view = document.getElementById("personDetailView");
+      let node = view?.parentElement || null;
+      let container = 0;
+      while (node && node !== document.documentElement) {
+        const style = getComputedStyle(node);
+        if ((style.overflowY === "auto" || style.overflowY === "scroll") && node.scrollHeight > node.clientHeight) { container = node.scrollTop; break; }
+        node = node.parentElement;
+      }
+      return { container: Math.round(container), window: Math.round(window.scrollY || document.documentElement.scrollTop || 0) };
+    });
+    for (const [width, height] of [[1280, 850], [390, 844]]) {
+      await page.setViewportSize({ width, height });
+      await page.evaluate(() => window.__personPageTest.openDirectory());
+      await page.locator('#directoryList [data-directory-person="person-page-a"]').click();
+      await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
+      for (const [label, block, mustScroll] of [["début", "start", false], ["milieu", "center", true], ["bas", "end", true]]) {
+        await page.evaluate(target => {
+          const section = target === "start" ? document.getElementById("personPageIdentity")
+            : target === "center" ? document.getElementById("personPageDocuments")
+              : document.getElementById("personPageResearch");
+          section?.scrollIntoView({ block: target, behavior: "instant" });
+        }, block);
+        const beforeScroll = await readPersonPageScroll();
+        if (mustScroll) assert.ok(beforeScroll.container + beforeScroll.window > 0, `${width}px : fiche déjà défilée avant Modifier (${label})`);
+        await page.locator("#personPageEditBtn").evaluate(button => button.click());
+        await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+        const afterScroll = await readPersonPageScroll();
+        assert.equal(afterScroll.container, 0, `${width}px : conteneur interne remonté en haut (${label})`);
+        assert.equal(afterScroll.window, 0, `${width}px : page remontée en haut (${label})`);
+        await page.locator('#personPageEditHost [data-close="personDialog"]').click();
+        await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+      }
+    }
+    await page.setViewportSize({ width: 1280, height: 850 });
 
     assert.deepEqual(errors, [], `aucune erreur JavaScript : ${errors.join(" | ")}`);
   } finally {

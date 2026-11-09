@@ -2621,7 +2621,7 @@ label .field { margin-top: var(--space-2); }
 .family-parent-lines { min-width: 0; }
 .family-parent-line {
   display: grid;
-  grid-template-columns: 2.75rem minmax(0, 1fr) auto;
+  grid-template-columns: 2.75rem minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
@@ -2629,8 +2629,7 @@ label .field { margin-top: var(--space-2); }
 }
 .family-parent-line + .family-parent-line { border-top: var(--border-subtle); }
 .family-parent-copy { display: grid; gap: 2px; min-width: 0; }
-.family-parent-copy strong { overflow-wrap: anywhere; }
-.family-parent-view-link { min-height: var(--control-touch); white-space: nowrap; }
+.family-parent-copy .person-detail-relative-link { justify-self: start; overflow-wrap: anywhere; }
 .family-parent-actions {
   display: flex;
   align-items: center;
@@ -2706,8 +2705,7 @@ label .field { margin-top: var(--space-2); }
   .family-card--counter-aside .family-card-aside { display: contents; }
   .family-card--counter-aside .family-card-aside > .family-card-chevron { grid-area: chevron; }
   .family-card--counter-aside .family-card-aside > .relation-person-attestation-count { grid-area: counter; justify-self: end; }
-  .family-parent-line { grid-template-columns: 2.75rem minmax(0, 1fr) auto; gap: var(--space-2); }
-  .family-parent-view-link { grid-column: 3; justify-self: end; min-height: var(--control-touch); }
+  .family-parent-line { gap: var(--space-2); }
   .family-parent-actions { align-items: stretch; }
   .family-parent-actions .btn { flex: 1 1 0; justify-content: center; white-space: normal; text-align: center; }
 }
