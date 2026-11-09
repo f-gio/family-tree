@@ -10,7 +10,7 @@ window.__personPageTest = {
     people = [
       { id: "person-page-a", firstName: "Ada", middleName: "Maria", lastName: "Rossi", marriedName: "Bianchi", gender: "F", branch: "Ramo Conti", birthDateInfo: { type: "year", year: 1890 }, place: "Palermo", deathDateInfo: { type: "year", year: 1931 }, deathPlace: "Metz", notes: "Note de consultation", photoUrl: "${svg}", updatedAt: { toDate: () => new Date("2026-10-24T03:30:00Z") }, updatedByName: "Archiviste", inTree: true },
       { id: "person-page-b", firstName: "Carlo", lastName: "Rossi", gender: "M", birthDateInfo: { type: "year", year: 1860 }, place: "Palermo" },
-      { id: "person-page-c", firstName: "Lina", lastName: "Rossi", gender: "F" },
+      { id: "person-page-c", firstName: "Lina", lastName: "Rossi", gender: "F", birthAttestations: [{ id: "lina-birth-attestation", comment: "Acte de naissance de Lina" }] },
       { id: "person-page-d", firstName: "Rosa", middleName: "Margherita", lastName: "Conti", gender: "F", birthDateInfo: { type: "exact", value: "1904-08-25" }, place: "Esch-sur-Alzette", deathDateInfo: { type: "exact", value: "1931-07-28" }, deathPlace: "Metz", inTree: true },
       { id: "person-page-e", firstName: "Émile", lastName: "Conti", gender: "M", birthDateInfo: { type: "exact", value: "1902-02-02" }, inTree: true }
     ];
@@ -171,6 +171,14 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.match(await page.locator("#personPageContent").innerText(), /Acte de naissance d’Ada/);
     assert.match(await page.locator("#personPageContent").innerText(), /Établie/);
     assert.equal(await page.locator("#personPageContent pre").count(), 0, "aucun JSON technique dans la page Personne");
+    const earlyFamilyCounters = await page.evaluate(() => {
+      const groups = [...document.querySelectorAll("#personPageFamily .relation-group")];
+      const textOf = title => groups.find(group => group.querySelector("h4")?.textContent === title)?.innerText || "";
+      return { parents: textOf("Parents"), partners: textOf("Partenaires et unions"), children: textOf("Enfants") };
+    });
+    assert.match(earlyFamilyCounters.children, /1 attestation de naissance/, "compteur de naissance de l’enfant dans Famille");
+    assert.doesNotMatch(earlyFamilyCounters.partners, /attestation/, "aucun compteur avant l’attestation de mariage");
+    assert.doesNotMatch(earlyFamilyCounters.parents, /attestation/, "aucun compteur d’attestation dans Parents");
     const desktopJourneyPresentation = await page.evaluate(() => {
       const journey = document.getElementById("personPageDetailedJourney");
       const family = document.getElementById("personPageFamily");
@@ -789,7 +797,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator('#personPageEditHost [data-close="personDialog"]').click();
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     const emptyResidenceAttestations = page.locator('#personPageDetailedJourney [data-journey-kind="residence"]');
-    assert.doesNotMatch(await emptyResidenceAttestations.innerText(), /0 attestation|Aucune attestation renseignée/, "aucune ligne de compteur ou état vide pour les attestations en consultation");
+    assert.match(await emptyResidenceAttestations.innerText(), /0 attestation/, "compteur 0 attestation visible en consultation");
     assert.equal(await emptyResidenceAttestations.locator(".life-attestation").count(), 0, "aucune attestation vide affichée en consultation");
     await page.locator("#personPageEditBtn").click();
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
@@ -919,7 +927,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(titleColors.titleColor, titleColors.referenceColor, "titre aligné sur la couleur des noms Parents");
     const consultedAttestations = page.locator('#personPageDetailedJourney [data-journey-kind="residence"]');
     assert.equal(await consultedAttestations.locator(".life-attestation").count(), 2, "attestations existantes toujours consultables");
-    assert.doesNotMatch(await consultedAttestations.innerText(), /2 attestations|0 attestation|Aucune attestation renseignée/, "compteur et état vide masqués en consultation");
+    assert.match(await consultedAttestations.innerText(), /2 attestations/, "compteur visible en consultation");
 
     /* Consultation du justificatif : fiche Source existante puis retour. */
     await page.locator('[data-journey-open-source="person-page-source"]').click();
@@ -2363,6 +2371,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(lifeState.families.find(f => f.id === "person-page-family").marriageAttestations.length, 1, "la sauvegarde des détails conserve l’attestation d’union");
     await page.locator('#personPageEditHost [data-close="personDialog"]').click();
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
+    const partnerCounterText = await page.evaluate(() => {
+      const groups = [...document.querySelectorAll("#personPageFamily .relation-group")];
+      return groups.find(group => group.querySelector("h4")?.textContent === "Partenaires et unions")?.innerText || "";
+    });
+    assert.match(partnerCounterText, /1 attestation de mariage/, "compteur de mariage issu de l’union concernée");
     await page.evaluate(() => window.__personPageTest.openDirectory());
     await page.locator('#directoryList [data-directory-person="person-page-b"]').click();
     await page.waitForFunction(() => document.getElementById("personPageTitle").textContent.includes("Carlo"));
@@ -2771,6 +2784,9 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
           attestations: content?.querySelectorAll(".life-attestation").length || 0,
           documentLinks: content?.querySelectorAll('[data-view-document="person-page-document"]').length || 0,
           chevronTransform: chevron ? getComputedStyle(chevron).transform : "",
+          iconBg: (() => { const svg = button?.querySelector(".timeline-icon"); return svg ? getComputedStyle(svg).backgroundColor : "absent"; })(),
+          iconColor: (() => { const svg = button?.querySelector(".timeline-icon"); return svg ? getComputedStyle(svg).color : "absent"; })(),
+          iconWidth: (() => { const svg = button?.querySelector(".timeline-icon"); return svg ? Math.round(svg.getBoundingClientRect().width) : 0; })(),
           attestationHeading: content?.querySelector(".life-event-attestations h4")?.textContent || "",
           factLabels: facts.map(fact => fact.querySelector("strong")?.textContent || ""),
           factRows: new Set(facts.map(fact => Math.round(fact.getBoundingClientRect().top))).size,
@@ -2790,7 +2806,10 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
       assert.equal(mobileDetailed.attestationHeading, "Attestations", `${width}px : titre au pluriel`);
       assert.equal(mobileDetailed.documentLinks, 1, `${width}px : document accessible`);
       assert.ok(mobileDetailed.chevronTransform.startsWith("matrix(-1"), `${width}px : chevron bas vers haut à l’ouverture`);
-      assert.ok(mobileDetailed.factLabels.includes("Date") && mobileDetailed.factLabels.includes("Lieu"), `${width}px : date et lieu conservés`);
+      assert.equal(mobileDetailed.iconBg, "rgba(0, 0, 0, 0)", `${width}px : icône sans carré plein`);
+      assert.equal(mobileDetailed.iconColor, "rgb(70, 98, 122)", `${width}px : icône en bleu source`);
+      assert.ok(mobileDetailed.iconWidth >= 14 && mobileDetailed.iconWidth <= 16, `${width}px : taille d’icône visible (${mobileDetailed.iconWidth}px)`);
+      assert.ok(!mobileDetailed.factLabels.includes("Date") && !mobileDetailed.factLabels.includes("Lieu"), `${width}px : date et lieu non répétés dans le panneau`);
       assert.ok(mobileDetailed.factRows <= 2, `${width}px : informations regroupées sans empilement ligne à ligne`);
       assert.ok(mobileDetailed.contentLeft > mobileDetailed.axisLeft, `${width}px : axe de la frise visible à gauche du contenu`);
       assert.ok(mobileDetailed.contentLeft < mobileDetailed.textLeft, `${width}px : contenu élargi sous le titre`);
@@ -2809,7 +2828,8 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
       }));
       assert.equal(mobileFundamental.openIsBirth, true, `${width}px : Naissance ouverte`);
       assert.equal(mobileFundamental.detailedOpen, false, `${width}px : seul un événement ouvert`);
-      assert.match(mobileFundamental.text, /Naissance/, `${width}px : contenu de Naissance affiché`);
+      assert.doesNotMatch(mobileFundamental.text, /Naissance/, `${width}px : titre non répété dans le panneau`);
+      assert.match(mobileFundamental.text, /naissance/, `${width}px : document de Naissance accessible dans le panneau`);
       await page.locator('#personPageTimeline [data-life-event="birth"]').evaluate(button => button.click());
       await page.waitForFunction(() => document.querySelectorAll("#personPageTimeline .timeline-jalon.is-open").length === 0);
     }
@@ -2834,7 +2854,13 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
         documentLinks: document.querySelectorAll('#personPageTimelineDetail [data-view-document="person-page-document"]').length,
         primaryFactsDisplay: panel?.querySelector(".life-event-primary-facts") ? getComputedStyle(panel.querySelector(".life-event-primary-facts")).display : "absent",
         attestationHeading: panel?.querySelector(".life-event-attestations h4")?.textContent || "",
-        expanded: document.querySelector(`#personPageTimeline [data-life-event="detailed-event-${id}"]`)?.getAttribute("aria-expanded")
+        expanded: document.querySelector(`#personPageTimeline [data-life-event="detailed-event-${id}"]`)?.getAttribute("aria-expanded"),
+        icon: (() => {
+          const svg = document.querySelector(`#personPageTimeline [data-life-event="detailed-event-${id}"] .timeline-icon`);
+          if (!svg) return null;
+          const style = getComputedStyle(svg);
+          return { bg: style.backgroundColor, color: style.color, href: svg.querySelector("use")?.getAttribute("href"), width: Math.round(svg.getBoundingClientRect().width) };
+        })()
       };
     }, detailedEntryId);
     assert.equal(desktopMetrics.overflow, 0, "1280px : aucun débordement horizontal");
@@ -2849,6 +2875,11 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     assert.equal(desktopMetrics.documentLinks, 1, "document accessible depuis le panneau");
     assert.equal(desktopMetrics.primaryFactsDisplay, "flex", "date et lieu sur une ligne souple");
     assert.equal(desktopMetrics.attestationHeading, "Attestations", "titre au pluriel pour deux attestations");
+    assert.ok(desktopMetrics.icon, "1280px : icône de l’événement de vie présente");
+    assert.equal(desktopMetrics.icon.bg, "rgba(0, 0, 0, 0)", "1280px : icône sans carré plein");
+    assert.equal(desktopMetrics.icon.color, "rgb(70, 98, 122)", "1280px : icône en bleu source");
+    assert.equal(desktopMetrics.icon.href, "#icon-church", "1280px : pictogramme église");
+    assert.ok(desktopMetrics.icon.width >= 14 && desktopMetrics.icon.width <= 18, `1280px : taille d’icône visible (${desktopMetrics.icon.width}px)`);
     assert.equal(await detailedCard.locator(".life-attestation").count(), 2, "attestations toujours consultables dans la carte");
     const desktopTitleColors = await page.evaluate(id => {
       const title = document.querySelector(`#personPageDetailedJourney [data-journey-id="${id}"] .life-entry-title`);
@@ -2864,7 +2895,31 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
 
     await page.locator("#personPageEditBtn").evaluate(button => button.click());
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
+    await page.locator('#personPageEditHost [data-journey-edit^="event:"]').evaluate(button => {
+      button.closest(".life-entry-card").scrollIntoView({ block: "start", behavior: "instant" });
+    });
+    const beforeFormOpen = await page.evaluate(() => {
+      const card = document.querySelector('#personPageEditHost [data-journey-edit^="event:"]').closest(".life-entry-card");
+      const offset = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--person-page-anchor-offset")) || 0;
+      return { cardTop: Math.round(card.getBoundingClientRect().top), offset: Math.round(offset) };
+    });
+    assert.ok(beforeFormOpen.cardTop < beforeFormOpen.offset, `début du formulaire sous l’en-tête fixe avant ouverture (${beforeFormOpen.cardTop}px / ${beforeFormOpen.offset}px)`);
     await page.locator('#personPageEditHost [data-journey-edit^="event:"]').evaluate(button => button.click());
+    await page.waitForSelector("#personPageEditHost .life-entry-editing");
+    const formOpenState = await page.evaluate(() => {
+      const editing = document.querySelector("#personPageEditHost .life-entry-editing");
+      const offset = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--person-page-anchor-offset")) || 0;
+      const rect = editing.getBoundingClientRect();
+      return {
+        top: Math.round(rect.top),
+        offset: Math.round(offset),
+        titleVisible: Boolean(editing.querySelector(".life-entry-title")?.getClientRects().length),
+        activeTag: document.activeElement?.tagName || ""
+      };
+    });
+    assert.equal(formOpenState.titleVisible, true, "titre du formulaire visible sans défilement manuel");
+    assert.ok(Math.abs(formOpenState.top - formOpenState.offset) <= 24, `formulaire aligné sous l’en-tête fixe (${formOpenState.top}px / ${formOpenState.offset}px)`);
+    assert.ok(!["INPUT", "TEXTAREA", "SELECT"].includes(formOpenState.activeTag), "aucun clavier ouvert automatiquement");
     await page.locator(".life-journey-switch").evaluate(button => button.click());
     assert.equal(await page.locator("#journeyEventShowInLifeTimeline").inputValue(), "false", "retour à désactivé");
     assert.equal(await page.locator(".life-journey-switch").getAttribute("aria-checked"), "false", "état désactivé annoncé");
@@ -2881,6 +2936,13 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     await tap('#personPageEditHost [data-close="personDialog"]');
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     assert.equal(await page.locator('#personPageTimeline [data-life-event^="detailed-event-"]').count(), 0, "suppression retire l'événement des deux affichages");
+    const webkitFamilyCounters = await page.evaluate(() => {
+      const groups = [...document.querySelectorAll("#personPageFamily .relation-group")];
+      const textOf = title => groups.find(group => group.querySelector("h4")?.textContent === title)?.innerText || "";
+      return { partners: textOf("Partenaires et unions"), children: textOf("Enfants") };
+    });
+    assert.match(webkitFamilyCounters.children, /1 attestation de naissance/, "compteur de naissance de l’enfant visible en mobile");
+    assert.doesNotMatch(webkitFamilyCounters.partners, /attestation/, "aucun compteur de mariage sans attestation");
 
     await page.locator("#personPageEditBtn").evaluate(button => button.click());
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);

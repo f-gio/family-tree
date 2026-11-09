@@ -2291,10 +2291,11 @@ function personPageEventDocuments(item, event) {
   return documents.filter(documentItem => ids.has(documentItem.id));
 }
 
-function personPageRelativeRow(relative, kind, meta = []) {
+function personPageRelativeRow(relative, kind, meta = [], counter = "") {
   if (!relative) return "";
   const name = relationOptionName(relative);
-  return `<article class="relation-person-row person-detail-family-row"><span class="relation-person-avatar">${relationAvatarMarkup(relative)}</span><div class="relation-person-copy"><button class="person-detail-relative-link" type="button" data-open-person-page="${esc(relative.id)}">${esc(name)}</button>${relationMetadata([relationRole(relative, kind), ...meta])}</div></article>`;
+  const counterMarkup = counter ? `<p class="relation-person-attestation-count">${icon("document")}<span>${esc(counter)}</span></p>` : "";
+  return `<article class="relation-person-row person-detail-family-row"><span class="relation-person-avatar">${relationAvatarMarkup(relative)}</span><div class="relation-person-copy"><button class="person-detail-relative-link" type="button" data-open-person-page="${esc(relative.id)}">${esc(name)}</button>${relationMetadata([relationRole(relative, kind), ...meta])}${counterMarkup}</div></article>`;
 }
 
 function personPageFamilyMarkup(item) {
@@ -2319,14 +2320,20 @@ function personPageFamilyMarkup(item) {
       ["none", "unknown"].includes(endType) ? "" : `${END_TYPE_LABELS[endType]}${endDate === "—" ? "" : ` · ${endDate}`}`,
       childCount ? `${childCount} enfant${childCount > 1 ? "s" : ""}` : ""
     ];
-    return { relative, html: personPageRelativeRow(relative, "partner", meta) };
+    const marriageCount = lifeAttestations({ attestations: family.marriageAttestations }).length;
+    const counter = marriageCount
+      ? `${marriageCount} attestation${marriageCount > 1 ? "s" : ""} ${relationType === "marriage" ? "de mariage" : "d'union"}`
+      : "";
+    return { relative, html: personPageRelativeRow(relative, "partner", meta, counter) };
   })).filter(entry => entry.relative).sort((a, b) => comparePeopleBySurname(a.relative, b.relative)).map(entry => entry.html);
   const childEntries = ownFamilies.flatMap(family => (family.childIds || []).map(childId => {
     const relative = person(childId);
     const type = parentChildLinkType(family, item.id, childId);
     const filiation = type === "unknown" ? "" : `Filiation ${FILIATION_TYPE_LABELS[type].toLocaleLowerCase("fr-FR")}`;
     const otherParents = (family.partnerIds || []).filter(id => id !== item.id).map(nameOf);
-    return { relative, html: personPageRelativeRow(relative, "child", [filiation, otherParents.length ? `Avec ${otherParents.join(" et ")}` : ""]) };
+    const birthCount = lifeAttestations({ attestations: relative.birthAttestations }).length;
+    const counter = birthCount ? `${birthCount} attestation${birthCount > 1 ? "s" : ""} de naissance` : "";
+    return { relative, html: personPageRelativeRow(relative, "child", [filiation, otherParents.length ? `Avec ${otherParents.join(" et ")}` : ""], counter) };
   })).filter(entry => entry.relative).sort((a, b) => comparePeopleBySurname(a.relative, b.relative)).map(entry => entry.html);
   const total = parentEntries.length + partnerEntries.length + childEntries.length;
   if (!total) return `<section id="personPageFamily" aria-labelledby="personPageFamilyTitle"><h3 id="personPageFamilyTitle">Famille</h3>${emptyState({ iconName: "link", title: "Aucun lien familial", description: "Les liens familiaux associés à cette personne apparaîtront ici." })}</section>`;
@@ -2619,7 +2626,7 @@ function journeyEntryMarkup(kind, entry, item, { editable = false } = {}) {
   const attestations = lifeAttestations(entry);
   const isEditing = editable && journeyEditor && (journeyEditor.type === kind) && journeyEditor.entryId === entry.id && journeyEditor.type !== "attestation";
   const editingAttestation = editable && journeyEditor?.type === "attestation" && journeyEditor.entryId === entry.id;
-  const countLabel = editable ? `<span class="life-entry-meta">${attestations.length} attestation${attestations.length > 1 ? "s" : ""}</span>` : "";
+  const countLabel = `<span class="life-entry-meta">${attestations.length} attestation${attestations.length > 1 ? "s" : ""}</span>`;
   const eventPlaceText = kind === "event" ? compactJourneyEventPlace(entry) : "";
   const editableForm = isEditing ? journeyEntryFormMarkup(kind, entry) : "";
   const attestationContent = journeyAttestationsMarkup(kind, entry, item, { editable });
@@ -3501,13 +3508,13 @@ function timelineTypeIcon(event) {
   return "calendar";
 }
 
-function lifeEventConsultationMarkup(event) {
+function lifeEventConsultationMarkup(event, { compact = false } = {}) {
   const item = activePersonPageItem || person(activeId);
   if (!item) return "";
   const facts = [];
   const fact = (label, value) => {
     const normalized = typeof value === "string" ? value.trim() : "";
-    if (normalized && normalized !== "—") facts.push(`<div class="source-detail-fact"><strong>${esc(label)}</strong><span>${esc(normalized)}</span></div>`);
+    if (normalized && normalized !== "—") facts.push({ label, value: normalized });
   };
   let attestations = [];
   let documentIds = [];
@@ -3539,7 +3546,8 @@ function lifeEventConsultationMarkup(event) {
   } else {
     const entry = personLifeList(item, "lifeEvents").find(value => value.id === event.entryId && value.showInLifeTimeline === true);
     if (!entry) return "";
-    fact("Type", lifeEventKindLabel(entry.kind) || entry.kind);
+    const kindLabel = lifeEventKindLabel(entry.kind) || entry.kind;
+    if (kindLabel !== event.title) fact("Type", kindLabel);
     fact("Date", event.date);
     fact("Lieu", formatCompactPlace(entry.place, { name: entry.place, countryCode: toIsoAlpha3(entry.countryCode) || countryNameToIsoAlpha3(entry.country) }));
     fact("Description", entry.description);
@@ -3548,7 +3556,13 @@ function lifeEventConsultationMarkup(event) {
     sourceIds = entry.sourceIds || [];
     proofIds = entry.proofIds || [];
   }
-  const factMarkup = facts.length ? `<div class="life-event-primary-facts">${facts.join("")}</div>` : "";
+  /* Accordéon mobile : l'en-tête affiche déjà le titre, la date, le lieu et le
+     contexte de l'union — seules les informations absentes de l'en-tête sont
+     conservées (le lieu de l'union notamment). */
+  const visibleFacts = compact ? facts.filter(value => event.type === "union" && value.label === "Lieu") : facts;
+  const factMarkup = visibleFacts.length
+    ? `<div class="life-event-primary-facts">${visibleFacts.map(value => `<div class="source-detail-fact"><strong>${esc(value.label)}</strong><span>${esc(value.value)}</span></div>`).join("")}</div>`
+    : "";
   const attestationMarkup = attestations.length
     ? `<section class="life-event-attestations" aria-label="Attestations"><h4>${attestations.length === 1 ? "Attestation" : "Attestations"}</h4><div class="life-attestations">${journeyAttestationRowsMarkup("life-event-panel", { id: event.id, attestations }, item, { editable: false })}</div></section>`
     : "";
@@ -3633,7 +3647,7 @@ function toggleTimelineAccordion(button, event) {
   content.id = contentId;
   content.setAttribute("role", "region");
   content.setAttribute("aria-labelledby", button.id);
-  content.innerHTML = `<h4>${esc(event.title)}</h4>${lifeEventConsultationMarkup(event)}`;
+  content.innerHTML = lifeEventConsultationMarkup(event, { compact: true });
   li.append(content);
 }
 
@@ -14303,6 +14317,21 @@ function journeyOpenPendingEntryAttestation() {
   renderJourneySection({ preserveForm: false });
 }
 
+/* Ouvrir un formulaire de résidence, de profession ou d'événement de vie en
+   mobile remonte le formulaire sous les en-têtes fixes : le titre et les
+   premiers champs sont visibles sans défilement manuel, sans forcer le
+   clavier et sans toucher au défilement desktop déjà validé. */
+function journeyScrollEntryFormIntoView() {
+  if (!window.matchMedia("(max-width: 760px)").matches) return;
+  const editing = document.querySelector("#personPageEditHost .life-entry-editing, #personPageDetailedJourney .life-entry-editing");
+  if (!editing) return;
+  updatePersonPageAnchorOffset();
+  const offset = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--person-page-anchor-offset")) || 0;
+  const top = editing.getBoundingClientRect().top;
+  if (top >= offset - 1 && top <= window.innerHeight - 160) return;
+  editing.scrollIntoView({ block: "start", behavior: "instant" });
+}
+
 function journeyOpenEditor(next) {
   if (journeyEditor && !journeyConfirmDiscard()) return;
   const previousEditor = journeyEditor;
@@ -14319,6 +14348,7 @@ function journeyOpenEditor(next) {
   journeyEditorBaseline = null;
   if (next.entryId && !isMajorEventAttestationKind(next.entryKind)) journeyExpanded.add(next.entryId);
   renderJourneyEditorSurface(next.entryKind || next.type);
+  if (["residence", "profession", "event"].includes(next.type)) journeyScrollEntryFormIntoView();
 }
 
 function journeyCancelEditor() {
