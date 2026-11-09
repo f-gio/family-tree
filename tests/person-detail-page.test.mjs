@@ -1790,7 +1790,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       assert.equal(editionState.documentAria, "Ajouter un document", `${width}px : nom accessible Documents conservé`);
       assert.equal(editionState.proofAria, "Ajouter une preuve", `${width}px : nom accessible Preuves explicite`);
       assert.ok(editionState.horizontalOverflow <= 1, `${width}px : libellé desktop sans débordement (${editionState.horizontalOverflow}px)`);
-      assert.ok(editionState.familyVisualGap >= 3 && editionState.familyVisualGap <= 5, `${width}px : cartes Famille compactes en modification (${editionState.familyVisualGap}px)`);
+      assert.ok(editionState.familyVisualGap >= 3 && editionState.familyVisualGap <= 5.5, `${width}px : espacement Famille Modification aligné sur la Consultation (${editionState.familyVisualGap}px)`);
       await page.locator('#personPageEditHost [data-close="personDialog"]').click();
       await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     }
@@ -1884,7 +1884,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       assert.equal(inlineResponsive.addProofAccessibleName, "Ajouter une preuve", `${width}px : nom accessible explicite du CTA Preuve`);
       assert.ok(inlineResponsive.listToProof >= 16, `${width}px : au moins 16px entre les preuves et « Ajouter une preuve » (${inlineResponsive.listToProof}px)`);
       assert.ok(inlineResponsive.proofToCardBottom >= 16, `${width}px : au moins 16px sous « Ajouter une preuve » avant la fin de la carte (${inlineResponsive.proofToCardBottom}px)`);
-      assert.ok(inlineResponsive.familyVisualGap >= 3 && inlineResponsive.familyVisualGap <= 5, `${width}px : écart visuel nom/relation en modification (~4px, ${inlineResponsive.familyVisualGap}px)`);
+      assert.ok(inlineResponsive.familyVisualGap >= 3 && inlineResponsive.familyVisualGap <= 5.5, `${width}px : écart visuel nom/relation aligné sur la Consultation (${inlineResponsive.familyVisualGap}px)`);
       assert.equal(inlineResponsive.relationButtonStyle.background, "rgb(255, 253, 248)", `${width}px : ajout lien familial en bouton secondaire`);
       assert.equal(inlineResponsive.relationButtonStyle.border, "rgb(214, 204, 187)", `${width}px : bordure secondaire conservée`);
       assert.equal(inlineResponsive.relationButtonStyle.color, "rgb(40, 75, 63)", `${width}px : texte vert foncé`);
@@ -2566,6 +2566,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => document.querySelector('[data-family-card="child:person-page-family"] .family-card-panel')?.hidden === true);
 
     // Mobile : cartes sans débordement, chevrons tactiles et orientés.
+    const consultationFamilySpacing = new Map();
     for (const width of [320, 375, 390]) {
       await page.setViewportSize({ width, height: 844 });
       await page.evaluate(() => document.querySelector('[data-person-page-section="family"]').click());
@@ -2575,6 +2576,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         const panel = card.querySelector(".family-card-panel");
         const counter = card.querySelector(".relation-person-attestation-count");
         const meta = card.querySelector(".relation-person-meta");
+        const copy = card.querySelector(".relation-person-copy");
         return {
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           expanded: toggle.getAttribute("aria-expanded"),
@@ -2583,6 +2585,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           metaLeft: meta ? Math.round(meta.getBoundingClientRect().left) : null,
           counterTop: counter ? Math.round(counter.getBoundingClientRect().top) : null,
           metaBottom: meta ? Math.round(meta.getBoundingClientRect().bottom) : null,
+          copyGap: copy ? getComputedStyle(copy).rowGap : "",
+          metaMargin: meta ? getComputedStyle(meta).marginTop : "",
           chevronSize: Math.round(toggle.getBoundingClientRect().width)
         };
       });
@@ -2592,6 +2596,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       assert.ok(mobileCard.chevronSize >= 44, `${width}px : chevron tactile ≥ 44 px (${mobileCard.chevronSize}px)`);
       assert.equal(mobileCard.counterLeft, mobileCard.metaLeft, `${width}px : compteur aligné sous la relation`);
       assert.ok(mobileCard.counterTop >= mobileCard.metaBottom, `${width}px : compteur en troisième ligne`);
+      const consultationCounterGap = mobileCard.counterTop - mobileCard.metaBottom;
+      assert.equal(mobileCard.copyGap, "4px", `${width}px : espacement interne Consultation référent`);
+      assert.equal(mobileCard.metaMargin, "0px", `${width}px : marge de relation Consultation référente`);
+      assert.equal(consultationCounterGap, 4, `${width}px : espace relation/compteur Consultation référent`);
+      consultationFamilySpacing.set(width, { copyGap: mobileCard.copyGap, metaMargin: mobileCard.metaMargin, counterGap: consultationCounterGap });
       await page.locator('#personPageFamily [data-family-card="partner:person-page-family"] [data-family-card-toggle]').click();
       await page.waitForFunction(() => document.querySelector('[data-family-card="partner:person-page-family"] .family-card-panel')?.hidden === false);
       await page.waitForFunction(() => {
@@ -2631,15 +2640,23 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       await page.setViewportSize({ width, height: 844 });
       const parentMobile = await page.evaluate(() => {
         const group = document.querySelector("#personPageFamily .relation-group");
-        const rows = [...group.querySelectorAll(":scope .relation-person-row")].map(row => row.getBoundingClientRect());
+        const rows = [...group.querySelectorAll(":scope .relation-person-row")].map(row => {
+          const link = row.querySelector(".person-detail-relative-link");
+          const meta = row.querySelector(".relation-person-meta");
+          return {
+            box: row.getBoundingClientRect(),
+            relationGap: meta && link ? Math.round(meta.getBoundingClientRect().top - link.getBoundingClientRect().bottom) : null
+          };
+        });
         return {
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-          rows: rows.map(row => ({ left: Math.round(row.left), right: Math.round(row.right), height: Math.round(row.height) }))
+          rows: rows.map(row => ({ left: Math.round(row.box.left), right: Math.round(row.box.right), height: Math.round(row.box.height), relationGap: row.relationGap }))
         };
       });
       assert.ok(parentMobile.overflow <= 1, `${width}px : parents sans débordement`);
       assert.equal(parentMobile.rows.length, 2, `${width}px : deux lignes de parents`);
       assert.equal(parentMobile.rows[0].left, parentMobile.rows[1].left, `${width}px : lignes parents alignées`);
+      assert.ok(parentMobile.rows.every(row => row.relationGap === 4), `${width}px : espacement nom/relation Parents conforme à Consultation`);
     }
     await page.setViewportSize({ width: 1280, height: 850 });
 
@@ -2700,6 +2717,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       await page.setViewportSize({ width, height: 844 });
       const mobileParentActions = await modParentGroup.evaluate(group => {
         const style = getComputedStyle(group);
+        const relationGaps = [...group.querySelectorAll(".family-parent-line")].map(line => {
+          const name = line.querySelector(".person-detail-relative-link");
+          const relation = line.querySelector(".relation-person-meta");
+          return relation && name ? Math.round(relation.getBoundingClientRect().top - name.getBoundingClientRect().bottom) : null;
+        });
         const modifier = group.querySelector(".family-parent-actions [data-edit-family]");
         const unlink = group.querySelector(".family-parent-actions [data-remove-child]");
         const mBox = modifier.getBoundingClientRect();
@@ -2711,6 +2733,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           group: group.getBoundingClientRect(),
           paddingLeft: Number.parseFloat(style.paddingLeft),
           buttons: [mBox, uBox].map(box => ({ left: Math.round(box.left), right: Math.round(box.right) })),
+          relationGaps,
           modifier: { left: Math.round(mBox.left), width: Math.round(mBox.width), height: Math.round(mBox.height), fontSize: mStyle.fontSize, fontWeight: mStyle.fontWeight, borderWidth: mStyle.borderTopWidth },
           gap: Math.round(uBox.left - mBox.right),
           unlinkBorderColor: uStyle.borderTopColor
@@ -2718,6 +2741,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       });
       assert.ok(mobileParentActions.overflow <= 1, `${width}px : bloc Parents sans débordement`);
       assert.ok(mobileParentActions.buttons.every(button => button.left >= mobileParentActions.group.left && button.right <= mobileParentActions.group.right + 1), `${width}px : actions Parents contenues`);
+      assert.ok(mobileParentActions.relationGaps.every(gap => gap === 4), `${width}px : espacement nom/relation Parents identique à Consultation`);
       assert.ok(Math.abs(mobileParentActions.modifier.left - (mobileParentActions.group.left + mobileParentActions.paddingLeft)) <= 2, `${width}px : actions Parents alignées à gauche`);
       assert.ok(mobileParentActions.modifier.width < mobileParentActions.group.width / 2, `${width}px : Modifier ajusté au texte sans étirement (${mobileParentActions.modifier.width}px)`);
       assert.equal(mobileParentActions.unlinkBorderColor, "rgba(0, 0, 0, 0)", `${width}px : Dissocier Parents sans encadrement`);
@@ -2814,6 +2838,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           const modifier = card.querySelector(".family-card-actions [data-edit-family]");
           const unlink = card.querySelector(`.family-card-actions ${removeSelector}`);
           const copy = card.querySelector(".relation-person-copy");
+          const meta = copy.querySelector(".relation-person-meta");
           const counter = card.querySelector(".relation-person-attestation-count");
           const chevron = card.querySelector(".family-card-chevron");
           const mBox = modifier.getBoundingClientRect();
@@ -2830,8 +2855,10 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
             modifier: { left: Math.round(mBox.left), width: Math.round(mBox.width), height: Math.round(mBox.height), fontSize: mStyle.fontSize, fontWeight: mStyle.fontWeight, borderWidth: mStyle.borderTopWidth },
             unlink: { borderColor: uStyle.borderTopColor },
             gap: Math.round(uBox.left - mBox.right),
-            copy: { left: Math.round(copyBox.left), right: Math.round(copyBox.right), bottom: Math.round(copyBox.bottom) },
+            copy: { left: Math.round(copyBox.left), right: Math.round(copyBox.right), bottom: Math.round(copyBox.bottom), gap: getComputedStyle(copy).rowGap },
+            meta: { bottom: meta ? Math.round(meta.getBoundingClientRect().bottom) : null, marginTop: meta ? getComputedStyle(meta).marginTop : "" },
             counter: { left: Math.round(counterBox.left), top: Math.round(counterBox.top), tag: counter.tagName, decoration: getComputedStyle(counter).textDecorationLine },
+            relationCounterGap: meta ? Math.round(counterBox.top - meta.getBoundingClientRect().bottom) : null,
             chevron: { left: Math.round(chevronBox.left), width: Math.round(chevronBox.width) },
             overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
           };
@@ -2853,6 +2880,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.ok(card.gap >= 4 && card.gap <= 12, `${width}px : espacement CTA ${label} harmonisé (${card.gap}px)`);
         assert.ok(Math.abs(card.counter.left - card.copy.left) <= 1, `${width}px : compteur ${label} aligné à gauche sous la relation`);
         assert.ok(card.counter.top >= card.copy.bottom - 1, `${width}px : compteur ${label} en troisième ligne`);
+        const consultationSpacing = consultationFamilySpacing.get(width);
+        assert.ok(consultationSpacing, `${width}px : espacement Consultation de référence disponible`);
+        assert.equal(card.copy.gap, consultationSpacing.copyGap, `${width}px : espace nom/relation ${label} identique à Consultation`);
+        assert.equal(card.meta.marginTop, consultationSpacing.metaMargin, `${width}px : marge de relation ${label} identique à Consultation`);
+        assert.equal(card.relationCounterGap, consultationSpacing.counterGap, `${width}px : espace relation/compteur ${label} identique à Consultation`);
         assert.equal(card.counter.tag, "SPAN", `${width}px : compteur ${label} non cliquable`);
         assert.equal(card.counter.decoration, "none", `${width}px : compteur ${label} sans soulignement`);
         assert.ok(card.chevron.left > card.copy.right, `${width}px : chevron ${label} à droite du bloc texte`);
