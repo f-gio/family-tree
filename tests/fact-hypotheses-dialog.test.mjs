@@ -41,6 +41,20 @@ window.__fhSmoke = {
   hypothesis(id) {
     const hyp = factHypotheses.find(item => item.id === id);
     return hyp ? { id: hyp.id, status: hyp.status, justification: hyp.justification, value: hyp.value } : null;
+  },
+  setLoaderState(state) { factHypothesesState = state; syncFactHypothesesAvailability(); },
+  resetLoader() { resetFactHypothesesCache(); },
+  showForm() {
+    document.getElementById("personId").value = "p-smoke";
+    document.getElementById("personDialog").showModal();
+  },
+  manageState() {
+    return [...document.querySelectorAll("[data-fact-hypothesis-manage]")].map(container => ({
+      field: container.querySelector("[data-fact-hypothesis-field]")?.dataset.factHypothesisField || null,
+      selfHidden: container.hidden === true,
+      ancestorHidden: Boolean(container.parentElement?.closest("[hidden]")),
+      buttonHidden: container.querySelector("button")?.hidden === true
+    }));
   }
 };`;
 
@@ -49,7 +63,9 @@ async function openHarness(t, width) {
   let browser;
   try { browser = await chromium.launch({ headless: true }); }
   catch (error) { await server.close(); t.skip(`Chromium indisponible : ${error.message}`); return null; }
-  const context = await browser.newContext({ viewport: { width, height: 850 }, locale: "fr-FR", isMobile: width <= 760, hasTouch: width <= 760 });
+  /* reducedMotion : neutralise l'animation d'ouverture des dialogues
+     (ft-dialog-in, scale 0.992) qui fausserait les mesures tactiles. */
+  const context = await browser.newContext({ viewport: { width, height: 850 }, locale: "fr-FR", isMobile: width <= 760, hasTouch: width <= 760, reducedMotion: "reduce" });
   await context.addInitScript(() => { window.__forcedEnv = "recette"; });
   await context.route("**/*", async route => {
     const url = route.request().url();
@@ -225,6 +241,115 @@ test("dialogue mobile : feuille conservée, contrôles ≥ 44 px, sans débordem
       return content.scrollWidth - content.clientWidth;
     });
     assert.ok(formOverflow <= 1, `pas de débordement avec le formulaire de réexamen (${formOverflow}px)`);
+    assert.deepEqual(pageErrors, []);
+  } finally { await context.close(); await browser.close(); await server.close(); }
+});
+
+test("les quatre conteneurs suivent l'état du chargeur (desktop)", async t => {
+  const h = await openHarness(t, 1024);
+  if (!h) return;
+  const { page, context, browser, server, pageErrors } = h;
+  try {
+    const read = () => page.evaluate(() => window.__fhSmoke.manageState());
+
+    /* État initial : HTML masqué (idle), quatre conteneurs, champs corrects. */
+    let state = await read();
+    assert.equal(state.length, 4, "quatre conteneurs dans le formulaire");
+    assert.deepEqual(state.map(item => item.field), ["birth.date", "birth.place", "death.date", "death.place"]);
+    assert.equal(state.every(item => item.selfHidden), true, "idle : masqués");
+
+    await page.evaluate(() => window.__fhSmoke.setLoaderState("loading"));
+    state = await read();
+    assert.equal(state.every(item => item.selfHidden), true, "loading : masqués");
+
+    await page.evaluate(() => window.__fhSmoke.setLoaderState("ready"));
+    state = await read();
+    for (const item of state) {
+      assert.equal(item.selfHidden, false, `ready : conteneur ${item.field} visible`);
+      assert.equal(item.ancestorHidden, false, `ready : aucun ancêtre masqué pour ${item.field}`);
+      assert.equal(item.buttonHidden, false, `ready : bouton non masqué pour ${item.field}`);
+    }
+
+    await page.evaluate(() => window.__fhSmoke.setLoaderState("denied"));
+    state = await read();
+    assert.equal(state.every(item => item.selfHidden), true, "denied : masqués");
+
+    await page.evaluate(() => window.__fhSmoke.setLoaderState("error"));
+    state = await read();
+    assert.equal(state.every(item => item.selfHidden), true, "error : masqués");
+
+    await page.evaluate(() => window.__fhSmoke.resetLoader());
+    state = await read();
+    assert.equal(state.every(item => item.selfHidden), true, "retour à idle : masqués");
+
+    await page.evaluate(() => window.__fhSmoke.setLoaderState("ready"));
+    state = await read();
+    assert.equal(state.every(item => item.selfHidden === false), true, "ready final : visibles");
+    assert.deepEqual(pageErrors, []);
+  } finally { await context.close(); await browser.close(); await server.close(); }
+});
+
+test("chacun des quatre boutons ouvre le dialogue de son champ (desktop)", async t => {
+  const h = await openHarness(t, 1024);
+  if (!h) return;
+  const { page, context, browser, server, pageErrors } = h;
+  try {
+    await page.evaluate(() => window.__fhSmoke.seed());
+    await page.evaluate(() => window.__fhSmoke.showForm());
+    const cases = [
+      ["birth.date", "Hypothèses — Date de naissance"],
+      ["birth.place", "Hypothèses — Lieu de naissance"],
+      ["death.date", "Hypothèses — Date de décès"],
+      ["death.place", "Hypothèses — Lieu de décès"]
+    ];
+    for (const [field, expectedTitle] of cases) {
+      const button = page.locator(`#personDialog [data-fact-hypothesis-field="${field}"]`);
+      /* Un clic échoue (timeout) si le bouton est masqué ou inaccessible :
+         c'est la preuve d'accessibilité réelle, pas seulement de présence DOM. */
+      await button.click({ timeout: 5000 });
+      await page.waitForFunction(() => document.getElementById("factHypothesesDialog").open);
+      assert.equal(await page.locator("#factHypothesesTitle").textContent(), expectedTitle, `dialogue de ${field}`);
+      await page.evaluate(() => document.getElementById("factHypothesesDialog").close());
+      await page.waitForFunction(() => !document.getElementById("factHypothesesDialog").open);
+    }
+    assert.deepEqual(pageErrors, []);
+  } finally { await context.close(); await browser.close(); await server.close(); }
+});
+
+test("mobile : conteneurs accessibles, cibles ≥ 44 px, ouverture des quatre dialogues", async t => {
+  const h = await openHarness(t, 390);
+  if (!h) return;
+  const { page, context, browser, server, pageErrors } = h;
+  try {
+    await page.evaluate(() => window.__fhSmoke.seed());
+    await page.evaluate(() => window.__fhSmoke.showForm());
+    const state = await page.evaluate(() => window.__fhSmoke.manageState());
+    assert.equal(state.length, 4, "quatre conteneurs");
+    assert.equal(state.every(item => item.selfHidden === false && item.ancestorHidden === false), true, "mobile : conteneurs visibles et sans ancêtre masqué");
+
+    const cases = [
+      ["birth.date", "Hypothèses — Date de naissance"],
+      ["birth.place", "Hypothèses — Lieu de naissance"],
+      ["death.date", "Hypothèses — Date de décès"],
+      ["death.place", "Hypothèses — Lieu de décès"]
+    ];
+    for (const [field, expectedTitle] of cases) {
+      const button = page.locator(`#personDialog [data-fact-hypothesis-field="${field}"]`);
+      const box = await button.boundingBox();
+      assert.ok(box && box.height >= 44, `cible tactile ≥ 44 px pour ${field} (${box?.height}px)`);
+      await button.click({ timeout: 5000 });
+      await page.waitForFunction(() => document.getElementById("factHypothesesDialog").open);
+      assert.equal(await page.locator("#factHypothesesTitle").textContent(), expectedTitle, `dialogue mobile de ${field}`);
+      await page.evaluate(() => document.getElementById("factHypothesesDialog").close());
+      await page.waitForFunction(() => !document.getElementById("factHypothesesDialog").open);
+    }
+
+    /* Aucun débordement horizontal induit par les conteneurs pleine largeur. */
+    const overflow = await page.evaluate(() => {
+      const grid = document.querySelector("#personDialog .life-fields-grid");
+      return grid ? grid.scrollWidth - grid.clientWidth : -1;
+    });
+    assert.ok(overflow <= 1, `pas de débordement horizontal dans la grille (${overflow}px)`);
     assert.deepEqual(pageErrors, []);
   } finally { await context.close(); await browser.close(); await server.close(); }
 });

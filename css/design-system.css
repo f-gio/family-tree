@@ -2637,6 +2637,7 @@ label .field { margin-top: var(--space-2); }
     flex: 0 0 auto;
     padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
   }
+  .fact-hypothesis-manage .btn,
   .fact-hypothesis-attestation-zone .btn,
   .fact-hypothesis-attestation-zone .field,
   .fact-hypothesis-actions .btn,

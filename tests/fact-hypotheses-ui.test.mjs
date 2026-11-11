@@ -13,8 +13,12 @@ const rulesDoc = readFileSync(new URL("../FACT_HYPOTHESES_RULES.md", import.meta
 test("les quatre boutons de gestion couvrent date et lieu de naissance et de décès", () => {
   const fields = [...html.matchAll(/data-fact-hypothesis-field="([^"]+)"/g)].map(match => match[1]);
   assert.deepEqual(fields, ["birth.date", "birth.place", "death.date", "death.place"]);
-  const buttons = html.match(/<div class="fact-hypothesis-manage" hidden><button class="btn small" type="button" data-fact-hypothesis-manage/g);
-  assert.equal(buttons?.length, 4, "quatre boutons masqués par défaut, type explicite");
+  /* Correction de visibilité : `hidden` et `data-fact-hypothesis-manage` sont
+     portés par le MÊME conteneur (le synchroniseur démasque donc le porteur de
+     `hidden`) ; le bouton ne conserve que son champ. */
+  const wrappers = html.match(/<div class="fact-hypothesis-manage" data-fact-hypothesis-manage hidden><button class="btn small" type="button" data-fact-hypothesis-field="/g);
+  assert.equal(wrappers?.length, 4, "quatre conteneurs masqués portant data-fact-hypothesis-manage");
+  assert.doesNotMatch(html, /<button[^>]*data-fact-hypothesis-manage/);
   assert.match(html, /<use href="#icon-git-compare-arrows"><\/use><\/svg><span>Gérer les hypothèses<\/span>/g);
   assert.match(html, /Gérer les hypothèses — Date de naissance/);
   assert.match(html, /Gérer les hypothèses — Lieu de décès/);
@@ -171,6 +175,6 @@ test("les styles des attestations restent lisibles et tactiles sur mobile", () =
   assert.match(css, /\.fact-hypothesis-role\[data-role="contradicts"\]/);
   assert.match(css, /\.fact-hypothesis-attestation-add \{/);
   assert.match(css, /\.fact-hypothesis-attestation-zone \.field \{ max-width: 100%; min-height: var\(--control-touch\); \}/);
-  assert.match(css, /\.fact-hypothesis-attestation-zone \.btn,\r?\n\s*\.fact-hypothesis-attestation-zone \.field,\r?\n\s*\.fact-hypothesis-actions \.btn,\r?\n\s*\.fact-hypothesis-form-zone \.btn,\r?\n\s*\.fact-hypothesis-form-zone \.field \{ min-height: var\(--control-touch\); \}/);
+  assert.match(css, /\.fact-hypothesis-manage \.btn,\r?\n\s*\.fact-hypothesis-attestation-zone \.btn,\r?\n\s*\.fact-hypothesis-attestation-zone \.field,\r?\n\s*\.fact-hypothesis-actions \.btn,\r?\n\s*\.fact-hypothesis-form-zone \.btn,\r?\n\s*\.fact-hypothesis-form-zone \.field \{ min-height: var\(--control-touch\); \}/);
   assert.match(css, /flex-wrap: wrap/);
 });
