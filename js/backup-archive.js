@@ -28,15 +28,15 @@ export function compareBackupCaptureMarkers(before, after) {
   };
 }
 
-/* Collections exigées pour une sauvegarde COMPLÈTE : la présence de la clé
-   (même avec un tableau vide) distingue une collection légitimement vide d'une
-   collection non capturée. Les archives historiques gardent leur manifeste
-   stocké : leur calcul de complétude reste inchangé (rétrocompatibilité). */
+/* Collections exigées pour une sauvegarde COMPLÈTE. Les archives v5 qui
+   contiennent les anciennes collections d'hypothèses (lot 2C.5-A, abandonné)
+   restent lisibles via BACKUP_COLLECTION_NAMES, mais ces collections ne sont
+   plus exigées : un export sans elles reste « complet ». Les archives
+   historiques gardent leur manifeste stocké (rétrocompatibilité). */
 const REQUIRED_COLLECTIONS = Object.freeze([
   "people", "families", "trees", "documents", "tasks", "sourceDocuments", "sourceRevisions",
   "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions",
-  "factConclusions", "conclusionRevisions", "genealogyProposals", "genealogyEvents", "genealogyNotifications",
-  "factHypotheses", "factHypothesisRevisions"
+  "factConclusions", "conclusionRevisions", "genealogyProposals", "genealogyEvents", "genealogyNotifications"
 ]);
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const BASE_V4_FIELDS = ["format", "version", "exportedAt", "people", "families", "trees", "tasks", "documents"];
