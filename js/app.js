@@ -2298,8 +2298,34 @@ function upsertFactHypotheses(items = []) {
   }
 }
 
+/* Synchronisation unique des quatre commandes : visibilité selon l'état de
+   disponibilité + libellé/pastille/nom accessible calculés depuis les données
+   réelles (aucun compteur en dur). Un seul hypothèse ou zéro : « Hypothèses » ;
+   deux ou plus : « N hypothèses » (pastille sur mobile). */
 function syncFactHypothesesAvailability() {
-  document.querySelectorAll("[data-fact-hypothesis-manage]").forEach(button => { button.hidden = !factHypothesesAvailable(); });
+  const available = factHypothesesAvailable();
+  const personId = $("personId")?.value || "";
+  document.querySelectorAll("[data-fact-hypothesis-manage]").forEach(container => {
+    container.hidden = !available;
+    const button = container.querySelector("[data-fact-hypothesis-field]");
+    if (!button) return;
+    const field = factHypothesisField(button.dataset.factHypothesisField);
+    if (!field) return;
+    const count = available ? activeFactHypotheses(factHypothesesForField(personId, field.key)).length : 0;
+    const multiple = count > 1;
+    const label = button.querySelector("[data-fh-manage-label]");
+    if (label) label.textContent = multiple ? `${count} hypothèses` : "Hypothèses";
+    const badge = button.querySelector("[data-fh-manage-badge]");
+    if (badge) {
+      badge.hidden = !multiple;
+      badge.textContent = multiple ? String(count) : "";
+    }
+    const accessibleName = multiple
+      ? `Gérer les ${count} hypothèses de ${field.label.toLowerCase()}`
+      : `Gérer les hypothèses de ${field.label.toLowerCase()}`;
+    button.setAttribute("aria-label", accessibleName);
+    button.title = accessibleName;
+  });
 }
 
 function resetFactHypothesesCache() {
@@ -4135,6 +4161,7 @@ function openPerson(item = null, source = "tree", { showDialog = true } = {}) {
   setPersonSection("identity");
   renderMajorEventAttestations("birth");
   renderMajorEventAttestations("death");
+  syncFactHypothesesAvailability();
   if (showDialog) {
     $("personDialog").showModal();
     setTimeout(() => $("firstName").focus(), 30);
@@ -14563,6 +14590,9 @@ function renderFactHypothesesDialog() {
   content.querySelectorAll("[data-date-prefix]").forEach(button => {
     button.onclick = () => setGenealogyDateType(button.dataset.datePrefix, button.dataset.dateType);
   });
+  /* Les opérations du dialogue modifient les compteurs affichés dans le
+     formulaire derrière : on resynchronise les quatre commandes. */
+  syncFactHypothesesAvailability();
 }
 
 $("factHypothesesDialog").addEventListener("click", async event => {

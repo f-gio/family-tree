@@ -46,6 +46,9 @@ window.__fhSmoke = {
   resetLoader() { resetFactHypothesesCache(); },
   showForm() {
     document.getElementById("personId").value = "p-smoke";
+    /* Comme openPerson réel : le compte est resynchronisé après le
+       remplissage de la fiche (personId renseigné). */
+    syncFactHypothesesAvailability();
     document.getElementById("personDialog").showModal();
   },
   manageState() {
@@ -289,67 +292,119 @@ test("les quatre conteneurs suivent l'état du chargeur (desktop)", async t => {
   } finally { await context.close(); await browser.close(); await server.close(); }
 });
 
-test("chacun des quatre boutons ouvre le dialogue de son champ (desktop)", async t => {
-  const h = await openHarness(t, 1024);
-  if (!h) return;
-  const { page, context, browser, server, pageErrors } = h;
-  try {
-    await page.evaluate(() => window.__fhSmoke.seed());
-    await page.evaluate(() => window.__fhSmoke.showForm());
-    const cases = [
-      ["birth.date", "Hypothèses — Date de naissance"],
-      ["birth.place", "Hypothèses — Lieu de naissance"],
-      ["death.date", "Hypothèses — Date de décès"],
-      ["death.place", "Hypothèses — Lieu de décès"]
-    ];
-    for (const [field, expectedTitle] of cases) {
-      const button = page.locator(`#personDialog [data-fact-hypothesis-field="${field}"]`);
-      /* Un clic échoue (timeout) si le bouton est masqué ou inaccessible :
-         c'est la preuve d'accessibilité réelle, pas seulement de présence DOM. */
-      await button.click({ timeout: 5000 });
-      await page.waitForFunction(() => document.getElementById("factHypothesesDialog").open);
-      assert.equal(await page.locator("#factHypothesesTitle").textContent(), expectedTitle, `dialogue de ${field}`);
-      await page.evaluate(() => document.getElementById("factHypothesesDialog").close());
-      await page.waitForFunction(() => !document.getElementById("factHypothesesDialog").open);
-    }
-    assert.deepEqual(pageErrors, []);
-  } finally { await context.close(); await browser.close(); await server.close(); }
+test("chacun des quatre boutons ouvre le dialogue de son champ (desktop 1024 et 1440)", async t => {
+  for (const width of [1024, 1440]) {
+    const h = await openHarness(t, width);
+    if (!h) return;
+    const { page, context, browser, server, pageErrors } = h;
+    try {
+      await page.evaluate(() => window.__fhSmoke.seed());
+      await page.evaluate(() => window.__fhSmoke.showForm());
+
+      /* Compteurs et noms accessibles issus des données (birth.date : 3 hypothèses
+         actives ; les autres champs : aucune concurrence). */
+      const readButton = field => page.evaluate(key => {
+        const button = document.querySelector(`[data-fact-hypothesis-field="${key}"]`);
+        return {
+          label: button.querySelector("[data-fh-manage-label]")?.textContent,
+          badgeHidden: button.querySelector("[data-fh-manage-badge]")?.hidden,
+          badgeText: button.querySelector("[data-fh-manage-badge]")?.textContent,
+          aria: button.getAttribute("aria-label")
+        };
+      }, field);
+      const birthDate = await readButton("birth.date");
+      assert.equal(birthDate.label, "3 hypothèses", `${width}px : libellé compté pour birth.date`);
+      assert.equal(birthDate.badgeHidden, false, `${width}px : pastille armée pour3 hypothèses`);
+      assert.equal(birthDate.badgeText, "3", `${width}px : pastille =3`);
+      assert.equal(birthDate.aria, "Gérer les 3 hypothèses de date de naissance", `${width}px : nom accessible compté`);
+      const birthPlace = await readButton("birth.place");
+      assert.equal(birthPlace.label, "Hypothèses", `${width}px : pas de «1 hypothèse » sans concurrence`);
+      assert.equal(birthPlace.badgeHidden, true, `${width}px : pas de pastille sans concurrence`);
+      assert.equal(birthPlace.aria, "Gérer les hypothèses de lieu de naissance", `${width}px : nom accessible sans concurrence`);
+
+      const cases = [
+        ["birth.date", "Hypothèses — Date de naissance"],
+        ["birth.place", "Hypothèses — Lieu de naissance"],
+        ["death.date", "Hypothèses — Date de décès"],
+        ["death.place", "Hypothèses — Lieu de décès"]
+      ];
+      for (const [field, expectedTitle] of cases) {
+        const button = page.locator(`#personDialog [data-fact-hypothesis-field="${field}"]`);
+        /* Un clic échoue (timeout) si le bouton est masqué ou inaccessible. */
+        await button.click({ timeout: 5000 });
+        await page.waitForFunction(() => document.getElementById("factHypothesesDialog").open);
+        assert.equal(await page.locator("#factHypothesesTitle").textContent(), expectedTitle, `${width}px : dialogue de ${field}`);
+        await page.evaluate(() => document.getElementById("factHypothesesDialog").close());
+        await page.waitForFunction(() => !document.getElementById("factHypothesesDialog").open);
+      }
+
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      assert.ok(overflow <= 1, `${width}px : aucun débordement horizontal`);
+      assert.deepEqual(pageErrors, []);
+    } finally { await context.close(); await browser.close(); await server.close(); }
+  }
 });
 
-test("mobile : conteneurs accessibles, cibles ≥ 44 px, ouverture des quatre dialogues", async t => {
-  const h = await openHarness(t, 390);
-  if (!h) return;
-  const { page, context, browser, server, pageErrors } = h;
-  try {
-    await page.evaluate(() => window.__fhSmoke.seed());
-    await page.evaluate(() => window.__fhSmoke.showForm());
-    const state = await page.evaluate(() => window.__fhSmoke.manageState());
-    assert.equal(state.length, 4, "quatre conteneurs");
-    assert.equal(state.every(item => item.selfHidden === false && item.ancestorHidden === false), true, "mobile : conteneurs visibles et sans ancêtre masqué");
+test("mobile (320/375/390) : boutons carrés icône seule, pastille, ouverture des quatre dialogues", async t => {
+  for (const width of [320, 375, 390]) {
+    const h = await openHarness(t, width);
+    if (!h) return;
+    const { page, context, browser, server, pageErrors } = h;
+    try {
+      await page.evaluate(() => window.__fhSmoke.seed());
+      await page.evaluate(() => window.__fhSmoke.showForm());
+      const state = await page.evaluate(() => window.__fhSmoke.manageState());
+      assert.equal(state.length, 4, `${width}px : quatre conteneurs`);
+      assert.equal(state.every(item => item.selfHidden === false && item.ancestorHidden === false), true, `${width}px : conteneurs visibles et sans ancêtre masqué`);
 
-    const cases = [
-      ["birth.date", "Hypothèses — Date de naissance"],
-      ["birth.place", "Hypothèses — Lieu de naissance"],
-      ["death.date", "Hypothèses — Date de décès"],
-      ["death.place", "Hypothèses — Lieu de décès"]
-    ];
-    for (const [field, expectedTitle] of cases) {
-      const button = page.locator(`#personDialog [data-fact-hypothesis-field="${field}"]`);
-      const box = await button.boundingBox();
-      assert.ok(box && box.height >= 44, `cible tactile ≥ 44 px pour ${field} (${box?.height}px)`);
-      await button.click({ timeout: 5000 });
-      await page.waitForFunction(() => document.getElementById("factHypothesesDialog").open);
-      assert.equal(await page.locator("#factHypothesesTitle").textContent(), expectedTitle, `dialogue mobile de ${field}`);
-      await page.evaluate(() => document.getElementById("factHypothesesDialog").close());
-      await page.waitForFunction(() => !document.getElementById("factHypothesesDialog").open);
-    }
+      /* Cible carrée ≥ 44 × 44, texte masqué (icône seule), pastille selon concurrence. */
+      const metrics = await page.evaluate(() => {
+        const read = key => {
+          const button = document.querySelector(`[data-fact-hypothesis-field="${key}"]`);
+          const box = button.getBoundingClientRect();
+          const text = button.querySelector("[data-fh-manage-label]");
+          const badge = button.querySelector("[data-fh-manage-badge]");
+          return {
+            width: Math.round(box.width), height: Math.round(box.height),
+            textDisplay: getComputedStyle(text).display,
+            badgeHidden: badge.hidden,
+            badgeDisplay: getComputedStyle(badge).display,
+            badgeText: badge.textContent
+          };
+        };
+        return { birthDate: read("birth.date"), birthPlace: read("birth.place") };
+      });
+      for (const [key, item] of Object.entries(metrics)) {
+        assert.ok(item.width >= 44, `${width}px : ${key} largeur ≥ 44 (${item.width}px)`);
+        assert.ok(item.height >= 44, `${width}px : ${key} hauteur ≥ 44 (${item.height}px)`);
+        assert.equal(item.textDisplay, "none", `${width}px : ${key} texte masqué (icône seule)`);
+      }
+      assert.equal(metrics.birthDate.badgeHidden, false, `${width}px : pastille visible (3 hypothèses)`);
+      /* display calculé « flex » = valeur blockifiée de inline-flex sur un
+         élément positionné en absolute — seule l'absence de « none » compte. */
+      assert.notEqual(metrics.birthDate.badgeDisplay, "none", `${width}px : pastille affichée`);
+      assert.equal(metrics.birthDate.badgeText, "3", `${width}px : contenu de la pastille`);
+      assert.equal(metrics.birthPlace.badgeHidden, true, `${width}px : pas de pastille sans concurrence`);
 
-    /* Aucun débordement horizontal induit par les conteneurs pleine largeur. */
-    const overflow = await page.evaluate(() => {
-      const grid = document.querySelector("#personDialog .life-fields-grid");
-      return grid ? grid.scrollWidth - grid.clientWidth : -1;
-    });
-    assert.ok(overflow <= 1, `pas de débordement horizontal dans la grille (${overflow}px)`);
-    assert.deepEqual(pageErrors, []);
-  } finally { await context.close(); await browser.close(); await server.close(); }
+      const cases = [
+        ["birth.date", "Hypothèses — Date de naissance"],
+        ["birth.place", "Hypothèses — Lieu de naissance"],
+        ["death.date", "Hypothèses — Date de décès"],
+        ["death.place", "Hypothèses — Lieu de décès"]
+      ];
+      for (const [field, expectedTitle] of cases) {
+        const button = page.locator(`#personDialog [data-fact-hypothesis-field="${field}"]`);
+        await button.click({ timeout: 5000 });
+        await page.waitForFunction(() => document.getElementById("factHypothesesDialog").open);
+        assert.equal(await page.locator("#factHypothesesTitle").textContent(), expectedTitle, `${width}px : dialogue mobile de ${field}`);
+        await page.evaluate(() => document.getElementById("factHypothesesDialog").close());
+        await page.waitForFunction(() => !document.getElementById("factHypothesesDialog").open);
+      }
+
+      /* Aucun débordement horizontal induit par les lignes Date/Lieu. */
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      assert.ok(overflow <= 1, `${width}px : aucun débordement horizontal (${overflow}px)`);
+      assert.deepEqual(pageErrors, []);
+    } finally { await context.close(); await browser.close(); await server.close(); }
+  }
 });

@@ -13,15 +13,21 @@ const rulesDoc = readFileSync(new URL("../FACT_HYPOTHESES_RULES.md", import.meta
 test("les quatre boutons de gestion couvrent date et lieu de naissance et de décès", () => {
   const fields = [...html.matchAll(/data-fact-hypothesis-field="([^"]+)"/g)].map(match => match[1]);
   assert.deepEqual(fields, ["birth.date", "birth.place", "death.date", "death.place"]);
-  /* Correction de visibilité : `hidden` et `data-fact-hypothesis-manage` sont
-     portés par le MÊME conteneur (le synchroniseur démasque donc le porteur de
-     `hidden`) ; le bouton ne conserve que son champ. */
-  const wrappers = html.match(/<div class="fact-hypothesis-manage" data-fact-hypothesis-manage hidden><button class="btn small" type="button" data-fact-hypothesis-field="/g);
+  /* Structure compacte : `hidden` et `data-fact-hypothesis-manage` portés par le
+     MÊME conteneur (le synchroniseur démasque le porteur de `hidden`), bouton
+     adjacent au champ avec libellé et pastille gérés par le JavaScript. */
+  const wrappers = html.match(/<span class="fact-hypothesis-manage" data-fact-hypothesis-manage hidden><button class="btn small fact-hypothesis-manage-btn" type="button" data-fact-hypothesis-field="/g);
   assert.equal(wrappers?.length, 4, "quatre conteneurs masqués portant data-fact-hypothesis-manage");
   assert.doesNotMatch(html, /<button[^>]*data-fact-hypothesis-manage/);
-  assert.match(html, /<use href="#icon-git-compare-arrows"><\/use><\/svg><span>Gérer les hypothèses<\/span>/g);
-  assert.match(html, /Gérer les hypothèses — Date de naissance/);
-  assert.match(html, /Gérer les hypothèses — Lieu de décès/);
+  assert.match(html, /<span class="fact-hypothesis-manage-text" data-fh-manage-label>Hypothèses<\/span>/);
+  assert.match(html, /<span class="fact-hypothesis-manage-badge" data-fh-manage-badge hidden aria-hidden="true"><\/span>/);
+  assert.match(html, /aria-label="Gérer les hypothèses de date de naissance"/);
+  assert.match(html, /aria-label="Gérer les hypothèses de lieu de décès"/);
+  assert.doesNotMatch(html, /Gérer les hypothèses — /);
+  /* Les deux fieldsets sont structurés à l'identique (Naissance et Décès). */
+  assert.match(html, /<div class="genealogy-date-body">/g);
+  assert.equal([...html.matchAll(/<div class="genealogy-date-body">/g)].length, 2, "corps de ligne Date sur les deux fieldsets");
+  assert.equal([...html.matchAll(/<div class="life-place-group">/g)].length, 2, "ligne Lieu groupée sur les deux fieldsets");
 });
 
 test("le dialogue d'hypothèses possède son coquille, sa zone de contenu et son icône", () => {
@@ -37,7 +43,14 @@ test("les styles couvrent l'indicateur de frise, les lignes de dialogue et la fe
   assert.match(css, /\.life-event-hypotheses \{/);
   assert.match(css, /\.fact-hypothesis-row \{/);
   assert.match(css, /\.fact-hypothesis-status\[data-status="retained"\]/);
-  assert.match(css, /\.fact-hypothesis-manage \{ grid-column: 1 \/ -1; \}/);
+  assert.match(css, /\.fact-hypothesis-manage \{ display: inline-flex; align-self: flex-end; \}/);
+  assert.match(css, /\.fact-hypothesis-manage\[hidden\] \{ display: none; \}/);
+  assert.match(css, /\.fact-hypothesis-manage-badge \{/);
+  assert.match(css, /\.genealogy-date-body \{/);
+  assert.match(css, /\.identity-life-section \.life-place-group \{/);
+  assert.match(css, /\.fact-hypothesis-manage-text \{ display: none; \}/);
+  assert.match(css, /width: var\(--control-touch\);\s*\n\s*min-width: var\(--control-touch\);\s*\n\s*height: var\(--control-touch\);/);
+  assert.match(css, /\.fact-hypothesis-manage-badge:not\(\[hidden\]\) \{ display: inline-flex; \}/);
   assert.match(css, /dialog#factHypothesesDialog\.modal-mobile-sheet \{/);
   assert.match(css, /dialog#factHypothesesDialog\.modal-mobile-sheet--form \{ max-height: 86dvh; \}/);
   for (const token of ["--color-accent", "--color-danger", "--color-surface-soft", "--border-subtle", "--radius-md", "--text-xs"]) {
@@ -53,7 +66,10 @@ test("l'application charge le cache une fois et tolère des règles non publiée
   assert.match(app, /loadFactHypothesesOnce\(\);/);
   assert.match(app, /function resetFactHypothesesCache\(\)/);
   assert.match(app, /resetFactHypothesesCache\(\);/);
-  assert.match(app, /button\.hidden = !factHypothesesAvailable\(\)/);
+  assert.match(app, /container\.hidden = !available/);
+  assert.match(app, /data-fh-manage-label/);
+  assert.match(app, /data-fh-manage-badge/);
+  assert.match(app, /Gérer les \$\{count\} hypothèses de \$\{field\.label\.toLowerCase\(\)\}/);
 });
 
 test("l'indicateur de frise et le détail de consultation affichent les hypothèses", () => {
