@@ -42,7 +42,9 @@ function completeCollections() {
       conclusionRevisions: [{ id: "conclusion-rev-1", objectId: "conclusion-1", previousRevisionId: null, examinedProofIds: ["proof-1"], data: { retainedValue: null } }],
       genealogyProposals: [{ id: "proposal-1", authorUid: "uid-history", status: "accepted", resolvedBy: "uid-admin" }],
       genealogyEvents: [{ id: "event-1", actorUid: "uid-former-contributor" }],
-      genealogyNotifications: [{ id: "notif-1", recipientUid: "uid-absent" }]
+      genealogyNotifications: [{ id: "notif-1", recipientUid: "uid-absent" }],
+      factHypotheses: [],
+      factHypothesisRevisions: []
     },
     assets: [
       { documentId: "doc-1", pageId: "page-1", photographId: "photo-1", rendition: "original", resourceRef: "ref:original", sizeBytes: 4, sha256: null, fileName: "acte.tif", mimeType: "image/tiff" },

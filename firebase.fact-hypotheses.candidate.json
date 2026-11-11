@@ -1,0 +1,16 @@
+{
+  "firestore": {
+    "rules": "FACT_HYPOTHESES_RULES.candidate.rules"
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    },
+    "auth": {
+      "port": 9099
+    },
+    "ui": {
+      "enabled": false
+    }
+  }
+}

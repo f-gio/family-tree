@@ -101,7 +101,7 @@ test("F. parcours de vie : icônes sémantiques du sprite existant", () => {
   assert.match(app, /military: "shield-military"/);
   assert.match(app, /event\.type === "journey-event"\) return TIMELINE_EVENT_ICONS\[event\.kind\] \|\| "calendar-days"/);
   assert.match(app, /if \(kindLabel !== event\.title\) fact\("Type", kindLabel\)/);
-  assert.match(app, /lifeEventConsultationMarkup\(event, \{ compact: true \}\)/);
+  assert.match(app, /lifeEventConsultationMarkup\(event, \{ compact: true, showHypotheses: true \}\)/);
   void app.match(/calendar/);
   assert.match(app, /icon-history/);
   assert.match(css, /\.timeline-line \{ display: flex; align-items: center; flex-wrap: wrap; gap: var\(--space-2\); \}/);

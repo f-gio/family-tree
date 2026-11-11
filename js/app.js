@@ -93,6 +93,8 @@ import { PROOF_FACT_KINDS, PROOF_FACT_KIND_LABELS, PROOF_RELATION_LABELS, showPr
 import { BACKUP_ARCHIVE_VERSION, createBackupArchiveManifest, compareBackupCaptureMarkers, generateBackupZip, readBackupZip, prepareBackupRestorePlan } from "./backup-archive.js";
 import { personNameVariants, nameVariantLabel, validateNameVariant, personNameVariantsSearchText, nameVariantsWritePlan } from "./person-name-variants.js";
 import { LIFE_DATE_TYPES, LIFE_EVENT_KINDS, LIFE_EVENT_KIND_GROUPS, lifeEventKindLabel, formatLifeDate, buildLifeDate, personLifeList, lifeAttestations, validateLifeResidence, validateLifeProfession, validateLifeEvent, validateLifeAttestation, hasSimilarLifeAttestation, toggleIdInList, compareLifeEntries } from "./life-journey.js";
+import { FACT_HYPOTHESIS_ROLE, FACT_HYPOTHESIS_ROLE_LABELS, FACT_HYPOTHESIS_STATUS_LABELS, activeFactHypotheses, countFactHypothesesForEvent, detectFactHypothesisConflicts, factHypothesisField, factHypothesisFieldsForEvent, factHypothesisValueEqual, formatFactHypothesisValue, normalizeFactHypothesisValue, personFactValue, personFactValueIsEmpty, personFactValuePatch, retainedHypothesisAnchor } from "./fact-hypotheses.js";
+import { createFactHypothesesStore } from "./fact-hypotheses-store.js";
 
 const firebaseEnvironment = resolveFirebaseEnvironment(window.location);
 if (!firebaseEnvironment.allowed || !firebaseConfigurationMatchesEnvironment(firebaseEnvironment.environment, firebaseEnvironment.firebaseConfig)) {
@@ -155,12 +157,17 @@ const refs = {
   conclusionRevisions: collection(db, "conclusionRevisions"),
   genealogyProposals: collection(db, "genealogyProposals"),
   genealogyEvents: collection(db, "genealogyEvents"),
-  genealogyNotifications: collection(db, "genealogyNotifications")
+  genealogyNotifications: collection(db, "genealogyNotifications"),
+  factHypotheses: collection(db, "factHypotheses"),
+  factHypothesisRevisions: collection(db, "factHypothesisRevisions")
 };
 const genealogyStore = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
+const factHypothesesStore = createFactHypothesesStore(db, { doc, collection, query, where, getDocs, runTransaction, serverTimestamp, deleteField });
 
 let people = [], families = [], documents = [], tasks = [];
 let procedures = [];
+let factHypotheses = [];
+let factHypothesesState = "idle";
 let genealogyRecords = {
   sourceDocuments: [], sourceRevisions: [], transcriptionHeads: [], transcriptionRevisions: [],
   genealogyProofs: [], genealogyProofRevisions: [], factConclusions: [], conclusionRevisions: [],
@@ -2267,12 +2274,98 @@ function personPageIdentityMarkup(item) {
   return `<section id="personPageIdentity" aria-labelledby="personPageIdentityTitle"><h3 id="personPageIdentityTitle">Identité</h3><div class="source-detail-facts person-detail-identity-grid">${facts.join("")}</div>${notes}${variantsMarkup}</section>`;
 }
 
+/* ---------- Hypothèses concurrentes de naissance et de décès (lot 2C.5-A) ----------
+   Cache local chargé une fois (aucun onSnapshot) : les collections ne sont
+   écrites que par le store transactionnel ; l'état « denied » signale des
+   règles Firestore non publiées et masque les commandes de gestion. */
+function factHypothesesAvailable() {
+  return factHypothesesState === "ready";
+}
+
+function factHypothesesForPerson(personId) {
+  return factHypotheses.filter(hypothesis => hypothesis.personId === personId);
+}
+
+function factHypothesesForField(personId, fieldKey) {
+  return factHypotheses.filter(hypothesis => hypothesis.personId === personId && hypothesis.fieldKey === fieldKey);
+}
+
+function upsertFactHypotheses(items = []) {
+  for (const item of items) {
+    const index = factHypotheses.findIndex(hypothesis => hypothesis.id === item.id);
+    if (index >= 0) factHypotheses[index] = item;
+    else factHypotheses.push(item);
+  }
+}
+
+function syncFactHypothesesAvailability() {
+  document.querySelectorAll("[data-fact-hypothesis-manage]").forEach(button => { button.hidden = !factHypothesesAvailable(); });
+}
+
+function resetFactHypothesesCache() {
+  factHypotheses = [];
+  factHypothesesState = "idle";
+  syncFactHypothesesAvailability();
+}
+
+async function loadFactHypothesesOnce() {
+  if (factHypothesesState === "loading" || factHypothesesState === "ready") return;
+  factHypothesesState = "loading";
+  try {
+    const snapshot = await getDocs(query(refs.factHypotheses));
+    factHypotheses = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+    factHypothesesState = "ready";
+  } catch (error) {
+    factHypotheses = [];
+    factHypothesesState = error?.code === "permission-denied" ? "denied" : "error";
+    if (factHypothesesState === "denied") {
+      console.warn("Règles Firestore des hypothèses non publiées : commandes de gestion masquées (voir FACT_HYPOTHESES_RULES.md).");
+    } else {
+      console.warn("Chargement des hypothèses impossible", error);
+    }
+  }
+  syncFactHypothesesAvailability();
+}
+
+/* Après une opération du store : la fiche locale reçoit les mêmes écritures que
+   Firestore (champ structuré + ancre) pour que le garde-fou et la consultation
+   restent cohérents avant le prochain lot du listener people. */
+function applyLocalFactHypothesisPatch(personId, fieldKey, value, anchorId) {
+  const record = people.find(item => item.id === personId);
+  if (!record || value === undefined) return;
+  const patch = personFactValuePatch(fieldKey, value);
+  Object.assign(record, patch.set);
+  for (const key of patch.remove || []) delete record[key];
+  record.retainedHypothesis = retainedHypothesisAnchor(record.retainedHypothesis, fieldKey, anchorId);
+}
+
+function factHypothesisGuardIssues(personId, data, existing) {
+  if (!factHypothesesAvailable() || !existing) return [];
+  const stripped = {};
+  for (const [key, value] of Object.entries(data)) {
+    stripped[key] = value && typeof value.isEqual === "function" && value.isEqual(deleteField()) ? undefined : value;
+  }
+  const merged = { ...existing, ...stripped };
+  const issues = [];
+  for (const fieldKey of ["birth.date", "birth.place", "death.date", "death.place"]) {
+    if (!activeFactHypotheses(factHypothesesForField(personId, fieldKey)).length) continue;
+    const before = personFactValue(fieldKey, existing);
+    const after = personFactValue(fieldKey, merged);
+    const beforeEmpty = !before || personFactValueIsEmpty(fieldKey, existing);
+    const afterEmpty = !after || personFactValueIsEmpty(fieldKey, merged);
+    if (beforeEmpty && afterEmpty) continue;
+    if (beforeEmpty !== afterEmpty || !factHypothesisValueEqual(fieldKey, before, after)) issues.push(fieldKey);
+  }
+  return issues;
+}
+
 function personPageTimelineMarkup(item) {
   const events = lifeTimelineEvents(item, { people, families });
   if (!events.length) return `<section id="personPageTimeline" aria-labelledby="personPageTimelineTitle"><h3 id="personPageTimelineTitle">Parcours de vie</h3><p class="card-meta">Aucun événement renseigné.</p></section>`;
+  const itemHypotheses = factHypothesesAvailable() ? factHypothesesForPerson(item.id) : [];
   const eventMarkup = events.map(event => {
     const docsMarkup = personPageEventDocuments(item, event).map(documentItem => `<button class="btn small" type="button" data-view-document="${esc(documentItem.id)}">${icon("document")}<span>${esc(documentDisplayLabel(documentItem))}</span></button>`).join("");
-    return timelineItemHtml(event, { interactive: true }).replace(/<\/li>$/, `${docsMarkup ? `<div class="person-page-event-documents" aria-label="Documents associés à l’événement">${docsMarkup}</div>` : ""}</li>`);
+    return timelineItemHtml(event, { interactive: true, hypotheses: itemHypotheses }).replace(/<\/li>$/, `${docsMarkup ? `<div class="person-page-event-documents" aria-label="Documents associés à l’événement">${docsMarkup}</div>` : ""}</li>`);
   }).join("");
   return `<section id="personPageTimeline" aria-labelledby="personPageTimelineTitle"><h3 id="personPageTimelineTitle">Parcours de vie</h3><ol class="person-page-timeline">${eventMarkup}</ol><div class="person-page-timeline-detail" id="personPageTimelineDetail" hidden></div></section>`;
 }
@@ -3594,7 +3687,7 @@ function timelineTypeIcon(event) {
   return "calendar";
 }
 
-function lifeEventConsultationMarkup(event, { compact = false } = {}) {
+function lifeEventConsultationMarkup(event, { compact = false, showHypotheses = false } = {}) {
   const item = activePersonPageItem || person(activeId);
   if (!item) return "";
   const facts = [];
@@ -3662,7 +3755,21 @@ function lifeEventConsultationMarkup(event, { compact = false } = {}) {
   const linksMarkup = links
     ? `<div class="life-attestation-links${attestations.length ? "" : " life-event-document-links"}">${links}</div>`
     : "";
-  return `${factMarkup}${attestationMarkup}${linksMarkup}`;
+  /* Lecture seule : les hypothèses concurrentes de l'événement, séparées par
+     information (date / lieu), sans action depuis la consultation. */
+  let hypothesisMarkup = "";
+  if (showHypotheses && factHypothesesAvailable() && (event.type === "birth" || event.type === "death")) {
+    const groups = factHypothesisFieldsForEvent(event.type).map(fieldKey => {
+      const visible = activeFactHypotheses(factHypothesesForField(item.id, fieldKey));
+      if (!visible.length) return "";
+      const field = factHypothesisField(fieldKey);
+      const ordered = [...visible].sort((left, right) => (left.status === "retained" ? -1 : 0) - (right.status === "retained" ? -1 : 0));
+      const rows = ordered.map(hypothesis => `<div class="life-hypothesis-row${hypothesis.status === "retained" ? " is-retained" : ""}"><span class="fact-hypothesis-status" data-status="${hypothesis.status}">${FACT_HYPOTHESIS_STATUS_LABELS[hypothesis.status] || hypothesis.status}</span><span class="life-hypothesis-value">${esc(formatFactHypothesisValue(fieldKey, hypothesis.value))}</span></div>`).join("");
+      return `<div class="life-hypothesis-group"><h5>${esc(field.label)}</h5>${rows}</div>`;
+    }).filter(Boolean).join("");
+    if (groups) hypothesisMarkup = `<section class="life-event-hypotheses" aria-label="Hypothèses concurrentes"><h4>Hypothèses</h4>${groups}</section>`;
+  }
+  return `${factMarkup}${hypothesisMarkup}${attestationMarkup}${linksMarkup}`;
 }
 
 function timelineEventContentId(event, suffix = "content") {
@@ -3671,7 +3778,7 @@ function timelineEventContentId(event, suffix = "content") {
 }
 
 function timelineDetailPanelMarkup(event, buttonId) {
-  return `<section class="person-page-timeline-detail-panel timeline-detail--${event.type}" id="${buttonId}-panel" role="region" aria-labelledby="${buttonId}"><span class="timeline-detail-marker" aria-hidden="true"></span><h4>${esc(event.title)}</h4>${lifeEventConsultationMarkup(event)}</section>`;
+  return `<section class="person-page-timeline-detail-panel timeline-detail--${event.type}" id="${buttonId}-panel" role="region" aria-labelledby="${buttonId}"><span class="timeline-detail-marker" aria-hidden="true"></span><h4>${esc(event.title)}</h4>${lifeEventConsultationMarkup(event, { showHypotheses: true })}</section>`;
 }
 
 function closeTimelineDetailPanel({ restoreFocus = false } = {}) {
@@ -3733,7 +3840,7 @@ function toggleTimelineAccordion(button, event) {
   content.id = contentId;
   content.setAttribute("role", "region");
   content.setAttribute("aria-labelledby", button.id);
-  content.innerHTML = lifeEventConsultationMarkup(event, { compact: true });
+  content.innerHTML = lifeEventConsultationMarkup(event, { compact: true, showHypotheses: true });
   li.append(content);
 }
 
@@ -3750,7 +3857,7 @@ function handleTimelineEventActivation(button) {
   toggleTimelineDetailPanel(button, event);
 }
 
-function timelineItemHtml(event, { interactive = false } = {}) {
+function timelineItemHtml(event, { interactive = false, hypotheses = null } = {}) {
   const date = event.date !== "—" ? `<span class="timeline-date">${esc(event.date)}</span>` : "";
   const detail = event.detail ? `<span class="timeline-detail">${esc(event.detail)}</span>` : "";
   const age = Number.isFinite(event.age) ? `<span class="timeline-age">· ${event.age} an${event.age > 1 ? "s" : ""}</span>` : "";
@@ -3758,8 +3865,12 @@ function timelineItemHtml(event, { interactive = false } = {}) {
   const attestationIndicator = attestationCount > 0
     ? `<span class="timeline-attestation-indicator">${icon("document")}<span>${attestationCount} attestation${attestationCount > 1 ? "s" : ""}</span></span>`
     : "";
+  const hypothesisCount = hypotheses ? countFactHypothesesForEvent(hypotheses, event.type) : 0;
+  const hypothesisIndicator = hypothesisCount > 0
+    ? `<span class="timeline-hypothesis-indicator">${icon("git-compare-arrows")}<span>${hypothesisCount} hypothèse${hypothesisCount > 1 ? "s" : ""}</span></span>`
+    : "";
   const iconMarkup = `<svg class="ui-icon timeline-icon" aria-hidden="true"><use href="#icon-${timelineTypeIcon(event)}"></use></svg>`;
-  const inner = `<span class="timeline-line">${iconMarkup}<strong class="timeline-title">${esc(event.title)}</strong>${age}${date}</span>${detail}${attestationIndicator}`;
+  const inner = `<span class="timeline-line">${iconMarkup}<strong class="timeline-title">${esc(event.title)}</strong>${age}${date}</span>${detail}${attestationIndicator}${hypothesisIndicator}`;
   if (!interactive) return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-content">${inner}</div></li>`;
   const buttonId = timelineEventContentId(event, "trigger");
   const detailedAttribute = event.type === "journey-event" ? ` data-journey-event-id="${esc(event.entryId)}"` : "";
@@ -11921,12 +12032,30 @@ function backupRecordMarker(record) {
 
 async function readBackupCollectionsFromServer() {
   const names = ["people", "families", "trees", "documents", "tasks", "sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyProposals", "genealogyEvents", "genealogyNotifications"];
+  /* Lot 2C.5-A : les hypothèses ne sont capturées que si leurs règles sont
+     publiées (état « ready ») ; sinon l'export garde son périmètre historique
+     et le manifeste sera signalé partiel (collections requises absentes). */
+  if (factHypothesesAvailable()) names.push("factHypotheses", "factHypothesisRevisions");
   const result = {};
   for (const name of names) {
     let target = refs[name];
     if (name === "genealogyProposals" && !isAdminUser()) target = query(target, where("authorUid", "==", auth.currentUser?.uid || ""));
     if (name === "genealogyNotifications") target = query(target, where("recipientUid", "==", auth.currentUser?.uid || ""));
-    const snapshot = await getDocsFromServer(target);
+    let snapshot;
+    try {
+      snapshot = await getDocsFromServer(target);
+    } catch (error) {
+      /* Une erreur de permission n'est JAMAIS une collection vide : la
+         sauvegarde s'arrête explicitement plutôt que de produire silencieusement
+         une archive incomplète prétendant être complète. */
+      if (name === "factHypotheses" || name === "factHypothesisRevisions") {
+        const reason = error?.code === "permission-denied"
+          ? "règles Firestore des hypothèses non publiées ou accès refusé"
+          : error?.code || error?.message || "erreur technique";
+        throw new Error(`Sauvegarde interrompue : la collection ${name} est inaccessible (${reason}). Aucune archive n’a été produite.`);
+      }
+      throw error;
+    }
     if (snapshot.metadata.fromCache) throw new Error(`La collection ${name} n’a pas pu être vérifiée auprès du serveur.`);
     result[name] = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
   }
@@ -12115,6 +12244,10 @@ function showV5RestorePreview(archive) {
     documents: documents.map(item => item.id), tasks: tasks.map(item => item.id)
   };
   for (const [collectionName, records] of Object.entries(genealogyRecords)) current[collectionName] = records.map(item => item.id);
+  /* Lot 2C.5-A : l'état courant des hypothèses entre dans la détection de
+     conflits (les révisions ne sont pas tenues en cache côté application). */
+  current.factHypotheses = factHypotheses.map(item => item.id);
+  current.factHypothesisRevisions = [];
   const renderPlan = policy => {
     const plan = prepareBackupRestorePlan(archive.manifest, {
       existing: current, conflictPolicy: policy, activeUserIds: [auth.currentUser?.uid].filter(Boolean), allowIncomplete: true, preflight: true
@@ -12122,10 +12255,17 @@ function showV5RestorePreview(archive) {
     const integrity = archive.integrity;
     const statusLabel = archive.manifest.completeness.status === "complete" && integrity.valid ? "Complète selon son manifeste" : "Partielle / à examiner";
     const errors = integrity.errors.map(item => `<li><strong>${esc(item.code)}</strong> · ${esc(item.message)}</li>`).join("");
-    const warnings = [...integrity.warnings, ...plan.warnings].map(item => `<li><strong>${esc(item.code)}</strong> · ${esc(item.message)}</li>`).join("");
+    const hypothesisIssues = detectFactHypothesisConflicts({ peopleRecords: people, hypotheses: factHypotheses });
+    /* Une archive contenant des hypothèses alors que leurs règles ne sont pas
+       publiées est signalée : ces collections ne seraient pas restaurables. */
+    const archiveHasHypotheses = ["factHypotheses", "factHypothesisRevisions"].some(name => Array.isArray(archive.manifest.collections?.[name]));
+    const hypothesisRulesIssues = archiveHasHypotheses && !factHypothesesAvailable()
+      ? [{ code: "FACT_HYPOTHESES_RULES_UNAVAILABLE", message: "L’archive contient des hypothèses et leurs révisions, mais leurs règles Firestore ne sont pas publiées : ces collections ne seraient pas restaurables en l’état." }]
+      : [];
+    const warnings = [...integrity.warnings, ...plan.warnings, ...hypothesisIssues.map(item => ({ code: item.code, message: item.message })), ...hypothesisRulesIssues].map(item => `<li><strong>${esc(item.code)}</strong> · ${esc(item.message)}</li>`).join("");
     const conflicts = plan.conflicts.map(item => `<li>${esc(item.collection)} / ${esc(item.id)} — ${esc(item.policy)}</li>`).join("");
     const operations = plan.operations.filter(item => item.action !== "skip").slice(0, 80).map(item => `<li>${esc(item.action)} · ${esc(item.collection)} / ${esc(item.id)}</li>`).join("");
-    $("restorePreviewContent").innerHTML = `<p><strong>Archive v${esc(archive.manifest.version)} — ${esc(statusLabel)}</strong></p><p>${Object.entries(archive.manifest.inventory || {}).map(([name, inventory]) => `${esc(name)} : ${Number(inventory.recordCount) || 0}`).join(" · ")}</p><label>Politique de conflit<select class="field" id="restorePreviewPolicy"><option value="abort">Bloquer en cas de conflit</option><option value="keep-existing">Conserver les éléments présents</option><option value="replace-existing">Prévoir le remplacement par identifiant</option></select></label><p><strong>Prévisualisation uniquement :</strong> aucune écriture ne sera exécutée depuis cette interface. L’intégration serveur requise pour les données officielles n’est pas disponible.</p>${plan.historicalAuthorUids.length ? `<p>UID d’auteurs historiques conservés sans compte ni rôle : ${plan.historicalAuthorUids.map(esc).join(", ")}</p>` : ""}${errors ? `<h4>Erreurs d’intégrité</h4><ul>${errors}</ul>` : ""}${warnings ? `<h4>Avertissements</h4><ul>${warnings}</ul>` : ""}${conflicts ? `<h4>Conflits détectés</h4><ul>${conflicts}</ul>` : ""}${operations ? `<h4>Opérations envisagées (${plan.operations.length})</h4><ul>${operations}${plan.operations.length > 80 ? "<li>…</li>" : ""}</ul>` : ""}<p role="status">Plan ${plan.blocked ? "bloqué par des conflits" : "préparé"} · écritures réalisées : non.</p>`;
+    $("restorePreviewContent").innerHTML = `<p><strong>Archive v${esc(archive.manifest.version)} — ${esc(statusLabel)}</strong></p><p>${Object.entries(archive.manifest.inventory || {}).map(([name, inventory]) => `${esc(name)} : ${Number(inventory.recordCount) || 0}`).join(" · ")}</p><label>Politique de conflit<select class="field" id="restorePreviewPolicy"><option value="abort">Bloquer en cas de conflit</option><option value="keep-existing">Conserver les éléments présents</option><option value="replace-existing">Prévoir le remplacement par identifiant</option></select></label><p><strong>Prévisualisation uniquement — La restauration de cette archive n’est pas encore disponible.</strong></p><p>Aucune écriture ne sera exécutée depuis cette interface ; seule la vérification du plan, des conflits et de l’intégrité est proposée.</p>${plan.historicalAuthorUids.length ? `<p>UID d’auteurs historiques conservés sans compte ni rôle : ${plan.historicalAuthorUids.map(esc).join(", ")}</p>` : ""}${errors ? `<h4>Erreurs d’intégrité</h4><ul>${errors}</ul>` : ""}${warnings ? `<h4>Avertissements</h4><ul>${warnings}</ul>` : ""}${conflicts ? `<h4>Conflits détectés</h4><ul>${conflicts}</ul>` : ""}${operations ? `<h4>Opérations envisagées (${plan.operations.length})</h4><ul>${operations}${plan.operations.length > 80 ? "<li>…</li>" : ""}</ul>` : ""}<p role="status">Plan ${plan.blocked ? "bloqué par des conflits" : "préparé"} · écritures réalisées : non.</p>`;
     const select = $("restorePreviewPolicy");
     select.value = policy;
     select.onchange = () => renderPlan(select.value);
@@ -13657,6 +13797,7 @@ function stopPrivateData() {
   genealogyCollectionsLoaded = new Set();
   treeMetadata = [];
   activeTreeId = MAIN_TREE_ID;
+  resetFactHypothesesCache();
   treeCatalogState = "idle";
   treeCatalogMessage = "";
   invalidTreeMetadataCount = 0;
@@ -14067,6 +14208,9 @@ function startData() {
       if (["transcriptionHeads", "transcriptionRevisions"].includes(collectionName)) refreshUnifiedDetailsIfOpen();
     }));
   }
+  /* Chargement one-shot des hypothèses (aucun listener temps réel) : tolère
+     l'absence de règles publiées et masque alors les commandes de gestion. */
+  loadFactHypothesesOnce();
 }
 
 onAuthStateChanged(auth, async user => {
@@ -14172,6 +14316,16 @@ $("personForm").addEventListener("submit", async event => {
     const existing = people.find(item => item.id === id);
     applyLocationField(data, "place", existing, !!id);
     applyLocationField(data, "deathPlace", existing, !!id);
+    /* Garde-fou lot 2C.5-A : un champ suivi par des hypothèses ne s'édite
+       plus directement — le parcours « Gérer les hypothèses » conserve
+       l'historique et l'ancre d'unicité. */
+    if (id) {
+      const guardedFields = factHypothesisGuardIssues(id, data, existing);
+      if (guardedFields.length) {
+        const labels = guardedFields.map(fieldKey => factHypothesisField(fieldKey).label).join(", ");
+        throw new Error(`${labels} : ce champ est suivi par des hypothèses. Utilisez « Gérer les hypothèses » dans le champ pour créer ou corriger une hypothèse ; l’édition directe est bloquée afin de préserver l’historique.`);
+      }
+    }
     const birthLabel = formatGenealogyDate(birthDateInfo);
     const duplicate = people.find(item => item.id !== id && searchable(item.firstName) === searchable(data.firstName) && searchable(item.lastName) === searchable(data.lastName) && (birthLabel === "—" || formatGenealogyDate(item.birthDateInfo, item.birthDate) === birthLabel));
     if (duplicate && !confirm(`Une fiche proche existe déjà : ${nameOf(duplicate.id)}${birthLabel !== "—" ? ` (${birthLabel})` : ""}.\n\nEnregistrer quand même cette personne ?`)) return;
@@ -14245,6 +14399,331 @@ $("personForm").addEventListener("submit", async event => {
     personFormSaving = false;
     setButtonPending(saveButton, false);
   }
+});
+
+/* ---------- Dialogue « Gérer les hypothèses » (fiche Personne, Modification) ---------- */
+let factHypothesesDialogState = { personId: "", fieldKey: "" };
+let factHypothesesFormMode = null; /* { mode: "create" | "correct" | "retain", hypothesisId?: "" } */
+let factHypothesesAttestationsOpen = new Set(); /* hypothèses dont la zone attestations est dépliée */
+
+function factHypothesisAnchorOf(personId, fieldKey) {
+  return person(personId)?.retainedHypothesis?.[fieldKey] || null;
+}
+
+async function runFactHypothesesOperation(action, fallback) {
+  try {
+    const result = await action();
+    if (result?.updated) upsertFactHypotheses(result.updated);
+    if (result?.created) upsertFactHypotheses(result.created);
+    return result;
+  } catch (error) {
+    console.error(error);
+    toast(error.message || fallback, "error");
+    return null;
+  }
+}
+
+function openFactHypothesesDialog(fieldKey, personId) {
+  const id = personId || $("personId")?.value || "";
+  if (!id) {
+    toast("Enregistrez d’abord la personne : ses hypothèses seront gérées ensuite depuis chaque champ.", "info");
+    return;
+  }
+  if (!factHypothesesAvailable()) {
+    toast("Les hypothèses ne sont pas disponibles : vérifiez votre connexion puis réessayez.", "error");
+    return;
+  }
+  factHypothesesDialogState = { personId: id, fieldKey };
+  factHypothesesFormMode = null;
+  factHypothesesAttestationsOpen = new Set();
+  renderFactHypothesesDialog();
+  $("factHypothesesDialog").showModal();
+}
+
+/* Attestations existantes de la personne pour le fait concerné (birth.* →
+   naissance, death.* → décès) : seules celles portant un identifiant peuvent
+   être associées ; aucune création n'est proposée depuis ce dialogue. */
+function factHypothesisAttestationPool(personId, fieldKey) {
+  const item = person(personId);
+  if (!item) return [];
+  const source = String(fieldKey || "").startsWith("birth.") ? item.birthAttestations : item.deathAttestations;
+  return lifeAttestations({ attestations: source }).filter(value => value && typeof value.id === "string" && value.id);
+}
+
+/* Zone attestations d'une hypothèse : liste des associations (rôle + contenu),
+   signalement des références introuvables sans effacement, changement de rôle,
+   retrait et association d'une attestation existante. Repliée par défaut pour
+   ne pas alourdir la liste des hypothèses. */
+function factHypothesisAttestationsMarkup(hypothesis, { readOnly = false } = {}) {
+  const { personId, fieldKey } = factHypothesesDialogState;
+  const associated = Array.isArray(hypothesis.attestations) ? hypothesis.attestations : [];
+  const open = factHypothesesAttestationsOpen.has(hypothesis.id);
+  const toggle = `<button class="btn small tertiary fact-hypothesis-attestation-toggle" type="button" data-fact-hypothesis-action="toggle-attestations" data-hypothesis-id="${hypothesis.id}" aria-expanded="${open ? "true" : "false"}">${icon("document")}<span>Attestations (${associated.length})</span></button>`;
+  if (!open) return `<div class="fact-hypothesis-attestation-zone">${toggle}</div>`;
+  const pool = factHypothesisAttestationPool(personId, fieldKey);
+  const rows = associated.map(entry => {
+    const attestation = pool.find(value => value.id === entry.attestationId) || null;
+    const roleLabel = FACT_HYPOTHESIS_ROLE_LABELS[entry.role] || entry.role || "Rôle inconnu";
+    const head = attestation
+      ? `<div class="fact-hypothesis-attestation-head"><strong>${esc(formatLifeDate(attestation.date))}</strong>${attestation.comment ? `<span class="life-entry-meta">${esc(attestation.comment)}</span>` : ""}</div>`
+      : `<div class="fact-hypothesis-attestation-head"><strong>Attestation introuvable</strong><span class="life-entry-meta">Référence conservée : ${esc(entry.attestationId || "")}</span></div>`;
+    const controls = readOnly ? "" : `<div class="fact-hypothesis-attestation-actions">`
+      + `<label class="fact-hypothesis-role-field">Rôle<select class="field" data-fh-attestation-role="${esc(entry.attestationId || "")}" data-hypothesis-id="${hypothesis.id}">`
+      + FACT_HYPOTHESIS_ROLE.map(role => `<option value="${role}"${role === entry.role ? " selected" : ""}>${FACT_HYPOTHESIS_ROLE_LABELS[role]}</option>`).join("")
+      + `</select></label>`
+      + `<button class="btn small" type="button" data-fact-hypothesis-action="attestation-remove" data-hypothesis-id="${hypothesis.id}" data-attestation-id="${esc(entry.attestationId || "")}">Retirer</button></div>`;
+    return `<article class="fact-hypothesis-attestation${attestation ? "" : " is-missing"}"><span class="fact-hypothesis-role" data-role="${esc(entry.role || "unknown")}">${esc(roleLabel)}</span>${head}${controls}</article>`;
+  }).join("");
+  const available = pool.filter(value => !associated.some(entry => entry.attestationId === value.id));
+  let addZone = "";
+  if (!readOnly) {
+    addZone = available.length
+      ? `<div class="fact-hypothesis-attestation-add"><label>Attestation<select class="field" data-fh-attestation-pick>${available.map(value => `<option value="${esc(value.id)}">${esc(formatLifeDate(value.date))}${value.comment ? ` — ${esc(String(value.comment).slice(0, 60))}` : ""}</option>`).join("")}</select></label>`
+        + `<label>Rôle<select class="field" data-fh-attestation-new-role>${FACT_HYPOTHESIS_ROLE.map(role => `<option value="${role}"${role === "supports" ? " selected" : ""}>${FACT_HYPOTHESIS_ROLE_LABELS[role]}</option>`).join("")}</select></label>`
+        + `<button class="btn small" type="button" data-fact-hypothesis-action="attestation-add" data-hypothesis-id="${hypothesis.id}">${icon("plus")}<span>Associer</span></button></div>`
+      : `<p class="card-meta">${pool.length ? "Toutes les attestations de ce fait sont déjà associées." : "Aucune attestation sur ce fait : créez-en une depuis la fiche, puis associez-la ici."}</p>`;
+  }
+  return `<div class="fact-hypothesis-attestation-zone">${toggle}<div class="fact-hypothesis-attestation-list">${rows || `<p class="card-meta">Aucune attestation associée.</p>`}${addZone}</div></div>`;
+}
+
+function factHypothesisRowMarkup(hypothesis) {
+  const { fieldKey } = factHypothesesDialogState;
+  const status = hypothesis.status;
+  const actions = [];
+  if (status === "retained") actions.push(["correct", "Corriger la valeur"]);
+  if (status === "alternative") actions.push(["retain", "Retenir"], ["correct", "Corriger"], ["reject", "Écarter"], ["delete", "Supprimer"]);
+  if (status === "rejected") actions.push(["retain", "Retenir"], ["reexamine", "Réexaminer"], ["delete", "Supprimer"]);
+  if (status === "deleted") actions.push(["restore", "Restaurer"]);
+  const buttons = actions.map(([action, label]) => `<button class="btn small" type="button" data-fact-hypothesis-action="${action}" data-hypothesis-id="${hypothesis.id}">${esc(label)}</button>`).join("");
+  const justification = hypothesis.justification
+    ? `<p class="fact-hypothesis-justification"><strong>Justification :</strong> ${esc(hypothesis.justification)}</p>`
+    : "";
+  const attestations = factHypothesisAttestationsMarkup(hypothesis, { readOnly: status === "deleted" });
+  return `<article class="fact-hypothesis-row${status === "retained" ? " is-retained" : ""}"><header><span class="fact-hypothesis-status" data-status="${status}">${FACT_HYPOTHESIS_STATUS_LABELS[status] || status}</span><strong class="fact-hypothesis-value">${esc(formatFactHypothesisValue(fieldKey, hypothesis.value))}</strong></header>${justification}${attestations}<div class="fact-hypothesis-actions">${buttons}</div></article>`;
+}
+
+function factHypothesesValueFormMarkup() {
+  const { personId, fieldKey } = factHypothesesDialogState;
+  const mode = factHypothesesFormMode;
+  const field = factHypothesisField(fieldKey);
+  const hypothesis = mode.hypothesisId ? factHypotheses.find(item => item.id === mode.hypothesisId) : null;
+  const titles = { create: "Nouvelle hypothèse", correct: "Corriger la valeur", retain: "Retenir cette hypothèse", reexamine: "Réexaminer cette hypothèse" };
+  const anchorId = factHypothesisAnchorOf(personId, fieldKey);
+  const replacing = mode.mode === "retain" && Boolean(anchorId) && anchorId !== mode.hypothesisId;
+  const justificationRequired = replacing || mode.mode === "reexamine";
+  let valueMarkup = "";
+  if (mode.mode === "create" || mode.mode === "correct") {
+    if (field.kind === "date") {
+      valueMarkup = `<div class="genealogy-date" data-date-control="hypo"><div class="date-type-switch" role="group" aria-label="Format de la date de l’hypothèse">`
+        + [["exact", "Date précise"], ["year", "Année"], ["about", "Vers"], ["between", "Entre"], ["unknown", "Inconnue"]]
+          .map(([value, label]) => `<button class="date-type-button" type="button" data-date-prefix="hypo" data-date-type="${value}">${label}</button>`).join("")
+        + `</div><div class="date-value-panel single" data-date-panel="hypo-exact"><label>Date<input class="field" id="hypoDate" type="date"></label></div>`
+        + `<div class="date-value-panel single" data-date-panel="hypo-year" hidden><label>Année<input class="field" id="hypoYear" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div>`
+        + `<div class="date-value-panel" data-date-panel="hypo-between" hidden><label>De<input class="field" id="hypoYearFrom" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label><label>À<input class="field" id="hypoYearTo" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label></div></div>`;
+    } else {
+      const current = hypothesis?.value || personFactValue(fieldKey, person(personId)) || {};
+      valueMarkup = `<label class="life-place">Lieu<input class="field" id="hypoPlace" autocomplete="off" autocapitalize="words" maxlength="300" placeholder="Ex. Orino, Varese, Italie" value="${esc(current.place || "")}"></label>`;
+    }
+  }
+  const submitLabel = mode.mode === "reexamine"
+    ? "Réexaminer"
+    : mode.mode === "retain" ? "Retenir cette hypothèse" : mode.mode === "correct" ? "Enregistrer la correction" : "Créer l’hypothèse";
+  const replacementHint = replacing
+    ? `<p class="hint">Ce remplacement échange la retenue actuelle : la justification est obligatoire.</p>`
+    : mode.mode === "reexamine"
+      ? `<p class="hint">La justification est obligatoire : l’hypothèse redevient une alternative, sa valeur, ses attestations et ses références sont conservées.</p>`
+      : "";
+  return `<form class="fact-hypothesis-form" id="factHypothesesValueForm"><h4>${titles[mode.mode] || ""}</h4>${valueMarkup}${replacementHint}`
+    + `<label>Justification<textarea class="field" id="hypoJustification" rows="2" maxlength="2000" placeholder="Facultative sauf remplacement d’une retenue ou réexamen" ${justificationRequired ? "required" : ""}></textarea></label>`
+    + `<div class="modal-actions modal-form-actions"><div class="right"><button class="btn" type="button" data-fact-hypothesis-action="cancel-form">Annuler</button><button class="btn primary" type="submit">${submitLabel}</button></div></div></form>`;
+}
+
+function renderFactHypothesesDialog() {
+  const content = $("factHypothesesContent");
+  const { personId, fieldKey } = factHypothesesDialogState;
+  const field = factHypothesisField(fieldKey);
+  const item = person(personId);
+  if (!content || !field || !item) return;
+  $("factHypothesesTitle").textContent = `Hypothèses — ${field.label}`;
+  const ficheValue = personFactValue(fieldKey, item);
+  const ficheMarkup = `<p class="fact-hypothesis-fiche"><strong>Valeur de la fiche :</strong> <span>${esc(formatFactHypothesisValue(fieldKey, ficheValue))}</span></p>`;
+  const statusOrder = { retained: 0, alternative: 1, rejected: 2, deleted: 3 };
+  const list = [...factHypothesesForField(personId, fieldKey)].sort((left, right) => (statusOrder[left.status] ?? 9) - (statusOrder[right.status] ?? 9));
+  const listMarkup = list.length
+    ? list.map(factHypothesisRowMarkup).join("")
+    : `<p class="card-meta">Aucune hypothèse pour cette information. Créez-en une pour confronter une autre valeur documentée.</p>`;
+  const formZone = factHypothesesFormMode
+    ? factHypothesesValueFormMarkup()
+    : `<button class="btn small" type="button" data-fact-hypothesis-action="new"><span>Nouvelle hypothèse</span></button>`;
+  content.innerHTML = `${ficheMarkup}<div class="fact-hypothesis-list">${listMarkup}</div><div class="fact-hypothesis-form-zone">${formZone}</div>`;
+  if (factHypothesesFormMode?.mode === "correct" && field.kind === "date") {
+    const hypothesis = factHypotheses.find(value => value.id === factHypothesesFormMode.hypothesisId);
+    if (hypothesis) setGenealogyDateForm("hypo", hypothesis.value);
+  }
+  content.querySelectorAll("[data-date-prefix]").forEach(button => {
+    button.onclick = () => setGenealogyDateType(button.dataset.datePrefix, button.dataset.dateType);
+  });
+}
+
+$("factHypothesesDialog").addEventListener("click", async event => {
+  if (event.target.closest('[data-close="factHypothesesDialog"]')) {
+    $("factHypothesesDialog").close();
+    return;
+  }
+  const button = event.target.closest("[data-fact-hypothesis-action]");
+  if (!button) return;
+  const action = button.dataset.factHypothesisAction;
+  const hypothesisId = button.dataset.hypothesisId || "";
+  const { personId, fieldKey } = factHypothesesDialogState;
+  if (action === "new") { factHypothesesFormMode = { mode: "create" }; renderFactHypothesesDialog(); return; }
+  if (action === "cancel-form") { factHypothesesFormMode = null; renderFactHypothesesDialog(); return; }
+  if (action === "correct") { factHypothesesFormMode = { mode: "correct", hypothesisId }; renderFactHypothesesDialog(); return; }
+  if (action === "retain") { factHypothesesFormMode = { mode: "retain", hypothesisId }; renderFactHypothesesDialog(); return; }
+  if (action === "reexamine") { factHypothesesFormMode = { mode: "reexamine", hypothesisId }; renderFactHypothesesDialog(); return; }
+  if (action === "toggle-attestations") {
+    if (factHypothesesAttestationsOpen.has(hypothesisId)) factHypothesesAttestationsOpen.delete(hypothesisId);
+    else factHypothesesAttestationsOpen.add(hypothesisId);
+    renderFactHypothesesDialog();
+    return;
+  }
+  const actorUid = auth.currentUser?.uid || "";
+  if (!actorUid) { toast("Session expirée : reconnectez-vous pour gérer les hypothèses.", "error"); return; }
+  if (action === "attestation-add") {
+    const zone = button.closest(".fact-hypothesis-attestation-add");
+    const attestationId = zone?.querySelector("[data-fh-attestation-pick]")?.value || "";
+    const role = zone?.querySelector("[data-fh-attestation-new-role]")?.value || "supports";
+    if (!attestationId) return;
+    const result = await runFactHypothesesOperation(() => factHypothesesStore.attachAttestation({ personId, fieldKey, hypothesisId, attestationId, role, actorUid }), "Échec de l’association de l’attestation");
+    if (result) {
+      factHypothesesAttestationsOpen.add(hypothesisId);
+      toast("Attestation associée à l’hypothèse");
+    }
+    renderFactHypothesesDialog();
+    return;
+  }
+  if (action === "attestation-remove") {
+    const attestationId = button.dataset.attestationId || "";
+    if (!attestationId) return;
+    const result = await runFactHypothesesOperation(() => factHypothesesStore.attachAttestation({ personId, fieldKey, hypothesisId, attestationId, role: "context", remove: true, actorUid }), "Échec du retrait de l’attestation");
+    if (result) toast("Attestation retirée de l’hypothèse (l’attestation elle-même est conservée)");
+    renderFactHypothesesDialog();
+    return;
+  }
+  if (action === "reject") {
+    const result = await runFactHypothesesOperation(() => factHypothesesStore.rejectHypothesis({ personId, fieldKey, hypothesisId, actorUid }), "Échec de l’écartement");
+    if (result) { factHypothesesFormMode = null; toast("Hypothèse écartée"); renderFactHypothesesDialog(); }
+    return;
+  }
+  if (action === "delete") {
+    if (!confirm("Supprimer cette hypothèse ? Elle reste restaurable (suppression logique).")) return;
+    const result = await runFactHypothesesOperation(() => factHypothesesStore.deleteHypothesis({ personId, fieldKey, hypothesisId, actorUid, expectedAnchor: factHypothesisAnchorOf(personId, fieldKey) }), "Échec de la suppression");
+    if (result) { factHypothesesFormMode = null; toast("Hypothèse supprimée"); renderFactHypothesesDialog(); }
+    return;
+  }
+  if (action === "restore") {
+    const result = await runFactHypothesesOperation(() => factHypothesesStore.restoreHypothesis({ personId, fieldKey, hypothesisId, actorUid }), "Échec de la restauration");
+    if (result) { factHypothesesFormMode = null; toast("Hypothèse restaurée en alternative"); renderFactHypothesesDialog(); }
+  }
+});
+
+$("factHypothesesDialog").addEventListener("submit", async event => {
+  event.preventDefault();
+  const form = event.target;
+  if (form.id !== "factHypothesesValueForm" || !factHypothesesFormMode) return;
+  const { personId, fieldKey } = factHypothesesDialogState;
+  const mode = factHypothesesFormMode;
+  const field = factHypothesisField(fieldKey);
+  const actorUid = auth.currentUser?.uid || "";
+  if (!actorUid) { toast("Session expirée : reconnectez-vous.", "error"); return; }
+  const justification = $("hypoJustification")?.value.trim() || "";
+  try {
+    if (mode.mode === "retain") {
+      const result = await runFactHypothesesOperation(() => factHypothesesStore.setRetained({
+        personId, fieldKey, hypothesisId: mode.hypothesisId, justification, actorUid,
+        expectedAnchor: factHypothesisAnchorOf(personId, fieldKey)
+      }), "Échec de la retenue");
+      if (!result) return;
+      const retainedHypothesis = result.updated.find(item => item.status === "retained");
+      if (retainedHypothesis) applyLocalFactHypothesisPatch(personId, fieldKey, retainedHypothesis.value, retainedHypothesis.id);
+      factHypothesesFormMode = null;
+      toast("Hypothèse retenue : la fiche est à jour");
+    } else if (mode.mode === "reexamine") {
+      /* Réexamen : rejected → alternative. Jamais d'écriture people — la
+         fiche, l'ancre et la retenue en cours restent strictement intactes. */
+      const result = await runFactHypothesesOperation(() => factHypothesesStore.reexamineHypothesis({
+        personId, fieldKey, hypothesisId: mode.hypothesisId, justification, actorUid
+      }), "Échec du réexamen");
+      if (!result) return;
+      factHypothesesFormMode = null;
+      toast("Hypothèse réexaminée : elle redevient une alternative");
+    } else {
+      let rawValue;
+      if (field.kind === "date") {
+        rawValue = readGenealogyDateForm("hypo");
+        if (mode.mode === "create" && rawValue.type === "unknown") throw new Error("Renseignez une valeur pour l’hypothèse ou choisissez un autre format.");
+      } else {
+        const place = $("hypoPlace").value.trim();
+        if (mode.mode === "create" && !place) throw new Error("Renseignez le lieu de l’hypothèse.");
+        const previous = mode.hypothesisId
+          ? factHypotheses.find(item => item.id === mode.hypothesisId)?.value || null
+          : personFactValue(fieldKey, person(personId));
+        rawValue = { place, placeInfo: previous && previous.place === place ? (previous.placeInfo || null) : null };
+      }
+      const normalized = normalizeFactHypothesisValue(fieldKey, rawValue);
+      if (!normalized.ok) throw new Error(normalized.error || "Valeur d’hypothèse invalide.");
+      if (mode.mode === "create") {
+        const result = await runFactHypothesesOperation(() => factHypothesesStore.createHypothesis({ personId, fieldKey, value: normalized.value, justification, actorUid }), "Échec de la création");
+        if (!result) return;
+        const promoted = result.created.find(item => item.status === "retained");
+        if (promoted) applyLocalFactHypothesisPatch(personId, fieldKey, promoted.value, promoted.id);
+        factHypothesesFormMode = null;
+        toast("Hypothèse créée");
+      } else {
+        const result = await runFactHypothesesOperation(() => factHypothesesStore.correctValue({ personId, fieldKey, hypothesisId: mode.hypothesisId, value: normalized.value, justification, actorUid }), "Échec de la correction");
+        if (!result) return;
+        const corrected = result.updated[0];
+        if (corrected?.status === "retained") applyLocalFactHypothesisPatch(personId, fieldKey, corrected.value, corrected.id);
+        factHypothesesFormMode = null;
+        toast("Valeur de l’hypothèse corrigée");
+      }
+    }
+  } catch (error) {
+    console.error(error);
+    toast(error.message || "Enregistrement impossible", "error");
+    return;
+  }
+  renderFactHypothesesDialog();
+});
+
+/* Changement de rôle d'une association : remplace l'association existante
+   (le store filtre sur l'identifiant avant de pousser — jamais de doublon). */
+$("factHypothesesDialog").addEventListener("change", async event => {
+  const select = event.target.closest?.("[data-fh-attestation-role]");
+  if (!select) return;
+  const { personId, fieldKey } = factHypothesesDialogState;
+  const hypothesisId = select.dataset.hypothesisId || "";
+  const attestationId = select.dataset.fhAttestationRole || "";
+  const role = select.value;
+  const actorUid = auth.currentUser?.uid || "";
+  if (!actorUid || !attestationId) {
+    toast("Session expirée : reconnectez-vous pour modifier le rôle.", "error");
+    renderFactHypothesesDialog();
+    return;
+  }
+  const result = await runFactHypothesesOperation(() => factHypothesesStore.attachAttestation({ personId, fieldKey, hypothesisId, attestationId, role, actorUid }), "Échec de la modification du rôle");
+  if (result) toast("Rôle de l’attestation mis à jour");
+  renderFactHypothesesDialog();
+});
+
+$("factHypothesesDialog").addEventListener("close", () => {
+  factHypothesesFormMode = null;
+  factHypothesesAttestationsOpen = new Set();
+});
+
+document.addEventListener("click", event => {
+  const button = event.target.closest?.("[data-fact-hypothesis-field]");
+  if (!button) return;
+  openFactHypothesesDialog(button.dataset.factHypothesisField);
 });
 
 function readJourneyDateRaw() {

@@ -1,0 +1,1202 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasAccessDocument() {
+      return exists(/databases/$(database)/documents/settings/access);
+    }
+
+    function isPrimaryAdmin() {
+      return signedIn()
+        && hasAccessDocument()
+        && get(/databases/$(database)/documents/settings/access).data.primaryAdminUid == request.auth.uid;
+    }
+
+    function isApproved() {
+      return isPrimaryAdmin()
+        || (signedIn()
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved');
+    }
+
+    function isAdmin() {
+      return isPrimaryAdmin()
+        || (isApproved()
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+    }
+
+    function isBootstrapOwnerAfter() {
+      return signedIn()
+        && !hasAccessDocument()
+        && existsAfter(/databases/$(database)/documents/settings/access)
+        && getAfter(/databases/$(database)/documents/settings/access).data.primaryAdminUid == request.auth.uid;
+    }
+
+    function validGenealogyDate(value) {
+      return value is map && value.type in ['exact', 'year', 'about', 'between', 'unknown']
+        && (value.type == 'unknown'
+          || (value.type == 'exact' && value.value is string && value.value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+          || ((value.type == 'year' || value.type == 'about') && value.year is int && value.year >= 1 && value.year <= 9999)
+          || (value.type == 'between' && value.from is int && value.to is int && value.from >= 1 && value.to <= 9999 && value.from <= value.to));
+    }
+
+    function validPerson() {
+      return (!('photoUrl' in request.resource.data)
+          || (request.resource.data.photoUrl is string && request.resource.data.photoUrl.size() <= 8 * 1024))
+        && (!('birthDateInfo' in request.resource.data) || validGenealogyDate(request.resource.data.birthDateInfo))
+        && (!('deathDateInfo' in request.resource.data) || validGenealogyDate(request.resource.data.deathDateInfo));
+    }
+
+    // Hypothèses concurrentes de naissance et de décès (lot 2C.5-A) :
+    // helpers additionnels pour deux collections neuves et pour la cohérence
+    // de l'ancre people.retainedHypothesis. Aucune règle existante n'est
+    // modifiée par ce bloc ; les deux conditions sur people sont ajoutées
+    // séparément (création et mise à jour du match /people).
+    function validFactHypothesisId(id) {
+      return id is string && id.matches('^[A-Za-z0-9._-]{1,180}$');
+    }
+
+    function validFactHypothesisFieldKey(key) {
+      return key in ['birth.date', 'birth.place', 'death.date', 'death.place'];
+    }
+
+    function validFactHypothesisValue(fieldKey, value) {
+      return value is map
+        && ((fieldKey in ['birth.date', 'death.date'] && validGenealogyDate(value))
+          || (fieldKey in ['birth.place', 'death.place']
+            && 'place' in value
+            && value.place is string
+            && value.place.size() <= 300
+            && (!('placeInfo' in value) || value.placeInfo == null || value.placeInfo is map)));
+    }
+
+    // Les rules Firestore n'offrent ni boucle ni fonction d'ordre supérieur
+    // (every/filter/map inexistants) : la structure des attestations (rôle,
+    // identifiant) est validée côté client par js/fact-hypotheses.js — module
+    // pur couvert par ses tests ; les rules bornent la liste.
+    function validFactHypothesisAttestations(attestations) {
+      return attestations is list && attestations.size() <= 50;
+    }
+
+    function factHypothesisPersonPath(personId) {
+      return /databases/$(database)/documents/people/$(personId);
+    }
+
+    function factHypothesisPath(hypothesisId) {
+      return /databases/$(database)/documents/factHypotheses/$(hypothesisId);
+    }
+
+    // Valeur de la fiche (après transaction) égale à la valeur de l'hypothèse.
+    function peopleValueMatchesHypothesis(personData, fieldKey, value) {
+      return fieldKey == 'birth.date'
+        ? ('birthDateInfo' in personData && personData.birthDateInfo == value)
+        : fieldKey == 'death.date'
+          ? ('deathDateInfo' in personData && personData.deathDateInfo == value)
+          : fieldKey == 'birth.place'
+            ? ('place' in personData
+              && personData.place == value.place
+              && (('birthPlaceInfo' in personData ? personData.birthPlaceInfo : null)
+                == ('placeInfo' in value ? value.placeInfo : null)))
+            : ('deathPlace' in personData
+              && personData.deathPlace == value.place
+              && (('deathPlaceInfo' in personData ? personData.deathPlaceInfo : null)
+                == ('placeInfo' in value ? value.placeInfo : null)));
+    }
+
+    function peopleFactMatchesAfter(personId, fieldKey, value) {
+      let personPath = factHypothesisPersonPath(personId);
+      return existsAfter(personPath)
+        && peopleValueMatchesHypothesis(getAfter(personPath).data, fieldKey, value);
+    }
+
+    function anchoredRetainedAfter(personId, fieldKey, hypothesisId) {
+      let personPath = factHypothesisPersonPath(personId);
+      return existsAfter(personPath)
+        && 'retainedHypothesis' in getAfter(personPath).data
+        && getAfter(personPath).data.retainedHypothesis[fieldKey] == hypothesisId;
+    }
+
+    // Matrice des transitions de statut, en miroir exact de
+    // ALLOWED_TRANSITIONS dans js/fact-hypotheses.js (y compris le réexamen
+    // « écartée → alternative » validé en fin de lot 2C.5-A — voir
+    // FACT_HYPOTHESES_RULES.md). Sans boucle : dépliage explicite.
+    // Même-statut autorisé sauf deleted (aucune modification d'une
+    // hypothèse supprimée).
+    function validFactHypothesisStatusTransition(fromStatus, toStatus) {
+      return fromStatus == toStatus
+        ? fromStatus != 'deleted'
+        : (fromStatus == 'alternative' && toStatus in ['retained', 'rejected', 'deleted'])
+          || (fromStatus == 'rejected' && toStatus in ['retained', 'alternative', 'deleted'])
+          || (fromStatus == 'retained' && toStatus == 'alternative')
+          || (fromStatus == 'deleted' && toStatus == 'alternative');
+    }
+
+    // Sortie de « retenue » : l'ancre doit avoir basculé vers une AUTRE
+    // hypothèse dans la même transaction — jamais une simple suppression de
+    // l'ancre (aucun contournement par modification isolée).
+    function retainedReplacedAfter(personId, fieldKey, oldHypothesisId) {
+      let personPath = factHypothesisPersonPath(personId);
+      return existsAfter(personPath)
+        && 'retainedHypothesis' in getAfter(personPath).data
+        && getAfter(personPath).data.retainedHypothesis.keys().hasAny([fieldKey])
+        && getAfter(personPath).data.retainedHypothesis[fieldKey] != oldHypothesisId;
+    }
+
+    // Avant la transaction, une autre hypothèse était retenue pour ce champ :
+    // la justification devient obligatoire (remplacement atomique uniquement).
+    function replacedAnotherRetained(personId, fieldKey, hypothesisId) {
+      let personPath = factHypothesisPersonPath(personId);
+      return exists(personPath)
+        && 'retainedHypothesis' in get(personPath).data
+        && get(personPath).data.retainedHypothesis.keys().hasAny([fieldKey])
+        && get(personPath).data.retainedHypothesis[fieldKey] != hypothesisId;
+    }
+
+    // Côté people : l'hypothèse visée par l'ancre existe, appartient à la
+    // personne, porte le statut « retenue » et sa valeur correspond à la
+    // fiche. Sans boucle dans les rules : les quatre clés possibles sont
+    // dépliées et toute clé inconnue est refusée par hasOnly().
+    function anchoredHypothesisValidAfter(hypothesisId, personId, fieldKey, personData) {
+      let hypothesis = validFactHypothesisId(hypothesisId) && existsAfter(factHypothesisPath(hypothesisId))
+        ? getAfter(factHypothesisPath(hypothesisId)).data
+        : {};
+      return 'personId' in hypothesis
+        && hypothesis.personId == personId
+        && hypothesis.fieldKey == fieldKey
+        && hypothesis.status == 'retained'
+        && peopleValueMatchesHypothesis(personData, fieldKey, hypothesis.value);
+    }
+
+    function validFactHypothesisAnchorAfter(personId) {
+      let data = request.resource.data;
+      return !('retainedHypothesis' in data)
+        || (data.retainedHypothesis is map
+          && data.retainedHypothesis.size() <= 4
+          && data.retainedHypothesis.keys().hasOnly(['birth.date', 'birth.place', 'death.date', 'death.place'])
+          && ('birth.date' in data.retainedHypothesis
+            ? anchoredHypothesisValidAfter(data.retainedHypothesis['birth.date'], personId, 'birth.date', data)
+            : true)
+          && ('birth.place' in data.retainedHypothesis
+            ? anchoredHypothesisValidAfter(data.retainedHypothesis['birth.place'], personId, 'birth.place', data)
+            : true)
+          && ('death.date' in data.retainedHypothesis
+            ? anchoredHypothesisValidAfter(data.retainedHypothesis['death.date'], personId, 'death.date', data)
+            : true)
+          && ('death.place' in data.retainedHypothesis
+            ? anchoredHypothesisValidAfter(data.retainedHypothesis['death.place'], personId, 'death.place', data)
+            : true));
+    }
+
+    // Une hypothèse abandonnée par l'ancre ne doit plus être retenue après la
+    // transaction : la rétrogradation s'écrit toujours dans la même
+    // transaction que la libération de l'ancre (opération du store).
+    function anchoredHypothesisReleasedAfter(hypothesisId) {
+      return !validFactHypothesisId(hypothesisId)
+        || !existsAfter(factHypothesisPath(hypothesisId))
+        || getAfter(factHypothesisPath(hypothesisId)).data.status != 'retained';
+    }
+
+    function unanchoredRetainedReleasedAfter() {
+      let before = 'retainedHypothesis' in resource.data ? resource.data.retainedHypothesis : {};
+      let after = 'retainedHypothesis' in request.resource.data ? request.resource.data.retainedHypothesis : {};
+      return !('retainedHypothesis' in resource.data)
+        || (('birth.date' in before
+            ? ((('birth.date' in after && after['birth.date'] == before['birth.date'])
+              || anchoredHypothesisReleasedAfter(before['birth.date'])))
+            : true)
+          && ('birth.place' in before
+            ? ((('birth.place' in after && after['birth.place'] == before['birth.place'])
+              || anchoredHypothesisReleasedAfter(before['birth.place'])))
+            : true)
+          && ('death.date' in before
+            ? ((('death.date' in after && after['death.date'] == before['death.date'])
+              || anchoredHypothesisReleasedAfter(before['death.date'])))
+            : true)
+          && ('death.place' in before
+            ? ((('death.place' in after && after['death.place'] == before['death.place'])
+              || anchoredHypothesisReleasedAfter(before['death.place'])))
+            : true));
+    }
+
+    function validFactHypothesisShape(data) {
+      return data.keys().hasAll(['personId', 'fieldKey', 'value', 'status', 'initialFromFiche', 'justification', 'attestations', 'documentIds', 'sourceIds', 'proofIds', 'authorUid', 'createdAt', 'updatedAt', 'currentRevisionId'])
+        && data.keys().hasOnly(['personId', 'fieldKey', 'value', 'status', 'initialFromFiche', 'justification', 'attestations', 'documentIds', 'sourceIds', 'proofIds', 'authorUid', 'createdAt', 'updatedAt', 'updatedBy', 'currentRevisionId'])
+        && data.personId is string
+        && data.personId.size() > 0
+        && validFactHypothesisFieldKey(data.fieldKey)
+        && validFactHypothesisValue(data.fieldKey, data.value)
+        && data.status in ['retained', 'alternative', 'rejected', 'deleted']
+        && data.initialFromFiche is bool
+        && data.justification is string
+        && data.justification.size() <= 2000
+        && validFactHypothesisAttestations(data.attestations)
+        && data.documentIds is list && data.documentIds.size() <= 100
+        && data.sourceIds is list && data.sourceIds.size() <= 100
+        && data.proofIds is list && data.proofIds.size() <= 100
+        && data.authorUid is string
+        && data.authorUid.size() > 0
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.currentRevisionId is string
+        && data.currentRevisionId.size() > 0
+        && (!('updatedBy' in data) || data.updatedBy == request.auth.uid);
+    }
+
+    // Traçabilité obligatoire : toute écriture d'hypothèse (création,
+    // transition, correction, attestations) doit être accompagnée, dans la
+    // MÊME transaction ou le MÊME lot d'écritures, d'une révision NEUVE
+    // (identifiant nouveau et horodatage de cette écriture) rattachée à cette
+    // hypothèse. Cela refuse toute modification de statut sans révision et
+    // toute révision réemployée d'une écriture antérieure.
+    function freshHypothesisRevisionAfter(hypothesisId, revisionId) {
+      let revisionPath = /databases/$(database)/documents/factHypothesisRevisions/$(revisionId);
+      return validFactHypothesisId(revisionId)
+        && existsAfter(revisionPath)
+        && getAfter(revisionPath).data.createdAt == request.time
+        && getAfter(revisionPath).data.authorUid == request.auth.uid
+        && getAfter(revisionPath).data.objectId == hypothesisId;
+    }
+
+    function validFactHypothesisCreate(hypothesisId) {
+      let data = request.resource.data;
+      return validFactHypothesisId(hypothesisId)
+        && validFactHypothesisShape(data)
+        && data.status in ['retained', 'alternative']
+        && data.authorUid == request.auth.uid
+        && (!data.initialFromFiche || data.status == 'retained')
+        && existsAfter(factHypothesisPersonPath(data.personId))
+        && freshHypothesisRevisionAfter(hypothesisId, data.currentRevisionId)
+        && (data.status != 'retained'
+          || (anchoredRetainedAfter(data.personId, data.fieldKey, hypothesisId)
+            && peopleFactMatchesAfter(data.personId, data.fieldKey, data.value)));
+    }
+
+    function validFactHypothesisUpdate(hypothesisId) {
+      let data = request.resource.data;
+      let previous = resource.data;
+      return validFactHypothesisId(hypothesisId)
+        && validFactHypothesisShape(data)
+        && data.personId == previous.personId
+        && data.fieldKey == previous.fieldKey
+        && data.authorUid == previous.authorUid
+        && data.initialFromFiche == previous.initialFromFiche
+        && validFactHypothesisStatusTransition(previous.status, data.status)
+        && (previous.status != 'deleted'
+          || (data.value == previous.value
+            && data.attestations == previous.attestations
+            && data.justification == previous.justification))
+        && (previous.status != 'rejected' || data.status != 'alternative'
+          || (data.value == previous.value
+            && data.attestations == previous.attestations
+            && data.documentIds == previous.documentIds
+            && data.sourceIds == previous.sourceIds
+            && data.proofIds == previous.proofIds
+            && data.justification.size() > 0))
+        && freshHypothesisRevisionAfter(hypothesisId, data.currentRevisionId)
+        && (data.status != 'retained'
+          || (anchoredRetainedAfter(data.personId, data.fieldKey, hypothesisId)
+            && peopleFactMatchesAfter(data.personId, data.fieldKey, data.value)
+            && (!replacedAnotherRetained(data.personId, data.fieldKey, hypothesisId)
+              || data.justification.size() > 0)))
+        && (previous.status != 'retained'
+          || data.status == 'retained'
+          || retainedReplacedAfter(data.personId, data.fieldKey, hypothesisId));
+    }
+
+    // Révisions : création seule (immuabilité), auteur et identifiants
+    // protégés, horodatage de l'écriture courante, rattachement à la tête et
+    // cohérence de l'état (statut et valeur) avec l'hypothèse écrite dans la
+    // même transaction. Chaînage : la révision précédente doit être la tête
+    // courante avant l'écriture (ou nulle pour une création).
+    function validFactHypothesisRevision(revisionId) {
+      let data = request.resource.data;
+      let snapshot = data.data;
+      let headPath = factHypothesisPath(data.objectId);
+      return validFactHypothesisId(revisionId)
+        && data.keys().hasAll(['objectId', 'personId', 'fieldKey', 'operation', 'authorUid', 'createdAt', 'previousRevisionId', 'justification', 'data'])
+        && data.keys().hasOnly(['objectId', 'personId', 'fieldKey', 'operation', 'authorUid', 'createdAt', 'previousRevisionId', 'justification', 'data'])
+        && validFactHypothesisId(data.objectId)
+        && data.personId is string
+        && data.personId.size() > 0
+        && validFactHypothesisFieldKey(data.fieldKey)
+        && data.operation in ['created', 'retained', 'value-corrected', 'rejected', 'deleted', 'restored', 'reexamined', 'attestation-updated']
+        && data.authorUid == request.auth.uid
+        && data.createdAt == request.time
+        && (data.previousRevisionId == null || validFactHypothesisId(data.previousRevisionId))
+        && data.justification is string
+        && data.justification.size() <= 2000
+        && snapshot is map
+        && snapshot.keys().hasOnly(['personId', 'fieldKey', 'value', 'status', 'initialFromFiche', 'justification', 'attestations', 'documentIds', 'sourceIds', 'proofIds', 'currentRevisionId'])
+        && snapshot.personId == data.personId
+        && snapshot.fieldKey == data.fieldKey
+        && validFactHypothesisValue(snapshot.fieldKey, snapshot.value)
+        && snapshot.status in ['retained', 'alternative', 'rejected', 'deleted']
+        && snapshot.initialFromFiche is bool
+        && existsAfter(headPath)
+        && getAfter(headPath).data.personId == data.personId
+        && getAfter(headPath).data.fieldKey == data.fieldKey
+        && getAfter(headPath).data.currentRevisionId == revisionId
+        && getAfter(headPath).data.status == snapshot.status
+        && getAfter(headPath).data.value == snapshot.value
+        && (data.previousRevisionId == null
+          ? !exists(headPath)
+          : (exists(headPath) && get(headPath).data.currentRevisionId == data.previousRevisionId));
+    }
+
+
+    function validTreeId(treeId) {
+      return treeId is string
+        && treeId.matches('^[A-Za-z0-9_-]{1,128}$');
+    }
+
+    function hasUnassignedMarker() {
+      return 'treeAssignmentState' in request.resource.data
+        && request.resource.data.treeAssignmentState == 'unassigned'
+        && 'treeId' in request.resource.data
+        && request.resource.data.treeId == '';
+    }
+
+    function hasNoUnassignedMarker() {
+      return !('treeAssignmentState' in request.resource.data);
+    }
+
+    function validPersonTreeReference() {
+      return hasUnassignedMarker()
+        || (hasNoUnassignedMarker()
+          && (!('treeId' in request.resource.data)
+            || request.resource.data.treeId == null
+            || request.resource.data.treeId == 'main'
+            || (validTreeId(request.resource.data.treeId)
+              && existsAfter(/databases/$(database)/documents/trees/$(request.resource.data.treeId)))));
+    }
+
+    function activeTreeAfter(treeId) {
+      return existsAfter(/databases/$(database)/documents/trees/$(treeId))
+        && (!('lifecycleState' in getAfter(/databases/$(database)/documents/trees/$(treeId)).data)
+          || getAfter(/databases/$(database)/documents/trees/$(treeId)).data.lifecycleState == 'active');
+    }
+
+    function validActivePersonTreeReference() {
+      return hasUnassignedMarker()
+        || (hasNoUnassignedMarker()
+          && (!('treeId' in request.resource.data)
+            || request.resource.data.treeId == null
+            || request.resource.data.treeId == 'main'
+            || (validTreeId(request.resource.data.treeId)
+              && activeTreeAfter(request.resource.data.treeId))));
+    }
+
+    function validPersonTreeAssignmentOnCreate() {
+      return (hasUnassignedMarker() && isApproved())
+        || (hasNoUnassignedMarker()
+          && (!('treeId' in request.resource.data)
+            || request.resource.data.treeId == null
+            || request.resource.data.treeId == 'main'
+            || (isApproved()
+              && validTreeId(request.resource.data.treeId)
+              && activeTreeAfter(request.resource.data.treeId))));
+    }
+
+    function validTree(treeId) {
+      return treeId != 'main'
+        && validTreeId(treeId)
+        && request.resource.data.keys().hasAll(['name', 'createdAt', 'createdBy', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'description', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'lifecycleState', 'deletionToken', 'deletionStartedAt', 'deletionStartedBy'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 1
+        && request.resource.data.name.size() <= 80
+        && (!('description' in request.resource.data)
+          || (request.resource.data.description is string && request.resource.data.description.size() <= 200))
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.createdBy is string
+        && request.resource.data.createdBy.size() > 0
+        && request.resource.data.updatedAt is timestamp
+        && ((!('lifecycleState' in request.resource.data)
+            && !('deletionToken' in request.resource.data)
+            && !('deletionStartedAt' in request.resource.data)
+            && !('deletionStartedBy' in request.resource.data))
+          || ('lifecycleState' in request.resource.data
+            && request.resource.data.lifecycleState == 'active'
+            && !('deletionToken' in request.resource.data)
+            && !('deletionStartedAt' in request.resource.data)
+            && !('deletionStartedBy' in request.resource.data))
+          || ('lifecycleState' in request.resource.data
+            && request.resource.data.lifecycleState == 'deleting'
+            && 'deletionToken' in request.resource.data
+            && request.resource.data.deletionToken is string
+            && request.resource.data.deletionToken.size() >= 16
+            && request.resource.data.deletionToken.size() <= 128
+            && 'deletionStartedAt' in request.resource.data
+            && request.resource.data.deletionStartedAt is timestamp
+            && 'deletionStartedBy' in request.resource.data
+            && request.resource.data.deletionStartedBy == request.auth.uid))
+        && validUpdatedBy();
+    }
+
+    function validNewTree(treeId) {
+      return validTree(treeId)
+        && 'lifecycleState' in request.resource.data
+        && request.resource.data.lifecycleState == 'active'
+        && !('deletionToken' in request.resource.data)
+        && !('deletionStartedAt' in request.resource.data)
+        && !('deletionStartedBy' in request.resource.data);
+    }
+
+    function treeLifecycleUnchanged() {
+      return ((!('lifecycleState' in resource.data) && !('lifecycleState' in request.resource.data))
+        || ('lifecycleState' in resource.data && 'lifecycleState' in request.resource.data
+          && resource.data.lifecycleState == request.resource.data.lifecycleState))
+        && (!('deletionToken' in resource.data) && !('deletionToken' in request.resource.data)
+          || ('deletionToken' in resource.data && 'deletionToken' in request.resource.data
+            && resource.data.deletionToken == request.resource.data.deletionToken))
+        && (!('deletionStartedAt' in resource.data) && !('deletionStartedAt' in request.resource.data)
+          || ('deletionStartedAt' in resource.data && 'deletionStartedAt' in request.resource.data
+            && resource.data.deletionStartedAt == request.resource.data.deletionStartedAt))
+        && (!('deletionStartedBy' in resource.data) && !('deletionStartedBy' in request.resource.data)
+          || ('deletionStartedBy' in resource.data && 'deletionStartedBy' in request.resource.data
+            && resource.data.deletionStartedBy == request.resource.data.deletionStartedBy));
+    }
+
+    function validTreeMetadataUpdate(treeId) {
+      return (!('lifecycleState' in resource.data) || resource.data.lifecycleState != 'deleting')
+        && (!('lifecycleState' in request.resource.data) || request.resource.data.lifecycleState != 'deleting')
+        && treeLifecycleUnchanged()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['lifecycleState', 'deletionToken', 'deletionStartedAt', 'deletionStartedBy']);
+    }
+
+    function validTreeDeletionLock(treeId) {
+      return (!('lifecycleState' in resource.data) || resource.data.lifecycleState == 'active')
+        && 'lifecycleState' in request.resource.data
+        && request.resource.data.lifecycleState == 'deleting'
+        && request.resource.data.deletionToken is string
+        && request.resource.data.deletionToken.size() >= 16
+        && request.resource.data.deletionToken.size() <= 128
+        && request.resource.data.deletionStartedAt is timestamp
+        && request.resource.data.deletionStartedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lifecycleState', 'deletionToken', 'deletionStartedAt', 'deletionStartedBy', 'updatedAt', 'updatedBy']);
+    }
+
+    function validTreeDeletionRecovery(treeId) {
+      return resource.data.lifecycleState == 'deleting'
+        && 'lifecycleState' in request.resource.data
+        && request.resource.data.lifecycleState == 'active'
+        && !('deletionToken' in request.resource.data)
+        && !('deletionStartedAt' in request.resource.data)
+        && !('deletionStartedBy' in request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lifecycleState', 'deletionToken', 'deletionStartedAt', 'deletionStartedBy', 'updatedAt', 'updatedBy']);
+    }
+
+    function validUpdatedBy() {
+      return !('updatedBy' in request.resource.data)
+        || request.resource.data.updatedBy == request.auth.uid;
+    }
+
+    function validFamily() {
+      return request.resource.data.partnerIds is list
+        && request.resource.data.childIds is list
+        && request.resource.data.partnerIds.size() >= 1
+        && request.resource.data.partnerIds.size() <= 2
+        && request.resource.data.partnerIds.toSet().size() == request.resource.data.partnerIds.size()
+        && request.resource.data.childIds.toSet().size() == request.resource.data.childIds.size()
+        && !request.resource.data.partnerIds.hasAny(request.resource.data.childIds)
+        && (!('relationType' in request.resource.data) || request.resource.data.relationType in ['marriage', 'civil', 'partner', 'other', 'unknown'])
+        && (!('unionDateInfo' in request.resource.data) || validGenealogyDate(request.resource.data.unionDateInfo))
+        && (!('unionPlace' in request.resource.data) || request.resource.data.unionPlace is string)
+        && (!('endType' in request.resource.data) || request.resource.data.endType in ['none', 'separation', 'divorce', 'other', 'unknown'])
+        && (!('endDateInfo' in request.resource.data) || validGenealogyDate(request.resource.data.endDateInfo))
+        && (!('endPlace' in request.resource.data) || request.resource.data.endPlace is string)
+        && (!('parentChildLinks' in request.resource.data) || (request.resource.data.parentChildLinks is list && request.resource.data.parentChildLinks.size() <= 200));
+    }
+
+    function validChunk() {
+      return request.resource.data.documentId is string
+        && request.resource.data.version is string
+        && request.resource.data.index is int
+        && request.resource.data.index >= 0
+        && request.resource.data.data is bytes
+        && request.resource.data.data.size() <= 700 * 1024;
+    }
+
+    function validUser() {
+      return request.resource.data.email is string
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 60
+        && request.resource.data.photo is string
+        && request.resource.data.photo.size() <= 8 * 1024
+        && request.resource.data.role in ['member', 'admin']
+        && request.resource.data.status in ['pending', 'approved', 'suspended', 'rejected'];
+    }
+
+    // Dossiers de démarche : recherches, correspondances, rendez-vous,
+    // formalités et consultation d'archives, avec chronologie d'actions.
+    function validProcedure() {
+      return request.resource.data.title is string
+        && request.resource.data.title.size() >= 1
+        && request.resource.data.title.size() <= 160
+        && request.resource.data.type in ['research', 'correspondence', 'appointment', 'administrative', 'archive', 'call', 'online', 'other']
+        && request.resource.data.status in ['prepare', 'progress', 'waiting', 'reply', 'appointment', 'done', 'abandoned']
+        && (!('objective' in request.resource.data) || request.resource.data.objective is string)
+        && (!('organization' in request.resource.data) || request.resource.data.organization is string)
+        // « service » est un token réservé du langage des règles : seul un accès
+        // crochets data['service'] permet de lire ce champ sans casser le parseur.
+        && (!('service' in request.resource.data) || request.resource.data['service'] is string)
+        && (!('contactName' in request.resource.data) || request.resource.data.contactName is string)
+        && (!('email' in request.resource.data) || request.resource.data.email is string)
+        && (!('phone' in request.resource.data) || request.resource.data.phone is string)
+        && (!('place' in request.resource.data) || request.resource.data.place is string)
+        && (!('nextAction' in request.resource.data) || request.resource.data.nextAction is string)
+        && (!('nextActionDate' in request.resource.data) || request.resource.data.nextActionDate == ''
+          || (request.resource.data.nextActionDate is string && request.resource.data.nextActionDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
+        && (!('notes' in request.resource.data) || request.resource.data.notes is string)
+        && (!('result' in request.resource.data) || request.resource.data.result is string)
+        && (!('personIds' in request.resource.data) || (request.resource.data.personIds is list
+          && request.resource.data.personIds.size() <= 50
+          && request.resource.data.personIds.toSet().size() == request.resource.data.personIds.size()));
+    }
+
+    function validProcedureAction() {
+      return request.resource.data.type in ['email-sent', 'email-received', 'appointment-requested', 'appointment-confirmed', 'call', 'archive-visit', 'registry-consult', 'online-search', 'note', 'document-sent', 'document-received', 'other']
+        && (!('date' in request.resource.data) || request.resource.data.date == ''
+          || (request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
+        && (!('direction' in request.resource.data) || request.resource.data.direction in ['none', 'sent', 'received'])
+        && (!('title' in request.resource.data) || request.resource.data.title is string)
+        && (!('text' in request.resource.data) || request.resource.data.text is string)
+        && (!('author' in request.resource.data) || request.resource.data.author is string)
+        && (!('time' in request.resource.data) || request.resource.data.time == ''
+          || (request.resource.data.time is string && request.resource.data.time.matches('^[0-9]{2}:[0-9]{2}(:[0-9]{2})?$')))
+        && (!('emailFrom' in request.resource.data) || request.resource.data.emailFrom is string)
+        && (!('emailTo' in request.resource.data) || request.resource.data.emailTo is string)
+        && (!('emailSubject' in request.resource.data) || request.resource.data.emailSubject is string)
+        && (!('emailFull' in request.resource.data) || request.resource.data.emailFull is string);
+    }
+
+    function adminMayManage(userId) {
+      return !hasAccessDocument()
+        || userId != get(/databases/$(database)/documents/settings/access).data.primaryAdminUid;
+    }
+
+    function validCollaborationId(id) {
+      return id is string && id.matches('^[A-Za-z0-9_-]{1,128}$');
+    }
+
+    function validProposalType(value) {
+      return value in ['source', 'transcription', 'correction', 'proof'];
+    }
+
+    function validProposal(data) {
+      return data.keys().hasAll(['type', 'status', 'authorUid', 'targetType', 'targetId', 'payload', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['type', 'status', 'authorUid', 'targetType', 'targetId', 'payload', 'createdAt', 'updatedAt', 'submittedAt', 'resolvedAt', 'resolvedBy', 'resolutionReason'])
+        && validProposalType(data.type)
+        && data.status in ['draft', 'pending', 'accepted', 'rejected', 'cancelled']
+        && data.authorUid is string && data.targetType is string && data.targetId is string
+        && data.payload is map
+        && data.createdAt is timestamp && data.updatedAt is timestamp
+        && (!('submittedAt' in data) || data.submittedAt is timestamp)
+        && (!('resolvedAt' in data) || data.resolvedAt is timestamp)
+        && (!('resolvedBy' in data) || data.resolvedBy is string)
+        && (!('resolutionReason' in data) || (data.resolutionReason is string && data.resolutionReason.size() <= 2000));
+    }
+
+    function validProposalDraftCreate() {
+      return isApproved() && validProposal(request.resource.data)
+        && request.resource.data.status == 'draft'
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && !('submittedAt' in request.resource.data)
+        && !('resolvedAt' in request.resource.data)
+        && !('resolvedBy' in request.resource.data);
+    }
+
+    function validProposalAuthorUpdate() {
+      return isApproved() && resource.data.authorUid == request.auth.uid
+        && resource.data.status == 'draft'
+        && validProposal(request.resource.data)
+        && request.resource.data.authorUid == resource.data.authorUid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.status in ['draft', 'cancelled']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['type', 'targetType', 'targetId', 'payload', 'status', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && (request.resource.data.status == 'draft' || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']));
+    }
+
+    function validProposalDecision() {
+      return isAdmin() && resource.data.status == 'pending'
+        && request.resource.data.status in ['accepted', 'rejected']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'resolvedAt', 'resolvedBy', 'resolutionReason'])
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.resolvedAt == request.time
+        && request.resource.data.resolvedBy == request.auth.uid
+        && request.resource.data.resolutionReason is string
+        && request.resource.data.resolutionReason.size() > 0
+        && request.resource.data.resolutionReason.size() <= 2000;
+    }
+
+    function validProposalSubmission() {
+      return isApproved() && resource.data.authorUid == request.auth.uid
+        && resource.data.status == 'draft' && request.resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'submittedAt'])
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.submittedAt == request.time;
+    }
+
+    function validGenealogyEvent(data) {
+      return data.keys().hasAll(['eventType', 'objectType', 'objectId', 'actorUid', 'createdAt', 'previousVersionId', 'newVersionId', 'reason'])
+        && data.keys().hasOnly(['eventType', 'objectType', 'objectId', 'actorUid', 'createdAt', 'previousVersionId', 'newVersionId', 'reason'])
+        && data.eventType is string && data.objectType is string && data.objectId is string
+        && data.actorUid == request.auth.uid && data.createdAt == request.time
+        && (data.previousVersionId == null || data.previousVersionId is string)
+        && (data.newVersionId == null || data.newVersionId is string)
+        && data.reason is string && data.reason.size() <= 2000;
+    }
+
+    function validProposalEvent(eventId) {
+      let event = request.resource.data;
+      let proposalPath = /databases/$(database)/documents/genealogyProposals/$(event.objectId);
+      return validGenealogyEvent(event)
+        && event.objectType == 'proposal'
+        && existsAfter(proposalPath)
+        && getAfter(proposalPath).data.authorUid == request.auth.uid
+        && ((event.eventType == 'proposal.created' && getAfter(proposalPath).data.status == 'draft'
+            && event.newVersionId == 'draft' && event.previousVersionId == null
+            && event.createdAt == getAfter(proposalPath).data.createdAt)
+          || (event.eventType == 'proposal.updated' && getAfter(proposalPath).data.status == 'draft'
+            && event.newVersionId == 'draft' && event.previousVersionId == 'draft'
+            && event.createdAt == getAfter(proposalPath).data.updatedAt)
+          || (event.eventType == 'proposal.submitted' && getAfter(proposalPath).data.status == 'pending'
+            && event.newVersionId == 'pending' && event.previousVersionId == 'draft'
+            && event.createdAt == getAfter(proposalPath).data.submittedAt)
+          || (event.eventType == 'proposal.cancelled' && getAfter(proposalPath).data.status == 'cancelled'
+            && event.newVersionId == 'cancelled' && event.previousVersionId == 'draft'
+            && event.createdAt == getAfter(proposalPath).data.updatedAt));
+    }
+
+    function validNotification(data) {
+      return data.keys().hasAll(['recipientUid', 'type', 'objectType', 'objectId', 'eventId', 'createdAt', 'read'])
+        && data.keys().hasOnly(['recipientUid', 'type', 'objectType', 'objectId', 'eventId', 'createdAt', 'read', 'readAt'])
+        && data.recipientUid is string && data.type in ['proposal-accepted', 'proposal-rejected', 'proposal-submitted', 'proof-reexamination', 'conclusion-reexamination']
+        && data.objectType is string && data.objectId is string && validCollaborationId(data.eventId) && data.createdAt == request.time
+        && data.read is bool && data.read == false && !('readAt' in data);
+    }
+
+    function notificationMatchesProposal() {
+      let proposalPath = /databases/$(database)/documents/genealogyProposals/$(request.resource.data.objectId);
+      let eventPath = /databases/$(database)/documents/genealogyEvents/$(request.resource.data.eventId);
+      return existsAfter(proposalPath)
+        && existsAfter(eventPath)
+        && getAfter(proposalPath).data.status in ['accepted', 'rejected']
+        && getAfter(proposalPath).data.authorUid == request.resource.data.recipientUid
+        && getAfter(eventPath).data.objectType == 'proposal'
+        && getAfter(eventPath).data.objectId == request.resource.data.objectId
+        && ((request.resource.data.type == 'proposal-accepted' && getAfter(proposalPath).data.status == 'accepted')
+          || (request.resource.data.type == 'proposal-rejected' && getAfter(proposalPath).data.status == 'rejected'))
+        && getAfter(eventPath).data.eventType == (request.resource.data.type == 'proposal-accepted' ? 'proposal.accepted' : 'proposal.rejected');
+    }
+
+    function validProposalDecisionEvent() {
+      let event = request.resource.data;
+      let proposalPath = /databases/$(database)/documents/genealogyProposals/$(event.objectId);
+      return validGenealogyEvent(event) && event.objectType == 'proposal'
+        && event.eventType in ['proposal.accepted', 'proposal.rejected']
+        && existsAfter(proposalPath)
+        && getAfter(proposalPath).data.status == (event.eventType == 'proposal.accepted' ? 'accepted' : 'rejected')
+        && event.previousVersionId == 'pending'
+        && event.newVersionId == getAfter(proposalPath).data.status
+        && event.createdAt == getAfter(proposalPath).data.resolvedAt
+        && getAfter(proposalPath).data.resolvedBy == request.auth.uid;
+    }
+
+    function validAdminNotificationRecipient(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid))
+        && get(/databases/$(database)/documents/users/$(uid)).data.status == 'approved'
+        && get(/databases/$(database)/documents/users/$(uid)).data.role == 'admin';
+    }
+
+    function notificationMatchesPendingProposal() {
+      let proposalPath = /databases/$(database)/documents/genealogyProposals/$(request.resource.data.objectId);
+      let eventPath = /databases/$(database)/documents/genealogyEvents/$(request.resource.data.eventId);
+      return request.resource.data.type == 'proposal-submitted'
+        && existsAfter(proposalPath) && getAfter(proposalPath).data.status == 'pending'
+        && existsAfter(eventPath) && getAfter(eventPath).data.eventType == 'proposal.submitted'
+        && getAfter(eventPath).data.objectId == request.resource.data.objectId
+        && validAdminNotificationRecipient(request.resource.data.recipientUid);
+    }
+
+    function notificationMatchesReexamination() {
+      let eventPath = /databases/$(database)/documents/genealogyEvents/$(request.resource.data.eventId);
+      return existsAfter(eventPath)
+        && getAfter(eventPath).data.objectId == request.resource.data.objectId
+        && validAdminNotificationRecipient(request.resource.data.recipientUid)
+        && ((request.resource.data.type == 'proof-reexamination'
+            && getAfter(eventPath).data.eventType == 'proof.reexamination.required'
+            && getAfter(eventPath).data.objectType == 'proof')
+          || (request.resource.data.type == 'conclusion-reexamination'
+            && getAfter(eventPath).data.eventType == 'conclusion.reexamination.required'
+            && getAfter(eventPath).data.objectType == 'conclusion'));
+    }
+
+    function validOfficialRecord(data) {
+      return data.keys().hasAll(['data', 'version', 'revisionId', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'eventId'])
+        && data.keys().hasOnly(['data', 'version', 'revisionId', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'eventId'])
+        && data.data is map && data.version is int && data.version >= 1
+        && data.createdAt is timestamp && data.createdBy == request.auth.uid
+        && data.updatedAt is timestamp && data.updatedBy == request.auth.uid
+        && validCollaborationId(data.eventId) && validCollaborationId(data.revisionId);
+    }
+
+    /* Une transcription officielle ne peut jamais porter un texte italien vide :
+       invariant vérifié côté base à chaque écriture (création ET révision).
+       La traduction française reste facultative. */
+    function hasNonEmptyItalian(data) {
+      return data.data is map
+        && data.data.transcriptionIt is string
+        && data.data.transcriptionIt.size() > 0;
+    }
+
+    function officialDeletionLockPath(objectType, objectId) {
+      return /databases/$(database)/documents/officialDeletionLocks/$(objectType)/objects/$(objectId);
+    }
+
+    function officialDeletionLockOwned(objectType, objectId) {
+      let lockPath = officialDeletionLockPath(objectType, objectId);
+      return exists(lockPath)
+        && get(lockPath).data.objectType == objectType
+        && get(lockPath).data.objectId == objectId
+        && get(lockPath).data.actorUid == request.auth.uid;
+    }
+
+    function officialObjectNotDeleting(objectType, objectId) {
+      return !(objectType in ['proof', 'source'])
+        || !exists(officialDeletionLockPath(objectType, objectId));
+    }
+
+    function proofSourceNotDeleting(data) {
+      return !('documentId' in data)
+        || data.documentId == null
+        || !(data.documentId is string)
+        || data.documentId.size() == 0
+        || !exists(officialDeletionLockPath('source', data.documentId));
+    }
+
+    function hasOfficialEvent(eventId, objectType, objectId, versionId, previousVersionId) {
+      let eventPath = /databases/$(database)/documents/genealogyEvents/$(eventId);
+      return existsAfter(eventPath)
+        && getAfter(eventPath).data.actorUid == request.auth.uid
+        && getAfter(eventPath).data.objectType == objectType
+        && getAfter(eventPath).data.objectId == objectId
+        && getAfter(eventPath).data.newVersionId == versionId
+        && getAfter(eventPath).data.previousVersionId == previousVersionId;
+    }
+
+    function hasOfficialRevision(collectionName, revisionId, objectId, eventId, data, previousVersionId) {
+      let revisionPath = /databases/$(database)/documents/$(collectionName)/$(revisionId);
+      return existsAfter(revisionPath)
+        && getAfter(revisionPath).data.objectId == objectId
+        && getAfter(revisionPath).data.eventId == eventId
+        && getAfter(revisionPath).data.authorUid == request.auth.uid
+        && getAfter(revisionPath).data.data == data
+        && getAfter(revisionPath).data.previousRevisionId == previousVersionId;
+    }
+
+    // Configuration minimale lisible avant connexion pour afficher l'inscription.
+    match /publicConfig/auth {
+      allow read: if true;
+      allow create: if isBootstrapOwnerAfter() || isAdmin();
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // Le premier compte déjà créé qui se connecte initialise l'administrateur principal.
+    match /settings/access {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && !hasAccessDocument()
+        && request.resource.data.primaryAdminUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if signedIn() && (userId == request.auth.uid || isAdmin());
+      allow list: if isAdmin() || (isApproved() && resource.data.status == 'approved');
+      allow create: if signedIn() && userId == request.auth.uid && validUser() && (
+        (request.resource.data.email == request.auth.token.email
+          && request.resource.data.role == 'member'
+          && request.resource.data.status == 'pending')
+        || (isBootstrapOwnerAfter()
+          && request.resource.data.role == 'admin'
+          && request.resource.data.status == 'approved')
+        || (isPrimaryAdmin()
+          && request.resource.data.role == 'admin'
+          && request.resource.data.status == 'approved')
+      );
+      allow update: if validUser() && (
+        (isAdmin() && adminMayManage(userId))
+        || (signedIn()
+          && userId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photo', 'updatedAt']))
+      );
+      allow delete: if false;
+    }
+
+    // L'arbre est accessible uniquement aux comptes approuvés.
+    match /people/{personId} {
+      allow read, delete: if isApproved();
+      allow create: if isApproved() && validPerson() && validUpdatedBy()
+        && validPersonTreeReference() && validPersonTreeAssignmentOnCreate()
+        && validFactHypothesisAnchorAfter(personId);
+      allow update: if isApproved() && validPerson() && validUpdatedBy()
+        && validPersonTreeReference()
+        && validFactHypothesisAnchorAfter(personId)
+        && unanchoredRetainedReleasedAfter()
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['treeId', 'treeAssignmentState'])
+          || (isAdmin() && validActivePersonTreeReference()));
+    }
+
+    // Métadonnées des arbres secondaires. L'arbre principal est implicite et
+    // ne doit pas avoir de document trees/main. Les Rules bloquent les nouvelles
+    // affectations vers un arbre verrouillé, mais ne peuvent pas compter people.
+    match /trees/{treeId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && validNewTree(treeId);
+      allow update: if isAdmin() && validTree(treeId)
+        && (validTreeMetadataUpdate(treeId)
+        || validTreeDeletionLock(treeId)
+        || validTreeDeletionRecovery(treeId));
+      allow delete: if isAdmin() && treeId != 'main'
+        && resource.data.lifecycleState == 'deleting'
+        && resource.data.deletionToken is string
+        && resource.data.deletionToken.size() >= 16;
+    }
+
+    // Une famille relie un ou deux partenaires à leurs enfants.
+    match /families/{familyId} {
+      allow read, delete: if isApproved();
+      allow create, update: if isApproved() && validFamily();
+    }
+
+    // Métadonnées des actes, photos et autres sources familiales.
+    match /documents/{documentId} {
+      allow read, create, update, delete: if isApproved();
+    }
+
+    // Contenu binaire des fichiers, découpé en blocs inférieurs à 1 Mio.
+    // Cette solution utilise uniquement Firestore et reste compatible avec Spark.
+    match /documentChunks/{chunkId} {
+      allow read, delete: if isApproved();
+      allow create, update: if isApproved() && validChunk();
+    }
+
+    // Tâches de recherche et démarches à effectuer.
+    match /tasks/{taskId} {
+      allow read, create, update, delete: if isApproved();
+    }
+
+    // Dossiers de démarche (La Nostra Storia — Démarches) : accessibles aux
+    // comptes approuvés, comme people/families/documents/tasks.
+    match /procedures/{dossierId} {
+      allow read: if isApproved();
+      allow create, update: if isApproved() && validProcedure() && validUpdatedBy();
+      allow delete: if isApproved();
+      // Chronologie d'un dossier : création rattachée à un dossier existant
+      // (pas d'action orpheline), en écriture comme en lecture.
+      match /actions/{actionId} {
+        allow read: if isApproved();
+        allow create: if isApproved() && validProcedureAction() && validUpdatedBy()
+          && exists(/databases/$(database)/documents/procedures/$(dossierId));
+        // Sur une suppression, request.resource.data est null : la validation
+        // de contenu ne s'applique qu'à la mise à jour (modèle : people).
+        allow update: if isApproved() && validProcedureAction() && validUpdatedBy();
+        allow delete: if isApproved();
+      }
+    }
+
+    // Modèle collaboratif du lot 6. Les anciennes collections restent
+    // inchangées ; les têtes officielles pointent vers des révisions immuables.
+    match /genealogyProposals/{proposalId} {
+      allow get: if isAdmin() || (isApproved() && (resource == null || resource.data.authorUid == request.auth.uid));
+      allow list: if isAdmin() || (isApproved() && resource.data.authorUid == request.auth.uid);
+      allow create: if validProposalDraftCreate();
+      allow update: if validProposalAuthorUpdate() || validProposalSubmission() || validProposalDecision();
+      allow delete: if false;
+    }
+
+    match /genealogyEvents/{eventId} {
+      allow read: if isApproved();
+      allow create: if isApproved() && validProposalEvent(eventId);
+      allow create: if isAdmin() && validProposalDecisionEvent();
+      allow create: if isAdmin() && validGenealogyEvent(request.resource.data)
+        && request.resource.data.objectType in ['source', 'transcription', 'proof', 'conclusion']
+        && officialObjectNotDeleting(request.resource.data.objectType, request.resource.data.objectId)
+        && hasOfficialEvent(eventId, request.resource.data.objectType, request.resource.data.objectId, request.resource.data.newVersionId, request.resource.data.previousVersionId);
+      allow update: if false;
+      allow delete: if isAdmin() && resource.data.objectType in ['proof', 'source']
+        && officialDeletionLockOwned(resource.data.objectType, resource.data.objectId)
+        && ((resource.data.objectType == 'proof'
+          && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(resource.data.objectId)))
+          || (resource.data.objectType == 'source'
+            && !existsAfter(/databases/$(database)/documents/sourceDocuments/$(resource.data.objectId))));
+    }
+
+    match /genealogyNotifications/{notificationId} {
+      allow read: if isApproved() && (resource == null || resource.data.recipientUid == request.auth.uid);
+      allow create: if isAdmin() && validNotification(request.resource.data)
+        && officialObjectNotDeleting(request.resource.data.objectType, request.resource.data.objectId)
+        && ((request.resource.data.type in ['proposal-accepted', 'proposal-rejected'] && notificationMatchesProposal())
+          || notificationMatchesPendingProposal()
+          || notificationMatchesReexamination());
+      allow update: if isApproved() && resource.data.recipientUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt'])
+        && request.resource.data.read == true && request.resource.data.readAt == request.time;
+      allow delete: if isAdmin() && resource.data.objectType in ['proof', 'source']
+        && officialDeletionLockOwned(resource.data.objectType, resource.data.objectId)
+        && ((resource.data.objectType == 'proof'
+          && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(resource.data.objectId)))
+          || (resource.data.objectType == 'source'
+            && !existsAfter(/databases/$(database)/documents/sourceDocuments/$(resource.data.objectId))));
+    }
+
+    match /sourceDocuments/{sourceId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && validOfficialRecord(request.resource.data)
+        && !exists(officialDeletionLockPath('source', sourceId))
+        && request.resource.data.version == 1 && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'source', sourceId, request.resource.data.revisionId, null)
+        && hasOfficialRevision('sourceRevisions', request.resource.data.revisionId, sourceId, request.resource.data.eventId, request.resource.data.data, null);
+      allow update: if isAdmin() && validOfficialRecord(request.resource.data)
+        && !exists(officialDeletionLockPath('source', sourceId))
+        && request.resource.data.version == resource.data.version + 1
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid
+        && hasOfficialEvent(request.resource.data.eventId, 'source', sourceId, request.resource.data.revisionId, resource.data.revisionId)
+        && hasOfficialRevision('sourceRevisions', request.resource.data.revisionId, sourceId, request.resource.data.eventId, request.resource.data.data, resource.data.revisionId);
+      allow delete: if isAdmin() && officialDeletionLockOwned('source', sourceId)
+        && !existsAfter(/databases/$(database)/documents/sourceDocuments/$(sourceId));
+    }
+
+    match /sourceRevisions/{revisionId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && request.resource.data.keys().hasAll(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.keys().hasOnly(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && !exists(officialDeletionLockPath('source', request.resource.data.objectId))
+        && request.resource.data.objectId is string && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && (request.resource.data.previousRevisionId == null || request.resource.data.previousRevisionId is string)
+        && request.resource.data.data is map
+        && hasOfficialEvent(request.resource.data.eventId, 'source', request.resource.data.objectId, revisionId, request.resource.data.previousRevisionId);
+      allow update: if false;
+      allow delete: if isAdmin() && resource.data.objectId is string
+        && officialDeletionLockOwned('source', resource.data.objectId)
+        && !existsAfter(/databases/$(database)/documents/sourceDocuments/$(resource.data.objectId));
+    }
+
+    match /transcriptionHeads/{transcriptionId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && validOfficialRecord(request.resource.data)
+        && hasNonEmptyItalian(request.resource.data)
+        && request.resource.data.version == 1 && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'transcription', transcriptionId, request.resource.data.revisionId, null)
+        && hasOfficialRevision('transcriptionRevisions', request.resource.data.revisionId, transcriptionId, request.resource.data.eventId, request.resource.data.data, null);
+      allow update: if isAdmin() && validOfficialRecord(request.resource.data)
+        && hasNonEmptyItalian(request.resource.data)
+        && request.resource.data.version == resource.data.version + 1
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'transcription', transcriptionId, request.resource.data.revisionId, resource.data.revisionId)
+        && hasOfficialRevision('transcriptionRevisions', request.resource.data.revisionId, transcriptionId, request.resource.data.eventId, request.resource.data.data, resource.data.revisionId);
+      allow delete: if false;
+    }
+
+    match /transcriptionRevisions/{revisionId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && request.resource.data.keys().hasAll(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.keys().hasOnly(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.objectId is string && request.resource.data.authorUid == request.auth.uid && request.resource.data.createdAt == request.time
+        && (request.resource.data.previousRevisionId == null || request.resource.data.previousRevisionId is string)
+        && request.resource.data.data is map
+        && hasOfficialEvent(request.resource.data.eventId, 'transcription', request.resource.data.objectId, revisionId, request.resource.data.previousRevisionId);
+      allow update, delete: if false;
+    }
+
+    match /genealogyProofs/{proofId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && validOfficialRecord(request.resource.data)
+        && !exists(officialDeletionLockPath('proof', proofId))
+        && proofSourceNotDeleting(request.resource.data.data)
+        && request.resource.data.version == 1 && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'proof', proofId, request.resource.data.revisionId, null)
+        && hasOfficialRevision('genealogyProofRevisions', request.resource.data.revisionId, proofId, request.resource.data.eventId, request.resource.data.data, null);
+      allow update: if isAdmin() && validOfficialRecord(request.resource.data)
+        && !exists(officialDeletionLockPath('proof', proofId))
+        && proofSourceNotDeleting(request.resource.data.data)
+        && request.resource.data.version == resource.data.version + 1
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'proof', proofId, request.resource.data.revisionId, resource.data.revisionId)
+        && hasOfficialRevision('genealogyProofRevisions', request.resource.data.revisionId, proofId, request.resource.data.eventId, request.resource.data.data, resource.data.revisionId);
+      allow delete: if isAdmin() && officialDeletionLockOwned('proof', proofId)
+        && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(proofId));
+    }
+
+    match /genealogyProofRevisions/{revisionId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && request.resource.data.keys().hasAll(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.keys().hasOnly(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && !exists(officialDeletionLockPath('proof', request.resource.data.objectId))
+        && proofSourceNotDeleting(request.resource.data.data)
+        && request.resource.data.objectId is string && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && (request.resource.data.previousRevisionId == null || request.resource.data.previousRevisionId is string)
+        && request.resource.data.data is map
+        && hasOfficialEvent(request.resource.data.eventId, 'proof', request.resource.data.objectId, revisionId, request.resource.data.previousRevisionId);
+      allow update: if false;
+      allow delete: if isAdmin() && resource.data.objectId is string
+        && officialDeletionLockOwned('proof', resource.data.objectId)
+        && !existsAfter(/databases/$(database)/documents/genealogyProofs/$(resource.data.objectId));
+    }
+
+    // Verrou bref de suppression : les Rules le consultent pour refuser les
+    // révisions, événements et associations qui arriveraient après la collecte.
+    match /officialDeletionLocks/{objectType}/objects/{objectId} {
+      allow get: if isAdmin();
+      allow list: if false;
+      allow create: if isAdmin() && objectType in ['proof', 'source']
+        && request.resource.data.keys().hasAll(['objectType', 'objectId', 'actorUid', 'token', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['objectType', 'objectId', 'actorUid', 'token', 'createdAt'])
+        && request.resource.data.objectType == objectType
+        && request.resource.data.objectId == objectId
+        && validCollaborationId(objectId)
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.token is string && request.resource.data.token.size() > 0
+        && request.resource.data.createdAt == request.time
+        && ((objectType == 'proof' && exists(/databases/$(database)/documents/genealogyProofs/$(objectId)))
+          || (objectType == 'source' && exists(/databases/$(database)/documents/sourceDocuments/$(objectId))));
+      // Un nouvel appel admin peut reprendre/rotater un verrou laissé par une
+      // interruption précédente ; les transactions en cours vérifient le token.
+      allow update: if isAdmin()
+        && resource.data.objectType == objectType && resource.data.objectId == objectId
+        && request.resource.data.keys().hasAll(['objectType', 'objectId', 'actorUid', 'token', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['objectType', 'objectId', 'actorUid', 'token', 'createdAt'])
+        && request.resource.data.objectType == objectType
+        && request.resource.data.objectId == objectId
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.token is string && request.resource.data.token.size() > 0
+        && request.resource.data.createdAt == request.time;
+      allow delete: if isAdmin() && resource.data.objectType == objectType
+        && resource.data.objectId == objectId && resource.data.actorUid == request.auth.uid
+        && resource.data.token is string;
+    }
+
+    match /factConclusions/{conclusionId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && validOfficialRecord(request.resource.data)
+        && request.resource.data.version == 1 && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'conclusion', conclusionId, request.resource.data.revisionId, null)
+        && hasOfficialRevision('conclusionRevisions', request.resource.data.revisionId, conclusionId, request.resource.data.eventId, request.resource.data.data, null);
+      allow update: if isAdmin() && validOfficialRecord(request.resource.data)
+        && request.resource.data.version == resource.data.version + 1
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.updatedAt == request.time
+        && hasOfficialEvent(request.resource.data.eventId, 'conclusion', conclusionId, request.resource.data.revisionId, resource.data.revisionId)
+        && hasOfficialRevision('conclusionRevisions', request.resource.data.revisionId, conclusionId, request.resource.data.eventId, request.resource.data.data, resource.data.revisionId);
+      allow delete: if false;
+    }
+
+    match /conclusionRevisions/{revisionId} {
+      allow read: if isApproved();
+      allow create: if isAdmin() && request.resource.data.keys().hasAll(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.keys().hasOnly(['objectId', 'authorUid', 'createdAt', 'previousRevisionId', 'data', 'eventId'])
+        && request.resource.data.objectId is string && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && (request.resource.data.previousRevisionId == null || request.resource.data.previousRevisionId is string)
+        && request.resource.data.data is map
+        && hasOfficialEvent(request.resource.data.eventId, 'conclusion', request.resource.data.objectId, revisionId, request.resource.data.previousRevisionId);
+      allow update, delete: if false;
+    }
+
+    /* Brouillons de transcription synchronisés entre appareils (lot 2B.2) :
+       espace strictement privé par propriétaire — aucun admin ne l'ouvre, aucune
+       permission élargie sur les autres collections. Lecture/écriture du seul
+       propriétaire authentifié, identifiants et structure vérifiés, horodatages
+       au format ISO, version strictement croissante : la vérification se fait
+       côté base, jamais par la date saisie par le client. */
+    function validTranscriptionDraftId(value) {
+      return value is string && value.matches('^[^/]{1,300}$');
+    }
+
+    function validTranscriptionDraftSnapshot(snapshot, documentId, pageId) {
+      return snapshot is map
+        && snapshot.keys().hasOnly(['documentId', 'pageId', 'original', 'passages', 'createdIds', 'selectedPassageId'])
+        && snapshot.documentId == documentId && snapshot.pageId == pageId
+        && snapshot.original is list && snapshot.original.size() <= 500
+        && snapshot.passages is list && snapshot.passages.size() <= 500
+        && snapshot.createdIds is list && snapshot.createdIds.size() <= 500
+        && (snapshot.selectedPassageId == null || snapshot.selectedPassageId is string);
+    }
+
+    function validTranscriptionDraft(data, ownerUid, documentId, pageId) {
+      return data is map
+        && data.keys().hasOnly(['ownerUid', 'documentId', 'pageId', 'snapshot', 'version', 'createdAt', 'updatedAt', 'updatedBy'])
+        && data.ownerUid == ownerUid && data.ownerUid == request.auth.uid
+        && data.documentId == documentId && data.pageId == pageId
+        && data.version is int && data.version >= 1
+        && data.updatedBy == request.auth.uid
+        && data.createdAt is string && data.createdAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]{3}Z$')
+        && data.updatedAt is string && data.updatedAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]{3}Z$')
+        && validTranscriptionDraftSnapshot(data.snapshot, documentId, pageId);
+    }
+
+    match /transcriptionDrafts/{ownerUid} {
+      match /documents/{documentId} {
+        match /pages/{pageId} {
+          allow read: if signedIn() && request.auth.uid == ownerUid
+            && validTranscriptionDraftId(documentId) && validTranscriptionDraftId(pageId);
+          allow create: if signedIn() && request.auth.uid == ownerUid
+            && validTranscriptionDraftId(documentId) && validTranscriptionDraftId(pageId)
+            && validTranscriptionDraft(request.resource.data, ownerUid, documentId, pageId)
+            && request.resource.data.version == 1;
+          allow update: if signedIn() && request.auth.uid == ownerUid
+            && validTranscriptionDraftId(documentId) && validTranscriptionDraftId(pageId)
+            && validTranscriptionDraft(request.resource.data, ownerUid, documentId, pageId)
+            && resource.data.version is int && request.resource.data.version == resource.data.version + 1
+            && request.resource.data.createdAt == resource.data.createdAt;
+          allow delete: if signedIn() && request.auth.uid == ownerUid;
+        }
+      }
+    }
+
+
+    // Hypothèses concurrentes de naissance et de décès (lot 2C.5-A) :
+    // une seule hypothèse retenue par personne et par information, ancrée sur
+    // people.retainedHypothesis ; suppressions logiques uniquement.
+    match /factHypotheses/{hypothesisId} {
+      allow read: if isApproved();
+      allow create: if isApproved() && validFactHypothesisCreate(hypothesisId);
+      allow update: if isApproved() && validFactHypothesisUpdate(hypothesisId);
+      allow delete: if false;
+    }
+
+    match /factHypothesisRevisions/{revisionId} {
+      allow read: if isApproved();
+      allow create: if isApproved() && validFactHypothesisRevision(revisionId);
+      allow update, delete: if false;
+    }
+
+    // Aucun autre document Firestore n'est exposé.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
