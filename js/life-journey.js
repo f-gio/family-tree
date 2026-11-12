@@ -126,7 +126,7 @@ export function validateLifeEvent(input = {}, { allowLegacyKind = false, require
 
 export function validateLifeAttestation(input = {}) {
   const errors = {};
-  if (!input.date || input.date.type === "unknown") errors.date = "Choisissez la date de l'attestation.";
+  if (!input.date) errors.date = "Indiquez la date de l'attestation ou sélectionnez « Inconnue ».";
   return { ok: Object.keys(errors).length === 0, errors };
 }
 

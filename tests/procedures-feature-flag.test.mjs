@@ -40,7 +40,9 @@ test("app.js importe et utilise le feature flag pour masquer Démarches", () => 
 });
 
 test("setView redirige dossiers vers tree quand showProcedures est désactivé", () => {
-  assert.match(appSource, /function setView\(view\) \{\s*\n\s*if \(view === "dossiers" && !featureFlags\.showProcedures\) view = "tree";/);
+  /* La signature accepte désormais le mode d'historique ; seul le sens du
+     redirection dossiers → tree est contractuel. */
+  assert.match(appSource, /function setView\([^)]*\) \{\s*\n\s*if \(view === "dossiers" && !featureFlags\.showProcedures\) view = "tree";/);
 });
 
 test("CSS : nav mobile 4 colonnes quand procedures-hidden", () => {

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { formatGenealogyDate, genealogyDateMatchesYear, genealogyDateSortValue, normalizeGenealogyDate } from "../js/genealogy-date.js";
 import { childLineType, normalizedParentChildLinks, parentChildLinkType } from "../js/family-relations.js";
 import { filterAndSortDirectory } from "../js/directory-utils.js";
+import { isValidStoredDate } from "../js/backup-utils.js";
 
 assert.equal(formatGenealogyDate({ type: "exact", value: "1869-03-14" }), "14 mars 1869");
 assert.equal(formatGenealogyDate({ type: "exact", value: "0099-03-14" }), "14 mars 99");
@@ -10,12 +11,39 @@ assert.equal(formatGenealogyDate({ type: "exact", value: "0000-03-14" }), "—")
 assert.equal(formatGenealogyDate({ type: "year", year: 1869 }), "1869");
 assert.equal(formatGenealogyDate({ type: "about", year: 1869 }), "vers 1869");
 assert.equal(formatGenealogyDate({ type: "between", from: 1867, to: 1871 }), "entre 1867 et 1871");
+assert.equal(formatGenealogyDate({ type: "before", year: 1869 }), "avant 1869");
+assert.equal(formatGenealogyDate({ type: "after", value: "1869-03-14" }), "après 14 mars 1869");
+assert.equal(formatGenealogyDate({ type: "before", value: "1869-03-14" }), "avant 14 mars 1869");
+assert.equal(formatGenealogyDate({ type: "after", year: 1869 }), "après 1869");
 assert.equal(formatGenealogyDate({ type: "unknown" }), "—");
 assert.equal(formatGenealogyDate(null, "1932-06-08"), "8 juin 1932");
 assert.deepEqual(normalizeGenealogyDate(null, "1869-03-14"), { type: "exact", value: "1869-03-14" });
 assert.equal(genealogyDateMatchesYear({ type: "between", from: 1867, to: 1871 }, "", 1869), true);
 assert.equal(genealogyDateMatchesYear({ type: "between", from: 1867, to: 1871 }, "", 1872), false);
 assert.equal(genealogyDateSortValue({ type: "about", year: 1869 }), 18690500);
+assert.equal(genealogyDateSortValue({ type: "before", value: "1869-03-14" }), 18690313.9);
+assert.equal(genealogyDateSortValue({ type: "after", year: 1869 }), 18700000);
+assert.equal(genealogyDateMatchesYear({ type: "before", year: 1869 }, "", 1868), true);
+assert.equal(genealogyDateMatchesYear({ type: "before", year: 1869 }, "", 1869), false);
+assert.equal(genealogyDateMatchesYear({ type: "after", year: 1869 }, "", 1870), true);
+assert.equal(genealogyDateMatchesYear({ type: "before", value: "1869-03-14" }, "", 1869), true, "une borne précise peut inclure une partie de son année");
+assert.equal(genealogyDateMatchesYear({ type: "after", value: "1869-03-14" }, "", 1869), true, "une borne précise peut inclure une partie de son année");
+assert.deepEqual(normalizeGenealogyDate({ type: "after", year: 1869 }), { type: "after", year: 1869 });
+assert.deepEqual(normalizeGenealogyDate({ type: "before", value: "1869-03-14" }), { type: "before", value: "1869-03-14" });
+assert.equal(normalizeGenealogyDate({ type: "before" }).type, "unknown", "la borne est obligatoire");
+assert.equal(normalizeGenealogyDate({ type: "after", value: "date impossible" }).type, "unknown", "une borne précise invalide est refusée");
+for (const value of [{ type: "before", year: 1869 }, { type: "after", value: "1869-03-14" }]) {
+  assert.equal(isValidStoredDate(value), true);
+  assert.deepEqual(JSON.parse(JSON.stringify(value)), value, "les deux nouvelles formes restent sérialisables sans perte de précision");
+}
+assert.equal(isValidStoredDate({ type: "after", year: 10000 }), false);
+const orderedDateBounds = [
+  { id: "after", date: { type: "after", value: "1869-03-14" } },
+  { id: "exact", date: { type: "exact", value: "1869-03-15" } },
+  { id: "before", date: { type: "before", value: "1869-03-16" } }
+].sort((a, b) => genealogyDateSortValue(a.date) - genealogyDateSortValue(b.date));
+assert.deepEqual(orderedDateBounds.map(item => item.id), ["after", "exact", "before"], "les bornes précises s’ordonnent sans date artificielle");
+assert.equal(normalizeGenealogyDate({ type: "before", year: 1869, value: "1869-03-14" }).type, "before", "la date précise prime si les deux champs sont transmis");
 assert.equal(formatGenealogyDate({ type: "year", year: 1869 }).includes("01/01"), false);
 
 const oldFamily = { partnerIds: ["p1", "p2"], childIds: ["c1"] };

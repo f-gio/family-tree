@@ -16,6 +16,46 @@ test("la navigation Archives conserve les identifiants internes et les vues priv
   assert.match(app, /if \(view === "genealogy"\) renderGenealogyWorkspace\(\)/);
 });
 
+test("la vue principale est restaurée après authentification et suit Retour/Avancer", () => {
+  assert.match(app, /activeDataUid = user\.uid;\s*\r?\n\s*startData\(\);\s*\r?\n\s*restoreNavigationAfterAuth\(readNavigationTarget\(window\.location\.search\)\);/, "la restauration n’intervient qu’après l’approbation du profil");
+  assert.match(app, /window\.addEventListener\("popstate", \(\) => \{/);
+  assert.match(app, /if \(isTranscriptionWorkshopActive\(\)\) \{[\s\S]*?\}\s*restoreNavigationFromLocation\(\);/);
+  assert.ok(app.includes("if (!activeDataUid) return;"), "aucune restauration avant l’approbation du profil");
+  assert.ok(app.includes("const state = { ...history.state, appView: view };"));
+  assert.ok(app.includes('history.pushState(state, "", nextUrl)'));
+  assert.ok(app.includes('history.replaceState(state, "", nextUrl)'));
+  assert.ok(app.includes('if (historyMode === "push") pendingNavigationRestore = null;'), "une navigation utilisateur annule la restauration en attente");
+  assert.ok(app.includes("historyAction({ currentUrl, nextUrl, mode: historyMode, viewChanged, locked: navigationHistoryLock })"), "la décision d’historique est centralisée et testée");
+  assert.ok(app.includes('if (action === "push") history.pushState(state, "", nextUrl);'), "seule une nouvelle vue crée une entrée Retour/Avancer");
+  assert.ok(app.includes('else history.replaceState(state, "", nextUrl);'), "une nouvelle fiche remplace l’entrée plutôt que de l’empiler");
+  assert.ok(app.includes("RESTORABLE_VIEWS.includes(view) && navigationUrlReady"), "l’URL n’est réécrite qu’après lecture de la cible d’accès");
+});
+
+test("les cinq fiches sont réouvertes par identifiant stable après le chargement des données", () => {
+  assert.ok(app.includes("function openDetailTarget(target)"));
+  assert.ok(app.includes("function navigationRestoreReady(target)"));
+  assert.ok(app.includes('case "personDetail": return loadedPeople && loadedFamilies && loadedDocuments;'));
+  assert.ok(app.includes('case "documentDetail": return loadedDocuments;'));
+  assert.ok(app.includes('case "proofDetail": return genealogyLoaded;'));
+  assert.ok(app.includes('case "dossiers": return loadedProcedures;'));
+  assert.ok(app.includes('openPersonPage(item, { kind: "view", view: "directory", focusId: item.id })'));
+  assert.ok(app.includes('openStoredDocument(item, { returnContext: "documents", view: "documents" })'));
+  assert.ok(app.includes("renderSourcePage(item, returnContext)"));
+  assert.ok(app.includes("renderProofPage(item, returnContext)"));
+  assert.ok(app.includes("openProcedureDetail(target.id)"), "la fiche Démarche réutilise sa modale existante");
+  assert.match(app, /\$\("procedureDetailDialog"\)\.showModal\(\);[ \t]*\r?\n[ \t]*syncProcedureDetailUrl\(\);/, "l’ouverture de la démarche met son identifiant dans l’URL");
+  assert.match(app, /closeProcedureActionUnsub\(\);[ \t]*\r?\n[ \t]*syncProcedureDetailUrl\(\);/, "la fermeture retire l’identifiant de l’URL");
+  assert.ok(app.includes("pendingNavigationRestore = null;"), "aucune fiche en attente après une perte d’accès");
+});
+
+test("une fiche absente ou inaccessible retombe sur sa vue d’origine", () => {
+  assert.ok(app.includes('setView(detailBaseView(target.view), { history: fromHistory ? "none" : "replace" });'));
+  assert.ok(app.includes('personDetail: "Cette personne n’est plus disponible.",'));
+  assert.ok(app.includes('documentDetail: "Ce document n’est plus disponible.",'));
+  assert.ok(app.includes('dossiers: "Démarche introuvable"'));
+  assert.ok(app.includes("normalizeNavigationTarget"), "les démarches masquées ne sont jamais restaurées");
+});
+
 test("les collections du lot 6 sont abonnées avec des requêtes limitées pour propositions et notifications", () => {
   for (const name of ["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyEvents"]) {
     assert.ok(app.includes(`"${name}"`), `nom de collection abonné absent : ${name}`);

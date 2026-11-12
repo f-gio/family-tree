@@ -1,4 +1,4 @@
-export const GENEALOGY_DATE_TYPES = Object.freeze(["exact", "year", "about", "between", "unknown"]);
+export const GENEALOGY_DATE_TYPES = Object.freeze(["exact", "year", "about", "before", "after", "between", "unknown"]);
 
 function validYear(value) {
   const year = Number(value);
@@ -22,6 +22,11 @@ export function normalizeGenealogyDate(value, legacyExact = "") {
       const year = validYear(value.year);
       return year ? { type: value.type, year } : { type: "unknown" };
     }
+    if (value.type === "before" || value.type === "after") {
+      if (value.value != null && validExact(value.value)) return { type: value.type, value: value.value };
+      const year = validYear(value.year);
+      return year ? { type: value.type, year } : { type: "unknown" };
+    }
     if (value.type === "between") {
       const from = validYear(value.from), to = validYear(value.to);
       return from && to && from <= to ? { type: "between", from, to } : { type: "unknown" };
@@ -37,6 +42,7 @@ export function formatGenealogyDate(value, legacyExact = "", locale = "fr-FR") {
   if (date.type === "unknown") return "—";
   if (date.type === "year") return String(date.year);
   if (date.type === "about") return `vers ${date.year}`;
+  if (date.type === "before" || date.type === "after") return `${date.type === "before" ? "avant" : "après"} ${date.value ? formatGenealogyDate({ type: "exact", value: date.value }, "", locale) : date.year}`;
   if (date.type === "between") return `entre ${date.from} et ${date.to}`;
   const [year, month, day] = date.value.split("-").map(Number);
   const exact = new Date(Date.UTC(0, month - 1, day));
@@ -48,6 +54,7 @@ export function genealogyDateYears(value, legacyExact = "") {
   const date = normalizeGenealogyDate(value, legacyExact);
   if (date.type === "exact") return [Number(date.value.slice(0, 4))];
   if (date.type === "year" || date.type === "about") return [date.year];
+  if (date.type === "before" || date.type === "after") return [date.value ? Number(date.value.slice(0, 4)) : date.year];
   if (date.type === "between") return [date.from, date.to];
   return [];
 }
@@ -56,6 +63,8 @@ export function genealogyDateSortValue(value, legacyExact = "") {
   const date = normalizeGenealogyDate(value, legacyExact);
   if (date.type === "exact") return Number(date.value.replaceAll("-", ""));
   if (date.type === "year" || date.type === "about") return date.year * 10000 + 500;
+  if (date.type === "before") return date.value ? Number(date.value.replaceAll("-", "")) - 0.1 : date.year * 10000 - 1;
+  if (date.type === "after") return date.value ? Number(date.value.replaceAll("-", "")) + 0.1 : date.year * 10000 + 10000;
   if (date.type === "between") return Math.round((date.from + date.to) / 2) * 10000 + 500;
   return null;
 }
@@ -65,6 +74,8 @@ export function genealogyDateMatchesYear(value, legacyExact, year) {
   if (!searched) return true;
   const date = normalizeGenealogyDate(value, legacyExact);
   if (date.type === "between") return searched >= date.from && searched <= date.to;
+  if (date.type === "before") return date.value ? searched <= Number(date.value.slice(0, 4)) : searched < date.year;
+  if (date.type === "after") return date.value ? searched >= Number(date.value.slice(0, 4)) : searched > date.year;
   return genealogyDateYears(date).includes(searched);
 }
 
