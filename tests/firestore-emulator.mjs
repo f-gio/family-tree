@@ -60,14 +60,22 @@ function deferred() {
 // ─── Bootstrap émulateur ─────────────────────────────────────────────────────
 before(async () => {
   // Applique à l'émulateur local uniquement l'extension candidate isolée; les
-  // autres règles proviennent du fichier actif inchangé.
-  const [baseRules, candidateFragment] = await Promise.all([
-    readFile(new URL("../firestore.rules", import.meta.url), "utf8"),
-    readFile(new URL("../firestore.rules.candidate", import.meta.url), "utf8")
-  ]);
-  const candidateFunction = candidateFragment.slice(candidateFragment.indexOf("function validGenealogyDate"));
-  const rulesWithCandidate = baseRules.replace(/    function validGenealogyDate\(value\) \{[\s\S]*?(?=\n    function validPerson\()/, () => candidateFunction.replace(/^/gm, "    ").trimEnd());
-  assert.notEqual(rulesWithCandidate, baseRules, "la règle candidate doit remplacer la fonction de validation attendue");
+  // autres règles proviennent du fichier actif inchangé. Un fichier complet
+  // alternatif peut être fourni pour valider un candidat d'un autre projet :
+  // FIRESTORE_RULES_COMPLETE=chemin (jamais de données ni de projet réel).
+  let rulesWithCandidate;
+  if (process.env.FIRESTORE_RULES_COMPLETE) {
+    rulesWithCandidate = await readFile(new URL(process.env.FIRESTORE_RULES_COMPLETE, import.meta.url), "utf8");
+    assert.ok(rulesWithCandidate.includes("validGenealogyDate"), "le fichier complet fourni doit contenir la validation des dates");
+  } else {
+    const [baseRules, candidateFragment] = await Promise.all([
+      readFile(new URL("../firestore.rules", import.meta.url), "utf8"),
+      readFile(new URL("../firestore.rules.candidate", import.meta.url), "utf8")
+    ]);
+    const candidateFunction = candidateFragment.slice(candidateFragment.indexOf("function validGenealogyDate"));
+    rulesWithCandidate = baseRules.replace(/    function validGenealogyDate\(value\) \{[\s\S]*?(?=\n    function validPerson\()/, () => candidateFunction.replace(/^/gm, "    ").trimEnd());
+    assert.notEqual(rulesWithCandidate, baseRules, "la règle candidate doit remplacer la fonction de validation attendue");
+  }
   const rulesResponse = await fetch(`http://${HOST}:${EMULATOR_PORT}/emulator/v1/projects/${EMULATOR_PROJECT_ID}:securityRules`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
