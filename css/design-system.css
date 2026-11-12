@@ -7123,3 +7123,25 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
     scroll-margin-bottom: calc(var(--control-touch) + env(safe-area-inset-bottom) + var(--space-4));
   }
 }
+
+/* Précision de la date : sur mobile, la rangée de boutons (défilée
+   horizontalement, sans libellé pour Avant/Après) est remplacée par un
+   sélecteur natif plein largeur. Les attestations gardent leurs boutons. */
+.date-type-select-wrap {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .genealogy-date.precision-select .date-type-switch {
+    display: none;
+  }
+
+  .genealogy-date.precision-select .date-type-select-wrap {
+    display: block;
+  }
+
+  .genealogy-date.precision-select .date-type-select {
+    width: 100%;
+    min-height: var(--control-touch);
+  }
+}

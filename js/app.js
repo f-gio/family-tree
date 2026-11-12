@@ -509,6 +509,48 @@ if (personDateMobileMedia.addEventListener) personDateMobileMedia.addEventListen
 else personDateMobileMedia.addListener(synchronizePersonNativeDateVisualControls);
 synchronizePersonNativeDateVisualControls();
 
+/* Sélecteur de précision natif (mobile) : les boutons restent le modèle de
+   données unique, le <select> ne fait que les piloter — une seule validation,
+   aucune valeur contradictoire entre les deux présentations. */
+function datePrecisionOptions(switcher) {
+  return [...switcher.querySelectorAll(".date-type-button")]
+    .map(button => ({ value: button.dataset.dateType || button.dataset.journeyDateType, label: button.textContent.trim() }))
+    .filter(option => option.value && option.label);
+}
+
+function syncDatePrecisionSelect(control) {
+  if (!control) return;
+  const switcher = control.querySelector(":scope > .date-type-switch");
+  const select = control.querySelector(":scope > .date-type-select-wrap .date-type-select");
+  if (!switcher || !select) return;
+  const options = datePrecisionOptions(switcher);
+  const signature = options.map(option => `${option.value}:${option.label}`).join("|");
+  if (select.dataset.signature !== signature) {
+    select.innerHTML = options.map(option => `<option value="${esc(option.value)}">${esc(option.label)}</option>`).join("");
+    select.dataset.signature = signature;
+  }
+  const active = switcher.querySelector(".date-type-button.active");
+  select.value = active ? (active.dataset.dateType || active.dataset.journeyDateType) : (control.dataset.dateType || "");
+}
+
+function ensureDatePrecisionSelect(control) {
+  if (!control) return;
+  if (!control.querySelector(":scope > .date-type-select-wrap")) {
+    const switcher = control.querySelector(":scope > .date-type-switch");
+    if (!switcher) return;
+    const wrap = document.createElement("label");
+    wrap.className = "date-type-select-wrap";
+    wrap.append("Précision de la date");
+    const select = document.createElement("select");
+    select.className = "field date-type-select";
+    select.dataset.datePrecisionSelect = "";
+    wrap.append(select);
+    switcher.insertAdjacentElement("afterend", wrap);
+    control.classList.add("precision-select");
+  }
+  syncDatePrecisionSelect(control);
+}
+
 function setGenealogyDateType(prefix, type = "unknown") {
   const control = document.querySelector(`[data-date-control="${prefix}"]`);
   if (control && !control.querySelector(`[data-date-type="before"]`)) {
@@ -520,7 +562,9 @@ function setGenealogyDateType(prefix, type = "unknown") {
       button.dataset.datePrefix = prefix;
       button.dataset.dateType = direction;
       button.textContent = direction === "before" ? "Avant" : "Après";
-      switcher?.insertBefore(button, switcher.querySelector(`[data-date-type="unknown"]`));
+      /* Ordre demandé : Date précise · Année · Vers · Avant · Après · Entre · Inconnue. */
+      const anchor = switcher?.querySelector('[data-date-type="between"]') || switcher?.querySelector('[data-date-type="unknown"]');
+      switcher?.insertBefore(button, anchor || null);
       const panel = document.createElement("div");
       panel.className = "date-value-panel";
       panel.dataset.datePanel = `${prefix}-${direction}`;
@@ -537,6 +581,7 @@ function setGenealogyDateType(prefix, type = "unknown") {
   document.querySelectorAll(`[data-date-panel^="${prefix}-"]`).forEach(panel => { panel.hidden = panel.dataset.datePanel !== `${prefix}-${type === "about" ? "year" : type}`; });
   if (control) control.dataset.dateType = type;
   updatePersonNativeDateVisual(prefix);
+  ensureDatePrecisionSelect(control);
 }
 
 function setGenealogyDateForm(prefix, value, legacyExact = "") {
@@ -2513,7 +2558,7 @@ function journeyErrorMarkup(key) {
   return `<span class="field-error" id="journeyError-${key}" role="alert" hidden></span>`;
 }
 
-function journeyDateFormMarkup(dateInfo) {
+function journeyDateFormMarkup(dateInfo, { precisionSelect = false } = {}) {
   const type = LIFE_DATE_TYPES.includes(dateInfo?.type) ? dateInfo.type : "exact";
   const legacyDateLabels = { before: "Avant", after: "Après", attested: "Attesté" };
   const buttons = [["exact", "Date précise"], ["year", "Année"], ["about", "Vers"], ["between", "Entre"], ["unknown", "Inconnue"]];
@@ -2523,10 +2568,16 @@ function journeyDateFormMarkup(dateInfo) {
   const from = type === "between" && dateInfo?.from ? dateInfo.from : "";
   const to = type === "between" && dateInfo?.to ? dateInfo.to : "";
   const panel = (panelType, content) => `<div class="date-value-panel single" data-journey-panel="${panelType}"${type === panelType ? "" : " hidden"}>${content}</div>`;
-  return `<div class="genealogy-date" data-journey-date>
+  /* Mobile : liste native « Précision de la date » (mêmes options, même modèle).
+     Les attestations gardent leur sélecteur à boutons inchangé. */
+  const precisionSelectMarkup = precisionSelect
+    ? `<label class="date-type-select-wrap">Précision de la date<select class="field date-type-select" data-date-precision-select>${buttons.map(([value, label]) => `<option value="${value}"${type === value ? " selected" : ""}>${label}</option>`).join("")}</select></label>`
+    : "";
+  return `<div class="genealogy-date${precisionSelect ? " precision-select" : ""}" data-journey-date>
     <div class="date-type-switch" role="group" aria-label="Format de la date">
       ${buttons.map(([value, label]) => `<button class="date-type-button${type === value ? " active" : ""}" type="button" data-journey-date-type="${value}">${label}</button>`).join("")}
     </div>
+    ${precisionSelectMarkup}
     ${panel("exact", `<label>Date<input class="field" id="journeyDateValue" type="date" value="${esc(iso)}"></label>`)}
     ${panel("year", `<label>Année<input class="field" id="journeyDateYear" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*" value="${esc(year)}"></label>`)}
     ${panel("about", `<label>Année<input class="field" id="journeyDateAbout" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*" value="${esc(year)}"></label>`)}
@@ -2826,7 +2877,7 @@ function journeyEntryFormMarkup(kind, entry) {
   const pendingAttestationButton = `<div class="life-entry-actions"><button class="btn small tertiary life-attestation-add" type="button" data-journey-entry-attestation-add>${icon("plus")}<span>Ajouter une attestation</span></button></div>`;
   return `<div class="life-journey-form" data-journey-form>
     ${fields}
-    <fieldset class="life-fields"><legend>${legend}</legend>${journeyDateFormMarkup(dateInfo)}${journeyErrorMarkup("date")}</fieldset>
+    <fieldset class="life-fields"><legend>${legend}</legend>${journeyDateFormMarkup(dateInfo, { precisionSelect: true })}${journeyErrorMarkup("date")}</fieldset>
     ${journeyPendingEntryAttestationsMarkup()}${pendingAttestationButton}
     <div class="life-journey-form-actions">
       <button class="btn small" type="button" data-journey-cancel>Annuler</button>
@@ -3819,6 +3870,7 @@ function applyJourneyDateTypeToggle(dateTypeButton) {
   if (!container) return;
   container.querySelectorAll(".date-type-button").forEach(button => button.classList.toggle("active", button === dateTypeButton));
   container.querySelectorAll("[data-journey-panel]").forEach(panel => { panel.hidden = panel.dataset.journeyPanel !== dateTypeButton.dataset.journeyDateType; });
+  syncDatePrecisionSelect(container);
 }
 
 function updateMarriedNameVisibility() {
@@ -15102,6 +15154,18 @@ $("relationsList").onclick = event => {
 document.addEventListener("click", event => {
   const button = event.target.closest?.("[data-date-prefix][data-date-type]");
   if (button) setGenealogyDateType(button.dataset.datePrefix, button.dataset.dateType);
+});
+/* Le sélecteur natif (mobile) pilote les mêmes boutons : le clic déclenche la
+   logique existante, puis la valeur affichée est resynchronisée. */
+document.addEventListener("change", event => {
+  const select = event.target.closest?.("[data-date-precision-select]");
+  if (!select) return;
+  const control = select.closest(".genealogy-date");
+  const switcher = control?.querySelector(":scope > .date-type-switch");
+  const button = [...(switcher?.querySelectorAll(".date-type-button") || [])]
+    .find(candidate => (candidate.dataset.dateType || candidate.dataset.journeyDateType) === select.value);
+  if (button) button.click();
+  syncDatePrecisionSelect(control);
 });
 $("familyEndType").onchange = updateEndDetailsVisibility;
 $("familyDetailsForm").addEventListener("submit", saveFamilyDetails);

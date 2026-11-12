@@ -61,6 +61,20 @@ function validateGenealogyDate(control) {
     const year = Number(field?.value);
     return Number.isInteger(year) && year >= 1 && year <= 9999 ? null : { field, message: "Indiquez une année comprise entre 1 et 9999." };
   }
+  /* Bornes « Avant » / « Après » : une date précise OU une année. Sans cette
+     branche, la validation tombait dans le cas « Entre » et bloquait l'enregistrement
+     sur un champ masqué, sans message visible. */
+  if (type === "before" || type === "after") {
+    const dateField = document.getElementById(`${prefix}${type}Date`);
+    const yearField = document.getElementById(`${prefix}${type}Year`);
+    if (dateField?.value) return null;
+    const year = Number(yearField?.value);
+    if (Number.isInteger(year) && year >= 1 && year <= 9999) return null;
+    const field = dateField || yearField;
+    if (!field) return null;
+    const bound = type === "before" ? "Avant" : "Après";
+    return { field, message: `Indiquez la borne « ${bound} » : une date précise ou une année comprise entre 1 et 9999.` };
+  }
   const from = document.getElementById(`${prefix}YearFrom`);
   const to = document.getElementById(`${prefix}YearTo`);
   const fromYear = Number(from?.value);
