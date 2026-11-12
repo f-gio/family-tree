@@ -4519,7 +4519,10 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   .identity-life-section + .identity-life-section { margin-top: var(--space-5); }
 
   .identity-life-section .life-fields-grid,
-  .event-information-group:has(.genealogy-date[data-date-type="between"]) {
+  .event-information-group:has(.genealogy-date[data-date-type="between"]),
+  /* Toute précision doit garder la colonne unique : sans « between », le
+     groupe retombait sur la grille large et comprimait Date puis Lieu. */
+  .event-information-group:has(.genealogy-date) {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -4530,6 +4533,13 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   .identity-life-section .genealogy-date[data-date-type="between"] .date-value-panel,
   .identity-life-section .genealogy-date[data-date-type="between"] + .life-place,
   .identity-life-section .genealogy-date[data-date-type="unknown"] + .life-place {
+    grid-column: 1;
+  }
+
+  /* Même spécificité que la règle large (0,5,0) qui renvoie le Lieu en
+     colonne 2 avec « Inconnue » : sans elle, le bloc Date se comprime à
+     gauche et le Lieu remonte à sa droite sur mobile. */
+  .event-information-group:has(> .major-event-attestation-control) .genealogy-date[data-date-type="unknown"] + .life-place {
     grid-column: 1;
   }
 
@@ -5466,6 +5476,10 @@ details.tree-quality-category:not([open]) .tree-quality-scroll { display: none; 
   .date-type-button[data-date-type="about"]::after { content: "Vers"; }
   .date-type-button[data-date-type="between"]::after { content: "Entre"; }
   .date-type-button[data-date-type="unknown"]::after { content: "Inconnue"; }
+  /* Précisions ajoutées par le lot Avant/Après : mêmes libellés que sur
+     ordinateur, sinon les boutons restent muets (font-size: 0). */
+  .date-type-button[data-date-type="before"]::after { content: "Avant"; }
+  .date-type-button[data-date-type="after"]::after { content: "Après"; }
   .date-type-button[data-journey-date-type="exact"]::after { content: "Date précise"; }
   .date-type-button[data-journey-date-type="year"]::after { content: "Année"; }
   .date-type-button[data-journey-date-type="about"]::after { content: "Vers"; }
@@ -7121,27 +7135,5 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   #personDialog #relationBuilder {
     scroll-margin-top: calc(var(--control-touch) + env(safe-area-inset-top) + 5rem + var(--space-3));
     scroll-margin-bottom: calc(var(--control-touch) + env(safe-area-inset-bottom) + var(--space-4));
-  }
-}
-
-/* Précision de la date : sur mobile, la rangée de boutons (défilée
-   horizontalement, sans libellé pour Avant/Après) est remplacée par un
-   sélecteur natif plein largeur. Les attestations gardent leurs boutons. */
-.date-type-select-wrap {
-  display: none;
-}
-
-@media (max-width: 760px) {
-  .genealogy-date.precision-select .date-type-switch {
-    display: none;
-  }
-
-  .genealogy-date.precision-select .date-type-select-wrap {
-    display: block;
-  }
-
-  .genealogy-date.precision-select .date-type-select {
-    width: 100%;
-    min-height: var(--control-touch);
   }
 }

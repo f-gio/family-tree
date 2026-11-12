@@ -46,19 +46,22 @@ window.__bounded = {
   precision(kind) {
     const control = document.querySelector('#personForm [data-date-control="' + kind + '"]');
     if (!control) return null;
-    const select = control.querySelector(".date-type-select");
     const switcher = control.querySelector(".date-type-switch");
-    const wrap = control.querySelector(".date-type-select-wrap");
+    const buttons = switcher ? [...switcher.querySelectorAll(".date-type-button")] : [];
+    const active = switcher ? switcher.querySelector(".date-type-button.active") : null;
     const panel = control.querySelector('.date-value-panel:not([hidden])');
+    const strip = value => String(value || "").replace(/^"|"$/g, "");
     return {
       dataset: control.dataset.dateType,
-      selectValue: select ? select.value : null,
-      options: select ? [...select.options].map(o => o.value) : [],
-      optionLabels: select ? [...select.options].map(o => o.textContent) : [],
-      selectVisible: Boolean(wrap && wrap.getBoundingClientRect().height > 0),
+      active: active ? active.dataset.dateType : null,
+      types: buttons.map(button => button.dataset.dateType),
+      labels: buttons.map(button => strip(getComputedStyle(button, "::after").content)),
+      widths: buttons.map(button => Math.round(button.getBoundingClientRect().width)),
       switchVisible: Boolean(switcher && switcher.getBoundingClientRect().height > 0),
-      selectBox: wrap ? { w: Math.round(wrap.getBoundingClientRect().width), h: Math.round(select.getBoundingClientRect().height) } : null,
-      controlBox: { w: Math.round(control.getBoundingClientRect().width) },
+      switchScrollsInside: switcher ? switcher.scrollWidth > switcher.clientWidth + 1 : null,
+      switchOverflow: switcher ? Math.max(0, switcher.scrollWidth - switcher.clientWidth) : null,
+      switchBox: switcher ? { w: Math.round(switcher.getBoundingClientRect().width), h: Math.round(switcher.getBoundingClientRect().height) } : null,
+      hasSelect: Boolean(control.querySelector(".date-type-select")),
       panelVisible: Boolean(panel),
       panelId: panel ? panel.dataset.datePanel : null
     };
@@ -139,6 +142,19 @@ async function fillBound(page, kind, type, { year, date }) {
   assert.equal(readBack, value, `valeur conservée après saisie sur ${target}`);
 }
 
+/* Saisie déterministe (Playwright .fill() a montré des pertes de valeur
+   sporadiques sur ces champs numériques) : pose la valeur et déclenche les
+   mêmes événements qu'une frappe. */
+async function fillField(page, selector, value) {
+  await page.locator(selector).evaluate((el, v) => {
+    el.value = v;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }, String(value));
+  const readBack = await page.inputValue(selector);
+  assert.equal(readBack, String(value), `valeur conservée après saisie sur ${selector}`);
+}
+
 async function save(page) {
   await page.evaluate(() => window.__bounded.reset());
   const preClick = await page.evaluate(() => ({
@@ -200,7 +216,7 @@ test("enregistrement des bornes Avant/Après (naissance et décès)", async t =>
     await page.waitForFunction(() => document.getElementById("personDialog").open);
     const reopened = await page.evaluate(() => window.__bounded.precision("death"));
     assert.equal(reopened.dataset, "after", "réouverture : type après conservé");
-    assert.equal(reopened.selectValue, "after", "réouverture : sélecteur cohérent");
+    assert.equal(reopened.active, "after", "réouverture : bouton actif cohérent");
     const deathDate = await page.inputValue("#deathafterDate");
     assert.equal(deathDate, "1930-06-12", "réouverture : date précise restituée sans conversion en année");
     const deathYear = await page.inputValue("#deathafterYear");
@@ -208,7 +224,7 @@ test("enregistrement des bornes Avant/Après (naissance et décès)", async t =>
 
     // Le type historique « Vers » reste fonctionnel (non régression).
     await setPrecision(page, "birth", "about");
-    await page.locator("#birthYear").fill("1849");
+    await fillField(page, "#birthYear", 1849);
     const aboutRes = await save(page);
     assert.deepEqual(aboutRes.updates[0].birthDateInfo, { type: "about", year: 1849 }, " Vers (à propos) toujours enregistrable");
 
@@ -241,7 +257,7 @@ test("borne absente : erreur visible sur le champ et aucune écriture", async t 
   }
 });
 
-test("sélecteur de précision : natif sur mobile, boutons sur ordinateur", async t => {
+test("sélecteur horizontal de précision sur mobile, inchangé sur ordinateur", async t => {
   for (const width of [320, 375, 390]) {
     const session = await launch({ width, height: 844 });
     if (!session) return;
@@ -252,30 +268,49 @@ test("sélecteur de précision : natif sur mobile, boutons sur ordinateur", asyn
       await setPrecision(page, "birth", "before");
 
       const precision = await page.evaluate(() => window.__bounded.precision("birth"));
-      assert.equal(precision.selectVisible, true, `${width}px : sélecteur natif visible`);
-      assert.equal(precision.switchVisible, false, `${width}px : rangée de boutons masquée`);
-      assert.deepEqual(precision.options, ["exact", "year", "about", "before", "after", "between", "unknown"], `${width}px : sept précisions disponibles`);
-      assert.equal(precision.selectValue, "before", `${width}px : valeur sélectionnée lisible`);
-      assert.equal(precision.dataset, "before", `${width}px : le modèle de données suit le sélecteur`);
+      assert.equal(precision.hasSelect, false, `${width}px : aucun sélecteur natif (retour au composant d'origine)`);
+      assert.equal(precision.switchVisible, true, `${width}px : rangée de boutons visible`);
+      assert.deepEqual(precision.types, ["exact", "year", "about", "before", "after", "between", "unknown"], `${width}px : sept précisions dans l'ordre demandé`);
+      assert.deepEqual(precision.labels, ["Précise", "Année", "Vers", "Avant", "Après", "Entre", "Inconnue"], `${width}px : libellés visibles (dont Avant et Après)`);
+      assert.deepEqual(precision.active, "before", `${width}px : sélection indiquée`);
+      assert.ok(precision.widths.every(w => w > 0 && w >= 44), `${width}px : cibles tactiles ≥ 44 px (${precision.widths.join(",")})`);
       assert.equal(precision.panelVisible, true, `${width}px : champ conditionnel Avant affiché`);
       assert.equal(precision.panelId, "birth-before", `${width}px : bon panneau conditionnel`);
-      assert.ok(precision.selectBox.w >= precision.controlBox.w - 2, `${width}px : sélecteur pleine largeur (${precision.selectBox.w}/${precision.controlBox.w})`);
-      assert.ok(precision.selectBox.h >= 44, `${width}px : cible tactile ≥ 44 px (${precision.selectBox.h})`);
-
-      // changement de précision par le sélecteur natif
-      await page.locator('#personForm [data-date-control="birth"] .date-type-select').selectOption("between");
-      const afterChange = await page.evaluate(() => window.__bounded.precision("birth"));
-      assert.equal(afterChange.dataset, "between", `${width}px : le sélecteur pilote le modèle`);
-      assert.equal(afterChange.panelId, "birth-between", `${width}px : panneau Entre affiché`);
-
+      /* La rangée défile en elle-même : aucun débordement de la page. */
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-      assert.ok(overflow <= 1, `${width}px : aucun débordement horizontal`);
+      assert.ok(overflow <= 1, `${width}px : aucun débordement horizontal de la page`);
 
-      // saisie + enregistrement depuis le sélecteur mobile
-      await page.locator('#personForm [data-date-control="birth"] .date-type-select').selectOption("before");
-      await page.locator("#birthbeforeYear").fill("1855");
+      // changement de précision par les boutons
+      await page.locator('#personForm [data-date-prefix="birth"][data-date-type="between"]').evaluate(b => b.click());
+      const afterChange = await page.evaluate(() => window.__bounded.precision("birth"));
+      assert.equal(afterChange.dataset, "between", `${width}px : les boutons pilotent le modèle`);
+      assert.equal(afterChange.panelId, "birth-between", `${width}px : panneau Entre affiché`);
+      assert.equal(afterChange.active, "between", `${width}px : sélection visuelle mise à jour`);
+
+      // saisie + enregistrement sur mobile
+      await setPrecision(page, "birth", "before");
+      await fillField(page, "#birthbeforeYear", 1855);
       const res = await save(page);
       assert.deepEqual(res.updates[0].birthDateInfo, { type: "before", year: 1855 }, `${width}px : enregistrement depuis le sélecteur mobile`);
+
+      /* Disposition avec « Inconnue » : colonne unique, Lieu dessous.
+         (La fiche se referme après l'enregistrement : on la rouvre.) */
+      await page.evaluate(() => window.__bounded.openPersonForm("bounded-1"));
+      await page.waitForFunction(() => document.getElementById("personDialog").open);
+      await setPrecision(page, "birth", "unknown");
+      const unknownLayout = await page.evaluate(() => {
+        const control = document.querySelector('#personForm [data-date-control="birth"]');
+        const group = control.closest(".event-information-group");
+        const lieu = group.querySelector(".life-place");
+        const cta = group.querySelector(".major-event-attestation-control .btn") || group.querySelector(".major-event-attestation-control");
+        const columns = getComputedStyle(group).gridTemplateColumns.split(" ").length;
+        const rect = el => { const b = el.getBoundingClientRect(); return { w: Math.round(b.width), h: Math.round(b.height), x: Math.round(b.x) }; };
+        return { columns, switchX: rect(control.querySelector(".date-type-switch")).x, lieuX: rect(lieu).x, lieuW: rect(lieu).w, cta: cta ? rect(cta) : null, pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+      });
+      assert.equal(unknownLayout.columns, 1, `${width}px : « Inconnue » garde une colonne unique (${unknownLayout.columns})`);
+      assert.equal(unknownLayout.lieuX, unknownLayout.switchX, `${width}px : Lieu aligné sous le sélecteur, pas à droite`);
+      assert.ok(unknownLayout.cta === null || unknownLayout.cta.w > 120 || unknownLayout.cta.w === 0, `${width}px : bouton d'attestation non comprimé (${JSON.stringify(unknownLayout.cta)})`);
+      assert.ok(unknownLayout.pageOverflow <= 1, `${width}px : aucun débordement avec « Inconnue »`);
       assert.deepEqual(session.errors, [], `${width}px : aucune erreur JS (${session.errors.join(" || ")})`);
     } finally {
       await session.close();
@@ -291,32 +326,42 @@ test("sélecteur de précision : natif sur mobile, boutons sur ordinateur", asyn
     await setPrecision(page, "birth", "exact");
     const precision = await page.evaluate(() => window.__bounded.precision("birth"));
     assert.equal(precision.switchVisible, true, "ordinateur : rangée de boutons conservée");
-    assert.equal(precision.selectVisible, false, "ordinateur : sélecteur natif masqué");
+    assert.equal(precision.hasSelect, false, "ordinateur : aucun sélecteur natif");
+    assert.equal(precision.switchScrollsInside, false, "ordinateur : les sept boutons tiennent sans défilement");
     assert.deepEqual(desktop.errors, [], `ordinateur : aucune erreur JS (${desktop.errors.join(" || ")})`);
   } finally {
     await desktop.close();
   }
 });
 
-test("union et parcours détaillé : même sélecteur ; attestations inchangées", async t => {
+test("union et parcours détaillé : même rangée de boutons ; attestations inchangées", async t => {
   const session = await launch({ width: 390, height: 844 });
   if (!session) return;
   try {
     const { page } = session;
 
-    // Union : sélecteur natif présent et opérationnel
+    // Union : rangée de boutons identique, Avant fonctionnel
     await page.evaluate(() => window.__bounded.openFamilyForm());
     await page.waitForFunction(() => document.getElementById("familyDetailsDialog").open);
     const union = await page.evaluate(() => {
       const control = document.querySelector('#familyDetailsDialog [data-date-control="union"]');
-      const select = control?.querySelector(".date-type-select");
-      return { hasSelect: Boolean(select), options: select ? [...select.options].map(o => o.value) : [], switchVisible: Boolean(control?.querySelector(".date-type-switch")?.getBoundingClientRect().height) };
+      const switcher = control?.querySelector(".date-type-switch");
+      const buttons = switcher ? [...switcher.querySelectorAll(".date-type-button")] : [];
+      const strip = value => String(value || "").replace(/^"|"$/g, "");
+      return {
+        switchVisible: Boolean(switcher && switcher.getBoundingClientRect().height > 0),
+        types: buttons.map(button => button.dataset.dateType),
+        labels: buttons.map(button => strip(getComputedStyle(button, "::after").content)),
+        active: buttons.filter(button => button.classList.contains("active")).map(button => button.dataset.dateType),
+        hasSelect: Boolean(control?.querySelector(".date-type-select"))
+      };
     });
-    assert.equal(union.hasSelect, true, "union : sélecteur natif présent");
-    assert.deepEqual(union.options, ["exact", "year", "about", "before", "after", "between", "unknown"], "union : sept précisions");
-    assert.equal(union.switchVisible, false, "union : boutons masqués sur mobile");
-    await page.locator('#familyDetailsDialog [data-date-control="union"] .date-type-select').selectOption("before");
-    await page.locator("#unionbeforeYear").fill("1885");
+    assert.equal(union.switchVisible, true, "union : rangée de boutons visible sur mobile");
+    assert.deepEqual(union.types, ["exact", "year", "about", "before", "after", "between", "unknown"], "union : sept précisions");
+    assert.deepEqual(union.labels, ["Précise", "Année", "Vers", "Avant", "Après", "Entre", "Inconnue"], "union : libellés lisibles");
+    assert.equal(union.hasSelect, false, "union : aucun sélecteur natif");
+    await page.locator('#familyDetailsDialog [data-date-prefix="union"][data-date-type="before"]').evaluate(b => b.click());
+    await fillField(page, "#unionbeforeYear", 1885);
     await page.evaluate(() => window.__bounded.reset());
     await page.locator('#familyDetailsForm button[type="submit"]').evaluate(b => b.click());
     await page.waitForTimeout(600);
@@ -325,7 +370,7 @@ test("union et parcours détaillé : même sélecteur ; attestations inchangées
     assert.deepEqual(familySave.updates[0].unionDateInfo, { type: "before", year: 1885 }, "union : borne avant enregistrée");
     await page.locator('#familyDetailsForm [data-close="familyDetailsDialog"]').evaluate(b => b.click());
 
-    // Résidence (parcours détaillé) : sélecteur natif présent
+    // Résidence (parcours détaillé) : même rangée de boutons
     await page.evaluate(() => window.__bounded.openPersonPageForm("bounded-1"));
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden);
     await page.locator("#personPageEditBtn").click();
@@ -334,14 +379,22 @@ test("union et parcours détaillé : même sélecteur ; attestations inchangées
     await page.waitForSelector("#journeyPlace");
     const journey = await page.evaluate(() => {
       const container = document.querySelector("#personPageDetailedJourney [data-journey-form] [data-journey-date]");
-      const select = container?.querySelector(".date-type-select");
-      return { hasSelect: Boolean(select), options: select ? [...select.options].map(o => o.value) : [], switchHidden: container ? getComputedStyle(container.querySelector(".date-type-switch")).display === "none" : null };
+      const switcher = container?.querySelector(".date-type-switch");
+      const buttons = switcher ? [...switcher.querySelectorAll("[data-journey-date-type]")] : [];
+      const strip = value => String(value || "").replace(/^"|"$/g, "");
+      return {
+        switchVisible: Boolean(switcher && switcher.getBoundingClientRect().height > 0),
+        buttons: buttons.map(button => button.dataset.journeyDateType),
+        labels: buttons.map(button => strip(getComputedStyle(button, "::after").content)),
+        hasSelect: Boolean(container?.querySelector(".date-type-select"))
+      };
     });
-    assert.equal(journey.hasSelect, true, "résidence : sélecteur natif présent");
-    assert.ok(journey.options.includes("exact") && journey.options.includes("unknown"), "résidence : options conservées");
-    assert.equal(journey.switchHidden, true, "résidence : boutons masqués sur mobile");
+    assert.equal(journey.switchVisible, true, "résidence : rangée de boutons visible sur mobile");
+    assert.deepEqual(journey.buttons, ["exact", "year", "about", "between", "unknown"], "résidence : options d'origine pour une nouvelle entrée");
+    assert.deepEqual(journey.labels, ["Date précise", "Année", "Vers", "Entre", "Inconnue"], "résidence : libellés visibles");
+    assert.equal(journey.hasSelect, false, "résidence : aucun sélecteur natif");
 
-    // Attestation : sélecteur à boutons conservé, sans sélecteur natif
+    // Attestation : sélecteur inchangé
     await page.locator("#personPageDetailedJourney [data-journey-attestation-add]").first().click();
     await page.waitForSelector("[data-journey-attestation-save]");
     const attestation = await page.evaluate(() => {
