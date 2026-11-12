@@ -81,7 +81,10 @@ test("l'atelier gare une entrée d'historique réelle et sort sans double nettoy
 test("le retour système du navigateur s'appuie sur l'entrée réelle sans boucle", () => {
   const popstate = app.match(/window\.addEventListener\("popstate", \(\) => \{[\s\S]*?\n\}\);/)?.[0] || "";
   assert.ok(popstate.length > 100, "gestionnaire popstate présent");
-  assert.match(popstate, /if \(!isTranscriptionWorkshopActive\(\)\) return;/, "sans effet hors atelier");
+  /* Hors atelier, le retour système restaure l'état exact de l'URL (vue ou
+     fiche) sans pousser d'entrée ; sans session approuvée, il n'a aucun effet. */
+  assert.match(popstate, /if \(isTranscriptionWorkshopActive\(\)\) \{[\s\S]*?\}\s*restoreNavigationFromLocation\(\);/, "hors atelier : restauration déléguée");
+  assert.match(app, /function restoreNavigationFromLocation\(\) \{[\s\S]*?if \(!activeDataUid\) return;/, "sans effet avant l’approbation du profil");
   assert.match(popstate, /if \(!leaveTranscriptionWorkshop\(\)\) \{\r?\n\s*history\.pushState\(\{ transcriptionWorkshop: true \}, ""\);/, "annulation : rétablissement de l'entrée consommée");
   assert.doesNotMatch(popstate, /teardownTranscriptionWorkshop\(\);\r?\n\s*setView\(activeView\)/, "aucun second nettoyage dans popstate");
   /* La sortie commune réutilise le Retour de l'atelier : même confirmation. */

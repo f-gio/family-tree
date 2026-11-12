@@ -22,6 +22,7 @@ import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalize
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
 import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
 import { createNavigationContextStore, GENEALOGY_VIEW_CONTEXT_KEY } from "./navigation-context.js";
+import { detailBaseView, historyAction, isDetailTarget, navigationUrl, readNavigationTarget, RESTORABLE_VIEWS } from "./navigation-state.js";
 import { countryNameToIsoAlpha3, formatCompactPlace, toIsoAlpha3 } from "./place-format.js";
 import { describeFirestoreReadError, legacyDocumentCardDetails, configureGenealogyContributionDialog } from "./genealogy-workspace-utils.js";
 import { createPersonMultiSelect } from "./person-multiselect.js";
@@ -509,28 +510,52 @@ else personDateMobileMedia.addListener(synchronizePersonNativeDateVisualControls
 synchronizePersonNativeDateVisualControls();
 
 function setGenealogyDateType(prefix, type = "unknown") {
+  const control = document.querySelector(`[data-date-control="${prefix}"]`);
+  if (control && !control.querySelector(`[data-date-type="before"]`)) {
+    const switcher = control.querySelector(".date-type-switch");
+    for (const direction of ["before", "after"]) {
+      const button = document.createElement("button");
+      button.className = "date-type-button";
+      button.type = "button";
+      button.dataset.datePrefix = prefix;
+      button.dataset.dateType = direction;
+      button.textContent = direction === "before" ? "Avant" : "Après";
+      switcher?.insertBefore(button, switcher.querySelector(`[data-date-type="unknown"]`));
+      const panel = document.createElement("div");
+      panel.className = "date-value-panel";
+      panel.dataset.datePanel = `${prefix}-${direction}`;
+      panel.hidden = true;
+      panel.innerHTML = `<label>Date précise<input class="field" id="${prefix}${direction}Date" type="date"></label><label>Année<input class="field" id="${prefix}${direction}Year" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*"></label>`;
+      control.append(panel);
+    }
+  }
   document.querySelectorAll(`[data-date-prefix="${prefix}"]`).forEach(button => {
     const active = button.dataset.dateType === type;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   });
   document.querySelectorAll(`[data-date-panel^="${prefix}-"]`).forEach(panel => { panel.hidden = panel.dataset.datePanel !== `${prefix}-${type === "about" ? "year" : type}`; });
-  const control = document.querySelector(`[data-date-control="${prefix}"]`);
   if (control) control.dataset.dateType = type;
   updatePersonNativeDateVisual(prefix);
 }
 
 function setGenealogyDateForm(prefix, value, legacyExact = "") {
   const date = normalizeGenealogyDate(value, legacyExact);
+  setGenealogyDateType(prefix, date.type);
   for (const suffix of ["Date", "Year", "YearFrom", "YearTo"]) if ($(`${prefix}${suffix}`)) $(`${prefix}${suffix}`).value = "";
+  for (const direction of ["before", "after"]) for (const suffix of ["Date", "Year"]) if ($(`${prefix}${direction}${suffix}`)) $(`${prefix}${direction}${suffix}`).value = "";
   if (date.type === "exact") $(`${prefix}Date`).value = date.value;
   if (date.type === "year" || date.type === "about") $(`${prefix}Year`).value = date.year;
+  if ((date.type === "before" || date.type === "after") && date.year) $(`${prefix}${date.type}Year`).value = date.year;
+  if ((date.type === "before" || date.type === "after") && date.value) $(`${prefix}${date.type}Date`).value = date.value;
   if (date.type === "between") { $(`${prefix}YearFrom`).value = date.from; $(`${prefix}YearTo`).value = date.to; }
-  setGenealogyDateType(prefix, date.type);
+  /* Le sélecteur de type est monté avant la saisie (panneaux Avant/Après) :
+     le libellé visuel est donc recalculé une fois les valeurs posées. */
+  updatePersonNativeDateVisual(prefix);
 }
 
 function captureGenealogyDateDraft(prefix) {
-  return { type: document.querySelector(`[data-date-control="${prefix}"]`)?.dataset.dateType || "unknown", exact: $(`${prefix}Date`)?.value || "", year: $(`${prefix}Year`)?.value || "", from: $(`${prefix}YearFrom`)?.value || "", to: $(`${prefix}YearTo`)?.value || "" };
+  return { type: document.querySelector(`[data-date-control="${prefix}"]`)?.dataset.dateType || "unknown", exact: $(`${prefix}Date`)?.value || "", year: $(`${prefix}Year`)?.value || "", beforeExact: $(`${prefix}beforeDate`)?.value || "", beforeYear: $(`${prefix}beforeYear`)?.value || "", afterExact: $(`${prefix}afterDate`)?.value || "", afterYear: $(`${prefix}afterYear`)?.value || "", from: $(`${prefix}YearFrom`)?.value || "", to: $(`${prefix}YearTo`)?.value || "" };
 }
 
 function restoreGenealogyDateDraft(prefix, draft) {
@@ -539,6 +564,10 @@ function restoreGenealogyDateDraft(prefix, draft) {
   if ($(`${prefix}Year`)) $(`${prefix}Year`).value = draft.year || "";
   if ($(`${prefix}YearFrom`)) $(`${prefix}YearFrom`).value = draft.from || "";
   if ($(`${prefix}YearTo`)) $(`${prefix}YearTo`).value = draft.to || "";
+  if ($(`${prefix}beforeDate`)) $(`${prefix}beforeDate`).value = draft.beforeExact || "";
+  if ($(`${prefix}beforeYear`)) $(`${prefix}beforeYear`).value = draft.beforeYear || "";
+  if ($(`${prefix}afterDate`)) $(`${prefix}afterDate`).value = draft.afterExact || "";
+  if ($(`${prefix}afterYear`)) $(`${prefix}afterYear`).value = draft.afterYear || "";
   setGenealogyDateType(prefix, draft.type);
 }
 
@@ -546,7 +575,10 @@ function readGenealogyDateForm(prefix) {
   const type = document.querySelector(`[data-date-control="${prefix}"]`)?.dataset.dateType || "unknown";
   let value = { type };
   if (type === "exact") value.value = $(`${prefix}Date`).value;
-  if (type === "year" || type === "about") value.year = Number($(`${prefix}Year`).value);
+  if (type === "year" || type === "about" || type === "before" || type === "after") {
+    const dateValue = ["before", "after"].includes(type) ? $(`${prefix}${type}Date`)?.value || "" : "";
+    value = dateValue ? { type, value: dateValue } : { type, year: Number(["before", "after"].includes(type) ? $(`${prefix}${type}Year`).value : $(`${prefix}Year`).value) };
+  }
   if (type === "between") { value.from = Number($(`${prefix}YearFrom`).value); value.to = Number($(`${prefix}YearTo`).value); }
   const normalized = normalizeGenealogyDate(value);
   if (type !== "unknown" && normalized.type === "unknown") throw new Error(type === "between" ? "Renseignez une période valide, avec l’année de début avant l’année de fin" : "Renseignez une date valide");
@@ -2051,6 +2083,8 @@ function syncState() {
     setLoadingSurface("treeViewport", false);
     renderTree();
   }
+  /* Une fiche demandée par l'URL s'ouvre dès que ses données sont reçues. */
+  tryNavigationRestore();
 }
 
 function setLoadingSurface(id, loading) {
@@ -6772,6 +6806,15 @@ let activeView = "tree";
 let lastDisplayedView = "tree";
 /* Magasin léger de contextes de navigation (filtres, défilement, retours). */
 const navigationContexts = createNavigationContextStore();
+/* Fiche demandée par l'URL en attente du chargement des données (auth +
+   droits vérifiés). Annulée dès que l'utilisateur navigue lui-même. */
+let pendingNavigationRestore = null;
+/* Vrai pendant un retour/avant du navigateur : aucune écriture d'historique
+   supplémentaire, pour éviter tout empilement ou boucle de navigation. */
+let navigationHistoryLock = false;
+/* L'URL n'est réécrite qu'après lecture de la cible au retour de l'accès :
+   rien avant l'authentification ne peut écraser ?view=…&id=…. */
+let navigationUrlReady = false;
 
 function transcriptionWorkshopDraftKey(documentId, pageId) {
   return `${documentId}|${pageId}`;
@@ -10620,16 +10663,17 @@ document.addEventListener("visibilitychange", () => {
   loadTranscriptionDraftRemote(draft.documentId, draft.pageId, draft).catch(() => {});
 });
 
-/* Retour système du navigateur : l'entrée d'historique réelle de l'atelier est
-   consommée par Retour — même sortie confirmée que le bouton Retour, jamais de
-   sortie silencieuse des brouillons. L'annulation rétablit l'entrée consommée :
-   aucun empilement artificiel ni boucle de navigation. L'URL de l'application
-   ne change jamais. */
+/* Retour système : l'atelier garde sa sortie confirmée ; hors atelier, la vue
+   ou la fiche de l'URL est recréée sans pousser d'entrée (aucune boucle).
+   L'accès est ignoré avant l'approbation du profil. */
 window.addEventListener("popstate", () => {
-  if (!isTranscriptionWorkshopActive()) return;
-  if (!leaveTranscriptionWorkshop()) {
-    history.pushState({ transcriptionWorkshop: true }, "");
+  if (isTranscriptionWorkshopActive()) {
+    if (!leaveTranscriptionWorkshop()) {
+      history.pushState({ transcriptionWorkshop: true }, "");
+    }
+    return;
   }
+  restoreNavigationFromLocation();
 });
 
 /* Synchronise la zone d'ancrage après les gestes et actions du lecteur. */
@@ -13378,6 +13422,22 @@ function openUnknownDossier(id) {
   toast("Démarche introuvable", "error");
 }
 
+/* La fiche Démarche est une modale sur la liste : son identifiant vit dans
+   l'URL (?view=dossiers&id=…) pour survivre à une actualisation. Ouverture et
+   fermeture poussent une entrée, comme l'ouverture/fermeture d'une fiche page ;
+   le retour système et la déconnexion ne réécrivent jamais l'historique. */
+function syncProcedureDetailUrl() {
+  if (!activeDataUid || !navigationUrlReady) return;
+  const id = $("procedureDetailDialog").open ? activeDossierId : "";
+  const nextUrl = navigationUrl(window.location, "dossiers", id);
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  /* Ouverture et fermeture suivent le même rythme que les fiches page :
+     chacune apporte une entrée, donc Retour réouvre la démarche refermée. */
+  const action = historyAction({ currentUrl, nextUrl, mode: "push", viewChanged: true, locked: navigationHistoryLock });
+  if (action === "none") return;
+  history.pushState({ ...history.state, appView: "dossiers", appId: id || null }, "", nextUrl);
+}
+
 function openProcedureDetail(id) {
   const item = procedures.find(value => value.id === id);
   if (!item) return openUnknownDossier(id);
@@ -13392,6 +13452,7 @@ function openProcedureDetail(id) {
     renderProcedureTimeline();
   }, dataError);
   $("procedureDetailDialog").showModal();
+  syncProcedureDetailUrl();
 }
 
 const EMAIL_ACTION_TYPES = new Set(["email-sent", "email-received"]);
@@ -13682,6 +13743,11 @@ function stopPrivateData() {
   if ($("genealogyContributionDialog").open) $("genealogyContributionDialog").close();
   if ($("genealogyItemDialog").open) $("genealogyItemDialog").close();
   if ($("restorePreviewDialog").open) $("restorePreviewDialog").close();
+  /* Session expirée : plus aucune fiche en attente ; l'URL est conservée pour
+     une éventuelle reconnexion. Les modales ouvertes suivent le comportement
+     historique (personDialog, taskDialog) et ne sont pas refermées ici. */
+  pendingNavigationRestore = null;
+  navigationUrlReady = false;
 }
 
 function applyAccessProfile(profile, user) {
@@ -13707,7 +13773,7 @@ function applyAccessProfile(profile, user) {
   if (activeDataUid !== user.uid) {
     activeDataUid = user.uid;
     startData();
-    setView("tree");
+    restoreNavigationAfterAuth(readNavigationTarget(window.location.search));
   }
 }
 
@@ -13870,7 +13936,17 @@ function isTranscriptionWorkshopActive() {
   return !$("transcriptionWorkshopView").hidden;
 }
 
-function setView(view) {
+/* Identifiant de fiche porté par l'URL pour la vue affichée (vide sinon). */
+function detailUrlId(view) {
+  if (view === "personDetail") return activePersonPageItem?.id || "";
+  if (view === "documentDetail") return activeViewerDocumentId || "";
+  if (view === "sourceDetail") return activeSourcePageItem?.record.id || "";
+  if (view === "proofDetail") return activeProofPageItem?.record.id || "";
+  if (view === "dossiers") return $("procedureDetailDialog")?.open ? activeDossierId : "";
+  return "";
+}
+
+function setView(view, { history: historyMode = "push" } = {}) {
   if (view === "dossiers" && !featureFlags.showProcedures) view = "tree";
   /* Quitter l'atelier (nav interne, retour système) exige une confirmation
      explicite quand des corrections locales existent — aucune perte silencieuse. */
@@ -13929,9 +14005,138 @@ function setView(view) {
     if (view === "genealogy") restoreGenealogyViewContext();
     lastDisplayedView = view;
   }
+  /* Historique : nouvelle vue = entrée Retour/Avancer ; nouvelle fiche sur la
+     même vue = remplacement de l'entrée courante (pas d'empilement). L'URL
+     déjà correcte (retour système, restauration) ne crée aucune entrée. */
+  if (historyMode === "push") pendingNavigationRestore = null;
+  if (RESTORABLE_VIEWS.includes(view) && navigationUrlReady) {
+    const nextUrl = navigationUrl(window.location, view, detailUrlId(view));
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const action = historyAction({ currentUrl, nextUrl, mode: historyMode, viewChanged, locked: navigationHistoryLock });
+    if (action !== "none") {
+      const state = { ...history.state, appView: view };
+      if (action === "push") history.pushState(state, "", nextUrl);
+      else history.replaceState(state, "", nextUrl);
+    }
+  }
   if (view === "tree" && !branchView) setTimeout(() => camera.recenter(), 0);
   return true;
 }
+
+/* ─── Restauration de la vue et des fiches après actualisation ───────────── */
+
+function normalizeNavigationTarget(target) {
+  if (target.view === "dossiers" && !featureFlags.showProcedures) return { view: "tree", id: "" };
+  return target;
+}
+
+/** Les données nécessaires à la fiche sont-elles reçues (et donc les droits
+    Firebase vérifiés par les écoutes) ? Sans elles, on n'ouvre jamais une
+    fiche à moitié chargée. */
+function navigationRestoreReady(target) {
+  switch (target.view) {
+    case "personDetail": return loadedPeople && loadedFamilies && loadedDocuments;
+    case "documentDetail": return loadedDocuments;
+    case "sourceDetail":
+    case "proofDetail": return genealogyLoaded;
+    case "dossiers": return loadedProcedures;
+    default: return true;
+  }
+}
+
+function tryNavigationRestore() {
+  const pending = pendingNavigationRestore;
+  if (!pending || !navigationRestoreReady(pending.target)) return;
+  pendingNavigationRestore = null;
+  beginNavigationRestore(pending.target, pending.fromHistory);
+}
+
+/** Ouvre la fiche demandée avec son mécanisme existant, ou renvoie false. */
+function openDetailTarget(target) {
+  if (target.view === "personDetail") {
+    const item = person(target.id);
+    if (!item) return false;
+    openPersonPage(item, { kind: "view", view: "directory", focusId: item.id });
+    return true;
+  }
+  if (target.view === "documentDetail") {
+    const item = documents.find(value => value.id === target.id);
+    if (!item) return false;
+    void openStoredDocument(item, { returnContext: "documents", view: "documents" });
+    return true;
+  }
+  if (target.view === "sourceDetail" || target.view === "proofDetail") {
+    const kind = target.view === "sourceDetail" ? "source" : "proof";
+    const item = genealogyWorkspaceItems().find(value => value.kind === kind && value.record.id === target.id);
+    if (!item) return false;
+    const returnContext = { kind: "view", view: "genealogy", focusId: item.record.id };
+    if (kind === "source") renderSourcePage(item, returnContext);
+    else renderProofPage(item, returnContext);
+    return true;
+  }
+  if (target.view === "dossiers") {
+    if (!procedures.some(value => value.id === target.id)) return false;
+    if ($("procedureDetailDialog").open && activeDossierId === target.id) return true;
+    openProcedureDetail(target.id);
+    return true;
+  }
+  return false;
+}
+
+function navigationNotAvailable(view) {
+  const messages = {
+    personDetail: "Cette personne n’est plus disponible.",
+    documentDetail: "Ce document n’est plus disponible.",
+    sourceDetail: "Cet élément n’est plus disponible.",
+    proofDetail: "Cet élément n’est plus disponible.",
+    dossiers: "Démarche introuvable"
+  };
+  if (messages[view]) toast(messages[view], "error");
+}
+
+/** Affiche la vue d'origine sans toucher l'URL, puis ouvre la fiche dès que
+    les données arrivent ; annulée par toute navigation utilisateur. */
+function beginNavigationRestore(target, fromHistory) {
+  if (navigationRestoreReady(target)) {
+    pendingNavigationRestore = null;
+    if (openDetailTarget(target)) return;
+    setView(detailBaseView(target.view), { history: fromHistory ? "none" : "replace" });
+    navigationNotAvailable(target.view);
+    return;
+  }
+  setView(detailBaseView(target.view), { history: "none" });
+  pendingNavigationRestore = { target, fromHistory };
+}
+
+/** Après vérification des droits : restaure l'URL de départ (fiche ou vue). */
+function restoreNavigationAfterAuth(target) {
+  navigationUrlReady = true;
+  const normalized = normalizeNavigationTarget(target);
+  pendingNavigationRestore = null;
+  if (isDetailTarget(normalized)) {
+    beginNavigationRestore(normalized, false);
+    return;
+  }
+  setView(normalized.view, { history: "replace" });
+}
+
+/** Retour/Avancer : recrée exactement l'état de l'URL, sans nouvelle entrée. */
+function restoreNavigationFromLocation() {
+  if (!activeDataUid) return;
+  const target = normalizeNavigationTarget(readNavigationTarget(window.location.search));
+  pendingNavigationRestore = null;
+  navigationHistoryLock = true;
+  try {
+    if ($("procedureDetailDialog").open && !(target.view === "dossiers" && target.id === activeDossierId)) {
+      $("procedureDetailDialog").close();
+    }
+    if (isDetailTarget(target)) beginNavigationRestore(target, true);
+    else setView(target.view, { history: "none" });
+  } finally {
+    navigationHistoryLock = false;
+  }
+}
+
 
 /* Archives : filtres (recherche, catégorie) et position de défilement sont
    mémorisés à la sortie de vue, puis restaurés au retour — la vue masquée fait
@@ -14041,6 +14246,7 @@ function startData() {
       genealogyCollectionErrors.delete(collectionName);
       genealogyLoaded = genealogyCollectionsLoaded.size === genealogyCollections.length;
       renderGenealogyWorkspace();
+      tryNavigationRestore();
       if (genealogyItemRefreshPending) {
         genealogyItemRefreshPending = false;
         refreshOpenGenealogyItem();
@@ -14616,8 +14822,8 @@ async function journeySaveAttestation() {
   if (!item) return;
   if (isMajorEventAttestationKind(entryKind) && !majorTarget) return;
   const dateResult = buildLifeDate(readJourneyDateRaw());
-  if (!dateResult.ok || !dateResult.date || dateResult.date.type === "unknown") {
-    showJourneyError("attDate", "Choisissez la date de l'attestation.");
+  if (!dateResult.ok || !dateResult.date) {
+    showJourneyError("attDate", "Choisissez la date de l'attestation, ou indiquez qu’elle est inconnue.");
     journeyFocusError("date");
     return;
   }
@@ -14893,7 +15099,10 @@ $("relationsList").onclick = event => {
   if (!button) return;
   withButtonPending(button, () => runSafely(() => removeRelation(button.dataset.removePartner || button.dataset.removeChild, button.dataset.person, button.dataset.removePartner ? "partner" : "child"), "Dissociation du lien impossible"), "Dissociation…");
 };
-document.querySelectorAll("[data-date-prefix]").forEach(button => button.onclick = () => setGenealogyDateType(button.dataset.datePrefix, button.dataset.dateType));
+document.addEventListener("click", event => {
+  const button = event.target.closest?.("[data-date-prefix][data-date-type]");
+  if (button) setGenealogyDateType(button.dataset.datePrefix, button.dataset.dateType);
+});
 $("familyEndType").onchange = updateEndDetailsVisibility;
 $("familyDetailsForm").addEventListener("submit", saveFamilyDetails);
 $("familyDetailsDialog").addEventListener("click", event => {
@@ -16070,7 +16279,10 @@ $("editDossierBtn").onclick = () => {
   const item = procedures.find(value => value.id === activeDossierId);
   if (item) openDossierForm(item);
 };
-$("procedureDetailDialog").addEventListener("close", closeProcedureActionUnsub);
+$("procedureDetailDialog").addEventListener("close", () => {
+  closeProcedureActionUnsub();
+  syncProcedureDetailUrl();
+});
 $("proceduresList").addEventListener("click", event => {
   const emptyAdd = event.target.closest("[data-empty-add-dossier]");
   if (emptyAdd) return openDossierForm();

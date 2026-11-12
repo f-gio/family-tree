@@ -57,7 +57,7 @@ export function backupFileEntryPath(documentId, fileName = "") {
 
 export function isValidStoredDate(value) {
   if (value == null) return true;
-  if (!value || typeof value !== "object" || !["exact", "year", "about", "between", "unknown"].includes(value.type)) return false;
+  if (!value || typeof value !== "object" || !["exact", "year", "about", "before", "after", "between", "unknown"].includes(value.type)) return false;
   if (value.type === "unknown") return true;
   const normalized = normalizeGenealogyDate(value);
   return normalized.type === value.type;

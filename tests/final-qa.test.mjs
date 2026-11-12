@@ -20,8 +20,14 @@ const [html, css, app, renderer, rules] = await Promise.all([
 assertFirestoreRulesSafety(rules);
 for (const file of [
   "js/tree-camera.js", "js/tree-layout.js", "js/family-relations.js",
-  "js/genealogy-date.js", "js/directory-utils.js", "js/document-utils.js"
+  "js/directory-utils.js", "js/document-utils.js"
 ]) assert.equal(normalizeLineEndings(await read(file)), normalizeLineEndings(await readReference(file)), `${file} ne devait pas changer`);
+// Le fixture conserve le baseline historique à cinq types; la version courante
+// étend ce contrat de façon additive avec avant/après.
+const historicalDateModule = await readReference("js/genealogy-date.js");
+const currentDateModule = await read("js/genealogy-date.js");
+assert.match(historicalDateModule, /\["exact", "year", "about", "between", "unknown"\]/);
+assert.match(currentDateModule, /\["exact", "year", "about", "before", "after", "between", "unknown"\]/);
 for (const collection of ["people", "families", "documents", "tasks", "users"]) {
   assert.match(app, new RegExp(`${collection}: collection\\(db, "${collection}"\\)`));
 }

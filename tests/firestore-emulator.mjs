@@ -5,6 +5,7 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { deleteApp, initializeApp } from "firebase/app";
 import { getAuth, connectAuthEmulator, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { initializeFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, deleteField, writeBatch, runTransaction, query, where, Bytes, serverTimestamp } from "firebase/firestore";
@@ -58,6 +59,21 @@ function deferred() {
 
 // ─── Bootstrap émulateur ─────────────────────────────────────────────────────
 before(async () => {
+  // Applique à l'émulateur local uniquement l'extension candidate isolée; les
+  // autres règles proviennent du fichier actif inchangé.
+  const [baseRules, candidateFragment] = await Promise.all([
+    readFile(new URL("../firestore.rules", import.meta.url), "utf8"),
+    readFile(new URL("../firestore.rules.candidate", import.meta.url), "utf8")
+  ]);
+  const candidateFunction = candidateFragment.slice(candidateFragment.indexOf("function validGenealogyDate"));
+  const rulesWithCandidate = baseRules.replace(/    function validGenealogyDate\(value\) \{[\s\S]*?(?=\n    function validPerson\()/, () => candidateFunction.replace(/^/gm, "    ").trimEnd());
+  assert.notEqual(rulesWithCandidate, baseRules, "la règle candidate doit remplacer la fonction de validation attendue");
+  const rulesResponse = await fetch(`http://${HOST}:${EMULATOR_PORT}/emulator/v1/projects/${EMULATOR_PROJECT_ID}:securityRules`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rules: { files: [{ name: "firestore.rules", content: rulesWithCandidate }] } })
+  });
+  assert.equal(rulesResponse.ok, true, `chargement des règles candidates dans l'émulateur: ${rulesResponse.status} ${await rulesResponse.text()}`);
   // Clé API factice et dédiée aux émulateurs : jamais une clé réelle ; l'émulateur
   // ne la valide pas et tous les appels restent en localhost (garde ci-dessus).
   app = initializeApp({ apiKey: "test-only-fake-api-key", projectId: EMULATOR_PROJECT_ID });
@@ -165,12 +181,14 @@ test("personne valide : création, lecture, mise à jour et suppression par un a
   assert.equal((await getDoc(ref)).exists(), false);
 });
 
-test("personne valide : les cinq types structurés sont acceptés", async () => {
+test("personne valide : les sept types structurés sont acceptés", async () => {
   await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
   const cas = {
     exact: { type: "exact", value: "1869-03-14" },
     year: { type: "year", year: 1869 },
     about: { type: "about", year: 1869 },
+    beforeYear: { type: "before", year: 1869 },
+    afterExact: { type: "after", value: "1869-03-14" },
     between: { type: "between", from: 1867, to: 1871 },
     unknown: { type: "unknown" }
   };
