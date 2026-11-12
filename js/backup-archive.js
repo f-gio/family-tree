@@ -10,8 +10,7 @@ export const BACKUP_MANIFEST_PATH = "family-tree.json";
 export const BACKUP_COLLECTION_NAMES = Object.freeze([
   "people", "families", "trees", "documents", "tasks", "sourceDocuments", "sourceRevisions",
   "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions",
-  "factConclusions", "conclusionRevisions", "genealogyProposals", "genealogyEvents", "genealogyNotifications",
-  "factHypotheses", "factHypothesisRevisions"
+  "factConclusions", "conclusionRevisions", "genealogyProposals", "genealogyEvents", "genealogyNotifications"
 ]);
 
 export function compareBackupCaptureMarkers(before, after) {
@@ -28,11 +27,6 @@ export function compareBackupCaptureMarkers(before, after) {
   };
 }
 
-/* Collections exigées pour une sauvegarde COMPLÈTE. Les archives v5 qui
-   contiennent les anciennes collections d'hypothèses (lot 2C.5-A, abandonné)
-   restent lisibles via BACKUP_COLLECTION_NAMES, mais ces collections ne sont
-   plus exigées : un export sans elles reste « complet ». Les archives
-   historiques gardent leur manifeste stocké (rétrocompatibilité). */
 const REQUIRED_COLLECTIONS = Object.freeze([
   "people", "families", "trees", "documents", "tasks", "sourceDocuments", "sourceRevisions",
   "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions",
@@ -106,8 +100,6 @@ function collectReferences(collections, assets) {
   const proofs = new Map((collections.genealogyProofs || []).map(item => [item.id, item]));
   const conclusions = new Map((collections.factConclusions || []).map(item => [item.id, item]));
   const peopleIds = new Set((collections.people || []).map(item => item.id));
-  const hypothesisIds = new Set((collections.factHypotheses || []).map(item => item.id));
-  const hypothesisRevisionIds = new Set((collections.factHypothesisRevisions || []).map(item => item.id));
   const relationIds = new Set();
   for (const family of collections.families || []) {
     for (const link of family.parentChildLinks || []) {
@@ -167,7 +159,7 @@ function collectReferences(collections, assets) {
       if (head.revisionId && !revisionIds.has(head.revisionId)) errors.push({ code: "REVISION_MISSING", objectId: head.id, reference: head.revisionId, message: `${kind} ${head.id} référence une révision absente` });
     }
   }
-  for (const revisionSet of [collections.sourceRevisions || [], collections.transcriptionRevisions || [], collections.genealogyProofRevisions || [], collections.conclusionRevisions || [], collections.factHypothesisRevisions || []]) {
+  for (const revisionSet of [collections.sourceRevisions || [], collections.transcriptionRevisions || [], collections.genealogyProofRevisions || [], collections.conclusionRevisions || []]) {
     const revisionsById = new Map(revisionSet.map(item => [item.id, item]));
     const revisionIds = new Set(revisionsById.keys());
     for (const revision of revisionSet) {
@@ -198,49 +190,6 @@ function collectReferences(collections, assets) {
   for (const notification of collections.genealogyNotifications || []) {
     if (notification.recipientUid && !(collections.users || []).some(user => user.uid === notification.recipientUid || user.id === notification.recipientUid)) {
       warnings.push({ code: "HISTORICAL_AUTHOR_UNRESOLVED", objectId: notification.id, reference: notification.recipientUid, message: `Le destinataire historique ${notification.recipientUid} n'est pas dans le catalogue des comptes actifs ; aucune identité ni autorisation n'est restaurée` });
-    }
-  }
-  /* Lot 2C.5-A : chaîne hypothèse ↔ révisions ↔ personne ↔ ancre ↔
-     attestations. Absent des archives historiques (clés `|| []`), donc sans
-     effet sur l'existant. */
-  const personAttestationIds = person => {
-    const byField = {};
-    for (const fieldKey of ["birth", "death"]) {
-      const source = fieldKey === "birth" ? person?.birthAttestations : person?.deathAttestations;
-      byField[fieldKey] = new Set((Array.isArray(source) ? source : []).map(value => value?.id).filter(value => typeof value === "string" && value));
-    }
-    return byField;
-  };
-  const attestationsByPerson = new Map((collections.people || []).map(person => [person.id, personAttestationIds(person)]));
-  for (const hypothesis of collections.factHypotheses || []) {
-    if (hypothesis.currentRevisionId && !hypothesisRevisionIds.has(hypothesis.currentRevisionId)) {
-      errors.push({ code: "REVISION_MISSING", objectId: hypothesis.id, reference: hypothesis.currentRevisionId, message: `L'hypothèse ${hypothesis.id} référence une révision absente` });
-    }
-    if (hypothesis.personId && !peopleIds.has(hypothesis.personId)) {
-      errors.push({ code: "REFERENCE_MISSING", objectId: hypothesis.id, reference: hypothesis.personId, message: `L'hypothèse ${hypothesis.id} référence une personne absente` });
-    }
-    const pools = attestationsByPerson.get(hypothesis.personId);
-    if (pools) {
-      const pool = String(hypothesis.fieldKey || "").startsWith("birth.") ? pools.birth : pools.death;
-      for (const entry of Array.isArray(hypothesis.attestations) ? hypothesis.attestations : []) {
-        if (entry?.attestationId && !pool.has(entry.attestationId)) {
-          errors.push({ code: "REFERENCE_MISSING", objectId: hypothesis.id, reference: entry.attestationId, message: `L'hypothèse ${hypothesis.id} référence une attestation absente (${entry.attestationId})` });
-        }
-      }
-    }
-  }
-  for (const revision of collections.factHypothesisRevisions || []) {
-    if (!hypothesisIds.has(revision.objectId)) {
-      errors.push({ code: "REFERENCE_MISSING", objectId: revision.id, reference: revision.objectId, message: `La révision ${revision.id} référence une hypothèse absente` });
-    }
-  }
-  for (const person of collections.people || []) {
-    const anchor = person.retainedHypothesis;
-    if (!anchor || typeof anchor !== "object") continue;
-    for (const [fieldKey, hypothesisId] of Object.entries(anchor)) {
-      if (!hypothesisIds.has(hypothesisId)) {
-        errors.push({ code: "REFERENCE_MISSING", objectId: person.id, reference: hypothesisId, message: `L'ancre ${fieldKey} de ${person.id} référence une hypothèse absente` });
-      }
     }
   }
   return { errors, warnings };
