@@ -1138,8 +1138,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       option.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     assert.equal(await page.inputValue("#journeyCountry"), "Italie", "pays GeoNames renseigné par sélection tactile");
-    /* Sur mobile, la précision passe par le sélecteur natif : les boutons sont masqués. */
-    await page.locator('#personPageDetailedJourney [data-journey-form] .date-type-select').selectOption("about");
+    await page.locator('[data-journey-date-type="about"]').click();
     await page.fill("#journeyDateAbout", "1895");
     await page.locator('[data-journey-save="profession"]').click();
     await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
@@ -1148,7 +1147,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.locator("#journeyLabel").evaluate(input => input.closest("label").innerText.trim()), "Intitulé", "intitulé facultatif sans astérisque");
     await page.fill("#journeyLabel", "Recensement de Biella");
     await page.fill("#journeyPlace", "Lieu historique sans suggestion");
-    await page.locator('#personPageDetailedJourney [data-journey-form] .date-type-select').selectOption("year");
+    await page.locator('[data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1901");
     await page.locator('[data-journey-save="event"]').click();
     await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
