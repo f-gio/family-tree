@@ -6166,7 +6166,8 @@ body:has(#personDetailView:not([hidden])):not(:has(#personPageEditHost:not([hidd
 }
 .person-detail-header-actions .person-page-actions > summary { width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); }
 .person-page-desktop-back { align-self: center; }
-.person-page-mobile-header { display: none; }
+.person-page-mobile-header,
+.detail-mobile-header { display: none; }
 .person-detail-mobile-modification { display: none; }
 .dedicated-page-heading { min-width: 0; }
 .workspace-view .dedicated-page-heading .page-kicker { margin: 0 0 2px; }
@@ -6251,19 +6252,56 @@ body:has(#personDetailView:not([hidden])):not(:has(#personPageEditHost:not([hidd
 .person-page-edit-host .person-doc-card { position: relative; }
 .person-page-edit-host #personRelationsPanel .relation-person-copy { display: grid; gap: 1px; align-content: center; justify-content: start; }
 .person-page-edit-host #personRelationsPanel .relation-person-meta { margin: 0; }
-.person-page-mobile-actions { position: relative; }
-.person-page-mobile-actions > summary { display: inline-flex; align-items: center; justify-content: center; width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); list-style: none; cursor: pointer; }
-.person-page-mobile-actions > summary::-webkit-details-marker { display: none; }
-.person-page-mobile-header { position: relative; z-index: 2; grid-template-columns: var(--control-touch) minmax(0, 1fr) var(--control-touch); align-items: center; gap: var(--space-2); width: 100%; min-height: var(--control-touch); }
-.person-page-mobile-header > strong { overflow: hidden; font: var(--weight-semibold) var(--text-md)/var(--leading-tight) var(--font-display); text-align: center; text-overflow: ellipsis; white-space: nowrap; }
-.person-page-mobile-back { width: var(--control-touch); height: var(--control-touch); padding: 0; }
+.person-page-mobile-actions,
+.detail-mobile-actions { position: relative; }
+.person-page-mobile-actions > summary,
+.detail-mobile-actions > summary { display: inline-flex; align-items: center; justify-content: center; width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); list-style: none; cursor: pointer; }
+.person-page-mobile-actions > summary::-webkit-details-marker,
+.detail-mobile-actions > summary::-webkit-details-marker { display: none; }
+.person-page-mobile-header,
+.detail-mobile-header { position: relative; z-index: 2; grid-template-columns: var(--control-touch) minmax(0, 1fr) var(--control-touch); align-items: center; gap: var(--space-2); width: 100%; min-height: var(--control-touch); }
+.person-page-mobile-header > strong,
+.detail-mobile-header > strong { overflow: hidden; font: var(--weight-semibold) var(--text-md)/var(--leading-tight) var(--font-display); text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.person-page-mobile-back,
+.detail-mobile-back { width: var(--control-touch); height: var(--control-touch); padding: 0; }
+/* Page sans menu « … » : la troisième colonne reste à la largeur tactile pour
+   que le titre centre horizontalement, sans bouton fictif. */
+.detail-mobile-header-spacer { width: var(--control-touch); height: var(--control-touch); }
 body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-detail-actions-menu { top: calc(100% + var(--space-1)); right: 0; }
 .person-detail-documents-toggle { display: none; }
 @media (max-width: 760px) {
-  body:has(#personDetailView:not([hidden])) .topbar { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; min-height: calc(var(--control-touch) + env(safe-area-inset-top)); padding: max(var(--space-1), env(safe-area-inset-top)) var(--space-3) var(--space-1); }
+  /* Header mobile de consultation (modèle fiche Personne) : chevron de retour
+     à gauche, « La Nostra Storia » centré, menu « … » à droite seulement si la
+     page en possède déjà un. Marque et compte masqués pendant la visite. */
+  body:has(#personDetailView:not([hidden])) .topbar,
+  body:has(#documentDetailView:not([hidden])) .topbar,
+  body:has(#sourceDetailView:not([hidden])) .topbar,
+  body:has(#proofDetailView:not([hidden])) .topbar,
+  body:has(#transcriptionWorkshopView:not([hidden]):not(.is-edit-session)) .topbar { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; min-height: calc(var(--control-touch) + env(safe-area-inset-top)); padding: max(var(--space-1), env(safe-area-inset-top)) var(--space-3) var(--space-1); }
   body:has(#personDetailView:not([hidden])) .topbar > .brand,
-  body:has(#personDetailView:not([hidden])) .topbar > .account-menu { display: none !important; }
+  body:has(#documentDetailView:not([hidden])) .topbar > .brand,
+  body:has(#sourceDetailView:not([hidden])) .topbar > .brand,
+  body:has(#proofDetailView:not([hidden])) .topbar > .brand,
+  body:has(#transcriptionWorkshopView:not([hidden]):not(.is-edit-session)) .topbar > .brand,
+  body:has(#personDetailView:not([hidden])) .topbar > .account-menu,
+  body:has(#documentDetailView:not([hidden])) .topbar > .account-menu,
+  body:has(#sourceDetailView:not([hidden])) .topbar > .account-menu,
+  body:has(#proofDetailView:not([hidden])) .topbar > .account-menu,
+  body:has(#transcriptionWorkshopView:not([hidden]):not(.is-edit-session)) .topbar > .account-menu { display: none !important; }
   body:has(#personDetailView:not([hidden])) .topbar > .person-page-mobile-header { display: grid; }
+  body:has(#documentDetailView:not([hidden])) .topbar > #documentMobileHeader { display: grid; }
+  body:has(#sourceDetailView:not([hidden])) .topbar > #sourceMobileHeader { display: grid; }
+  body:has(#proofDetailView:not([hidden])) .topbar > #proofMobileHeader { display: grid; }
+  body:has(#transcriptionWorkshopView:not([hidden]):not(.is-edit-session)) .topbar > #transcriptionMobileHeader { display: grid; }
+  /* Le Retour interne disparaît : le chevron du header est l'unique retour. */
+  .detail-page-crumb-row > .dedicated-page-back { display: none; }
+  body:has(#transcriptionWorkshopView:not([hidden]):not(.is-edit-session)) .transcription-workshop-return { display: none; }
+  /* Le menu « … » monte dans le header : le doublon en page est masqué. */
+  body:has(#sourceDetailView:not([hidden])) #sourcePageActions,
+  body:has(#proofDetailView:not([hidden])) #proofPageActions { display: none; }
+  /* Visionneuse en plein écran : sortie dédiée, pas de retour de page. */
+  body:has(#documentDetailView.is-viewer-fullscreen:not([hidden])) .topbar > #documentMobileHeader,
+  body:has(#documentDetailView.is-viewer-fullscreen-mobile:not([hidden])) .topbar > #documentMobileHeader { display: none !important; }
   .person-detail-hero { grid-template-columns: minmax(0, 4rem) minmax(0, 1fr); align-items: start; gap: var(--space-2) var(--space-3); padding-block: var(--space-3); }
   .person-page-desktop-back { display: none; }
   .person-detail-portrait { grid-column: 1; grid-row: 1; width: 4rem; height: 4rem; border-radius: var(--radius-md); align-self: center; }

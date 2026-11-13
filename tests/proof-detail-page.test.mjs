@@ -5,7 +5,7 @@ import { ROOT, startStaticServer } from "./helpers.mjs";
 
 const hooks = `
 window.__proofPageTest = {
-  show(view = "genealogy") { $("authScreen").hidden = true; setView(view); },
+  show(view = "genealogy") { $("authScreen").hidden = true; $("topbar").hidden = false; setView(view); },
   seed() {
     const firestoreTimestamp = { toDate() { return new Date("2024-01-01T00:00:00Z"); } };
     const documentItem = {
@@ -98,11 +98,16 @@ window.__proofPageTest = {
       primaryReviseHidden: $('proofPageReviseBtn').hidden,
       actionLabels: [...$('proofPageActionsMenu').querySelectorAll('[data-genealogy-item-action]')].map(button => button.dataset.genealogyItemAction),
       horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
-      backHeight: $('proofPageBackBtn').getBoundingClientRect().height,
+      backHeight: (() => { const pageBack = document.querySelector('#proofPageBackBtn'); const box = pageBack.getBoundingClientRect(); return box.height > 0 && getComputedStyle(pageBack).display !== "none" ? box.height : document.querySelector('#proofMobileBackBtn').getBoundingClientRect().height; })(),
       reviseHeight: $('proofPageReviseBtn').getBoundingClientRect().height,
-      menuHeight: document.querySelector('#proofPageActions > summary').getBoundingClientRect().height,
+      menuHeight: (() => { const pageMenu = document.querySelector('#proofPageActions > summary'); const box = pageMenu.getBoundingClientRect(); return box.height > 0 && getComputedStyle(pageMenu).display !== "none" ? box.height : document.querySelector('#proofMobileActions > summary').getBoundingClientRect().height; })(),
       reviseY: $('proofPageReviseBtn').getBoundingClientRect().y,
-      menuY: document.querySelector('#proofPageActions > summary').getBoundingClientRect().y,
+      menuY: (() => { const pageMenu = document.querySelector('#proofPageActions > summary'); const box = pageMenu.getBoundingClientRect(); return box.height > 0 && getComputedStyle(pageMenu).display !== "none" ? box.y : document.querySelector('#proofMobileActions > summary').getBoundingClientRect().y; })(),
+      mobileHeaderVisible: (() => { const header = document.querySelector('#proofMobileHeader'); return getComputedStyle(header).display !== "none" && header.getBoundingClientRect().height > 0; })(),
+      mobileBackHeight: document.querySelector('#proofMobileBackBtn').getBoundingClientRect().height,
+      mobileTitleCenterDelta: (() => { const box = document.querySelector('#proofMobileHeader > strong').getBoundingClientRect(); return Math.round((box.left + box.right) / 2 - innerWidth / 2); })(),
+      contentBackDisplay: getComputedStyle(document.querySelector('#proofPageBackBtn')).display,
+      pageMenuDisplay: getComputedStyle(document.querySelector('#proofPageActions')).display,
       documentLinkHeight: document.querySelector('#proofPageContent [data-source-document-open]')?.getBoundingClientRect().height || 0,
       personLinkHeight: document.querySelector('#proofPageContent [data-genealogy-person]')?.getBoundingClientRect().height || 0,
       sourceLinkHeight: document.querySelector('#proofPageContent [data-proof-source-open]')?.getBoundingClientRect().height || 0,
@@ -277,13 +282,19 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
         await page.locator("#proofPageBreadcrumb .consultation-breadcrumb-overflow summary").click();
         await page.locator("#proofPageBreadcrumb .consultation-breadcrumb-overflow-menu [data-consultation-breadcrumb-action='document']").click();
         await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
-        await page.click("#documentPageBackBtn");
+        await page.click("#documentMobileBackBtn");
         await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
       }
+      /* Header mobile harmonisé (modèle fiche Personne) : le chevron remplace
+         le Retour interne, le menu « … » monte dans la topbar. */
+      assert.equal(state.mobileHeaderVisible, true, `header mobile de consultation visible à ${width}px`);
+      assert.ok(state.mobileBackHeight >= 44, `chevron de retour ≥ 44 px à ${width}px (${state.mobileBackHeight}px)`);
+      assert.ok(Math.abs(state.mobileTitleCenterDelta) <= 1, `titre centré horizontalement à ${width}px (${state.mobileTitleCenterDelta}px)`);
+      assert.equal(state.contentBackDisplay, "none", `aucun Retour redondant dans le contenu à ${width}px`);
+      assert.equal(state.pageMenuDisplay, "none", `menu en page masqué au profit du header à ${width}px`);
       assert.ok(state.backHeight >= 44, `Retour ≥ 44 px à ${width}px`);
       assert.ok(state.reviseHeight >= 44, `Réviser ≥ 44 px à ${width}px`);
       assert.ok(state.menuHeight >= 44, `menu ≥ 44 px à ${width}px`);
-      assert.ok(Math.abs(state.reviseY - state.menuY) <= 1, `Réviser et menu restent sur la même rangée à ${width}px`);
       assert.ok(state.documentLinkHeight >= 44, `Document ≥ 44 px à ${width}px`);
       assert.ok(state.personLinkHeight >= 44, `Personne ≥ 44 px à ${width}px`);
       assert.ok(state.sourceLinkHeight >= 44, `Source ≥ 44 px à ${width}px`);

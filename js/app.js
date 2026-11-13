@@ -3382,7 +3382,7 @@ for (const id of ["personPageActions", "personPageMobileActions"]) {
   });
 }
 document.addEventListener("click", event => {
-  for (const id of ["personPageActions", "personPageMobileActions"]) {
+  for (const id of ["personPageActions", "personPageMobileActions", "sourceMobileActions", "proofMobileActions"]) {
     const details = $(id);
     if (details.open && !details.contains(event.target)) details.open = false;
   }
@@ -5942,13 +5942,23 @@ function setTranscriptionWorkshopBackLabel() {
   button.title = destination;
   const label = button.querySelector(".dedicated-page-back-label");
   if (label) label.textContent = window.matchMedia("(max-width: 760px)").matches ? "Retour" : destination;
+  /* Header mobile de consultation : même destination que le Retour interne. */
+  const mobileButton = $("transcriptionMobileBackBtn");
+  if (mobileButton) {
+    mobileButton.setAttribute("aria-label", destination);
+    mobileButton.title = destination;
+  }
 }
 
 function refreshDedicatedPageBackLabels() {
   if (!$("sourceDetailView").hidden) setDedicatedPageBackLabel("sourcePageBackBtn", sourcePageReturnContext);
+  if (!$("sourceDetailView").hidden) setDedicatedPageBackLabel("sourceMobileBackBtn", sourcePageReturnContext);
   if (!$("proofDetailView").hidden) setDedicatedPageBackLabel("proofPageBackBtn", proofPageReturnContext);
+  if (!$("proofDetailView").hidden) setDedicatedPageBackLabel("proofMobileBackBtn", proofPageReturnContext);
   if (!$("personDetailView").hidden) setDedicatedPageBackLabel("personPageBackBtn", personPageReturnContext);
+  if (!$("personDetailView").hidden) setDedicatedPageBackLabel("personPageMobileBackBtn", personPageReturnContext);
   if (isDocumentPageVisible()) setDedicatedPageBackLabel("documentPageBackBtn", documentPageReturnContext);
+  if (isDocumentPageVisible()) setDedicatedPageBackLabel("documentMobileBackBtn", documentPageReturnContext);
   if (isTranscriptionWorkshopActive()) setTranscriptionWorkshopBackLabel();
 }
 window.addEventListener("resize", refreshDedicatedPageBackLabels);
@@ -6530,6 +6540,7 @@ function renderProofPage(item, returnContext = null, preserveScroll = false) {
   if ($("personDialog").open) close("personDialog");
   closeDocumentPage();
   setDedicatedPageBackLabel("proofPageBackBtn", proofPageReturnContext);
+  setDedicatedPageBackLabel("proofMobileBackBtn", proofPageReturnContext);
   setView("proofDetail");
   const { record, data } = item;
   const title = PROOF_FACT_KIND_LABELS[data.factType] || data.factType || data.factId || "Preuve";
@@ -6551,6 +6562,10 @@ function renderProofPage(item, returnContext = null, preserveScroll = false) {
   $("proofPageActionsMenu").innerHTML = secondaryControls.map(control => `<button class="btn${control.danger ? " danger" : ""}" type="button" role="menuitem" data-genealogy-item-action="${control.key}">${icon(control.icon)}<span>${esc(control.label)}</span></button>`).join("");
   $("proofPageActions").hidden = !secondaryControls.length;
   $("proofPageActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
+  /* Même contenu dans le header mobile de consultation (modèle fiche Personne). */
+  $("proofMobileActionsMenu").innerHTML = $("proofPageActionsMenu").innerHTML;
+  $("proofMobileActions").hidden = !secondaryControls.length;
+  $("proofMobileActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
   /* Ouverture d'une nouvelle Preuve : haut de page affiché systématiquement ;
      les retours préservent leur contexte de défilement. */
   if (!samePageVisible && !preserveScroll) scrollFicheToTop("proofDetailView");
@@ -10166,6 +10181,9 @@ function updateWorkshopDraftIndicators() {
   statusElement.classList.toggle("is-synced", !officialReadOnly && synced && !failed && !conflict);
   statusElement.classList.toggle("is-conflict", !officialReadOnly && conflict);
   const inEditSession = transcriptionWorkshopEditing;
+  /* Consultation ≠ atelier : la classe pilote le header mobile de
+     consultation (CSS :not(.is-edit-session)) — l'atelier reste intact. */
+  $("transcriptionWorkshopView").classList.toggle("is-edit-session", inEditSession);
   const modeButton = $("workshopModeBtn");
   if (modeButton) {
     const hasOfficial = Boolean(transcriptionWorkshopHead());
@@ -11043,6 +11061,7 @@ function renderSourcePage(item, returnContext = null, preserveScroll = false) {
     sameTitlePrefix: "Source : "
   });
   setDedicatedPageBackLabel("sourcePageBackBtn", sourcePageReturnContext);
+  setDedicatedPageBackLabel("sourceMobileBackBtn", sourcePageReturnContext);
   $("sourcePageBadges").innerHTML = `${genealogyKindBadgeHtml("source")}${genealogyStatusBadgeHtml(data.status)}${data.category ? `<span class="genealogy-status-badge">${esc(data.category)}</span>` : ""}`;
   /* Composition en deux zones sur desktop : la colonne principale porte la
      consultation archivistique, la colonne secondaire les compléments. */
@@ -11053,6 +11072,10 @@ function renderSourcePage(item, returnContext = null, preserveScroll = false) {
   $("sourcePageActionsMenu").innerHTML = secondaryControls.map(control => `<button class="btn${control.danger ? " danger" : ""}" type="button" role="menuitem" data-genealogy-item-action="${control.key}">${icon(control.icon)}<span>${esc(control.label)}</span></button>`).join("");
   $("sourcePageActions").hidden = !secondaryControls.length;
   $("sourcePageActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
+  /* Même contenu dans le header mobile de consultation (modèle fiche Personne). */
+  $("sourceMobileActionsMenu").innerHTML = $("sourcePageActionsMenu").innerHTML;
+  $("sourceMobileActions").hidden = !secondaryControls.length;
+  $("sourceMobileActions").querySelector("summary")?.setAttribute("aria-expanded", "false");
   /* Ouverture d'une nouvelle fiche : haut de page affiché systématiquement ;
      les retours préservent leur contexte de défilement. */
   if (!samePageVisible && !preserveScroll) scrollFicheToTop("sourceDetailView");
@@ -12943,6 +12966,7 @@ async function openStoredDocument(item, returnContext = "previous") {
     ? (returnContext.pageContext ? { ...returnContext.pageContext } : documentPageFallbackContext(returnContext))
     : captureDocumentPageReturnContext();
   setDedicatedPageBackLabel("documentPageBackBtn", documentPageReturnContext);
+  setDedicatedPageBackLabel("documentMobileBackBtn", documentPageReturnContext);
   /* Les couches modales sont refermées : la page Document devient l'unique
      affichage, leur contexte étant déjà capturé pour le retour. */
   if ($("genealogyItemDialog").open) close("genealogyItemDialog");
@@ -13972,8 +13996,12 @@ function setView(view, { history: historyMode = "push" } = {}) {
   $("genealogyView").hidden = view !== "genealogy";
   $("sourceDetailView").hidden = view !== "sourceDetail";
   if (view !== "sourceDetail") $("sourcePageActions").open = false;
+  $("sourceMobileHeader").hidden = view !== "sourceDetail";
+  if (view !== "sourceDetail") $("sourceMobileActions").open = false;
   $("proofDetailView").hidden = view !== "proofDetail";
   if (view !== "proofDetail") $("proofPageActions").open = false;
+  $("proofMobileHeader").hidden = view !== "proofDetail";
+  if (view !== "proofDetail") $("proofMobileActions").open = false;
   $("personDetailView").hidden = view !== "personDetail";
   $("personPageMobileHeader").hidden = view !== "personDetail";
   if (view !== "personDetail") {
@@ -13981,9 +14009,11 @@ function setView(view, { history: historyMode = "push" } = {}) {
     $("personPageMobileActions").open = false;
   }
   $("documentDetailView").hidden = view !== "documentDetail";
+  $("documentMobileHeader").hidden = view !== "documentDetail";
   $("tasksView").hidden = view !== "tasks";
   $("dossiersView").hidden = view !== "dossiers";
   $("transcriptionWorkshopView").hidden = view !== "transcriptionWorkshop";
+  $("transcriptionMobileHeader").hidden = view !== "transcriptionWorkshop";
   $("addBtn").hidden = view !== "tree";
   $("headerTreeActions").hidden = view !== "tree";
   const selectedNavView = view === "sourceDetail" ? sourcePageReturnContext?.view || "genealogy"
@@ -16246,6 +16276,32 @@ document.addEventListener("click", event => {
   navigateConsultationBreadcrumb(link.dataset.consultationBreadcrumbAction, link.dataset.consultationBreadcrumbValue);
 });
 $("documentPageBackBtn").addEventListener("click", returnFromDocumentPage);
+/* Headers mobiles de consultation : retour identique au Retour interne. */
+$("documentMobileBackBtn").addEventListener("click", returnFromDocumentPage);
+$("sourceMobileBackBtn").addEventListener("click", returnFromSourcePage);
+$("proofMobileBackBtn").addEventListener("click", returnFromProofPage);
+$("transcriptionMobileBackBtn").addEventListener("click", exitTranscriptionWorkshop);
+/* Menus « … » mobiles : mêmes actions et même comportement qu'en page. */
+function bindDetailMobileMenu(detailsId, menuId, pageDetailsId, getActiveItem) {
+  const details = $(detailsId);
+  details.addEventListener("toggle", () => details.querySelector("summary")?.setAttribute("aria-expanded", String(details.open)));
+  details.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || !details.open) return;
+    event.preventDefault();
+    details.open = false;
+    details.querySelector("summary")?.focus();
+  });
+  $(menuId).addEventListener("click", event => {
+    const action = event.target.closest("[data-genealogy-item-action]");
+    const item = getActiveItem();
+    if (!action || !item) return;
+    details.open = false;
+    $(pageDetailsId).open = false;
+    void performArchiveCardAction(item.record.id, action.dataset.genealogyItemAction);
+  });
+}
+bindDetailMobileMenu("sourceMobileActions", "sourceMobileActionsMenu", "sourcePageActions", () => activeSourcePageItem);
+bindDetailMobileMenu("proofMobileActions", "proofMobileActionsMenu", "proofPageActions", () => activeProofPageItem);
 $("viewerDetailsBtn").onclick = () => {
   const expanding = $("documentUnifiedLayout").classList.contains("is-details-collapsed");
   setUnifiedDetailsCollapsed(!expanding);

@@ -537,18 +537,17 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
           header: get(".document-detail-header"),
           title: get("#viewerTitle"),
           titleStyle: { whiteSpace: titleStyle.whiteSpace, textOverflow: titleStyle.textOverflow, overflow: titleStyle.overflow },
-          close: get("#documentPageBackBtn")
+          closeDisplay: getComputedStyle(document.getElementById("documentPageBackBtn")).display
         };
       });
       if (viewport.width <= 390) {
-        /* Le Retour vit désormais dans l'en-tête : plafond recalibré (mesuré 141 px). */
+        /* Le Retour vit désormais dans la topbar (header mobile harmonisé,
+           modèle fiche Personne) : ce fragment statique n'a pas de topbar. */
         assert.ok(mobileHeader.header.height <= 148, `en-tête mobile contenu avec métadonnées visibles (${mobileHeader.header.height}px)`);
         assert.equal(mobileHeader.titleStyle.whiteSpace, "nowrap", "titre sur une ligne sans couper les mots");
         assert.equal(mobileHeader.titleStyle.textOverflow, "ellipsis", "titre long tronqué par ellipse");
-         assert.ok(mobileHeader.title.right <= mobileHeader.close.x + 1, "le titre ne chevauche pas le lien Retour");
-         assert.ok(mobileHeader.close.y >= mobileHeader.header.y - 1, "le lien Retour est dans l'en-tête");
-         assert.ok(mobileHeader.close.right <= mobileHeader.header.right + 1, "le Retour est aligné à droite de l'en-tête");
-         assert.ok(mobileHeader.close.height >= 43.5 && mobileHeader.close.width >= 43.5, "Retour avec cible 44px");
+        assert.equal(mobileHeader.closeDisplay, "none", "Retour interne masqué : le chevron du header mobile prend le relais");
+        assert.ok(mobileHeader.title.right <= mobileHeader.header.right + 1, "titre contenu dans l'en-tête");
       }
       if (viewport.width === 320) {
         const truncation = await page.locator("#viewerTitle").evaluate(element => ({ whiteSpace: getComputedStyle(element).whiteSpace, textOverflow: getComputedStyle(element).textOverflow, label: element.getAttribute("aria-label") }));
@@ -832,14 +831,9 @@ test("PDF mobile WebKit : uniquement Miniatures et Informations sous le lecteur"
     await openViewerPage(page);
     await page.waitForFunction(() => document.getElementById("viewerPdfPageCanvas").width > 0, undefined, { timeout: 15000 });
     const back = page.locator("#documentPageBackBtn");
-    assert.equal(await back.evaluate(element => getComputedStyle(element).fontSize), "14px", "Retour PDF WebKit en 14 px");
-    await back.hover();
-    const decoration = await back.evaluate(element => ({
-      arrow: getComputedStyle(element.querySelector(".dedicated-page-back-arrow")).textDecorationLine,
-      label: getComputedStyle(element.querySelector(".dedicated-page-back-label")).textDecorationLine
-    }));
-    assert.equal(decoration.arrow, "none", "flèche Retour non soulignée dans WebKit");
-    assert.ok(decoration.label.includes("underline"), "texte Retour souligné au survol dans WebKit");
+    /* Header mobile harmonisé : le Retour interne est masqué sur mobile — le
+       chevron de la topbar (hors de ce fragment statique) assure le retour. */
+    assert.equal(await back.evaluate(element => getComputedStyle(element).display), "none", "Retour interne masqué au profit du header mobile dans WebKit");
     assert.equal(await page.locator(".document-original-head").evaluate(element => getComputedStyle(element).display), "none", "l’en-tête Original et son dépliant ne prennent pas de place en PDF mobile");
     assert.equal(await page.locator("#viewerDetailsExpandBtn").isVisible(), false, "le dépliant isolé ne paraît pas sous les volets");
     const toggles = page.locator("#pdfPanelToggles .pdf-panel-toggle");

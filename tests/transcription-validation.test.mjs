@@ -135,13 +135,13 @@ closeDocumentPage = (...args) => {
 window.__ignoreAuthBootstrap = true;
 `;
 
-async function openInc2Harness(t) {
+async function openInc2Harness(t, viewport = { width: 1280, height: 900 }) {
   let browser;
   try { browser = await chromium.launch({ headless: true }); }
   catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return null; }
   const server = await startStaticServer(ROOT);
   const hooks = `${HOOKS}\n${AUTH_PATCH}`;
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "fr-FR" });
+  const context = await browser.newContext({ viewport, locale: "fr-FR" });
   await context.route("**/*", async route => {
     const url = route.request().url();
     if (new URL(url).pathname.endsWith("/js/app.js")) {
@@ -1067,5 +1067,79 @@ test("repli du volet Document : vue étendue, contenu et défilement conservés,
     await context.close().catch(() => {});
     await browser.close().catch(() => {});
     await server.close().catch(() => {});
+  }
+});
+
+/* Header mobile de consultation (modèle fiche Personne) : chevron de retour,
+   « La Nostra Storia » centré, aucun menu fantôme — uniquement en consultation ;
+   l'atelier d'édition reste strictement identique à avant. */
+test("transcription consultée : header mobile harmonisé, atelier d'édition intact", async t => {
+  for (const width of [320, 375, 390]) {
+    const harness = await openInc2Harness(t, { width, height: 844 });
+    if (!harness) return;
+    const { browser, server, context, page, pageErrors } = harness;
+    try {
+      await bootInc2(page);
+      await page.evaluate(() => window.__inc2.seedOfficial());
+      await page.evaluate(() => window.__inc2.openDoc());
+      /* Le volet Informations est replié sur mobile : le bouton de la carte vit
+         dans le DOM (état attached) — le clic DOM fonctionne même replié. */
+      await page.waitForSelector(".document-transcription-card [data-transcribe-document]", { state: "attached" });
+      await page.evaluate(() => window.__inc2.transcribe());
+      await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+      await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").classList.contains("is-edit-session"));
+
+      const consultation = await page.evaluate(() => {
+        const header = document.getElementById("transcriptionMobileHeader");
+        const contentBack = document.getElementById("workshopBackBtn");
+        const mobileBack = document.getElementById("transcriptionMobileBackBtn");
+        const titleBox = header.querySelector("strong").getBoundingClientRect();
+        return {
+          headerVisible: getComputedStyle(header).display !== "none" && header.getBoundingClientRect().height > 0,
+          contentBackDisplay: getComputedStyle(contentBack).display,
+          mobileBackHeight: mobileBack.getBoundingClientRect().height,
+          menuCount: header.querySelectorAll("details").length,
+          spacerCount: header.querySelectorAll(".detail-mobile-header-spacer").length,
+          titleText: header.querySelector("strong").textContent,
+          titleCenterDelta: Math.round((titleBox.left + titleBox.right) / 2 - innerWidth / 2),
+          horizontalOverflow: document.documentElement.scrollWidth - innerWidth
+        };
+      });
+      assert.equal(consultation.headerVisible, true, `${width}px : header mobile visible pendant la consultation`);
+      assert.equal(consultation.contentBackDisplay, "none", `${width}px : Retour interne de l'atelier masqué en consultation`);
+      assert.ok(consultation.mobileBackHeight >= 44, `${width}px : chevron de retour ≥ 44 px (${consultation.mobileBackHeight}px)`);
+      assert.equal(consultation.menuCount, 0, `${width}px : aucun menu « … » fantôme : la page n'en possède pas`);
+      assert.equal(consultation.spacerCount, 1, `${width}px : espaceur de centrage à droite pour équilibrer le titre`);
+      assert.equal(consultation.titleText, "La Nostra Storia", `${width}px : titre de marque centré, sans logo`);
+      assert.ok(Math.abs(consultation.titleCenterDelta) <= 1, `${width}px : titre centré horizontalement (${consultation.titleCenterDelta}px)`);
+      assert.ok(consultation.horizontalOverflow <= 0, `${width}px : aucun débordement horizontal (${consultation.horizontalOverflow}px)`);
+
+      /* Retour par le chevron : même contexte que l'ancien Retour interne. */
+      await page.click("#transcriptionMobileBackBtn");
+      await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentDetailView").hidden);
+
+      /* Mode édition : l'atelier redevient strictement identique à avant. Le pied
+         (Modifier) vit dans le panneau droit, affiché hors onglet Original. */
+      await page.evaluate(() => window.__inc2.transcribe());
+      await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+      await page.click("#workshopTabItalian");
+      await page.waitForFunction(() => getComputedStyle(document.getElementById("workshopPanelRight")).display !== "none");
+      await page.click("#workshopModeBtn");
+      await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").classList.contains("is-edit-session"));
+      const edition = await page.evaluate(() => ({
+        headerHidden: getComputedStyle(document.getElementById("transcriptionMobileHeader")).display === "none",
+        backVisible: getComputedStyle(document.getElementById("workshopBackBtn")).display !== "none",
+        backHeight: document.getElementById("workshopBackBtn").getBoundingClientRect().height
+      }));
+      assert.equal(edition.headerHidden, true, `${width}px : header de consultation masqué pendant l'édition`);
+      assert.equal(edition.backVisible, true, `${width}px : Retour de l'atelier conservé en édition`);
+      assert.ok(edition.backHeight >= 44, `${width}px : Retour atelier ≥ 44 px en édition (${edition.backHeight}px)`);
+
+      assertNoInc2PageErrors(pageErrors);
+    } finally {
+      await context.close().catch(() => {});
+      await browser.close().catch(() => {});
+      await server.close().catch(() => {});
+    }
   }
 });

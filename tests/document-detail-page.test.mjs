@@ -7,7 +7,7 @@ const svg = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w
 
 const hooks = `
 window.__documentPageTest = {
-  show(view = "genealogy") { $("authScreen").hidden = true; setView(view); },
+  show(view = "genealogy") { $("authScreen").hidden = true; $("topbar").hidden = false; setView(view); },
   seed() {
     const documentItem = {
       id: "doc-page-fixture", title: "Registre de consultation paroissial de la commune de Palermo — année 1891",
@@ -99,9 +99,13 @@ window.__documentPageTest = {
       personName: $("firstName").value,
       personSection: activePersonSection,
       horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
-      backHeight: $("documentPageBackBtn").getBoundingClientRect().height,
+      backHeight: (() => { const back = $("documentPageBackBtn"); const box = back.getBoundingClientRect(); return box.height > 0 && getComputedStyle(back).display !== "none" ? box.height : $("documentMobileBackBtn").getBoundingClientRect().height; })(),
       backLabel: $("documentPageBackBtn").getAttribute("aria-label"),
       backVisibleLabel: $("documentPageBackBtn").querySelector(".dedicated-page-back-label")?.textContent || "",
+      mobileHeaderVisible: (() => { const header = $("documentMobileHeader"); return getComputedStyle(header).display !== "none" && header.getBoundingClientRect().height > 0; })(),
+      mobileBackHeight: $("documentMobileBackBtn").getBoundingClientRect().height,
+      mobileTitleCenterDelta: (() => { const box = $("documentMobileHeader").querySelector("strong").getBoundingClientRect(); return Math.round((box.left + box.right) / 2 - innerWidth / 2); })(),
+      contentBackDisplay: getComputedStyle($("documentPageBackBtn")).display,
       backInsideHeader: !!document.querySelector(".dedicated-page-header #documentPageBackBtn"),
       backUnderActions: (() => {
         const back = $("documentPageBackBtn").getBoundingClientRect();
@@ -308,6 +312,12 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.ok(state.backHeight >= 44, `Retour ≥ 44px (${state.backHeight})`);
     assert.equal(state.backVisibleLabel, "Retour", "libellé mobile « Retour » seul, sans destination (lot corrections)");
     assert.equal(state.backInsideHeader, true, "le Retour reste dans l’en-tête sur mobile");
+    /* Header mobile harmonisé (modèle fiche Personne) : le chevron de la topbar
+       est l'unique retour visible ; le Retour interne disparaît du contenu. */
+    assert.equal(state.mobileHeaderVisible, true, "header mobile de consultation visible à 320px");
+    assert.ok(state.mobileBackHeight >= 44, `chevron de retour ≥ 44px à 320px (${state.mobileBackHeight})`);
+    assert.ok(Math.abs(state.mobileTitleCenterDelta) <= 1, `titre « La Nostra Storia » centré à 320px (${state.mobileTitleCenterDelta}px)`);
+    assert.equal(state.contentBackDisplay, "none", "aucun Retour redondant dans le contenu à 320px");
     /* Lot G : plus d'onglets — volet Informations fermé par défaut sur mobile,
        ouvert par la bascule sous la visionneuse. */
     assert.equal(state.tabsAbsent, true, "aucun onglet Original/Informations à 320px");
@@ -529,10 +539,15 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       const view = document.getElementById(id);
       const header = view.querySelector(".dedicated-page-header");
       const actions = header.querySelector(".dedicated-page-actions-row")?.getBoundingClientRect() || null;
-      const back = header.querySelector(".dedicated-page-back").getBoundingClientRect();
+      const backElement = header.querySelector(".dedicated-page-back");
+      const back = backElement.getBoundingClientRect();
       const crumb = header.querySelector(".consultation-breadcrumb").getBoundingClientRect();
       const rect = header.getBoundingClientRect();
-      return { actionBackGap: actions ? back.y - actions.bottom : null, rightInset: rect.right - back.right, returnCenterDelta: Math.abs((back.y + back.height / 2) - (crumb.y + crumb.height / 2)), returnFontSize: getComputedStyle(header.querySelector(".dedicated-page-back")).fontSize, height: rect.height };
+      const mobileHeaderId = { sourceDetailView: "sourceMobileHeader", proofDetailView: "proofMobileHeader", documentDetailView: "documentMobileHeader" }[id];
+      const mobileHeader = document.getElementById(mobileHeaderId);
+      const mobileBack = mobileHeader.querySelector(".detail-mobile-back").getBoundingClientRect();
+      const titleBox = mobileHeader.querySelector("strong").getBoundingClientRect();
+      return { actionBackGap: actions ? back.y - actions.bottom : null, rightInset: rect.right - back.right, returnCenterDelta: Math.abs((back.y + back.height / 2) - (crumb.y + crumb.height / 2)), returnFontSize: getComputedStyle(backElement).fontSize, height: rect.height, contentBackDisplay: getComputedStyle(backElement).display, mobileBackHeight: mobileBack.height, mobileHeaderVisible: getComputedStyle(mobileHeader).display !== "none", mobileTitleCenterDelta: Math.round((titleBox.left + titleBox.right) / 2 - innerWidth / 2) };
     }, viewId);
     for (const width of [320, 375, 390, 820, 1440]) {
       await page.setViewportSize({ width, height: 900 });
@@ -553,9 +568,18 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       assert.equal(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", `navigation masquée dans Document à ${width}px`);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `aucun débordement horizontal dans Document à ${width}px`);
       for (const [name, geometry] of [["Source", sourceGeometry], ["Preuve", proofGeometry], ["Document", documentGeometry]]) {
-        assert.ok(geometry.rightInset >= -1 && geometry.rightInset <= 3, `${width}px : Retour de ${name} aligné à droite (${geometry.rightInset}px)`);
-        assert.ok(geometry.returnCenterDelta <= 1, `${width}px : Retour de ${name} centré sur le fil (${geometry.returnCenterDelta}px)`);
-        assert.equal(geometry.returnFontSize, "14px", `${width}px : Retour de ${name} en 14 px`);
+        if (width <= 760) {
+          /* Header mobile harmonisé : le Retour interne disparaît, le chevron
+             de la topbar prend le relais (modèle fiche Personne). */
+          assert.equal(geometry.mobileHeaderVisible, true, `${width}px : header mobile de consultation visible pour ${name}`);
+          assert.equal(geometry.contentBackDisplay, "none", `${width}px : aucun Retour redondant dans le contenu de ${name}`);
+          assert.ok(geometry.mobileBackHeight >= 44, `${width}px : chevron de ${name} ≥ 44 px (${geometry.mobileBackHeight}px)`);
+          assert.ok(Math.abs(geometry.mobileTitleCenterDelta) <= 1, `${width}px : titre centré pour ${name} (${geometry.mobileTitleCenterDelta}px)`);
+        } else {
+          assert.ok(geometry.rightInset >= -1 && geometry.rightInset <= 3, `${width}px : Retour de ${name} aligné à droite (${geometry.rightInset}px)`);
+          assert.ok(geometry.returnCenterDelta <= 1, `${width}px : Retour de ${name} centré sur le fil (${geometry.returnCenterDelta}px)`);
+          assert.equal(geometry.returnFontSize, "14px", `${width}px : Retour de ${name} en 14 px`);
+        }
       }
       assert.equal(await page.locator("#documentPageActions").count(), 0, `${width}px : aucun menu ⋯ dans l’en-tête Document`);
       assert.equal(await page.locator("#viewerEditBtn").count(), 1, `${width}px : action Modifier unique dans les informations`);

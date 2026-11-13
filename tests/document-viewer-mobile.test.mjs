@@ -232,7 +232,12 @@ async function measureViewer(page) {
     const detailContent = document.getElementById("viewerDocumentDetailsContent");
     const actionsButton = document.getElementById("viewerActionsBtn");
     const externalIcon = external.querySelector("use");
-    const closeBtn = document.getElementById("documentPageBackBtn");
+    const closeBtn = (() => {
+      const contentClose = document.getElementById("documentPageBackBtn");
+      const box = contentClose.getBoundingClientRect();
+      return box.height > 0 && getComputedStyle(contentClose).display !== "none"
+        ? contentClose : document.getElementById("documentMobileBackBtn");
+    })();
     const editBtn = document.getElementById("viewerEditBtn");
     const img = document.getElementById("viewerImage");
     const frame = document.getElementById("viewerFrame");
@@ -1008,7 +1013,9 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
             title: rect(title), titleStyle: { whiteSpace: getComputedStyle(title).whiteSpace, textOverflow: getComputedStyle(title).textOverflow, webkitLineClamp: getComputedStyle(title).webkitLineClamp },
             actions: rect(documentPage.querySelector(".document-detail-actions")),
             menu: rect(document.getElementById("viewerActionsBtn")),
-            close: rect(document.getElementById("documentPageBackBtn")),
+            close: rect((() => { const contentClose = document.getElementById("documentPageBackBtn"); const box = contentClose.getBoundingClientRect(); return box.height > 0 && getComputedStyle(contentClose).display !== "none" ? contentClose : document.getElementById("documentMobileBackBtn"); })()),
+            contentBackDisplay: getComputedStyle(document.getElementById("documentPageBackBtn")).display,
+            topbar: rect(document.getElementById("topbar")),
             controls: rect(controls), reader: rect(reader), image: rect(document.getElementById("viewerImage")),
             fullscreen: rect(document.getElementById("viewerFullscreenBtn")), details: rect(details),
             zoomOut: rect(document.querySelector('[data-viewer-image-zoom="out"]')), zoomIn: rect(document.querySelector('[data-viewer-image-zoom="in"]')),
@@ -1024,9 +1031,11 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
         assert.equal(state.titleStyle.webkitLineClamp, "2");
         assert.equal(await page.locator("#viewerTitle").getAttribute("aria-label"), title, "titre complet accessible malgré le clamp visuel");
         assert.ok(state.title.right <= state.actions.x + 1, "le titre ne chevauche pas les actions");
-        assert.ok(state.close.y >= state.header.y - 1, "le Retour est dans l'en-tête");
-        assert.ok(state.close.right <= state.header.right + 1, "le Retour est aligné à droite de l'en-tête");
-        assert.ok(state.close.y >= state.actions.bottom - 1, "le Retour est directement sous le groupe d'actions");
+        /* Header mobile harmonisé : le Retour interne disparaît, le chevron
+           prend sa place dans la barre supérieure (modèle fiche Personne). */
+        assert.equal(state.contentBackDisplay, "none", "aucun Retour redondant dans le contenu");
+        assert.ok(state.close.y >= state.topbar.y - 1 && state.close.y + state.close.height <= state.topbar.bottom + 1, "le chevron de retour vit dans la barre supérieure");
+        assert.ok(state.close.x >= state.topbar.x - 1 && state.close.x + state.close.width <= state.topbar.right + 1, "le chevron reste dans la barre supérieure");
         assert.ok(Math.abs(state.menu.y - state.actions.y) <= 2 || state.menu.y >= state.actions.y, "menu d’actions dans la grille d’en-tête");
         for (const action of [state.menu, state.close]) assert.ok(action.width >= 43.5 && action.height >= 43.5, "actions d’en-tête de 44 × 44 px");
         if (width === 320) {

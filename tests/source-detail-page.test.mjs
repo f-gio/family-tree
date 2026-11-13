@@ -5,7 +5,7 @@ import { ROOT, startStaticServer } from "./helpers.mjs";
 
 const hooks = `
 window.__sourcePageTest = {
-  show(view = "genealogy") { $("authScreen").hidden = true; setView(view); },
+  show(view = "genealogy") { $("authScreen").hidden = true; $("topbar").hidden = false; setView(view); },
   seed() {
     const firestoreTimestamp = { toDate() { return new Date("2024-01-01T00:00:00Z"); } };
     const source = {
@@ -84,12 +84,19 @@ window.__sourcePageTest = {
       scrollY: window.scrollY,
       actionLabels: [...(!$('sourcePageReviseBtn').hidden ? ["revise"] : []), ...$('sourcePageActionsMenu').querySelectorAll('[data-genealogy-item-action]')].map(button => typeof button === "string" ? button : button.dataset.genealogyItemAction),
       horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
-      actionHeight: document.querySelector('#sourcePageActions > summary').getBoundingClientRect().height,
+      actionHeight: (() => { const pageMenu = document.querySelector('#sourcePageActions > summary'); const box = pageMenu.getBoundingClientRect(); return box.height > 0 && getComputedStyle(pageMenu).display !== "none" ? box.height : document.querySelector('#sourceMobileActions > summary').getBoundingClientRect().height; })(),
       reviseHeight: $("sourcePageReviseBtn").getBoundingClientRect().height,
       reviseY: $("sourcePageReviseBtn").getBoundingClientRect().y,
-      menuY: document.querySelector('#sourcePageActions > summary').getBoundingClientRect().y,
-      backHeight: $('sourcePageBackBtn').getBoundingClientRect().height,
+      menuY: (() => { const pageMenu = document.querySelector('#sourcePageActions > summary'); const box = pageMenu.getBoundingClientRect(); return box.height > 0 && getComputedStyle(pageMenu).display !== "none" ? box.y : document.querySelector('#sourceMobileActions > summary').getBoundingClientRect().y; })(),
+      backHeight: (() => { const pageBack = document.querySelector('#sourcePageBackBtn'); const box = pageBack.getBoundingClientRect(); return box.height > 0 && getComputedStyle(pageBack).display !== "none" ? box.height : document.querySelector('#sourceMobileBackBtn').getBoundingClientRect().height; })(),
       backVisibleLabel: document.querySelector('#sourcePageBackBtn .dedicated-page-back-label')?.textContent || "",
+      mobileHeaderVisible: (() => { const header = document.querySelector('#sourceMobileHeader'); return getComputedStyle(header).display !== "none" && header.getBoundingClientRect().height > 0; })(),
+      mobileBackHeight: document.querySelector('#sourceMobileBackBtn').getBoundingClientRect().height,
+      mobileBackLabel: document.querySelector('#sourceMobileBackBtn').getAttribute("aria-label") || "",
+      mobileTitleCenterDelta: (() => { const box = document.querySelector('#sourceMobileHeader > strong').getBoundingClientRect(); return Math.round((box.left + box.right) / 2 - innerWidth / 2); })(),
+      contentBackDisplay: getComputedStyle(document.querySelector('#sourcePageBackBtn')).display,
+      pageMenuDisplay: getComputedStyle(document.querySelector('#sourcePageActions')).display,
+      mobileMenuHeight: document.querySelector('#sourceMobileActions > summary').getBoundingClientRect().height,
       documentActionHeight: document.querySelector('[data-source-document-open]')?.getBoundingClientRect().height || 0,
       proofActionHeight: document.querySelector('#sourcePageContent [data-open-genealogy="proof"]')?.getBoundingClientRect().height || 0,
       transcriptionActionHeight: document.querySelector('#sourcePageContent [data-open-genealogy="transcription"]')?.getBoundingClientRect().height || 0,
@@ -311,14 +318,20 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
         await page.locator("#sourcePageBreadcrumb .consultation-breadcrumb-overflow summary").click();
         await page.locator("#sourcePageBreadcrumb .consultation-breadcrumb-overflow-menu [data-consultation-breadcrumb-action='document']").click();
         await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
-        await page.click("#documentPageBackBtn");
+        await page.click("#documentMobileBackBtn");
         await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
       }
-       assert.ok(state.actionHeight >= 44, `cible tactile menu à ${width}px (${state.actionHeight}px)`);
-       assert.ok(state.backHeight >= 44, `cible tactile Retour à ${width}px (${state.backHeight}px)`);
-       assert.equal(state.backVisibleLabel, "Retour", `libellé mobile « Retour » seul à ${width}px`);
-       assert.ok(state.reviseHeight >= 44, `action Réviser visible à ${width}px (${state.reviseHeight}px)`);
-       assert.ok(Math.abs(state.reviseY - state.menuY) <= 1, `Réviser et menu sur la même rangée à ${width}px`);
+      /* Header mobile harmonisé (modèle fiche Personne) : chevron à gauche,
+         titre centré, menu monté dans la topbar, plus aucun Retour en page. */
+      assert.equal(state.mobileHeaderVisible, true, `header mobile de consultation visible à ${width}px`);
+      assert.ok(state.mobileBackHeight >= 44, `chevron de retour à 44 px à ${width}px (${state.mobileBackHeight}px)`);
+      assert.match(state.mobileBackLabel, /^Retour/, `libellé contextuel du chevron à ${width}px`);
+      assert.ok(Math.abs(state.mobileTitleCenterDelta) <= 1, `titre centré horizontalement à ${width}px (${state.mobileTitleCenterDelta}px)`);
+      assert.equal(state.contentBackDisplay, "none", `aucun Retour redondant dans le contenu à ${width}px`);
+      assert.equal(state.pageMenuDisplay, "none", `menu en page masqué au profit du header à ${width}px`);
+      assert.ok(state.actionHeight >= 44, `cible tactile menu à ${width}px (${state.actionHeight}px)`);
+      assert.ok(state.backHeight >= 44, `cible tactile Retour à ${width}px (${state.backHeight}px)`);
+      assert.ok(state.reviseHeight >= 44, `action Réviser visible à ${width}px (${state.reviseHeight}px)`);
       assert.ok(state.documentActionHeight >= 44, `cible tactile document à ${width}px (${state.documentActionHeight}px)`);
       assert.ok(state.proofActionHeight >= 44, `cible tactile preuve à ${width}px (${state.proofActionHeight}px)`);
       assert.ok(state.transcriptionActionHeight >= 44, `cible tactile transcription à ${width}px (${state.transcriptionActionHeight}px)`);

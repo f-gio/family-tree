@@ -950,7 +950,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator('[data-journey-open-source="person-page-source"]').click();
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden, undefined, { timeout: 10000 });
     assert.match(await page.locator("#sourcePageTitle").textContent(), /Cadastre/, "fiche source ouverte depuis le parcours");
-    await page.locator("#sourcePageBackBtn").click();
+    await page.locator("#sourceMobileBackBtn").click();
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, undefined, { timeout: 10000 });
 
     /* Profession et événement ponctuel indépendants. */

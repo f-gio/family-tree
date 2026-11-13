@@ -398,7 +398,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
         assert.ok(box.sw <= box.cw + 2, `${width}px : page sans débordement horizontal`);
         assert.ok(box.docSw <= width + 1, `${width}px : page sans débordement`);
         assert.equal(box.cols, 1, `${width}px : faits empilés en une colonne`);
-        await page.click("#proofPageBackBtn");
+        await page.click("#proofMobileBackBtn");
         await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
         await closeResidualDialogs();
       }
