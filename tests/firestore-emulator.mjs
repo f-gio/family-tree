@@ -35,6 +35,10 @@ let auth;
 let db;
 let adminUid;
 let memberUid;
+// Vrai si les règles chargées exigent un caractère significatif dans le
+// texte italien officiel (candidat de production renforcé) ; faux pour le
+// fichier gelé du dépôt qui n'exige que size() > 0.
+let transcriptionRulesRejectWhitespaceOnly = false;
 
 function signIn(uid, email, password) {
   return signInWithEmailAndPassword(auth, email, password);
@@ -76,6 +80,12 @@ before(async () => {
     rulesWithCandidate = baseRules.replace(/    function validGenealogyDate\(value\) \{[\s\S]*?(?=\n    function validPerson\()/, () => candidateFunction.replace(/^/gm, "    ").trimEnd());
     assert.notEqual(rulesWithCandidate, baseRules, "la règle candidate doit remplacer la fonction de validation attendue");
   }
+  // Comportement réellement chargé du contrôle italien : le candidat définitif
+  // refuse aussi les textes composés uniquement de blancs ; le fichier gelé
+  // du dépôt (firestore.rules, non modifiable) n'exige que size() > 0. Le
+  // test d'espaces asserte le comportement chargé, sans masquer l'un ou
+  // l'autre.
+  transcriptionRulesRejectWhitespaceOnly = rulesWithCandidate.includes("transcriptionIt.matches(");
   const rulesResponse = await fetch(`http://${HOST}:${EMULATOR_PORT}/emulator/v1/projects/${EMULATOR_PROJECT_ID}:securityRules`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -2337,6 +2347,88 @@ test("LOT 2B.2 incrément 2 — transcriptions officielles : droits inchangés, 
   try {
     const readable = await getDoc(headRef);
     assert.equal(readable.exists(), true, "membre approuvé : lecture de l'historique officiel");
+  } finally {
+    await signOutAll();
+  }
+});
+
+// ─── LOT 2B.2 INCRÉMENT 3 : TRANSCRIPTION PROGRESSIVE ET RÉVISION SANS ──────
+// L'italien non vide n'est exigé QUE sur transcriptionHeads (création ET
+// révision). Les brouillons restent libres même incomplets, une révision qui
+// n'affecte pas le texte italien reste acceptée, et le comportement du
+// contrôle pour un texte d'espaces seuls est figé par ces assertions.
+
+test("LOT 2B.2 incrément 3 — brouillon incomplet autorisé, révision traduction seule acceptée, espaces seuls documentés", async () => {
+  const store = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
+
+  /* 1) Brouillon dont le texte italien est vide : accepté — la transcription
+        progressive (sauvegardes au fil de l'eau) n'est pas bloquée par le
+        contrôle officiel, qui ne vise que la collection des en-têtes. */
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  try {
+    const draftRef = doc(db, "transcriptionDrafts", memberUid, "documents", "doc-sync", "pages", "page-sync");
+    await setDoc(draftRef, transcriptionDraftPayload(memberUid, {
+      snapshot: {
+        documentId: "doc-sync", pageId: "page-sync", original: [],
+        passages: [{ id: "p-1", order: 0, textIt: "", translationFr: null }],
+        createdIds: [], selectedPassageId: "p-1"
+      }
+    }));
+    assert.equal((await getDoc(draftRef)).exists(), true, "brouillon incomplet accepté (transcription progressive)");
+    await deleteDoc(draftRef);
+  } finally {
+    await signOutAll();
+  }
+
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  try {
+    /* 2) Blancs seuls : le candidat définitif refuse tout texte italien
+          composé uniquement de blancs — espaces, retour à la ligne, blancs
+          Unicode (propriété White_Space, même jeu que le trim applicatif).
+          Le fichier gelé du dépôt (firestore.rules, non modifiable) n'exige
+          que size() > 0 : son comportement historique est asserté tel quel,
+          selon les règles réellement chargées. */
+    if (transcriptionRulesRejectWhitespaceOnly) {
+      const whitespaceCases = [
+        ["espaces", "   "],
+        ["retour à la ligne", "\n"],
+        ["blancs Unicode (NBSP)", "\u00A0\u00A0"]
+      ];
+      for (let index = 0; index < whitespaceCases.length; index++) {
+        const [label, textIt] = whitespaceCases[index];
+        await expectDenied(store.createOfficial({
+          type: "transcription", id: `tx-inc3-ws-${index}`, revisionId: `tx-inc3-ws-${index}-rev`, eventId: `tx-inc3-ws-${index}-ev`,
+          data: transcriptionOfficialContent({ textIt, translationFr: null }),
+          reason: `Blancs seuls : ${label}`, actorUid: adminUid
+        }), `texte italien de ${label} seuls refusé`);
+      }
+    } else {
+      await store.createOfficial({
+        type: "transcription", id: "tx-inc3-spaces", revisionId: "tx-inc3-s-rev", eventId: "tx-inc3-s-ev",
+        data: transcriptionOfficialContent({ textIt: "   ", translationFr: null }),
+        reason: "Espaces seuls", actorUid: adminUid
+      });
+      assert.equal((await getDoc(doc(db, "transcriptionHeads", "tx-inc3-spaces"))).exists(), true,
+        "fichier gelé du dépôt : espaces seuls encore acceptés (comportement historique)");
+    }
+
+    /* 3) Création officielle avec texte italien réel, puis révision qui ne
+          change que la traduction française (italien identique) : acceptée —
+          aucune modification sans rapport avec l'italien n'est bloquée. */
+    await store.createOfficial({
+      type: "transcription", id: "tx-inc3", revisionId: "tx-inc3-rev1", eventId: "tx-inc3-ev1",
+      data: transcriptionOfficialContent({ textIt: "Ada, figlia di Giuseppe", translationFr: null }),
+      reason: "Validation de la transcription", actorUid: adminUid
+    });
+    await store.reviseOfficial({
+      type: "transcription", id: "tx-inc3", revisionId: "tx-inc3-rev2", eventId: "tx-inc3-ev2",
+      data: transcriptionOfficialContent({ textIt: "Ada, figlia di Giuseppe", translationFr: "Ada, fille de Giuseppe", changeKind: "translation-correction" }),
+      reason: "Traduction française ajoutée", actorUid: adminUid, expectedRevisionId: "tx-inc3-rev1"
+    });
+    const head = await getDoc(doc(db, "transcriptionHeads", "tx-inc3"));
+    assert.equal(head.data().version, 2, "révision limitée à la traduction acceptée (v2)");
+    assert.equal(head.data().data.translationFr, "Ada, fille de Giuseppe", "traduction française enregistrée");
+    assert.equal(head.data().data.transcriptionIt, "Ada, figlia di Giuseppe", "texte italien inchangé");
   } finally {
     await signOutAll();
   }

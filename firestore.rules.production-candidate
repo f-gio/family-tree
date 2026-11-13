@@ -453,6 +453,19 @@ function validGenealogyDate(value) {
         && validCollaborationId(data.eventId) && validCollaborationId(data.revisionId);
     }
 
+    /* Une transcription officielle ne peut jamais porter un texte italien vide :
+       invariant vérifié côté base à chaque écriture (création ET révision).
+       Un texte composé uniquement de blancs (propriété Unicode
+       White_Space, identique au trim applicatif) est refusé au même
+       titre qu'un texte vide.
+       La traduction française reste facultative. */
+    function hasNonEmptyItalian(data) {
+      return data.data is map
+        && data.data.transcriptionIt is string
+        && data.data.transcriptionIt.size() > 0
+        && !data.data.transcriptionIt.matches('^[\\t\\n\\v\\f\\r \\x{0085}\\x{00A0}\\x{1680}\\x{2000}-\\x{200A}\\x{2028}\\x{2029}\\x{202F}\\x{205F}\\x{3000}]*$');
+    }
+
     function officialDeletionLockPath(objectType, objectId) {
       return /databases/$(database)/documents/officialDeletionLocks/$(objectType)/objects/$(objectId);
     }
@@ -692,11 +705,13 @@ function validGenealogyDate(value) {
     match /transcriptionHeads/{transcriptionId} {
       allow read: if isApproved();
       allow create: if isAdmin() && validOfficialRecord(request.resource.data)
+        && hasNonEmptyItalian(request.resource.data)
         && request.resource.data.version == 1 && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time
         && hasOfficialEvent(request.resource.data.eventId, 'transcription', transcriptionId, request.resource.data.revisionId, null)
         && hasOfficialRevision('transcriptionRevisions', request.resource.data.revisionId, transcriptionId, request.resource.data.eventId, request.resource.data.data, null);
       allow update: if isAdmin() && validOfficialRecord(request.resource.data)
+        && hasNonEmptyItalian(request.resource.data)
         && request.resource.data.version == resource.data.version + 1
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.createdBy == resource.data.createdBy
