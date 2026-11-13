@@ -36,8 +36,8 @@ let db;
 let adminUid;
 let memberUid;
 // Vrai si les règles chargées exigent un caractère significatif dans le
-// texte italien officiel (candidat de production renforcé) ; faux pour le
-// fichier gelé du dépôt qui n'exige que size() > 0.
+// texte italien officiel (référence firestore.rules publiée) ; faux pour un
+// ancien fichier qui n'exigerait que size() > 0.
 let transcriptionRulesRejectWhitespaceOnly = false;
 
 function signIn(uid, email, password) {
@@ -63,28 +63,24 @@ function deferred() {
 
 // ─── Bootstrap émulateur ─────────────────────────────────────────────────────
 before(async () => {
-  // Applique à l'émulateur local uniquement l'extension candidate isolée; les
-  // autres règles proviennent du fichier actif inchangé. Un fichier complet
-  // alternatif peut être fourni pour valider un candidat d'un autre projet :
+  // firestore.rules est la référence unique : son contenu est strictement
+  // identique aux règles actives publiées (production et recette). Un fichier
+  // complet alternatif peut être fourni pour valider un futur candidat :
   // FIRESTORE_RULES_COMPLETE=chemin (jamais de données ni de projet réel).
   let rulesWithCandidate;
   if (process.env.FIRESTORE_RULES_COMPLETE) {
     rulesWithCandidate = await readFile(new URL(process.env.FIRESTORE_RULES_COMPLETE, import.meta.url), "utf8");
     assert.ok(rulesWithCandidate.includes("validGenealogyDate"), "le fichier complet fourni doit contenir la validation des dates");
   } else {
-    const [baseRules, candidateFragment] = await Promise.all([
-      readFile(new URL("../firestore.rules", import.meta.url), "utf8"),
-      readFile(new URL("../firestore.rules.candidate", import.meta.url), "utf8")
-    ]);
-    const candidateFunction = candidateFragment.slice(candidateFragment.indexOf("function validGenealogyDate"));
-    rulesWithCandidate = baseRules.replace(/    function validGenealogyDate\(value\) \{[\s\S]*?(?=\n    function validPerson\()/, () => candidateFunction.replace(/^/gm, "    ").trimEnd());
-    assert.notEqual(rulesWithCandidate, baseRules, "la règle candidate doit remplacer la fonction de validation attendue");
+    rulesWithCandidate = await readFile(new URL("../firestore.rules", import.meta.url), "utf8");
+    assert.ok(rulesWithCandidate.includes("['exact', 'year', 'about', 'before', 'after', 'between', 'unknown']"), "firestore.rules doit contenir les sept types de dates");
+    assert.ok(rulesWithCandidate.includes("hasNonEmptyItalian"), "firestore.rules doit contenir la protection des transcriptions");
   }
-  // Comportement réellement chargé du contrôle italien : le candidat définitif
-  // refuse aussi les textes composés uniquement de blancs ; le fichier gelé
-  // du dépôt (firestore.rules, non modifiable) n'exige que size() > 0. Le
-  // test d'espaces asserte le comportement chargé, sans masquer l'un ou
-  // l'autre.
+  // Comportement réellement chargé du contrôle italien : la référence actuelle
+  // refuse aussi les textes composés uniquement de blancs ; un ancien fichier
+  // fourni via FIRESTORE_RULES_COMPLETE (formule size() > 0 seule) conserve le
+  // comportement historique. Le test d'espaces asserte le comportement chargé,
+  // sans masquer l'un ou l'autre.
   transcriptionRulesRejectWhitespaceOnly = rulesWithCandidate.includes("transcriptionIt.matches(");
   const rulesResponse = await fetch(`http://${HOST}:${EMULATOR_PORT}/emulator/v1/projects/${EMULATOR_PROJECT_ID}:securityRules`, {
     method: "PUT",
@@ -2382,12 +2378,12 @@ test("LOT 2B.2 incrément 3 — brouillon incomplet autorisé, révision traduct
 
   await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
   try {
-    /* 2) Blancs seuls : le candidat définitif refuse tout texte italien
+    /* 2) Blancs seuls : la référence actuelle refuse tout texte italien
           composé uniquement de blancs — espaces, retour à la ligne, blancs
           Unicode (propriété White_Space, même jeu que le trim applicatif).
-          Le fichier gelé du dépôt (firestore.rules, non modifiable) n'exige
-          que size() > 0 : son comportement historique est asserté tel quel,
-          selon les règles réellement chargées. */
+          Un ancien fichier fourni via FIRESTORE_RULES_COMPLETE (formule
+          size() > 0 seule) conserve le comportement historique, asserté tel
+          quel selon les règles réellement chargées. */
     if (transcriptionRulesRejectWhitespaceOnly) {
       const whitespaceCases = [
         ["espaces", "   "],
@@ -2409,7 +2405,7 @@ test("LOT 2B.2 incrément 3 — brouillon incomplet autorisé, révision traduct
         reason: "Espaces seuls", actorUid: adminUid
       });
       assert.equal((await getDoc(doc(db, "transcriptionHeads", "tx-inc3-spaces"))).exists(), true,
-        "fichier gelé du dépôt : espaces seuls encore acceptés (comportement historique)");
+        "ancien fichier fourni (formule historique size() > 0) : espaces seuls encore acceptés");
     }
 
     /* 3) Création officielle avec texte italien réel, puis révision qui ne

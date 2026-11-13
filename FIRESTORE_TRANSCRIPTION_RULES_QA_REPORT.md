@@ -154,23 +154,38 @@ Aucun test supprimé ni assoupli. Le test d'espaces affirme le comportement **r�
 - **Vérification post-publication (10/10 au vert)** : contenu actif == contenu testé (sha256 `8237de11…`) == fichier versionné == **contenu de production (identique octet pour octet)** ; production inchangée (`cc8f5732…`) ; `hasNonEmptyItalian` +2 gardes + motif de blancs,7 types de dates, Démarches, catch-all présents ; `transcriptionHeads` =0 document dans les deux environnements (aucune donnée écrite).
 - Aucun déploiement Hosting/Functions/Storage ; production non republiée.
 
-## Fichiers de règles versionnés — référence unique
+## Organisation des fichiers de règles — clôture du 2026-11-13
 
-| Fichier | Rôle | Règles réellement actives |
-|---|---|---|
-| `firestore.rules.production-candidate` | Règles publiées en **production** (`cc8f5732…`) — contenu = version testée | **Oui** — production |
-| `firestore.rules.recette` | Règles publiées en **recette** (`21b0044f…`) — contenu identique au candidat | **Oui** — recette |
-| `firestore.rules` | **Fichier gelé historique** (pin fixtures v18) — ne contient que **5 types de dates** (sans `before`/`after`) et l'ancienne formule d'italien | **NON — ne jamais l'utiliser pour déployer les règles actives** |
+**Référence unique : `firestore.rules`** — contenu strictement identique aux règles actives des deux environnements (SHA-256 `8237de11f84e034d425becb74072c52ec353b7841d257aa50fbc76ce59b98648`,892 lignes) : sept types de dates, `hasNonEmptyItalian` renforcé, permissions, Démarches, restrictions et `catch-all`. Le commit précédent `26ed7ab` avait placé le contenu publié dans les fichiers candidat ; cette clôture l'unifie dans la référence unique.
 
-⚠️ `firestore.rules` ne doit **jamais** être publié tel quel (ni via `firebase deploy --only firestore:rules`, ni par copie manuelle) : il remplacerait la validation à7 types de dates actuellement en vigueur par l'ancienne validation à5. Toute publication de règles se fait à partir des fichiers candidat ci-dessus, via l'API Firebaserules ou la console (méthode `DEMARCHES_RULES.md`), jamais en déployant le fichier gelé.
+| Fichier | Statut |
+|---|---|
+| `firestore.rules` | **Référence unique** = contenu publié (production `cc8f5732…`, recette `21b0044f…`) |
+| `firestore.rules.recette` | **Supprimé** — copie redondante (contenu identique) ; historique conservé dans git |
+| `firestore.rules.production-candidate` | **Supprimé** — copie redondante ; historique conservé dans git (`26ed7ab`, `5993f95`) |
+| `firestore.rules.candidate` | **Supprimé** — fragment d'extension des dates devenu obsolète (`firestore.rules` contient les sept types) |
+| `tests/fixtures/v16/v17/v18` | Inchangés — snapshots historiques (jamais modifiés) |
 
-## État des fichiers — commit ciblé de cette maintenance
+Aucune dépendance technique ne nécessitait de conserver les trois fichiers supprimés : le harnais de tests a été adapté pour charger `firestore.rules` directement, et `firebase.json` (`"firestore.rules": "firestore.rules"`) ainsi que les scripts de build (exclusion du Hosting) restent valides sans modification. `AGENTS.md` et `DEMARCHES_RULES.md` ont été mis à jour : référence unique, publication manuelle (Console ou API Firebaserules, jamais un `firebase deploy` depuis une version historique), SHA-256 à revérifier avant toute publication.
 
-Fichiers regroupés dans le commit de maintenance (uniquement ceux-ci) :
+**Harnais de tests** (`tests/firestore-emulator.mjs`) : la branche par défaut charge `firestore.rules` tel quel et vérifie la présence des sept types de dates et de `hasNonEmptyItalian` ; le mécanisme `FIRESTORE_RULES_COMPLETE` est conservé pour valider un futur fichier complet. Aucun test supprimé ni assoupli.
 
-- `firestore.rules.recette` — mis à jour = contenu publié en recette.
-- `firestore.rules.production-candidate` — +15 lignes = contenu publié en production.
-- `tests/firestore-emulator.mjs` — drapeau L41, harnais L88, test de non-régression incrément 3 L2361 (conservé intact).
+### Vérifications de clôture
+
+- SHA-256 local `firestore.rules` = contenu actif production = contenu actif recette (relevés API du 2026-11-13, rulesets inchangés) : **identique**.
+- `npm run test:firestore` (chemin par défaut) : **86/86** — sept types de dates, transcriptions valides/invalides (vide, espaces, tabulations, lignes, NBSP refusés), brouillons, révisions de traduction, permissions.
+- Suites liant les règles (`final-qa`, `interaction-language`, `responsive-accessibility`, `person-updatedby`, `qa-70-cases`, `family-links-ui`, `transcription-draft-sync`, `evolution-final-qa`) : **43/44** — invariants de sécurité, Démarches, catch-all, brouillons : tous verts.
+- Échec connu **préexistant et hors périmètre** : `evolution-final-qa.test.mjs` — « la sauvegarde reste additive et sans migration globale » : la regex `/migration/i` appliquée à `js/app.js` (non modifié par cette maintenance) correspond aux clés d'icônes `emigration:` / `immigration:` et aux commentaires de brouillon (« migration non destructive »). Aucun lien avec les règles ; ni le test ni `js/app.js` ne sont touchés ici — à traiter comme chantier séparé.
+- Aucun déploiement, aucune modification des règles actives (production `cc8f5732…`, recette `21b0044f…` inchangées), aucune donnée Firestore touchée, aucun push vers `main`.
+
+## État des fichiers — commit de clôture
+
+Fichiers regroupés dans le commit de clôture (uniquement ceux-ci) :
+
+- `firestore.rules` — reçoit le contenu publié (référence unique).
+- `firestore.rules.recette`, `firestore.rules.production-candidate`, `firestore.rules.candidate` — suppressions (copies redondantes).
+- `tests/firestore-emulator.mjs` — harnais : chargement direct de la référence.
+- `AGENTS.md`, `DEMARCHES_RULES.md` — documentation de référence.
 - `FIRESTORE_TRANSCRIPTION_RULES_QA_REPORT.md` — ce rapport.
 
-Hors commit, **préservés inchangés** (modifications étrangères locales) : `js/firebase-environment.js`, `tests/firebase-environment.test.mjs`, `DOCUMENT_DETAIL_PAGE_QA_REPORT.md`, `PROOF_DETAIL_PAGE_QA_REPORT.md`, `SOURCE_DETAIL_PAGE_QA_REPORT.md`, `tests/_repro-transfer-fingerprint.mjs`. Inchangés également : `firestore.rules`, `firestore.rules.candidate`, fixtures, aucune règle de production republiée.
+Hors commit, **préservés inchangés** (modifications étrangères locales) : `js/firebase-environment.js`, `tests/firebase-environment.test.mjs`, `DOCUMENT_DETAIL_PAGE_QA_REPORT.md`, `PROOF_DETAIL_PAGE_QA_REPORT.md`, `SOURCE_DETAIL_PAGE_QA_REPORT.md`, `tests/_repro-transfer-fingerprint.mjs`. Inchangés : fixtures, `js/app.js`, `firebase.json`, `package.json`, aucune règle republiée.
