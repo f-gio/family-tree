@@ -33,34 +33,36 @@ test("les en-têtes Arbre, Annuaire, Documents, Actions et Démarches partagent 
         const headingGaps = await page.evaluate(() => {
           document.getElementById("authScreen").hidden = true;
           document.getElementById("topbar").hidden = false;
-          const ids = ["appMain", "directoryView", "documentsView", "tasksView", "dossiersView"];
+          const ids = ["appMain", "directoryView", "documentsView", "genealogyView", "tasksView", "dossiersView"];
           return ids.map(id => {
             for (const viewId of ids) document.getElementById(viewId).hidden = viewId !== id;
-            const kicker = document.querySelector(`#${id} .page-kicker`).getBoundingClientRect();
+            const kickerElement = document.querySelector(`#${id} .page-kicker`);
+            const kicker = kickerElement?.getBoundingClientRect() || null;
             const title = document.querySelector(`#${id} .page-title`).getBoundingClientRect();
             const description = id === "appMain"
               ? document.querySelector(`#${id} .lead`)
               : document.querySelector(`#${id} .section-head > div > p:not(.page-kicker)`);
-            const descriptionStyle = getComputedStyle(description);
-            const descriptionRect = descriptionStyle.display === "none" ? null : description.getBoundingClientRect();
+            const descriptionRect = description && getComputedStyle(description).display !== "none" ? description.getBoundingClientRect() : null;
             const header = document.getElementById("topbar").getBoundingClientRect();
             return {
               view: id,
-              topToKicker: kicker.top - header.bottom,
-              kickerToTitle: title.top - kicker.bottom,
-              titleToDescription: descriptionRect ? descriptionRect.top - title.bottom : "masquée"
+              topToKicker: kicker ? kicker.top - header.bottom : title.top - header.bottom,
+              kickerToTitle: kicker ? title.top - kicker.bottom : 0,
+              titleToDescription: descriptionRect ? descriptionRect.top - title.bottom : "masquée",
+              kickerPresent: !!kicker
             };
           });
         });
         for (const property of ["topToKicker", "kickerToTitle"]) {
           assert.ok(headingGaps.every(gaps => Math.abs(gaps[property] - headingGaps[0][property]) < 0.1), `${property} identique : ${JSON.stringify(headingGaps)}`);
         }
+        assert.ok(headingGaps.every(gaps => !gaps.kickerPresent), `surtitres retirés des six pages : ${JSON.stringify(headingGaps)}`);
         const visibleDescriptionGaps = headingGaps.filter(gaps => typeof gaps.titleToDescription === "number");
         const expectedDescriptionGap = viewport.width === 390 ? 7 : 10;
         assert.ok(visibleDescriptionGaps.every(gaps => Math.abs(gaps.titleToDescription - expectedDescriptionGap) < 0.1), `H2 → description ${expectedDescriptionGap}px : ${JSON.stringify(headingGaps)}`);
         tViewport.diagnostic(`${viewport.label}: mesures des espacements ${JSON.stringify(headingGaps)}`);
         await page.evaluate(() => {
-          for (const id of ["appMain", "directoryView", "documentsView", "tasksView", "dossiersView"]) {
+          for (const id of ["appMain", "directoryView", "documentsView", "genealogyView", "tasksView", "dossiersView"]) {
             document.getElementById(id).hidden = id !== "appMain";
           }
         });
@@ -68,25 +70,23 @@ test("les en-têtes Arbre, Annuaire, Documents, Actions et Démarches partagent 
           ["Arbre", document.querySelector("#appMain .page-title"), document.querySelector("#appMain .page-kicker")],
           ["Annuaire", document.querySelector("#directoryView .page-title"), document.querySelector("#directoryView .page-kicker")],
           ["Documents", document.querySelector("#documentsView .page-title"), document.querySelector("#documentsView .page-kicker")],
+          ["Archives", document.querySelector("#genealogyView .page-title"), document.querySelector("#genealogyView .page-kicker")],
           ["Actions", document.querySelector("#tasksView .page-title"), document.querySelector("#tasksView .page-kicker")],
           ["Démarches", document.querySelector("#dossiersView .page-title"), document.querySelector("#dossiersView .page-kicker")]
         ].map(([view, title, kicker]) => {
           const titleStyle = getComputedStyle(title);
-          const kickerStyle = getComputedStyle(kicker);
           return {
             view,
             title: { family: titleStyle.fontFamily, size: titleStyle.fontSize, weight: titleStyle.fontWeight, lineHeight: titleStyle.lineHeight, color: titleStyle.color },
-            kicker: { family: kickerStyle.fontFamily, size: kickerStyle.fontSize, weight: kickerStyle.fontWeight, lineHeight: kickerStyle.lineHeight, letterSpacing: kickerStyle.letterSpacing, color: kickerStyle.color, display: kickerStyle.display }
+            kickerPresent: !!kicker
           };
         }));
-        assert.equal(headings.length, 5);
+        assert.equal(headings.length, 6);
         assert.equal(new Set(headings.map(item => JSON.stringify(item.title))).size, 1, `H2 identiques : ${JSON.stringify(headings)}`);
-        assert.equal(new Set(headings.map(item => JSON.stringify(item.kicker))).size, 1, `surtitres identiques : ${JSON.stringify(headings)}`);
+        assert.ok(headings.every(item => !item.kickerPresent), `aucun surtitre sur les pages principales : ${JSON.stringify(headings)}`);
         assert.ok(Math.abs(parseFloat(headings[0].title.size) - (viewport.width === 390 ? 31.2 : 40)) < 0.1, `taille H2 standard responsive : ${headings[0].title.size}`);
         assert.equal(headings[0].title.color, "rgb(38, 51, 46)");
-        assert.equal(headings[0].kicker.color, "rgb(104, 116, 111)");
-        assert.equal(headings[0].kicker.display, "block", "le surtitre Arbre reste visible en mobile");
-        tViewport.diagnostic(`${viewport.label}: H2 ${headings[0].title.size}/${headings[0].title.lineHeight}, ${headings[0].title.color}; surtitre ${headings[0].kicker.size}/${headings[0].kicker.lineHeight}, ${headings[0].kicker.color}`);
+        tViewport.diagnostic(`${viewport.label}: H2 ${headings[0].title.size}/${headings[0].title.lineHeight}, ${headings[0].title.color}; surtitres absents`);
       });
     }
   } finally {

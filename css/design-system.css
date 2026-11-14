@@ -602,31 +602,109 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 }
 .tree-filter-toolbar .toolbar-tree,
 .tree-filter-toolbar .toolbar-branch { min-width: 0; }
-.tree-filter-toolbar .toolbar-tree .field,
-.tree-filter-toolbar .toolbar-branch .field {
-  width: auto;
-  min-width: 168px;
+.tree-picker-host { position: relative; width: 100%; min-width: 11rem; max-width: 24rem; }
+.tree-picker-native[hidden] { display: none !important; }
+.tree-picker { position: relative; min-width: 0; }
+.tree-picker > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
   min-height: var(--control-touch);
-  margin-top: 0;
+  padding: 0 var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  list-style: none;
 }
-.tree-management { position: relative; }
-.tree-management > #manageTreesBtn { min-height: var(--control-touch); }
-.tree-management-popover {
+.tree-picker > summary::-webkit-details-marker { display: none; }
+.tree-picker > summary:hover,
+.tree-picker[open] > summary { border-color: var(--color-border-strong); background: var(--color-surface-raised); }
+.tree-picker > summary:focus-visible { outline: 3px solid rgb(40 75 63 / 28%); outline-offset: 2px; box-shadow: var(--shadow-focus); }
+.tree-picker-prefix { flex: 0 0 auto; color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.tree-picker-current { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-semibold); text-overflow: ellipsis; white-space: nowrap; }
+.tree-picker > summary > .ui-icon { flex: 0 0 auto; width: 1rem; height: 1rem; color: var(--color-text-muted); }
+.tree-picker-menu {
   position: absolute;
-  top: calc(100% + var(--space-2));
-  right: 0;
-  z-index: 80;
-  width: min(19rem, calc(100vw - 1rem));
-  padding: var(--space-2);
+  z-index: 90;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  box-sizing: border-box;
+  display: grid;
+  gap: var(--space-1);
+  width: min(24rem, calc(100vw - 2rem));
+  max-height: min(70dvh, 34rem);
+  padding: var(--space-1);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: var(--border-default);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   box-shadow: var(--shadow-lg);
 }
-.tree-management-actions { display: grid; gap: var(--space-1); }
-.tree-management-actions .btn { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: var(--control-touch); text-align: left; }
-.tree-management-actions .btn:disabled { opacity: .58; cursor: not-allowed; }
-.tree-management-notice { margin: var(--space-2) 0 0; padding: var(--space-2); border-radius: var(--radius-sm); background: var(--color-surface-soft); color: var(--color-text-muted); font-size: var(--text-xs); }
+@media (min-width: 761px) {
+  .tree-picker-menu { right: 0; left: auto; }
+}
+.tree-picker-rows { display: grid; gap: 2px; min-width: 0; }
+.tree-picker-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-1); min-width: 0; }
+.tree-picker-option {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-touch);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+.tree-picker-option:hover { background: var(--color-surface-soft); }
+.tree-picker-option[aria-pressed="true"] { border-color: var(--color-border-subtle); background: var(--color-surface-soft); }
+.tree-picker-check { display: grid; place-items: center; width: 1.25rem; color: var(--color-brand); font-weight: var(--weight-bold); }
+.tree-picker-option:not([aria-pressed="true"]) .tree-picker-check { visibility: hidden; }
+.tree-picker-name { display: flex; align-items: center; gap: var(--space-1); min-width: 0; overflow: hidden; font-size: var(--text-sm); font-weight: var(--weight-semibold); text-overflow: ellipsis; white-space: nowrap; }
+.tree-picker-primary { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.tree-picker-primary .ui-icon { width: .8rem; height: .8rem; }
+.tree-picker-status { min-width: 0; overflow: hidden; color: var(--color-warning); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.tree-picker-count { flex: 0 0 auto; color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; }
+.tree-row-actions { position: relative; align-self: stretch; }
+.tree-row-actions > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-touch);
+  min-width: var(--control-touch);
+  height: var(--control-touch);
+  min-height: var(--control-touch);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  list-style: none;
+}
+.tree-row-actions > summary::-webkit-details-marker { display: none; }
+.tree-row-actions > summary:hover,
+.tree-row-actions[open] > summary { background: var(--color-surface-soft); color: var(--color-text); }
+.tree-row-actions-menu { position: absolute; z-index: 95; top: calc(100% + 2px); right: 0; box-sizing: border-box; display: grid; gap: 2px; width: min(13rem, calc(100vw - 2rem)); padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-medium); }
+.tree-row-actions-menu button { display: flex; align-items: center; width: 100%; min-width: 0; min-height: var(--control-touch); padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text); font: inherit; text-align: left; }
+.tree-row-actions-menu button:hover:not(:disabled) { background: var(--color-surface-soft); }
+.tree-row-actions-menu button:disabled { color: var(--color-text-muted); opacity: .55; cursor: not-allowed; }
+.tree-picker-footer { margin-top: var(--space-1); padding-top: var(--space-1); border-top: var(--border-subtle); }
+.tree-picker-create { display: flex; align-items: center; width: 100%; min-height: var(--control-touch); padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-brand); font: inherit; font-weight: var(--weight-semibold); text-align: left; }
+.tree-picker-create:hover:not(:disabled) { background: var(--color-surface-soft); }
+.tree-picker-create:disabled { color: var(--color-text-muted); opacity: .55; cursor: not-allowed; }
+.tree-picker-option:focus-visible,
+.tree-row-actions > summary:focus-visible,
+.tree-row-actions-menu button:focus-visible,
+.tree-picker-create:focus-visible { outline: 3px solid rgb(40 75 63 / 28%); outline-offset: 1px; box-shadow: var(--shadow-focus); }
 .person-tree-membership-field {
   display: flex;
   grid-column: 1 / -1;

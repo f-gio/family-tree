@@ -117,6 +117,7 @@
     <symbol id="icon-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
     <symbol id="icon-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><rect x="14" y="14" width="6" height="6"/></symbol>
     <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path d="m7 9 5 5 5-5"/></symbol>
+    <symbol id="icon-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
     <symbol id="icon-chevron-left" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></symbol>
     <symbol id="icon-chevron-right" viewBox="0 0 24 24"><path d="m10 6 6 6-6 6"/></symbol>
     <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
@@ -220,23 +221,9 @@
   <main class="page-content-lane" id="appMain" hidden>
 <section class="intro page-heading">
 <div>
-<p class="eyebrow page-kicker">Mémoire familiale</p>
 <h2 class="page-title">Arbre familial</h2>
-<p class="lead">Cliquez sur une carte pour modifier la personne. Faites-la glisser pour ajuster sa position.</p>
 </div>
 <div class="hero-actions" id="headerTreeActions">
-<div class="tree-management" id="treeManagement" hidden>
-<button class="btn" id="manageTreesBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="treeManagementPopover" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-tree"></use></svg><span>Gérer les arbres</span></button>
-<div class="tree-management-popover" id="treeManagementPopover" hidden>
-<div class="tree-management-actions" role="group" aria-label="Actions de gestion des arbres">
-<button class="btn" id="manageTreeCreateBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Créer un arbre</span></button>
-<button class="btn" id="manageTreeRenameBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-edit"></use></svg><span>Renommer l'arbre actuel</span></button>
-<button class="btn danger" id="manageTreeDeleteBtn" type="button" disabled aria-describedby="manageTreeDeleteNotice"><svg class="ui-icon" aria-hidden="true"><use href="#icon-trash"></use></svg><span>Supprimer l'arbre</span></button>
-<button class="btn" id="manageTreeRecoverBtn" type="button" hidden aria-describedby="manageTreeDeleteNotice"><svg class="ui-icon" aria-hidden="true"><use href="#icon-history"></use></svg><span>Débloquer l'arbre</span></button>
-</div>
-<p class="tree-management-notice" id="manageTreeDeleteNotice" role="note"></p>
-</div>
-</div>
 <button class="btn primary page-primary-action" id="addBtn" type="button" aria-label="Ajouter une personne"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span class="label">Ajouter une personne</span>
 </button>
 </div>
@@ -244,8 +231,23 @@
 <section class="toolbar tree-filter-toolbar" aria-label="Recherche et filtres de l’arbre">
 <label class="sr-only" for="search">Rechercher</label>
 <label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="search" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher et centrer une personne…"><button type="button" class="search-bar-clear" id="clearTreeSearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
-<label class="toolbar-tree"><span class="sr-only">Choisir un arbre</span><select class="field" id="treeSelect" aria-label="Choisir un arbre"><option value="main">Arbre familial</option></select></label>
-<label class="toolbar-branch"><span class="sr-only">Filtrer par branche familiale</span><select class="field" id="treeBranchFilter" aria-label="Filtrer par branche familiale"><option value="">Toutes les branches</option></select></label>
+<div class="toolbar-tree tree-picker-host" id="treeSelectorHost">
+  <select class="tree-picker-native" id="treeSelect" aria-label="Choisir un arbre" aria-hidden="true" tabindex="-1" hidden><option value="main">Arbre familial</option></select>
+  <details class="tree-picker" id="treeSelectorDetails">
+    <summary class="tree-picker-trigger" id="treeSelectTrigger" aria-label="Choisir un arbre" aria-haspopup="listbox" aria-expanded="false"><span class="tree-picker-prefix">Arbre</span><span class="tree-picker-current" id="treeSelectCurrentName">Familial</span><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></summary>
+    <div class="tree-picker-menu" id="treeSelectorMenu" role="group" aria-label="Choisir un arbre">
+      <div class="tree-picker-rows" id="treeSelectorRows"></div>
+      <div class="tree-picker-footer" id="treePickerFooter"><button class="tree-picker-create" id="manageTreeCreateBtn" type="button">+ Créer un arbre</button></div>
+    </div>
+  </details>
+</div>
+<div class="toolbar-branch tree-picker-host" id="branchSelectorHost">
+  <select class="tree-picker-native" id="treeBranchFilter" aria-label="Filtrer par branche familiale" aria-hidden="true" tabindex="-1" hidden><option value="">Toutes les branches</option></select>
+  <details class="tree-picker branch-picker" id="branchPickerDetails">
+    <summary class="tree-picker-trigger" id="treeBranchTrigger" aria-label="Filtrer par branche familiale" aria-haspopup="listbox" aria-expanded="false"><span class="tree-picker-prefix">Branche</span><span class="tree-picker-current" id="treeBranchCurrentName">Toutes</span><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></summary>
+    <div class="tree-picker-menu branch-picker-menu" id="branchPickerMenu" role="group" aria-label="Branches de l’arbre sélectionné"><div class="tree-picker-rows" id="branchPickerRows"></div></div>
+  </details>
+</div>
 </section>
 <p class="tree-catalog-status" id="treeCatalogStatus" role="status" aria-live="polite" hidden></p>
 <p class="tree-empty-message" id="treeEmptyMessage" role="status" aria-live="polite" hidden>Cet arbre ne contient encore aucune personne.</p>
@@ -266,7 +268,6 @@
 <div class="tree" id="treeScene">
 </div>
 </div>
-<div class="canvas-help">Glisser le fond pour naviguer · Glisser une carte pour la déplacer <span class="line-legend"><i class="legend-union"></i> couple <i class="legend-descent"></i> enfants</span></div>
 <div class="tree-controls" aria-label="Contrôles de l’arbre">
 <div class="zoom-control">
 <button id="zoomInBtn" type="button" aria-label="Zoomer" title="Zoomer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-zoom-in"></use></svg></button>
@@ -274,13 +275,13 @@
 <button id="zoomOutBtn" type="button" aria-label="Dézoomer" title="Dézoomer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-zoom-out"></use></svg></button>
 </div>
 <div class="view-control">
-<button id="fullscreenFitBtn" type="button" aria-label="Ajuster l’arbre à l’écran" title="Ajuster" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-fit"></use></svg></button>
+<button id="fullscreenFitBtn" type="button" aria-label="Ajuster l’arbre à l’écran" title="Ajuster" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-zoom-in"></use></svg></button>
 <button id="fullscreenCenterBtn" type="button" aria-label="Recentrer l’arbre" title="Recentrer" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-center"></use></svg></button>
 <button id="treeSearchToggleBtn" type="button" aria-label="Rechercher une personne" title="Rechercher" aria-expanded="false" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-search"></use></svg></button>
 <button id="treeFullscreenBtn" type="button" aria-label="Afficher l’arbre en plein écran" aria-pressed="false" title="Plein écran"><svg class="ui-icon" aria-hidden="true"><use href="#icon-maximize"></use></svg></button>
 <button id="treeMoreBtn" type="button" aria-label="Plus d’actions sur l’arbre" aria-haspopup="menu" aria-expanded="false" title="Plus d’actions">⋯</button>
 <div class="tree-menu" id="treeMenu" role="menu" aria-label="Plus d’actions sur l’arbre" hidden>
-<button id="menuFitBtn" type="button" role="menuitem" aria-label="Ajuster l’arbre à l’écran" title="Ajuster"><svg class="ui-icon" aria-hidden="true"><use href="#icon-fit"></use></svg><span>Ajuster</span></button>
+<button id="menuFitBtn" type="button" role="menuitem" aria-label="Ajuster l’arbre à l’écran" title="Ajuster"><svg class="ui-icon" aria-hidden="true"><use href="#icon-zoom-in"></use></svg><span>Ajuster</span></button>
 <button id="centerTreeBtn" type="button" role="menuitem" aria-label="Recentrer l’arbre" title="Recentrer"><svg class="ui-icon" aria-hidden="true"><use href="#icon-center"></use></svg><span>Recentrer</span></button>
 <button id="autoLayoutBtn" type="button" role="menuitem" aria-label="Réorganiser l’arbre" title="Réorganiser"><svg class="ui-icon" aria-hidden="true"><use href="#icon-reorder"></use></svg><span>Réorganiser</span></button>
 <button id="menuExportTreeBtn" type="button" role="menuitem" aria-label="Exporter l’arbre" title="Exporter"><svg class="ui-icon" aria-hidden="true"><use href="#icon-download"></use></svg><span>Exporter</span></button>
@@ -296,7 +297,7 @@
 </div>
 </main>
 <main class="workspace-view page-content-lane" id="directoryView" hidden>
-<section class="section-head page-heading"><div><p class="eyebrow page-kicker">Famille</p><h2 class="page-title">Annuaire</h2><p>Retrouvez toutes les personnes enregistrées, y compris celles masquées de l’arbre.</p></div><div class="directory-heading-actions"><button class="btn" id="multiTreeTransferOpenBtn" type="button" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-tree"></use></svg><span>Transférer plusieurs personnes</span></button><button class="btn primary page-primary-action" id="addDirectoryPersonBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une personne</span></button></div></section>
+<section class="section-head page-heading"><div><h2 class="page-title">Annuaire</h2><p>Retrouvez toutes les personnes enregistrées, y compris celles masquées de l’arbre.</p></div><div class="directory-heading-actions"><button class="btn" id="multiTreeTransferOpenBtn" type="button" hidden><svg class="ui-icon" aria-hidden="true"><use href="#icon-tree"></use></svg><span>Transférer plusieurs personnes</span></button><button class="btn primary page-primary-action" id="addDirectoryPersonBtn" type="button"><svg class="ui-icon" aria-hidden="true"><use href="#icon-plus"></use></svg><span>Ajouter une personne</span></button></div></section>
 <section class="directory-toolbar" aria-label="Recherche, filtres et affichage de l’annuaire">
 <label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="directorySearch" type="text" enterkeyhint="search" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Rechercher un nom ou un prénom…"><button type="button" class="search-bar-clear" id="clearDirectorySearchBtn" aria-label="Effacer la recherche">Effacer</button></label>
 <button class="directory-filters-trigger" id="directoryFiltersBtn" type="button" aria-haspopup="dialog" aria-controls="directoryFilterDialog" aria-expanded="false"><svg class="ui-icon" aria-hidden="true"><use href="#icon-filter"></use></svg><span>Filtres</span><span class="filter-count" id="directoryFilterCount" hidden>0</span></button>
@@ -343,7 +344,6 @@
   <main class="workspace-view page-content-lane" id="documentsView" hidden>
 <section class="section-head page-heading">
 <div>
-<p class="eyebrow page-kicker">Bibliothèque familiale</p>
 <h2 class="page-title">Documents</h2>
 <p>Consultez les actes et attribuez chaque document à une ou plusieurs personnes.</p>
 </div>
@@ -369,7 +369,7 @@
 </div>
 </main>
   <main class="workspace-view page-content-lane" id="genealogyView" hidden>
-  <section class="section-head page-heading"><div><p class="eyebrow page-kicker">Archives familiales</p><h2 class="page-title">Archives</h2><p>Consultez les sources, transcriptions, preuves, conclusions, propositions et événements de l’histoire familiale.</p></div><div class="directory-heading-actions"><button class="btn" id="genealogyProposeBtn" type="button">Proposer une contribution</button><button class="btn primary" id="genealogyOfficialBtn" type="button" hidden>Créer une donnée officielle</button></div></section>
+  <section class="section-head page-heading"><div><h2 class="page-title">Archives</h2><p>Consultez les sources, transcriptions, preuves, conclusions, propositions et événements de l’histoire familiale.</p></div><div class="directory-heading-actions"><button class="btn" id="genealogyProposeBtn" type="button">Proposer une contribution</button><button class="btn primary" id="genealogyOfficialBtn" type="button" hidden>Créer une donnée officielle</button></div></section>
 <div class="documents-toolbar"><label class="search-bar"><span class="search-bar-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-search"></use></svg></span><input class="field" id="genealogySearch" type="search" enterkeyhint="search" autocomplete="off" placeholder="Rechercher dans les archives…"><button type="button" class="search-bar-clear" id="clearGenealogySearchBtn" aria-label="Effacer la recherche">Effacer</button></label><label><span class="sr-only">Filtrer par catégorie d’archive</span><select class="field" id="genealogyKindFilter"><option value="main" selected>Vue principale</option><option value="sources">Sources actives</option><option value="archived-sources">Sources archivées</option><option value="unassociated">Sources sans association</option><option value="legacy-documents">Documents historiques</option><option value="transcriptions">Transcriptions</option><option value="proofs">Preuves actives</option><option value="conclusions">Conclusions</option><option value="proposals">Propositions</option><option value="history">Historique et preuves archivées</option><option value="notifications">Notifications</option><option value="all">Tous les éléments</option></select></label></div>
 <p id="genealogyStatus" role="status" aria-live="polite">Chargement des archives…</p><div class="content-grid" id="genealogyResults"></div>
 </main>
@@ -487,7 +487,6 @@
   <main class="workspace-view page-content-lane" id="tasksView" hidden>
 <section class="section-head page-heading">
 <div>
-<p class="eyebrow page-kicker">Recherches à poursuivre</p>
 <h2 class="page-title">Actions</h2>
 <p>Centralisez les démarches, échéances et commentaires liés à vos recherches.</p>
 </div>
@@ -523,7 +522,6 @@
   <main class="workspace-view page-content-lane" id="dossiersView" hidden>
 <section class="section-head page-heading">
 <div>
-<p class="eyebrow page-kicker">Recherches, correspondances et formalités</p>
 <h2 class="page-title">Démarches</h2>
 <p>Centralisez vos recherches généalogiques, correspondances, rendez-vous et formalités, avec la chronologie de chaque dossier.</p>
 </div>

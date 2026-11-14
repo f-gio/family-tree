@@ -1000,6 +1000,10 @@ function updateTreeSelectorOptions() {
     return `<option value="${esc(item.id)}">${esc(item.name)}${deleting ? " · Suppression en cours" : ""}</option>`;
   }).join("")}`;
   select.value = activeTreeId;
+  const selectedTree = treeMetadata.find(item => item.id === activeTreeId);
+  const currentName = activeTreeId === MAIN_TREE_ID ? "Familial" : selectedTree?.name || "Arbre indisponible";
+  $("treeSelectCurrentName").textContent = currentName;
+  $("treeSelectTrigger").setAttribute("aria-label", `Arbre : ${currentName}`);
   updateDirectoryTreeOptions();
   updatePersonTreeOptions();
   if (status) {
@@ -1057,6 +1061,67 @@ function updateTreeBranchOptions() {
   lineageSurname = selected;
   select.innerHTML = '<option value="">Toutes les branches</option>' + names.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("");
   select.value = selected;
+  renderTreeBranchPicker(names);
+}
+
+function renderTreeBranchPicker(names = []) {
+  const rows = $("branchPickerRows");
+  const select = $("treeBranchFilter");
+  if (!rows || !select) return;
+  const peopleInScope = getTreePeople(treePeople(), activeTreeId);
+  const counts = new Map();
+  for (const item of peopleInScope) {
+    const surname = typeof item.lastName === "string" ? item.lastName.trim() : "";
+    const key = normalizeLineageName(surname);
+    if (key) counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const current = select.value || "";
+  $("treeBranchCurrentName").textContent = current ? names.find(name => normalizeLineageName(name) === normalizeLineageName(current)) || current : "Toutes";
+  $("treeBranchTrigger").setAttribute("aria-label", `Branche : ${current || "Toutes"}`);
+  const allSelected = !current;
+  rows.innerHTML = `<button class="tree-picker-option branch-picker-option" type="button" data-branch-value="" aria-pressed="${allSelected}" role="option" aria-selected="${allSelected}"><span class="tree-picker-check" aria-hidden="true">✓</span><span class="tree-picker-name">Toutes les branches</span><span class="tree-picker-count"></span></button>${names.map(name => {
+    const key = normalizeLineageName(name);
+    const selected = key === normalizeLineageName(current);
+    return `<button class="tree-picker-option branch-picker-option" type="button" data-branch-value="${esc(name)}" aria-pressed="${selected}" role="option" aria-selected="${selected}"><span class="tree-picker-check" aria-hidden="true">✓</span><span class="tree-picker-name">${esc(name)}</span><span class="tree-picker-count">${counts.get(key) || 0}</span></button>`;
+  }).join("")}`;
+}
+
+function renderTreeSelectorRows() {
+  const rows = $("treeSelectorRows");
+  if (!rows) return;
+  const admin = isAdminUser();
+  const entries = [
+    { id: MAIN_TREE_ID, name: "Arbre familial", primary: true, lifecycleState: TREE_LIFECYCLE_ACTIVE },
+    ...treeMetadata.map(item => ({ ...item, primary: false }))
+  ];
+  rows.innerHTML = entries.map(tree => {
+    const selected = tree.id === activeTreeId;
+    const lifecycleState = getTreeLifecycleState(tree);
+    const deleting = !tree.primary && lifecycleState === TREE_LIFECYCLE_DELETING;
+    const busy = treeDeletionInProgress.has(tree.id) || treeRecoveryInProgress.has(tree.id);
+    const renameDisabled = !admin || treeCatalogState !== "ready" || tree.primary || lifecycleState !== TREE_LIFECYCLE_ACTIVE || busy;
+    const deleteDisabled = !admin || treeCatalogState !== "ready" || tree.primary || (!deleting && lifecycleState !== TREE_LIFECYCLE_ACTIVE) || busy;
+    const exportDisabled = !loadedPeople || getTreePeople(people, tree.id).length === 0;
+    const renameTitle = tree.primary
+      ? "Fonction indisponible : l’arbre principal n’a pas d’opération de renommage persistante."
+      : !admin ? "Action réservée aux administrateurs."
+        : lifecycleState !== TREE_LIFECYCLE_ACTIVE ? "Un arbre en suppression ne peut pas être renommé."
+          : "Renommer cet arbre";
+    const deleteTitle = tree.primary
+      ? "L’arbre familial principal ne peut pas être supprimé."
+      : deleting ? "Une suppression est verrouillée ; cette action ouvre la récupération existante."
+        : !admin ? "Action réservée aux administrateurs."
+          : lifecycleState !== TREE_LIFECYCLE_ACTIVE ? "État de l’arbre invalide : action indisponible."
+            : "Supprimer cet arbre";
+    const count = getTreePeople(treePeople(), tree.id).length;
+    const principal = tree.primary ? '<span class="tree-picker-primary"><svg class="ui-icon" aria-hidden="true"><use href="#icon-lock"></use></svg><span>Principal</span></span>' : "";
+    const status = deleting ? '<span class="tree-picker-status">Suppression en cours</span>' : "";
+    return `<div class="tree-picker-row" data-tree-row="${esc(tree.id)}"><button class="tree-picker-option" type="button" role="option" data-tree-select="${esc(tree.id)}" aria-pressed="${selected}" aria-selected="${selected}" title="${esc(tree.name)}"><span class="tree-picker-check" aria-hidden="true">✓</span><span class="tree-picker-copy"><span class="tree-picker-name">${esc(tree.name)}${principal}</span>${status}</span><span class="tree-picker-count">${count} pers.</span></button><details class="tree-row-actions" data-tree-row-actions="${esc(tree.id)}"><summary aria-label="Actions de ${esc(tree.name)}" title="Actions de ${esc(tree.name)}" aria-haspopup="menu" aria-expanded="false">⋯</summary><div class="tree-row-actions-menu" role="menu" aria-label="Actions de ${esc(tree.name)}"><button type="button" role="menuitem" data-tree-action="rename" data-tree-id="${esc(tree.id)}" title="${esc(renameTitle)}"${renameDisabled ? " disabled" : ""}>Renommer</button><button type="button" role="menuitem" data-tree-action="export" data-tree-id="${esc(tree.id)}"${exportDisabled ? " disabled" : ""}>Exporter</button><button type="button" role="menuitem" data-tree-action="delete" data-tree-id="${esc(tree.id)}" title="${esc(deleteTitle)}"${deleteDisabled ? " disabled" : ""}>Supprimer…</button></div></details></div>`;
+  }).join("");
+  rows.querySelectorAll(".tree-row-actions").forEach(details => {
+    const summary = details.querySelector("summary");
+    details.addEventListener("toggle", () => summary?.setAttribute("aria-expanded", String(details.open)));
+  });
 }
 
 function setActiveTree(treeId) {
@@ -1088,47 +1153,14 @@ function isDuplicateTreeName(name, excludeId = null) {
 }
 
 function updateTreeActionButtons() {
-  const trigger = $("manageTreesBtn");
-  const createBtn = $("manageTreeCreateBtn");
-  const renameBtn = $("manageTreeRenameBtn");
-  const deleteBtn = $("manageTreeDeleteBtn");
-  const recoverBtn = $("manageTreeRecoverBtn");
-  const deleteNotice = $("manageTreeDeleteNotice");
-  const manager = $("treeManagement");
-  if (!trigger) return;
+  const createButton = $("manageTreeCreateBtn");
   const admin = isAdminUser();
-  manager.hidden = !admin;
-  trigger.hidden = !admin;
-  trigger.disabled = treeCatalogState !== "ready";
-  createBtn.disabled = treeCatalogState !== "ready";
-  createBtn.title = treeCatalogState === "ready" ? "Créer un arbre" : "Catalogue des arbres indisponible";
-  const activeTree = treeMetadata.find(item => item.id === activeTreeId);
-  const lifecycleState = activeTree ? getTreeLifecycleState(activeTree) : "invalid";
-  const isSecondary = activeTreeId !== MAIN_TREE_ID && !!activeTree;
-  const deleting = isSecondary && lifecycleState === TREE_LIFECYCLE_DELETING;
-  const busy = treeDeletionInProgress.has(activeTreeId) || treeRecoveryInProgress.has(activeTreeId);
-  renameBtn.disabled = treeCatalogState !== "ready" || !isSecondary || lifecycleState !== TREE_LIFECYCLE_ACTIVE || busy;
-  renameBtn.title = isSecondary ? "Renommer l’arbre actuel" : "L’arbre principal ne peut pas être renommé";
-  deleteBtn.hidden = deleting;
-  deleteBtn.disabled = treeCatalogState !== "ready" || !isSecondary || lifecycleState !== TREE_LIFECYCLE_ACTIVE || busy;
-  deleteBtn.title = activeTreeId === MAIN_TREE_ID
-    ? "L’arbre principal ne peut pas être supprimé."
-    : lifecycleState === "invalid" ? "État de l’arbre invalide : action indisponible."
-      : "Supprimer l’arbre secondaire actuel";
-  recoverBtn.hidden = !deleting;
-  recoverBtn.disabled = treeCatalogState !== "ready" || !deleting || busy;
-  recoverBtn.title = deleting ? "Récupérer l’arbre verrouillé" : "Aucun verrou à récupérer";
-  const deleteReason = activeTreeId === MAIN_TREE_ID
-    ? "L’arbre familial principal ne peut pas être supprimé."
-    : !isSecondary ? "Sélectionnez un arbre secondaire disponible."
-        : busy ? "Opération sur l’arbre en cours…"
-        : lifecycleState === TREE_LIFECYCLE_DELETING
-        ? "Suppression en cours ou interrompue. Si elle est bloquée, un administrateur peut récupérer cet arbre."
-        : lifecycleState !== TREE_LIFECYCLE_ACTIVE
-          ? "L’état de cet arbre est invalide ; aucune action de gestion n’est autorisée."
-          : "La suppression sera vérifiée sur les données Firestore après verrouillage de l’arbre.";
-  deleteNotice.textContent = deleteReason;
-  if (!admin) setTreeManagementMenu(false);
+  if (createButton) {
+    createButton.hidden = !admin;
+    createButton.disabled = treeCatalogState !== "ready";
+    createButton.title = treeCatalogState === "ready" ? "Créer un arbre" : "Catalogue des arbres indisponible";
+  }
+  renderTreeSelectorRows();
 }
 
 function openTreeDialog(mode = "create", treeId = null) {
@@ -1147,33 +1179,6 @@ function openTreeDialog(mode = "create", treeId = null) {
   }
   $("treeDialog").showModal();
   setTimeout(() => $("treeName").focus(), 30);
-}
-
-function setTreeManagementMenu(open, restoreFocus = false) {
-  const trigger = $("manageTreesBtn");
-  const popover = $("treeManagementPopover");
-  const items = [...popover.querySelectorAll("button:not([hidden]):not([disabled])")];
-  const nextOpen = Boolean(open && !trigger.hidden && !trigger.disabled);
-  popover.hidden = !nextOpen;
-  trigger.setAttribute("aria-expanded", String(nextOpen));
-  if (nextOpen) {
-    popover.style.left = "";
-    popover.style.right = "";
-    const bounds = popover.getBoundingClientRect();
-    const viewportWidth = document.documentElement.clientWidth;
-    if (bounds.left < 8) {
-      popover.style.left = "0";
-      popover.style.right = "auto";
-    } else if (bounds.right > viewportWidth - 8) {
-      popover.style.left = "auto";
-      popover.style.right = "0";
-    }
-    items[0]?.focus({ preventScroll: true });
-  } else {
-    popover.style.left = "";
-    popover.style.right = "";
-    if (restoreFocus && !trigger.hidden) trigger.focus({ preventScroll: true });
-  }
 }
 
 function newTreeDeletionToken() {
@@ -1199,7 +1204,7 @@ function readTreeDeletionMembers(treeId) {
 }
 
 function refreshAfterTreeRemoval(treeId) {
-  const focusWasInManager = $("treeManagementPopover").contains(document.activeElement);
+  const focusWasInPicker = $("treeSelectorMenu").contains(document.activeElement);
   treeMetadata = treeMetadata.filter(tree => tree.id !== treeId);
   if (activeTreeId === treeId) {
     activeTreeId = MAIN_TREE_ID;
@@ -1214,7 +1219,7 @@ function refreshAfterTreeRemoval(treeId) {
     camera.fit();
   }
   if (loadedPeople && !$('directoryView').hidden) renderDirectory();
-  if (focusWasInManager && !$("manageTreesBtn").hidden) $("manageTreesBtn").focus({ preventScroll: true });
+  if (focusWasInPicker) $("treeSelectTrigger").focus({ preventScroll: true });
 }
 
 function updateCachedTreeLifecycle(treeId, lifecycleState, token = null) {
@@ -1232,11 +1237,9 @@ function updateCachedTreeLifecycle(treeId, lifecycleState, token = null) {
 
 function restoreTreeManagementFocusIfNeeded() {
   const focused = document.activeElement;
-  if (!focused || !["manageTreeDeleteBtn", "manageTreeRecoverBtn"].includes(focused.id)) return;
+  if (!focused?.matches("[data-tree-action]")) return;
   if (!focused.hidden && !focused.disabled) return;
-  const recovery = $("manageTreeRecoverBtn");
-  if (!recovery.hidden && !recovery.disabled) recovery.focus({ preventScroll: true });
-  else if (!$("manageTreesBtn").hidden) $("manageTreesBtn").focus({ preventScroll: true });
+  $("treeSelectTrigger").focus({ preventScroll: true });
 }
 
 async function restoreTreeDeletionLock(treeId, token, uid) {
@@ -1423,58 +1426,6 @@ async function recoverManagedTree(treeId) {
   }
 }
 
-function openTreeManagementAction(action) {
-  if (!isAdminUser()) return toast("Accès réservé aux administrateurs", "error");
-  if (treeCatalogState !== "ready") return toast("Le catalogue des arbres est indisponible", "error");
-  setTreeManagementMenu(false);
-  if (action === "create") return openTreeDialog("create");
-  if (action === "rename") {
-    if (activeTreeId === MAIN_TREE_ID) return toast("L’arbre familial principal ne peut pas être renommé", "error");
-    return openTreeDialog("rename", activeTreeId);
-  }
-  if (action === "delete") return deleteManagedTree(activeTreeId);
-  if (action === "recover") return recoverManagedTree(activeTreeId);
-}
-
-$("manageTreesBtn").addEventListener("click", event => {
-  event.stopPropagation();
-  setTreeManagementMenu($("treeManagementPopover").hidden);
-});
-$("manageTreesBtn").addEventListener("keydown", event => {
-  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-  event.preventDefault();
-  setTreeManagementMenu(true);
-  if (event.key === "ArrowUp") {
-    const items = [...$("treeManagementPopover").querySelectorAll("button:not([hidden]):not([disabled])")];
-    items.at(-1)?.focus({ preventScroll: true });
-  }
-});
-$("treeManagementPopover").addEventListener("click", event => {
-  const button = event.target.closest("button");
-  if (button && !button.disabled) setTreeManagementMenu(false);
-});
-$("treeManagementPopover").addEventListener("keydown", event => {
-  const items = [...$("treeManagementPopover").querySelectorAll("button:not([hidden]):not([disabled])")];
-  const index = items.indexOf(document.activeElement);
-  if (event.key === "Escape") {
-    event.preventDefault();
-    event.stopPropagation();
-    setTreeManagementMenu(false, true);
-  } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && items.length) {
-    event.preventDefault();
-    if (event.key === "Home") items[0].focus({ preventScroll: true });
-    else if (event.key === "End") items.at(-1).focus({ preventScroll: true });
-    else items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length].focus({ preventScroll: true });
-  }
-});
-document.addEventListener("click", event => {
-  if ($("treeManagementPopover").hidden || event.target.closest("#treeManagement")) return;
-  setTreeManagementMenu(false);
-});
-$("manageTreeCreateBtn").addEventListener("click", () => openTreeManagementAction("create"));
-$("manageTreeRenameBtn").addEventListener("click", () => openTreeManagementAction("rename"));
-$("manageTreeDeleteBtn").addEventListener("click", () => openTreeManagementAction("delete"));
-$("manageTreeRecoverBtn").addEventListener("click", () => openTreeManagementAction("recover"));
 
 $("treeForm").addEventListener("submit", async event => {
   event.preventDefault();
@@ -1951,23 +1902,36 @@ function scheduleTreeViewportFit() {
 window.addEventListener("orientationchange", scheduleTreeViewportFit);
 window.addEventListener("resize", scheduleTreeViewportFit, { passive: true });
 
+let pendingTreeExportId = MAIN_TREE_ID;
+let treeExportReturnFocus = null;
+function openTreeExportDialog(treeId = activeTreeId, returnFocus = null) {
+  pendingTreeExportId = treeId;
+  treeExportReturnFocus = returnFocus || $("treeMoreBtn");
+  $("treeExportDialog").showModal();
+  $("treeExportDialog").querySelector("[data-export-format]")?.focus();
+}
+
 // Export PNG de l'arbre entier cadré, fidèle à la vue courante (positions et
 // couleurs réutilisées) ; les photos externes sont pré-chargées en CORS pour
 // ne pas souiller le canvas et retombent sur les initiales en cas d'échec.
-async function exportTreeImage(format = "png") {
-  const buttons = [$("menuExportTreeBtn")].filter(Boolean);
+async function exportTreeImage(format = "png", treeId = activeTreeId, busyButton = null) {
+  const buttons = [busyButton || $("menuExportTreeBtn")].filter(Boolean);
   const setBusy = pending => buttons.forEach(button => { button.disabled = pending; button.setAttribute("aria-busy", String(pending)); });
-  if (!treePeople().length || !currentLayout) {
+  const members = getTreePeople(people, treeId);
+  const scope = treeId === activeTreeId
+    ? currentTreeScope()
+    : { people: members.filter(item => item.inTree !== false), families: getTreeFamilies(families, members), hiddenAncestorCounts: new Map(), rootId: null };
+  const layout = treeId === activeTreeId ? currentLayout : applyManualPositions(computeTreeLayout(scope));
+  if (!scope.people.length || !layout) {
     toast("Aucun arbre à exporter", "error");
     return;
   }
   setBusy(true);
   let svgUrl;
   let canvas;
+  let temporaryExportHost = null;
   try {
-    const scope = currentTreeScope();
     const markers = treeContextMarkers(scope);
-    const layout = currentLayout;
     const photoUrls = new Map();
     // SVG conserve davantage de détails photo ; aucun bitmap ne peut zoomer à l’infini.
     const PHOTO_EXPORT_MAX_EDGE = format === "svg" ? 512 : 128;
@@ -2004,7 +1968,18 @@ async function exportTreeImage(format = "png") {
         image.src = url;
       });
     }
-    const cards = await captureTreeExportCards($("treeScene"), layout, photoUrls);
+    let exportScene = $("treeScene");
+    if (treeId !== activeTreeId) {
+      temporaryExportHost = document.createElement("div");
+      temporaryExportHost.className = "tree-export-measure-host";
+      temporaryExportHost.style.cssText = "position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;";
+      exportScene = document.createElement("div");
+      exportScene.className = "tree";
+      temporaryExportHost.append(exportScene);
+      document.body.append(temporaryExportHost);
+      createTreeRenderer({ scene: exportScene, getScale: () => 1 }).render(scope.people, layout, markers);
+    }
+    const cards = await captureTreeExportCards(exportScene, layout, photoUrls);
     const svgText = treeExportSvg({ people: scope.people, layout, markers, photoUrls, cards });
     const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
     let file = svgBlob;
@@ -2028,7 +2003,9 @@ async function exportTreeImage(format = "png") {
     }
     const link = document.createElement("a");
     link.href = URL.createObjectURL(file);
-    link.download = `arbre-familial-${new Date().toISOString().slice(0, 10)}.${format === "svg" ? "svg" : "png"}`;
+    const treeName = treeId === MAIN_TREE_ID ? "familial" : treeMetadata.find(item => item.id === treeId)?.name || "arbre";
+    const filenameTree = normalizeTreeName(treeName).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "arbre";
+    link.download = `arbre-${filenameTree}-${new Date().toISOString().slice(0, 10)}.${format === "svg" ? "svg" : "png"}`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 2000);
     toast(`Image de l’arbre exportée · ${formatBytes(file.size)}`);
@@ -2038,6 +2015,7 @@ async function exportTreeImage(format = "png") {
   } finally {
     if (svgUrl) URL.revokeObjectURL(svgUrl);
     if (canvas) canvas.width = canvas.height = 1;
+    temporaryExportHost?.remove();
     setBusy(false);
   }
 }
@@ -15532,11 +15510,132 @@ $("clearTreeSearchBtn").onclick = () => {
 $("treeSelect").onchange = () => setActiveTree($("treeSelect").value);
 $("treeBranchFilter").onchange = () => {
   lineageSurname = $("treeBranchFilter").value;
+  renderTreeBranchPicker([...$("treeBranchFilter").options].slice(1).map(option => option.value));
   branchView = null;
   focusAfterRender = null;
   renderTree();
   camera.fit();
 };
+function focusMenuItem(container, selector, current, direction) {
+  const items = [...container.querySelectorAll(selector)].filter(item => !item.disabled && !item.hidden);
+  if (!items.length) return;
+  const index = items.indexOf(current);
+  if (direction === "first" || (direction === "down" && index < 0)) items[0].focus({ preventScroll: true });
+  else if (direction === "last" || (direction === "up" && index < 0)) items.at(-1).focus({ preventScroll: true });
+  else if (direction === "down") items[(index + 1) % items.length].focus({ preventScroll: true });
+  else if (direction === "up") items[(index - 1 + items.length) % items.length].focus({ preventScroll: true });
+}
+function closeTreePickerMenus({ closeTree = true, closeBranch = true } = {}) {
+  document.querySelectorAll(".tree-row-actions[open]").forEach(details => { details.open = false; });
+  if (closeTree) $("treeSelectorDetails").open = false;
+  if (closeBranch) $("branchPickerDetails").open = false;
+}
+for (const [detailsId, triggerId] of [["treeSelectorDetails", "treeSelectTrigger"], ["branchPickerDetails", "treeBranchTrigger"]]) {
+  const details = $(detailsId);
+  const trigger = $(triggerId);
+  details.addEventListener("toggle", () => trigger.setAttribute("aria-expanded", String(details.open)));
+  details.addEventListener("keydown", event => {
+    if (event.key === "Escape" && details.open) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeTreePickerMenus({ closeTree: detailsId === "treeSelectorDetails", closeBranch: detailsId === "branchPickerDetails" });
+      trigger.focus({ preventScroll: true });
+    } else if ((event.key === "ArrowDown" || event.key === "ArrowUp") && event.target === trigger) {
+      event.preventDefault();
+      details.open = true;
+      const container = detailsId === "treeSelectorDetails" ? $("treeSelectorRows") : $("branchPickerRows");
+      focusMenuItem(container, "button[role='option']", null, event.key === "ArrowDown" ? "first" : "last");
+    }
+  });
+}
+$("treeSelectorRows").addEventListener("click", event => {
+  const action = event.target.closest("[data-tree-action]");
+  if (action) {
+    if (action.disabled) return;
+    const treeId = action.dataset.treeId;
+    const rowMenu = action.closest("details");
+    if (rowMenu) rowMenu.open = false;
+    if (action.dataset.treeAction === "export") {
+      return openTreeExportDialog(treeId, rowMenu?.querySelector("summary") || $("treeSelectTrigger"));
+    }
+    closeTreePickerMenus();
+    if (action.dataset.treeAction === "rename") return openTreeDialog("rename", treeId);
+    if (action.dataset.treeAction === "delete") {
+      const tree = treeMetadata.find(item => item.id === treeId);
+      return tree && getTreeLifecycleState(tree) === TREE_LIFECYCLE_DELETING
+        ? recoverManagedTree(treeId)
+        : deleteManagedTree(treeId);
+    }
+    return;
+  }
+  const option = event.target.closest("[data-tree-select]");
+  if (!option) return;
+  const select = $("treeSelect");
+  select.value = option.dataset.treeSelect;
+  closeTreePickerMenus();
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  $("treeSelectTrigger").focus({ preventScroll: true });
+});
+$("treeSelectorRows").addEventListener("keydown", event => {
+  const menu = event.target.closest(".tree-row-actions");
+  if (menu) {
+    const summary = menu.querySelector("summary");
+    const itemsSelector = "[role='menuitem']";
+    if (event.key === "Escape") {
+      event.preventDefault();
+      menu.open = false;
+      summary?.focus({ preventScroll: true });
+    } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      focusMenuItem(menu, itemsSelector, event.target, event.key === "Home" ? "first" : event.key === "End" ? "last" : event.key === "ArrowDown" ? "down" : "up");
+    }
+    return;
+  }
+  if (!event.target.matches("[data-tree-select]")) return;
+  if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+    event.preventDefault();
+    focusMenuItem($("treeSelectorRows"), "button[data-tree-select]", event.target, event.key === "Home" ? "first" : event.key === "End" ? "last" : event.key === "ArrowDown" ? "down" : "up");
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    closeTreePickerMenus();
+    $("treeSelectTrigger").focus({ preventScroll: true });
+  }
+});
+$("branchPickerRows").addEventListener("click", event => {
+  const option = event.target.closest("[data-branch-value]");
+  if (!option) return;
+  const select = $("treeBranchFilter");
+  select.value = option.dataset.branchValue;
+  $("branchPickerDetails").open = false;
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  $("treeBranchTrigger").focus({ preventScroll: true });
+});
+$("branchPickerRows").addEventListener("keydown", event => {
+  if (!event.target.matches("[data-branch-value]")) return;
+  if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+    event.preventDefault();
+    focusMenuItem($("branchPickerRows"), "button[data-branch-value]", event.target, event.key === "Home" ? "first" : event.key === "End" ? "last" : event.key === "ArrowDown" ? "down" : "up");
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    $("branchPickerDetails").open = false;
+    $("treeBranchTrigger").focus({ preventScroll: true });
+  }
+});
+$("manageTreeCreateBtn").addEventListener("click", () => {
+  closeTreePickerMenus();
+  openTreeDialog("create");
+});
+document.addEventListener("click", event => {
+  if (!event.target.closest("#treeSelectorHost")) {
+    $("treeSelectorDetails").open = false;
+    $("treeSelectorRows").querySelectorAll(".tree-row-actions[open]").forEach(details => { details.open = false; });
+  } else {
+    $("treeSelectorRows").querySelectorAll(".tree-row-actions[open]").forEach(details => {
+      if (!details.contains(event.target)) details.open = false;
+    });
+  }
+  if (!event.target.closest("#branchSelectorHost")) $("branchPickerDetails").open = false;
+});
 let zoomBadgeTimer = 0;
 function showZoomBadge() {
   $("zoomLevel").classList.add("show");
@@ -15720,17 +15819,24 @@ $("autoLayoutBtn").onclick = () => {
 };
 $("menuExportTreeBtn").onclick = () => {
   setTreeMenu(false);
-  $("treeExportDialog").showModal();
-  $("treeExportDialog").querySelector("[data-export-format]")?.focus();
+  openTreeExportDialog(activeTreeId, $("treeMoreBtn"));
 };
 document.querySelectorAll("[data-export-format]").forEach(button => {
   button.onclick = () => {
     const format = button.dataset.exportFormat;
+    const treeId = pendingTreeExportId;
+    const focusReturn = treeExportReturnFocus;
     close("treeExportDialog");
-    exportTreeImage(format);
+    exportTreeImage(format, treeId, focusReturn);
   };
 });
-$("treeExportDialog").addEventListener("close", () => { if (!$("appMain").hidden) $("treeMoreBtn").focus(); });
+$("treeExportDialog").addEventListener("close", () => {
+  const focusReturn = treeExportReturnFocus;
+  pendingTreeExportId = activeTreeId;
+  treeExportReturnFocus = null;
+  if (!$("appMain").hidden && focusReturn?.isConnected && getComputedStyle(focusReturn).display !== "none") focusReturn.focus({ preventScroll: true });
+  else if (!$("appMain").hidden) $("treeMoreBtn").focus({ preventScroll: true });
+});
 document.addEventListener("click", event => {
   const menu = $("treeMenu");
   if (!menu.hidden && !event.target.closest(".view-control") && !menu.contains(event.target)) setTreeMenu(false);
