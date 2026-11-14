@@ -1116,12 +1116,10 @@ function renderTreeSelectorRows() {
     const count = getTreePeople(treePeople(), tree.id).length;
     const principal = tree.primary ? '<span class="tree-picker-primary"><svg class="ui-icon" aria-hidden="true"><use href="#icon-lock"></use></svg><span>Principal</span></span>' : "";
     const status = deleting ? '<span class="tree-picker-status">Suppression en cours</span>' : "";
-    return `<div class="tree-picker-row" data-tree-row="${esc(tree.id)}"><button class="tree-picker-option" type="button" role="option" data-tree-select="${esc(tree.id)}" aria-pressed="${selected}" aria-selected="${selected}" title="${esc(tree.name)}"><span class="tree-picker-check" aria-hidden="true">✓</span><span class="tree-picker-copy"><span class="tree-picker-name">${esc(tree.name)}${principal}</span>${status}</span><span class="tree-picker-count">${count} pers.</span></button><details class="tree-row-actions" data-tree-row-actions="${esc(tree.id)}"><summary aria-label="Actions de ${esc(tree.name)}" title="Actions de ${esc(tree.name)}" aria-haspopup="menu" aria-expanded="false">⋯</summary><div class="tree-row-actions-menu" role="menu" aria-label="Actions de ${esc(tree.name)}"><button type="button" role="menuitem" data-tree-action="rename" data-tree-id="${esc(tree.id)}" title="${esc(renameTitle)}"${renameDisabled ? " disabled" : ""}>Renommer</button><button type="button" role="menuitem" data-tree-action="export" data-tree-id="${esc(tree.id)}"${exportDisabled ? " disabled" : ""}>Exporter</button><button type="button" role="menuitem" data-tree-action="delete" data-tree-id="${esc(tree.id)}" title="${esc(deleteTitle)}"${deleteDisabled ? " disabled" : ""}>Supprimer…</button></div></details></div>`;
+    const treeId = esc(tree.id);
+    const actionsId = `treeRowActions-${treeId}`;
+    return `<div class="tree-picker-entry" data-tree-entry="${treeId}"><div class="tree-picker-row" data-tree-row="${treeId}"><button class="tree-picker-option" type="button" role="option" data-tree-select="${treeId}" aria-pressed="${selected}" aria-selected="${selected}" title="${esc(tree.name)}"><span class="tree-picker-check" aria-hidden="true">✓</span><span class="tree-picker-copy"><span class="tree-picker-name">${esc(tree.name)}${principal}</span>${status}</span><span class="tree-picker-count">${count} pers.</span></button><button class="tree-row-actions-trigger" type="button" data-tree-actions-toggle="${treeId}" aria-label="Actions de ${esc(tree.name)}" title="Actions de ${esc(tree.name)}" aria-haspopup="menu" aria-expanded="false" aria-controls="${actionsId}">⋯</button></div><div class="tree-row-actions-menu" id="${actionsId}" data-tree-row-actions="${treeId}" role="menu" aria-label="Actions de ${esc(tree.name)}" hidden><button type="button" role="menuitem" data-tree-action="rename" data-tree-id="${treeId}" title="${esc(renameTitle)}"${renameDisabled ? " disabled" : ""}>Renommer</button><button type="button" role="menuitem" data-tree-action="export" data-tree-id="${treeId}"${exportDisabled ? " disabled" : ""}>Exporter</button><button type="button" role="menuitem" data-tree-action="delete" data-tree-id="${treeId}" title="${esc(deleteTitle)}"${deleteDisabled ? " disabled" : ""}>Supprimer…</button></div></div>`;
   }).join("");
-  rows.querySelectorAll(".tree-row-actions").forEach(details => {
-    const summary = details.querySelector("summary");
-    details.addEventListener("toggle", () => summary?.setAttribute("aria-expanded", String(details.open)));
-  });
 }
 
 function setActiveTree(treeId) {
@@ -1632,6 +1630,7 @@ function preserveTreeCenterOnViewportResize() {
   }
   previousTreeViewportSize = current;
   if (treeFullscreenActive && !$("treeMenu").hidden) positionFullscreenTreeMenu();
+  else if (!$("treeMenu").hidden) positionNormalTreeMenu();
 }
 
 const treeFullscreenResizeObserver = new ResizeObserver(preserveTreeCenterOnViewportResize);
@@ -1640,6 +1639,7 @@ window.addEventListener("resize", preserveTreeCenterOnViewportResize, { passive:
 window.visualViewport?.addEventListener("resize", preserveTreeCenterOnViewportResize);
 window.visualViewport?.addEventListener("scroll", () => {
   if (treeFullscreenActive && !$("treeMenu").hidden) positionFullscreenTreeMenu();
+  else if (!$("treeMenu").hidden) positionNormalTreeMenu();
 });
 
 const treeViewportQuery = window.matchMedia("(max-width: 760px)");
@@ -15526,14 +15526,115 @@ function focusMenuItem(container, selector, current, direction) {
   else if (direction === "up") items[(index - 1 + items.length) % items.length].focus({ preventScroll: true });
 }
 function closeTreePickerMenus({ closeTree = true, closeBranch = true } = {}) {
-  document.querySelectorAll(".tree-row-actions[open]").forEach(details => { details.open = false; });
+  document.querySelectorAll("[data-tree-actions-toggle][aria-expanded='true']").forEach(button => setTreeRowActions(button.dataset.treeActionsToggle, false));
   if (closeTree) $("treeSelectorDetails").open = false;
   if (closeBranch) $("branchPickerDetails").open = false;
 }
+function setTreeRowActions(treeId, open) {
+  const trigger = [...document.querySelectorAll("[data-tree-actions-toggle]")].find(button => button.dataset.treeActionsToggle === treeId);
+  const menu = trigger ? document.getElementById(trigger.getAttribute("aria-controls")) : null;
+  if (!trigger || !menu) return;
+  if (open) {
+    document.querySelectorAll("[data-tree-actions-toggle][aria-expanded='true']").forEach(other => {
+      if (other !== trigger) setTreeRowActions(other.dataset.treeActionsToggle, false);
+    });
+  }
+  trigger.setAttribute("aria-expanded", String(Boolean(open)));
+  menu.hidden = !open;
+  if (open) requestAnimationFrame(() => positionTreePickerMenu($("treeSelectorDetails")));
+}
+
+const treePickerSafeAreaProbe = document.createElement("div");
+treePickerSafeAreaProbe.setAttribute("aria-hidden", "true");
+treePickerSafeAreaProbe.style.cssText = "position:fixed;visibility:hidden;pointer-events:none;width:0;height:0;padding-top:env(safe-area-inset-top,0px);padding-right:env(safe-area-inset-right,0px);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);";
+document.body.append(treePickerSafeAreaProbe);
+function positionTreePickerMenu(details) {
+  if (!details?.open) return;
+  const menu = details.querySelector(".tree-picker-menu");
+  const trigger = details.querySelector(":scope > summary");
+  if (!menu || !trigger) return;
+  const clearPosition = () => {
+    menu.classList.remove("is-open-up", "is-mobile-positioned");
+    menu.classList.remove("is-align-right");
+    menu.style.removeProperty("max-height");
+    menu.style.removeProperty("height");
+  };
+  if (!window.matchMedia("(max-width: 760px)").matches) {
+    clearPosition();
+    return;
+  }
+  const visual = window.visualViewport;
+  const viewportTop = visual ? visual.offsetTop : 0;
+  const viewportBottom = viewportTop + (visual?.height || window.innerHeight);
+  const insets = getComputedStyle(treePickerSafeAreaProbe);
+  const safeTop = Number.parseFloat(insets.paddingTop) || 0;
+  const safeBottom = Number.parseFloat(insets.paddingBottom) || 0;
+  const safeLeft = Number.parseFloat(insets.paddingLeft) || 0;
+  const safeRight = Number.parseFloat(insets.paddingRight) || 0;
+  const triggerBox = trigger.getBoundingClientRect();
+  const detailsBox = details.getBoundingClientRect();
+  const margin = 8;
+  const horizontalMargin = 16;
+  const roomBelow = Math.max(0, viewportBottom - safeBottom - margin - triggerBox.bottom - 4);
+  const roomAbove = Math.max(0, triggerBox.top - viewportTop - safeTop - margin - 4);
+  const viewportLeft = visual ? visual.offsetLeft : 0;
+  const viewportWidth = visual?.width || window.innerWidth;
+  const availableWidth = Math.max(0, viewportWidth - safeLeft - safeRight - horizontalMargin * 2);
+  const menuWidth = Math.min(24 * 16, availableWidth);
+  menu.classList.add("is-mobile-positioned");
+  menu.classList.remove("is-open-up");
+  const alignRight = detailsBox.left + menuWidth > viewportLeft + viewportWidth - safeRight - horizontalMargin;
+  menu.classList.toggle("is-align-right", alignRight);
+  const naturalHeight = menu.scrollHeight;
+  const openUp = naturalHeight > roomBelow && roomAbove > roomBelow;
+  const availableHeight = Math.min(naturalHeight, openUp ? roomAbove : roomBelow);
+  menu.classList.toggle("is-open-up", openUp);
+  menu.style.setProperty("height", `${Math.floor(availableHeight)}px`, "important");
+  menu.style.setProperty("max-height", `${Math.floor(availableHeight)}px`, "important");
+}
+function repositionOpenTreePickerMenus() {
+  const mobile = window.matchMedia("(max-width: 760px)").matches;
+  for (const id of ["treeSelectorDetails", "branchPickerDetails"]) {
+    const details = $(id);
+    if (details.open && mobile) positionTreePickerMenu(details);
+    else if (details.open) {
+      const menu = details.querySelector(".tree-picker-menu");
+      if (menu) {
+        menu.classList.remove("is-open-up", "is-mobile-positioned", "is-align-right");
+        menu.style.removeProperty("max-height");
+        menu.style.removeProperty("height");
+      }
+    }
+  }
+}
+let treePickerPositionFrame = 0;
+function scheduleTreePickerMenuPosition() {
+  if (treePickerPositionFrame) cancelAnimationFrame(treePickerPositionFrame);
+  treePickerPositionFrame = requestAnimationFrame(() => {
+    treePickerPositionFrame = 0;
+    repositionOpenTreePickerMenus();
+  });
+}
+window.addEventListener("resize", scheduleTreePickerMenuPosition, { passive: true });
+window.addEventListener("scroll", scheduleTreePickerMenuPosition, { passive: true });
+window.addEventListener("orientationchange", scheduleTreePickerMenuPosition, { passive: true });
+window.visualViewport?.addEventListener("resize", scheduleTreePickerMenuPosition, { passive: true });
+window.visualViewport?.addEventListener("scroll", scheduleTreePickerMenuPosition, { passive: true });
 for (const [detailsId, triggerId] of [["treeSelectorDetails", "treeSelectTrigger"], ["branchPickerDetails", "treeBranchTrigger"]]) {
   const details = $(detailsId);
   const trigger = $(triggerId);
-  details.addEventListener("toggle", () => trigger.setAttribute("aria-expanded", String(details.open)));
+  details.addEventListener("toggle", () => {
+    trigger.setAttribute("aria-expanded", String(details.open));
+    if (details.open) scheduleTreePickerMenuPosition();
+    else {
+      const menu = details.querySelector(".tree-picker-menu");
+      if (menu) {
+        menu.classList.remove("is-open-up", "is-mobile-positioned", "is-align-right");
+        menu.style.removeProperty("max-height");
+        menu.style.removeProperty("height");
+      }
+    }
+  });
   details.addEventListener("keydown", event => {
     if (event.key === "Escape" && details.open) {
       event.preventDefault();
@@ -15549,14 +15650,20 @@ for (const [detailsId, triggerId] of [["treeSelectorDetails", "treeSelectTrigger
   });
 }
 $("treeSelectorRows").addEventListener("click", event => {
+  const actionsToggle = event.target.closest("[data-tree-actions-toggle]");
+  if (actionsToggle) {
+    const open = actionsToggle.getAttribute("aria-expanded") !== "true";
+    setTreeRowActions(actionsToggle.dataset.treeActionsToggle, open);
+    return;
+  }
   const action = event.target.closest("[data-tree-action]");
   if (action) {
     if (action.disabled) return;
     const treeId = action.dataset.treeId;
-    const rowMenu = action.closest("details");
-    if (rowMenu) rowMenu.open = false;
+    const actionToggle = document.querySelector(`[data-tree-actions-toggle="${CSS.escape(treeId)}"]`);
+    setTreeRowActions(treeId, false);
     if (action.dataset.treeAction === "export") {
-      return openTreeExportDialog(treeId, rowMenu?.querySelector("summary") || $("treeSelectTrigger"));
+      return openTreeExportDialog(treeId, actionToggle || $("treeSelectTrigger"));
     }
     closeTreePickerMenus();
     if (action.dataset.treeAction === "rename") return openTreeDialog("rename", treeId);
@@ -15577,18 +15684,28 @@ $("treeSelectorRows").addEventListener("click", event => {
   $("treeSelectTrigger").focus({ preventScroll: true });
 });
 $("treeSelectorRows").addEventListener("keydown", event => {
-  const menu = event.target.closest(".tree-row-actions");
+  const menu = event.target.closest(".tree-row-actions-menu");
+  const actionsToggle = event.target.closest("[data-tree-actions-toggle]");
   if (menu) {
-    const summary = menu.querySelector("summary");
+    const toggle = document.querySelector(`[aria-controls="${CSS.escape(menu.id)}"]`);
     const itemsSelector = "[role='menuitem']";
     if (event.key === "Escape") {
       event.preventDefault();
-      menu.open = false;
-      summary?.focus({ preventScroll: true });
+      event.stopPropagation();
+      setTreeRowActions(toggle?.dataset.treeActionsToggle, false);
+      toggle?.focus({ preventScroll: true });
     } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
       event.preventDefault();
       focusMenuItem(menu, itemsSelector, event.target, event.key === "Home" ? "first" : event.key === "End" ? "last" : event.key === "ArrowDown" ? "down" : "up");
     }
+    return;
+  }
+  if (actionsToggle && ["ArrowDown", "ArrowUp"].includes(event.key)) {
+    event.preventDefault();
+    setTreeRowActions(actionsToggle.dataset.treeActionsToggle, true);
+    const menuId = actionsToggle.getAttribute("aria-controls");
+    const menuElement = document.getElementById(menuId);
+    focusMenuItem(menuElement, "[role='menuitem']", null, event.key === "ArrowDown" ? "first" : "last");
     return;
   }
   if (!event.target.matches("[data-tree-select]")) return;
@@ -15628,12 +15745,8 @@ $("manageTreeCreateBtn").addEventListener("click", () => {
 document.addEventListener("click", event => {
   if (!event.target.closest("#treeSelectorHost")) {
     $("treeSelectorDetails").open = false;
-    $("treeSelectorRows").querySelectorAll(".tree-row-actions[open]").forEach(details => { details.open = false; });
-  } else {
-    $("treeSelectorRows").querySelectorAll(".tree-row-actions[open]").forEach(details => {
-      if (!details.contains(event.target)) details.open = false;
-    });
   }
+  if (!event.target.closest("#treeSelectorRows [data-tree-actions-toggle], #treeSelectorRows .tree-row-actions-menu")) closeTreePickerMenus({ closeTree: false, closeBranch: false });
   if (!event.target.closest("#branchSelectorHost")) $("branchPickerDetails").open = false;
 });
 let zoomBadgeTimer = 0;
@@ -15647,7 +15760,7 @@ $("zoomInBtn").onclick = () => { camera.zoomBy(1.2); showZoomBadge(); };
 $("treeFullscreenBtn").onclick = () => toggleTreeFullscreen();
 function resetTreeMenuPosition() {
   const menu = $("treeMenu");
-  ["position", "left", "right", "top", "bottom", "width", "maxWidth", "maxHeight", "overflowY"].forEach(property => menu.style.removeProperty(property.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)));
+  ["position", "left", "right", "top", "bottom", "width", "maxWidth", "maxHeight", "overflowY", "transform"].forEach(property => menu.style.removeProperty(property.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)));
 }
 // En plein écran, le menu est déplacé hors de .tree-controls : le guard de la
 // caméra ne le couvre plus et setPointerCapture détournerait le click des
@@ -15660,6 +15773,11 @@ function positionFullscreenTreeMenu() {
   const bounds = visual && Number.isFinite(visual.width) && Number.isFinite(visual.offsetTop)
     ? { left: visual.offsetLeft || 0, top: visual.offsetTop, right: (visual.offsetLeft || 0) + visual.width, bottom: visual.offsetTop + visual.height }
     : { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+  const insets = getComputedStyle(treePickerSafeAreaProbe);
+  bounds.left += Number.parseFloat(insets.paddingLeft) || 0;
+  bounds.top += Number.parseFloat(insets.paddingTop) || 0;
+  bounds.right -= Number.parseFloat(insets.paddingRight) || 0;
+  bounds.bottom -= Number.parseFloat(insets.paddingBottom) || 0;
   const shellRect = treeViewportElement.getBoundingClientRect();
   const anchor = $("treeMoreBtn").getBoundingClientRect();
   const margin = 8;
@@ -15686,6 +15804,31 @@ function positionFullscreenTreeMenu() {
     ? Math.max(bounds.top + margin, Math.min(anchor.bottom + 4, bounds.bottom - margin - availableHeight))
     : Math.max(bounds.top + margin, anchor.top - 4 - availableHeight);
   menu.style.top = `${top - shellRect.top}px`;
+}
+function positionNormalTreeMenu() {
+  const menu = $("treeMenu");
+  if (treeFullscreenActive || menu.hidden || !window.matchMedia("(max-width: 760px)").matches) {
+    menu.style.removeProperty("transform");
+    return;
+  }
+  const visual = window.visualViewport;
+  const left = visual?.offsetLeft || 0;
+  const width = visual?.width || window.innerWidth;
+  const right = left + width;
+  const margin = 8;
+  menu.style.removeProperty("left");
+  menu.style.removeProperty("right");
+  menu.style.removeProperty("transform");
+  const bounds = menu.getBoundingClientRect();
+  const host = menu.offsetParent || menu.parentElement;
+  const hostRect = host.getBoundingClientRect();
+  if (bounds.left < left + margin) {
+    menu.style.left = `${left + margin - hostRect.left}px`;
+    menu.style.right = "auto";
+  } else if (bounds.right > right - margin) {
+    menu.style.left = `${right - margin - bounds.width - hostRect.left}px`;
+    menu.style.right = "auto";
+  }
 }
 function updateTreeFullscreenUi(active, fallback = false) {
   const wasActive = treeFullscreenActive;
@@ -15788,6 +15931,7 @@ function setTreeMenu(open) {
     const host = $("treeMoreBtn").closest(".view-control");
     const headroom = host.getBoundingClientRect().top - canvas.getBoundingClientRect().top - 6;
     menu.style.maxHeight = `${Math.max(0, Math.floor(headroom))}px`;
+    positionNormalTreeMenu();
   }
   const firstVisible = [...menu.querySelectorAll('[role="menuitem"]')].find(item => item.offsetParent !== null);
   firstVisible?.focus();

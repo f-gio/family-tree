@@ -81,7 +81,7 @@ window.__treeSelectorHarness = {
   recoverActionDisabled(treeId = activeTreeId) { return !this.rowAction(treeId, "delete") || this.rowAction(treeId, "delete").disabled; },
   deleteNotice(treeId = activeTreeId) { const tree = treeMetadata.find(item => item.id === treeId); return getTreeLifecycleState(tree) === TREE_LIFECYCLE_DELETING ? "Suppression en cours ou interrompue" : "Suppression vérifiée par Firestore"; },
   openSelector() { document.getElementById("treeSelectorDetails").open = true; },
-  openTreeActions(treeId = activeTreeId) { document.getElementById("treeSelectorDetails").open = true; const details = document.querySelector('[data-tree-row-actions="' + treeId + '"]'); if (details) details.open = true; },
+  openTreeActions(treeId = activeTreeId) { document.getElementById("treeSelectorDetails").open = true; const trigger = document.querySelector('[data-tree-actions-toggle="' + treeId + '"]'); const menu = trigger && document.getElementById(trigger.getAttribute("aria-controls")); if (trigger && menu) { trigger.setAttribute("aria-expanded", "true"); menu.hidden = false; } },
   openTreeDialog(mode, treeId) { openTreeDialog(mode, treeId); },
   submitTreeForm() {
     const form = document.getElementById("treeForm");
@@ -132,8 +132,8 @@ const fixture = {
 
 async function runTreeRowAction(page, treeId, action) {
   if (!(await page.locator("#treeSelectorDetails").evaluate(details => details.open))) await page.locator("#treeSelectTrigger").click();
-  const details = page.locator(`[data-tree-row-actions="${treeId}"]`);
-  if (!(await details.evaluate(element => element.open))) await details.locator(":scope > summary").click();
+  const trigger = page.locator(`[data-tree-actions-toggle="${treeId}"]`);
+  if (await trigger.getAttribute("aria-expanded") !== "true") await trigger.click();
   await page.locator(`[data-tree-action="${action}"][data-tree-id="${treeId}"]`).click();
 }
 
@@ -147,6 +147,7 @@ test("le sélecteur unifié regroupe sélection, actions par arbre et création"
   assert.doesNotMatch(html, /id="manageTreesBtn"|id="treeManagementPopover"|id="manageTreeRenameBtn"|id="manageTreeDeleteBtn"|id="manageTreeRecoverBtn"/);
   assert.match(css, /\.tree-picker-menu/);
   assert.match(css, /\.tree-row-actions-menu/);
+  assert.match(css, /\.tree-row-actions-menu\s*\{[^}]*position:\s*static/s, "les actions sont intégrées sous leur arbre, sans panneau flottant");
   assert.match(html, /class="tree-picker branch-picker"/);
   const headerActions = html.match(/<div class="hero-actions" id="headerTreeActions">([\s\S]*?)<\/div>\s*<\/section>/)?.[1] || "";
   const addIndex = headerActions.indexOf('id="addBtn"');
@@ -491,7 +492,7 @@ test("création d'arbre : admin voit les boutons, validation, sélection après 
         const renameVisible = await page.evaluate(() => window.__treeSelectorHarness.renameBtnVisible());
         assert.equal(renameVisible, true, "action Renommer activée sur arbre secondaire dans le sélecteur unifié");
         await page.locator("#treeSelectTrigger").click();
-        await page.locator('[data-tree-row-actions="tree-empty"] > summary').click();
+        await page.locator('[data-tree-actions-toggle="tree-empty"]').click();
         await page.locator('[data-tree-action="rename"][data-tree-id="tree-empty"]').click();
         assert.equal(await page.locator("#treeDialogTitle").textContent(), "Renommer l'arbre");
         assert.equal(await page.locator("#treeId").inputValue(), "tree-empty");
@@ -530,11 +531,13 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
             noSeparateManager: !document.getElementById("manageTreesBtn") && !document.getElementById("treeManagementPopover")
           };
         });
-        assert.ok(boxes.trigger.visible, "sélecteur d'arbre visible");
+        assert.ok(boxes.trigger.visible, `sélecteur d'arbre visible : ${JSON.stringify(boxes)}`);
         assert.ok(boxes.trigger.w >= 43 && boxes.trigger.h >= 43, `sélecteur ≥44×44px (${boxes.trigger.w}×${boxes.trigger.h})`);
         assert.ok(boxes.addOnly && boxes.noSeparateManager, "Ajouter est l'unique CTA indépendant, sans menu Gérer les arbres");
         for (const width of [320, 375, 390]) {
           await page.setViewportSize({ width, height: 844 });
+          const triggerBeforeOpen = await page.locator("#treeSelectTrigger").evaluate(trigger => ({ rect: trigger.getBoundingClientRect().toJSON(), display: getComputedStyle(trigger).display, visibility: getComputedStyle(trigger).visibility, details: trigger.parentElement.open, host: trigger.closest(".tree-picker-host").getBoundingClientRect().toJSON(), app: { hidden: document.getElementById("appMain").hidden, display: getComputedStyle(document.getElementById("appMain")).display, rect: document.getElementById("appMain").getBoundingClientRect().toJSON() }, viewport: { width: innerWidth, height: innerHeight } }));
+          assert.ok(triggerBeforeOpen.rect.width > 0 && triggerBeforeOpen.rect.height > 0, `déclencheur visible à ${width}px : ${JSON.stringify(triggerBeforeOpen)}`);
           await page.locator("#treeSelectTrigger").click();
           const mobileGeometry = await page.evaluate(() => {
             const menu = document.getElementById("treeSelectorMenu");
@@ -547,20 +550,37 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
               menu: { x: box.x, y: box.y, width: box.width, height: box.height },
               trigger: { x: triggerBox.x, y: triggerBox.y, width: triggerBox.width, height: triggerBox.height },
               computed: { width: style.width, minWidth: style.minWidth, maxWidth: style.maxWidth, left: style.left, right: style.right, position: style.position, boxSizing: style.boxSizing },
+              opensUp: menu.classList.contains("is-open-up"),
               horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
             };
           });
           assert.ok(mobileGeometry.menu.x >= 0 && mobileGeometry.menu.x + mobileGeometry.menu.width <= mobileGeometry.viewport.width,
             `menu entièrement visible à ${width}px (viewport effectif ${mobileGeometry.viewport.width}px, dSF ${mobileGeometry.viewport.deviceScaleFactor}) : ${JSON.stringify(mobileGeometry)}`);
+          assert.equal(mobileGeometry.opensUp, false, `liste courte ouverte vers le bas quand l'espace suffit à ${width}px`);
           assert.equal(mobileGeometry.horizontalOverflow, false, `pas de défilement horizontal à ${width}px`);
-          await page.locator('[data-tree-row-actions="main"] > summary').click();
+          await page.locator('[data-tree-actions-toggle="main"]').click();
           const actionGeometry = await page.evaluate(() => {
-            const menu = document.querySelector('[data-tree-row-actions="main"] .tree-row-actions-menu');
+            const menu = document.querySelector('[data-tree-row-actions="main"]');
             const box = menu.getBoundingClientRect();
             return { x: box.x, y: box.y, width: box.width, height: box.height, right: box.right, viewport: window.innerWidth, buttons: [...menu.querySelectorAll("button")].map(button => ({ text: button.textContent.trim(), width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height })) };
           });
           assert.ok(actionGeometry.x >= 0 && actionGeometry.right <= actionGeometry.viewport, `menu d'actions visible à ${width}px : ${JSON.stringify(actionGeometry)}`);
           assert.ok(actionGeometry.buttons.every(button => button.width >= 43 && button.height >= 43), `actions tactiles et lisibles à ${width}px : ${JSON.stringify(actionGeometry)}`);
+          const inlineFlow = await page.evaluate(() => {
+            const row = document.querySelector('[data-tree-row="main"]');
+            const panel = document.querySelector('[data-tree-row-actions="main"]');
+            const next = document.querySelector('[data-tree-row="tree-conti"]');
+            return { rootOpen: document.getElementById("treeSelectorDetails").open, panelHidden: panel.hidden, rowBottom: row.getBoundingClientRect().bottom, panelTop: panel.getBoundingClientRect().top, panelBottom: panel.getBoundingClientRect().bottom, nextTop: next.getBoundingClientRect().top };
+          });
+          assert.equal(inlineFlow.rootOpen, true, "le menu Arbre reste ouvert pendant le dépliage");
+          assert.equal(inlineFlow.panelHidden, false, "actions intégrées visibles");
+          assert.ok(inlineFlow.panelTop >= inlineFlow.rowBottom && inlineFlow.nextTop >= inlineFlow.panelBottom, `actions en flux, sans recouvrir les arbres suivants : ${JSON.stringify(inlineFlow)}`);
+          await page.locator('[data-tree-actions-toggle="main"]').click();
+          assert.equal(await page.locator('[data-tree-row-actions="main"]').isHidden(), true, "second clic replie les actions");
+          await page.locator('[data-tree-actions-toggle="main"]').click();
+          await page.locator('[data-tree-actions-toggle="tree-empty"]').click();
+          assert.equal(await page.locator('[data-tree-row-actions="main"]').isHidden(), true, "ouvrir un autre arbre replie les actions précédentes");
+          assert.equal(await page.locator('[data-tree-row-actions="tree-empty"]').isVisible(), true, "actions du second arbre dépliées sous sa ligne");
           await page.keyboard.press("Escape");
           await page.keyboard.press("Escape");
         }
@@ -571,12 +591,41 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
         await page.locator("#treeSelectTrigger").click();
         const desktopMenu = await page.locator("#treeSelectorMenu").boundingBox();
         assert.ok(desktopMenu && desktopMenu.x >= 0 && desktopMenu.y >= 0 && desktopMenu.x + desktopMenu.width <= 1024 && desktopMenu.y + desktopMenu.height <= 768, `liste unifiée ancrée dans le viewport desktop : ${JSON.stringify(desktopMenu)}`);
+        await page.locator('[data-tree-select="tree-conti"]').click();
+        assert.equal((await page.evaluate(() => window.__treeSelectorHarness.state())).activeTreeId, "tree-conti", "clic sur le nom sélectionne l'arbre");
+        assert.equal(await page.locator("#treeSelectorDetails").evaluate(details => details.open), false, "la sélection referme le menu Arbre");
+        await page.evaluate(() => window.__treeSelectorHarness.chooseTree("main"));
+        await page.locator("#treeSelectTrigger").click();
+        await page.locator('[data-tree-actions-toggle="main"]').press("ArrowDown");
+        assert.deepEqual(await page.evaluate(() => ({ tree: window.__treeSelectorHarness.state().activeTreeId, action: document.activeElement.dataset.treeAction })), { tree: "main", action: "export" }, "le clavier ouvre les actions sans sélectionner l'arbre et focalise la première action disponible");
+        await page.keyboard.press("Escape");
+        assert.equal(await page.locator("#treeSelectorDetails").evaluate(details => details.open), true, "Échap replie les actions mais conserve le menu Arbre ouvert");
+        assert.equal(await page.locator('[data-tree-row-actions="main"]').isHidden(), true, "actions repliées par Échap");
+        assert.equal(await page.evaluate(() => document.activeElement.dataset.treeActionsToggle), "main", "le focus revient au bouton …");
+        await page.locator('[data-tree-actions-toggle="main"]').click();
+        const desktopInline = await page.evaluate(() => {
+          const row = document.querySelector('[data-tree-row="main"]');
+          const panel = document.querySelector('[data-tree-row-actions="main"]');
+          const next = document.querySelector('[data-tree-row="tree-conti"]');
+          return { rootOpen: document.getElementById("treeSelectorDetails").open, activeTreeId: window.__treeSelectorHarness.state().activeTreeId, hidden: panel.hidden, rowBottom: row.getBoundingClientRect().bottom, panelTop: panel.getBoundingClientRect().top, panelBottom: panel.getBoundingClientRect().bottom, nextTop: next.getBoundingClientRect().top, position: getComputedStyle(panel).position };
+        });
+        assert.equal(desktopInline.rootOpen, true, "le menu reste ouvert pendant le dépliage desktop");
+        assert.equal(desktopInline.activeTreeId, "main", "cliquer sur … ne sélectionne pas l'arbre");
+        assert.equal(desktopInline.hidden, false);
+        assert.equal(desktopInline.position, "static", "pas de sous-menu flottant sur desktop");
+        assert.ok(desktopInline.panelTop >= desktopInline.rowBottom && desktopInline.nextTop >= desktopInline.panelBottom, `les actions repoussent naturellement la ligne suivante desktop : ${JSON.stringify(desktopInline)}`);
+        await page.locator('[data-tree-actions-toggle="main"]').click();
+        assert.equal(await page.locator('[data-tree-row-actions="main"]').isHidden(), true, "second clic replie les actions desktop");
+        await page.locator('[data-tree-actions-toggle="main"]').click();
+        await page.locator('[data-tree-actions-toggle="tree-conti"]').click();
+        assert.equal(await page.locator('[data-tree-row-actions="main"]').isHidden(), true, "un autre arbre referme le panneau desktop précédent");
+        assert.equal(await page.locator('[data-tree-row-actions="tree-conti"]').isVisible(), true);
         await page.keyboard.press("Escape");
         await page.setViewportSize({ width: 390, height: 844 });
         await page.locator("#treeSelectTrigger").click();
         assert.equal(await page.evaluate(() => window.__treeSelectorHarness.managerMenuOpen()), true, "menu de gestion ouvert");
         const mobileMenu = await page.locator("#treeSelectorMenu").boundingBox();
-        const effectiveViewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+        const effectiveViewport = await page.evaluate(() => { const menu = document.getElementById("treeSelectorMenu"); const style = getComputedStyle(menu); return { width: window.innerWidth, height: window.innerHeight, mobile: matchMedia("(max-width: 760px)").matches, cssWidth: style.width, left: style.left, right: style.right, menuClass: menu.className, inline: menu.getAttribute("style") }; });
         assert.ok(mobileMenu && mobileMenu.x >= 0 && mobileMenu.y >= 0 && mobileMenu.x + mobileMenu.width <= effectiveViewport.width && mobileMenu.y + mobileMenu.height <= effectiveViewport.height, `menu ancré dans le viewport mobile effectif ${JSON.stringify(effectiveViewport)} : ${JSON.stringify(mobileMenu)}`);
         await page.keyboard.press("Escape");
         assert.equal(await page.evaluate(() => window.__treeSelectorHarness.managerMenuOpen()), false, "Échap ferme le menu");
@@ -594,7 +643,7 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
         /* Principal : export possible, suppression désactivée ; renommage
            désactivé car aucune opération persistante n'existe pour trees/main. */
         await page.locator("#treeSelectTrigger").click();
-        await page.locator('[data-tree-row-actions="main"] > summary').click();
+        await page.locator('[data-tree-actions-toggle="main"]').click();
         assert.equal(await page.evaluate(() => window.__treeSelectorHarness.renameBtnVisible("main")), false, "renommage principal désactivé sans simuler une écriture");
         assert.equal(await page.evaluate(() => window.__treeSelectorHarness.deleteActionDisabled("main")), true, "suppression principale désactivée");
         assert.equal(await page.locator('[data-tree-action="export"][data-tree-id="main"]').isEnabled(), true, "export principal conservé");
@@ -603,7 +652,7 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
         await page.keyboard.press("Escape");
         await page.evaluate(() => window.__treeSelectorHarness.chooseTree("tree-conti"));
         await page.locator("#treeSelectTrigger").click();
-        await page.locator('[data-tree-row-actions="tree-conti"] > summary').click();
+        await page.locator('[data-tree-actions-toggle="tree-conti"]').click();
         const rename = page.locator('[data-tree-action="rename"][data-tree-id="tree-conti"]');
         const renameBox = await rename.evaluate(button => button.getBoundingClientRect());
         assert.equal(await rename.isEnabled(), true, "Renommer activé sur arbre secondaire");
@@ -621,6 +670,88 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
   } finally { await server.close(); }
 });
 
+test("menus Arbre et Branche longs : défilement interne, placement mobile et création atteignable", async t => {
+  const server = await startStaticServer(ROOT);
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  try {
+    const longFixture = {
+      people: Array.from({ length: 32 }, (_, index) => ({ id: `long-${index}`, firstName: `Prénom ${index}`, lastName: `Famille ${String(index).padStart(2, "0")}` })),
+      families: [],
+      trees: Array.from({ length: 10 }, (_, index) => ({ id: `long-tree-${index}`, name: `Arbre secondaire ${index + 1}`, description: "" }))
+    };
+    for (const width of [320, 375, 390]) {
+      const { context, page } = await createHarnessPage(browser, server, { width, height: 568 });
+      try {
+        await page.evaluate(data => window.__treeSelectorHarness.setData(data), longFixture);
+        await page.evaluate(() => window.__treeSelectorHarness.setAdminMode(true));
+        await page.locator("#treeSelectTrigger").click();
+        await page.waitForFunction(() => document.getElementById("treeSelectorMenu").classList.contains("is-mobile-positioned"));
+        const treeGeometry = await page.evaluate(() => {
+          const menu = document.getElementById("treeSelectorMenu");
+          const box = menu.getBoundingClientRect();
+          const viewport = window.visualViewport;
+          const top = viewport?.offsetTop || 0;
+          const bottom = top + (viewport?.height || innerHeight);
+          return { box: { x: box.x, y: box.y, right: box.right, bottom: box.bottom }, trigger: document.getElementById("treeSelectTrigger").getBoundingClientRect().toJSON(), viewport: { width: innerWidth, top, bottom, deviceScaleFactor: devicePixelRatio }, scrollHeight: menu.scrollHeight, clientHeight: menu.clientHeight, opensUp: menu.classList.contains("is-open-up"), positioned: menu.classList.contains("is-mobile-positioned"), alignRight: menu.classList.contains("is-align-right"), computedPosition: getComputedStyle(menu).position, computedMaxHeight: getComputedStyle(menu).maxHeight, bodyScrollY: scrollY };
+        });
+        assert.ok(treeGeometry.box.x >= 0 && treeGeometry.box.right <= treeGeometry.viewport.width && treeGeometry.box.y >= treeGeometry.viewport.top && treeGeometry.box.bottom <= treeGeometry.viewport.bottom,
+          `menu Arbre dans le viewport effectif à ${width}px : ${JSON.stringify(treeGeometry)}`);
+        assert.ok(treeGeometry.scrollHeight > treeGeometry.clientHeight, `liste Arbre longue défilable à ${width}px : ${JSON.stringify(treeGeometry)}`);
+        assert.equal(treeGeometry.opensUp, true, `liste Arbre longue ouverte vers le haut, où davantage d'espace est disponible à ${width}px`);
+        const rootMenu = page.locator("#treeSelectorMenu");
+        await rootMenu.evaluate(menu => { menu.scrollTop = 0; });
+        await page.locator('[data-tree-actions-toggle="main"]').click();
+        await page.waitForFunction(() => !document.querySelector('[data-tree-row-actions="main"]').hidden);
+        const expanded = await page.evaluate(() => ({ rootOpen: document.getElementById("treeSelectorDetails").open, panelHidden: document.querySelector('[data-tree-row-actions="main"]').hidden, createExists: !document.getElementById("manageTreeCreateBtn").hidden }));
+        assert.equal(expanded.rootOpen, true, `le menu Arbre reste ouvert à ${width}px`);
+        assert.equal(expanded.panelHidden, false, `actions intégrées affichées à ${width}px`);
+        await rootMenu.evaluate(menu => { menu.scrollTop = menu.scrollHeight; });
+        await page.waitForFunction(() => {
+          const menu = document.getElementById("treeSelectorMenu");
+          const create = document.getElementById("manageTreeCreateBtn").getBoundingClientRect();
+          const bounds = menu.getBoundingClientRect();
+          return create.top >= bounds.top && create.bottom <= bounds.bottom;
+        });
+        const createVisible = await page.locator("#manageTreeCreateBtn").isVisible();
+        assert.equal(createVisible, true, `+ Créer un arbre accessible en bas du défilement à ${width}px`);
+        const bodyScrollBefore = await page.evaluate(() => scrollY);
+        await rootMenu.hover();
+        await page.mouse.wheel(0, 180);
+        assert.equal(await page.evaluate(() => scrollY), bodyScrollBefore, `défilement du menu Arbre sans déplacer la page à ${width}px`);
+
+        await page.keyboard.press("Escape");
+        await page.locator("#treeBranchTrigger").click();
+        await page.waitForFunction(() => document.getElementById("branchPickerMenu").classList.contains("is-mobile-positioned"));
+        const branchGeometry = await page.evaluate(() => {
+          const menu = document.getElementById("branchPickerMenu");
+          const box = menu.getBoundingClientRect();
+          const viewport = window.visualViewport;
+          const top = viewport?.offsetTop || 0;
+          const bottom = top + (viewport?.height || innerHeight);
+          const trigger = document.getElementById("treeBranchTrigger").getBoundingClientRect();
+          return { box: { x: box.x, y: box.y, right: box.right, bottom: box.bottom }, trigger: trigger.toJSON(), viewport: { width: innerWidth, top, bottom }, scrollHeight: menu.scrollHeight, clientHeight: menu.clientHeight, opensUp: menu.classList.contains("is-open-up"), positioned: menu.classList.contains("is-mobile-positioned"), inline: menu.getAttribute("style"), computedPosition: getComputedStyle(menu).position, bodyScrollY: scrollY };
+        });
+        assert.ok(branchGeometry.box.x >= 0 && branchGeometry.box.right <= branchGeometry.viewport.width && branchGeometry.box.y >= branchGeometry.viewport.top && branchGeometry.box.bottom <= branchGeometry.viewport.bottom,
+          `menu Branche dans le viewport effectif à ${width}px : ${JSON.stringify(branchGeometry)}`);
+        assert.ok(branchGeometry.scrollHeight > branchGeometry.clientHeight, `liste de branches longue défilable à ${width}px : ${JSON.stringify(branchGeometry)}`);
+        assert.equal(branchGeometry.opensUp, true, `liste Branche longue ouverte vers le haut, où davantage d'espace est disponible à ${width}px`);
+        const branchMenu = page.locator("#branchPickerMenu");
+        await branchMenu.evaluate(menu => { menu.scrollTop = menu.scrollHeight; });
+        const lastBranch = page.locator("#branchPickerRows [data-branch-value]").last();
+        const lastBranchBox = await lastBranch.boundingBox();
+        const branchMenuBox = await branchMenu.boundingBox();
+        assert.ok(lastBranchBox && branchMenuBox && lastBranchBox.y >= branchMenuBox.y && lastBranchBox.y + lastBranchBox.height <= branchMenuBox.y + branchMenuBox.height,
+          `dernière branche atteignable par le défilement interne à ${width}px : ${JSON.stringify({ lastBranchBox, branchMenuBox })}`);
+        await lastBranch.click();
+        assert.equal(await page.locator("#branchPickerDetails").evaluate(details => details.open), false, "le menu Branche se ferme après sélection");
+        assert.equal(await page.locator("#treeBranchFilter").inputValue(), "Famille 31");
+      } finally { await context.close(); }
+    }
+  } finally { await browser.close(); await server.close(); }
+});
+
 test("arbre principal : export actif, suppression protégée, renommage non pris en charge", async t => {
   const server = await startStaticServer(ROOT);
   try {
@@ -635,7 +766,7 @@ test("arbre principal : export actif, suppression protégée, renommage non pris
         const onMain = await page.evaluate(() => ({ activeTreeId: window.__treeSelectorHarness.state().activeTreeId }));
         assert.equal(onMain.activeTreeId, "main");
         await page.locator("#treeSelectTrigger").click();
-        await page.locator('[data-tree-row-actions="main"] > summary').click();
+        await page.locator('[data-tree-actions-toggle="main"]').click();
         assert.equal(await page.locator('[data-tree-action="rename"][data-tree-id="main"]').isDisabled(), true, "pas d'opération de renommage persistante pour trees/main");
         assert.equal(await page.locator('[data-tree-action="delete"][data-tree-id="main"]').isDisabled(), true, "suppression principale désactivée");
         assert.equal(await page.locator('[data-tree-action="export"][data-tree-id="main"]').isEnabled(), true, "export principal actif");
@@ -669,7 +800,7 @@ test("un arbre verrouillé conserve la récupération dans l'action de suppressi
       for (const width of [320, 390, 760, 1024]) {
         await page.setViewportSize({ width, height: 844 });
         await page.locator("#treeSelectTrigger").click();
-        await page.locator('[data-tree-row-actions="tree-conti"] > summary').click();
+        await page.locator('[data-tree-actions-toggle="tree-conti"]').click();
         const state = await page.evaluate(() => ({
           deleteHidden: window.__treeSelectorHarness.deleteActionHidden("tree-conti"),
           deleteDisabled: window.__treeSelectorHarness.deleteActionDisabled("tree-conti"),
