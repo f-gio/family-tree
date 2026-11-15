@@ -4264,6 +4264,9 @@ function setRelationBuilderOpen(open, kind = "parent") {
   $("toggleRelationBuilderBtn").setAttribute("aria-expanded", String(open));
   if (open) {
     setRelationBuilderKind(kind);
+    /* Le second parent peut encore être choisi après une fermeture : les
+       sections d'union doivent suivre sa sélection effective. */
+    updateParentUnionSectionsVisibility();
     const mobile = window.matchMedia("(max-width: 760px)").matches;
     setTimeout(() => {
       const select = document.querySelector(`[data-relation-add-panel="${kind}"] select`);

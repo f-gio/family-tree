@@ -112,6 +112,7 @@ window.__parentBuilderTest = {
     this.openRelations();
     setRelationBuilderOpen(true, "parent");
   },
+  reopenBuilder() { setRelationBuilderOpen(true, "parent"); },
   read() { return readParentBuilderRelationship(); },
   state() {
     return {
@@ -294,15 +295,55 @@ test("lot 3 : deux parents avec union renseignée s'enregistrent une fois, sans 
       assert.equal(state.sectionsHidden, true, "sections refermées après l'ajout");
       assert.equal(await page.evaluate(() => window.__parentBuilderTest.read()), null, "formulaire d'union réinitialisé");
 
+      /* Le second parent est conservé après fermeture : la réouverture doit
+         réafficher les sections d'union correspondantes. */
+      await page.evaluate(() => window.__parentBuilderTest.reopenBuilder());
+      state = await page.evaluate(() => window.__parentBuilderTest.state());
+      assert.equal(state.sectionsHidden, false, "sections réaffichées à la réouverture, le second parent étant conservé");
+
       /* Seconde tentative identique : le lien existe déjà, aucune écriture. */
-      await page.evaluate(() => window.__parentBuilderTest.openRelationsBuilder());
-      await page.selectOption("#parentSelect", "builder-p1");
-      await page.selectOption("#parent2Select", "builder-p2");
       await page.click("#addParentBtn");
       await page.waitForTimeout(600);
       state = await page.evaluate(() => window.__parentBuilderTest.state());
       assert.equal(state.familyWrites.length, 2, "aucune écriture supplémentaire pour un lien déjà existant");
       assert.equal(state.familyCount, 1, "aucun foyer dupliqué");
+
+      assert.deepEqual(errors, [], "aucune erreur JavaScript");
+    } finally { await context.close(); }
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+});
+
+test("lot 3 : un parent seul s'ajoute sans aucune écriture d'union", async t => {
+  let browser;
+  try { browser = await chromium.launch({ headless: true }); }
+  catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  try {
+    const { context, page, errors } = await createPage(browser, server, { stubWrites: true });
+    try {
+      await page.evaluate(() => {
+        window.__parentBuilderTest.seed();
+        window.__parentBuilderTest.openRelationsBuilder();
+      });
+      await page.selectOption("#parentSelect", "builder-p1");
+      const state = await page.evaluate(() => window.__parentBuilderTest.state());
+      assert.equal(state.sectionsHidden, true, "aucune section de couple pour un parent seul");
+      assert.equal(await page.evaluate(() => window.__parentBuilderTest.read()), null, "aucune donnée d'union lue");
+
+      await page.click("#addParentBtn");
+      await page.waitForFunction(() => window.__parentBuilderTest.state().familyWrites.length === 1, undefined, { timeout: 5000 });
+      const after = await page.evaluate(() => window.__parentBuilderTest.state());
+      assert.equal(after.familyWrites.length, 1, "une seule écriture : la création du foyer");
+      assert.equal(after.familyWrites[0].kind, "create");
+      assert.deepEqual(after.familyWrites[0].data.partnerIds, ["builder-p1"], "foyer monoparental");
+      assert.deepEqual(after.familyWrites[0].data.childIds, ["builder-self"]);
+      assert.equal(after.familyWrites[0].data.relationType, "unknown");
+      assert.deepEqual(after.familyWrites[0].data.unionDateInfo, { type: "unknown" });
+      assert.equal(after.familyWrites[0].data.endType, "none");
+      assert.equal(after.familyCount, 1, "un seul foyer créé");
 
       assert.deepEqual(errors, [], "aucune erreur JavaScript");
     } finally { await context.close(); }
