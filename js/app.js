@@ -3940,11 +3940,25 @@ function updatePersonPhotoPreview() {
 function setPersonNameVariants(values = []) {
   personNameVariantsDraft = personNameVariants({ nameVariants: values });
   const kindSelect = $("nameVariantKind");
-  if (kindSelect) kindSelect.value = "given";
+  if (kindSelect) kindSelect.value = "";
   const input = $("nameVariantValue");
   if (input) input.value = "";
   showNameVariantError("");
+  syncNameVariantFormState();
   renderPersonNameVariants();
+}
+
+/* Formulaire de variante : le champ Variante n'est actif qu'après le choix
+   d'un type, et Ajouter n'est actif qu'avec un type et une variante renseignés
+   (hors espaces). À chaque réinitialisation, les deux repassent en désactivé. */
+function syncNameVariantFormState() {
+  const kindSelect = $("nameVariantKind");
+  const input = $("nameVariantValue");
+  const button = $("addNameVariantBtn");
+  if (!kindSelect || !input || !button) return;
+  const hasKind = Boolean(kindSelect.value);
+  input.disabled = !hasKind;
+  button.disabled = !hasKind || !String(input.value || "").trim();
 }
 
 function showNameVariantError(message = "") {
@@ -3976,7 +3990,9 @@ function addPersonNameVariant() {
   }
   personNameVariantsDraft.push({ id: doc(refs.people).id, kind, value: result.value });
   showNameVariantError("");
+  $("nameVariantKind").value = "";
   $("nameVariantValue").value = "";
+  syncNameVariantFormState();
   renderPersonNameVariants();
 }
 
@@ -15613,12 +15629,19 @@ $("removePersonPhotoBtn").onclick = () => {
   updatePersonPhotoPreview();
 };
 $("addNameVariantBtn").onclick = () => addPersonNameVariant();
+$("nameVariantKind").addEventListener("change", () => {
+  showNameVariantError("");
+  syncNameVariantFormState();
+});
 $("nameVariantValue").addEventListener("keydown", event => {
   if (event.key !== "Enter") return;
   event.preventDefault();
   addPersonNameVariant();
 });
-$("nameVariantValue").addEventListener("input", () => showNameVariantError(""));
+$("nameVariantValue").addEventListener("input", () => {
+  showNameVariantError("");
+  syncNameVariantFormState();
+});
 $("personNameVariantsList").addEventListener("click", event => {
   const button = event.target.closest("[data-remove-name-variant]");
   if (!button) return;

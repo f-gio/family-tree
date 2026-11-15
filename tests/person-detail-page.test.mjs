@@ -622,10 +622,20 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForTimeout(60);
     assert.ok(await page.locator("#personNameVariantsSection").isVisible(), "section variantes présente en création");
     assert.equal(await page.locator("#personNameVariantsList li").count(), 0, "liste vide en création");
-    assert.equal(await page.locator("#nameVariantKind").inputValue(), "given", "type réinitialisé sur Prénom en création");
+    assert.equal(await page.locator("#nameVariantKind").inputValue(), "", "aucun type présélectionné en création");
+    assert.equal(await page.locator("#nameVariantValue").isDisabled(), true, "Variante désactivée tant qu'aucun type n'est choisi");
+    assert.equal(await page.locator("#addNameVariantBtn").isDisabled(), true, "Ajouter désactivé tant qu'aucun type n'est choisi");
+    await page.selectOption("#nameVariantKind", "given");
+    assert.equal(await page.locator("#nameVariantValue").isDisabled(), false, "Variante activée après choix du type");
+    assert.equal(await page.locator("#addNameVariantBtn").isDisabled(), true, "Ajouter reste désactivé tant que Variante est vide");
     await page.fill("#nameVariantValue", "VarianteAnnulee");
+    assert.equal(await page.locator("#addNameVariantBtn").isDisabled(), false, "Ajouter activé dès que les données sont renseignées");
     await page.click("#addNameVariantBtn");
     assert.equal(await page.locator("#personNameVariantsList li").count(), 1, "ajout immédiat en mémoire");
+    assert.equal(await page.locator("#nameVariantKind").inputValue(), "", "type réinitialisé après ajout");
+    assert.equal(await page.locator("#nameVariantValue").inputValue(), "", "variante vidée après ajout");
+    assert.equal(await page.locator("#nameVariantValue").isDisabled(), true, "Variante désactivée après ajout");
+    assert.equal(await page.locator("#addNameVariantBtn").isDisabled(), true, "Ajouter désactivé après ajout");
     await page.locator('#personDialog [data-close="personDialog"]').first().click();
     await page.waitForFunction(() => !document.getElementById("personDialog").open);
 
@@ -636,19 +646,24 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.locator("#personNameVariantsList li").count(), 0, "aucune variante préexistante");
 
     const currentFirstName = await page.inputValue("#firstName");
+    assert.equal(await page.locator("#nameVariantKind").inputValue(), "", "aucun type présélectionné à l'ouverture");
+    assert.equal(await page.locator("#nameVariantValue").isDisabled(), true, "Variante désactivée à l'ouverture");
+    await page.selectOption("#nameVariantKind", "given");
     await page.fill("#nameVariantValue", currentFirstName);
     await page.click("#addNameVariantBtn");
     assert.match(await page.locator("#nameVariantError").innerText(), /identique au prénom principal/, "variante identique au prénom refusée");
     assert.equal(await page.locator("#personNameVariantsList li").count(), 0);
 
     await page.fill("#nameVariantValue", "   ");
-    await page.click("#addNameVariantBtn");
+    assert.equal(await page.locator("#addNameVariantBtn").isDisabled(), true, "Ajouter désactivé pour une variante constituée d'espaces");
+    await page.press("#nameVariantValue", "Enter");
     assert.match(await page.locator("#nameVariantError").innerText(), /Saisissez une variante/, "valeur vide refusée");
 
     await page.selectOption("#nameVariantKind", "family");
     await page.fill("#nameVariantValue", "Pinaezza");
     await page.click("#addNameVariantBtn");
     assert.equal(await page.locator("#personNameVariantsList li").count(), 1, "variante de nom ajoutée");
+    await page.selectOption("#nameVariantKind", "family");
     await page.fill("#nameVariantValue", "pinaezza");
     await page.click("#addNameVariantBtn");
     assert.match(await page.locator("#nameVariantError").innerText(), /existe déjà pour ce type/, "doublon du même type refusé");
@@ -668,7 +683,10 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForTimeout(60);
     assert.equal(await page.locator("#personNameVariantsList li").count(), 1, "variante préchargée à l'édition");
     assert.match(await page.locator("#personNameVariantsList li").first().innerText(), /Pinaezza/);
-    assert.equal(await page.locator("#nameVariantKind").inputValue(), "given", "type réinitialisé sur Prénom à chaque ouverture, malgré le choix Précédent");
+    assert.equal(await page.locator("#nameVariantKind").inputValue(), "", "type réinitialisé à vide à chaque ouverture, malgré le choix Précédent");
+    assert.equal(await page.locator("#nameVariantValue").isDisabled(), true, "Variante désactivée à chaque ouverture");
+    assert.equal(await page.locator("#addNameVariantBtn").isDisabled(), true, "Ajouter désactivé à chaque ouverture");
+    await page.selectOption("#nameVariantKind", "given");
     await page.fill("#nameVariantValue", "NonEnregistree");
     await page.click("#addNameVariantBtn");
     await page.waitForFunction(() => document.querySelectorAll("#personNameVariantsList li").length === 2, undefined, { timeout: 5000 });
@@ -780,6 +798,28 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
 
     /* Ajout d'une résidence : autocomplétion clavier, erreur inline sans perte, puis enregistrement. */
     await page.locator('#personPageDetailedJourney [data-journey-add="residence"]').click();
+    /* Harmonisation Lot 1 : le formulaire du Parcours détaillé reprend
+       exactement le traitement visuel des sections Naissance/Décès. */
+    const journeyHarmony = await page.evaluate(() => {
+      const read = selector => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        const style = getComputedStyle(element);
+        return { background: style.backgroundColor, border: `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}`, radius: style.borderTopLeftRadius };
+      };
+      return {
+        panel: read("#personPageDetailedJourney .life-journey-form"),
+        referencePanel: read("#personForm .event-information-group"),
+        field: read("#personPageDetailedJourney #journeyPlace"),
+        referenceField: read("#personForm #place"),
+        dateBlock: read("#personPageDetailedJourney .life-journey-form .life-fields"),
+        referenceDateBlock: read("#personForm .identity-life-section")
+      };
+    });
+    assert.deepEqual(journeyHarmony.panel, journeyHarmony.referencePanel, "panneau du formulaire de parcours identique aux panneaux Naissance/Décès");
+    assert.deepEqual(journeyHarmony.field, journeyHarmony.referenceField, "champ du formulaire de parcours identique au champ Naissance/Décès");
+    assert.deepEqual(journeyHarmony.dateBlock, journeyHarmony.referenceDateBlock, "bloc date du parcours traité comme les sections Naissance/Décès");
+    assert.match(journeyHarmony.field?.border || "", /1px solid rgb\(214, 204, 187\)/, "bordure de champ beige clair, plus de contour foncé");
     await page.locator('[data-journey-save="residence"]').click();
     assert.match(await page.locator("#journeyError-place").innerText(), /commune ou le lieu/, "erreur de validation inline");
     assert.ok(await page.locator("#personPageDetailedJourney [data-journey-form]").isVisible(), "formulaire conservé après erreur");
@@ -3425,6 +3465,9 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     }
 
     await page.evaluate(() => {
+      const kind = document.getElementById("nameVariantKind");
+      kind.value = "given";
+      kind.dispatchEvent(new Event("change", { bubbles: true }));
       const input = document.getElementById("nameVariantValue");
       input.value = "Arianna de Safari";
       input.dispatchEvent(new Event("input", { bubbles: true }));

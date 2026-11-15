@@ -2422,21 +2422,25 @@ label .field { margin-top: var(--space-2); }
   align-items: center;
 }
 
+/* Formulaires du Parcours détaillé (Résidences, Professions, Événements) :
+   même traitement que les sections Naissance/Décès — panneau beige ivoire à
+   contour discret. Les champs gardent la règle commune `.field` (fond blanc
+   cassé, bordure beige clair, états focus/erreur/désactivation identiques). */
 .life-journey-form {
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4);
   border: var(--border-subtle);
   border-radius: var(--radius-lg);
-  background: var(--color-surface);
-}
-.life-journey-form .field {
-  background: var(--color-surface-soft);
-  border-color: var(--border-subtle);
+  background: color-mix(in srgb, var(--color-surface-soft) 72%, transparent);
 }
 .life-journey-form .life-fields {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  border-top: var(--border-subtle);
+  border-radius: 0;
   background: transparent;
-  border-color: var(--border-subtle);
 }
 .life-journey-form .life-journey-form-actions {
   padding-top: var(--space-2);
