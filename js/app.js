@@ -1548,6 +1548,7 @@ const treeViewportElement = $("treeViewport");
 let treeFullscreenActive = false;
 let treeFullscreenFallback = false;
 let treeFullscreenPreserveUntil = 0;
+let treeFullscreenPointerActivation = false;
 let pendingTreeFullscreenCenter = null;
 let treeMenuOriginalParent = null;
 let treeMenuOriginalNextSibling = null;
@@ -1910,9 +1911,11 @@ window.addEventListener("resize", scheduleTreeViewportFit, { passive: true });
 
 let pendingTreeExportId = MAIN_TREE_ID;
 let treeExportReturnFocus = null;
-function openTreeExportDialog(treeId = activeTreeId, returnFocus = null) {
+let treeExportRestoreFocus = true;
+function openTreeExportDialog(treeId = activeTreeId, returnFocus = null, { restoreFocus = true } = {}) {
   pendingTreeExportId = treeId;
   treeExportReturnFocus = returnFocus || $("treeMoreBtn");
+  treeExportRestoreFocus = restoreFocus;
   $("treeExportDialog").showModal();
   $("treeExportDialog").querySelector("[data-export-format]")?.focus();
 }
@@ -15309,6 +15312,7 @@ document.addEventListener("click", event => {
   }
 });
 document.addEventListener("keydown", event => {
+  treeFullscreenPointerActivation = false;
   if (event.key !== "Escape") return;
   if (treeFullscreenActive && treeFullscreenSearchOpen) {
     event.preventDefault();
@@ -15891,7 +15895,10 @@ function showZoomBadge() {
 }
 $("zoomOutBtn").onclick = () => { camera.zoomBy(1 / 1.2); showZoomBadge(); };
 $("zoomInBtn").onclick = () => { camera.zoomBy(1.2); showZoomBadge(); };
-$("treeFullscreenBtn").onclick = () => toggleTreeFullscreen();
+$("treeFullscreenBtn").onclick = event => {
+  treeFullscreenPointerActivation = isMobileTreeUi() && event.detail > 0;
+  toggleTreeFullscreen();
+};
 function resetTreeMenuPosition() {
   const menu = $("treeMenu");
   menu.classList.remove("is-open-up");
@@ -16042,7 +16049,8 @@ function updateTreeFullscreenUi(active, fallback = false) {
     requestAnimationFrame(() => {
       if (!treeFullscreenActive) return;
       focusTreeWorldCenter(centerToKeep);
-      $("treeMoreBtn").focus({ preventScroll: true });
+      if (treeFullscreenPointerActivation) $("treeMoreBtn").blur();
+      else $("treeMoreBtn").focus({ preventScroll: true });
     });
   } else if (wasActive) {
     setTreeMenu(false);
@@ -16053,7 +16061,8 @@ function updateTreeFullscreenUi(active, fallback = false) {
     requestAnimationFrame(() => {
       if (treeFullscreenActive) return;
       focusTreeWorldCenter(centerToKeep);
-      $("treeMoreBtn").focus({ preventScroll: true });
+      if (treeFullscreenPointerActivation) $("treeMoreBtn").blur();
+      else $("treeMoreBtn").focus({ preventScroll: true });
     });
   }
 }
@@ -16097,7 +16106,7 @@ async function toggleTreeFullscreen() {
 }
 document.addEventListener("fullscreenchange", syncTreeFullscreenFromBrowser);
 document.addEventListener("webkitfullscreenchange", syncTreeFullscreenFromBrowser);
-function setTreeMenu(open, { focusFirst = true } = {}) {
+function setTreeMenu(open, { focusFirst = true, blurTrigger = false } = {}) {
   const menu = $("treeMenu");
   if (!open) {
     if (menu.open) menu.close();
@@ -16105,6 +16114,11 @@ function setTreeMenu(open, { focusFirst = true } = {}) {
     menu.classList.remove("is-bottom-sheet", "is-open-up");
     $("treeMoreBtn").setAttribute("aria-expanded", "false");
     resetTreeMenuPosition();
+    if (blurTrigger) {
+      const trigger = $("treeMoreBtn");
+      trigger.blur();
+      requestAnimationFrame(() => { if (!menu.open) trigger.blur(); });
+    }
     return;
   }
   setTreeFullscreenSearch(false);
@@ -16121,13 +16135,16 @@ function setTreeMenu(open, { focusFirst = true } = {}) {
 }
 $("treeMoreBtn").onclick = event => {
   const pointerFullscreenMobile = treeFullscreenActive && isMobileTreeUi() && event.detail > 0;
-  setTreeMenu(!$("treeMenu").open, { focusFirst: !pointerFullscreenMobile });
+  treeFullscreenPointerActivation = pointerFullscreenMobile;
+  setTreeMenu(!$("treeMenu").open, { focusFirst: !pointerFullscreenMobile, blurTrigger: pointerFullscreenMobile && $("treeMenu").open });
 };
 $("treeMenu").addEventListener("cancel", event => { event.preventDefault(); setTreeMenu(false); $("treeMoreBtn").focus({ preventScroll: true }); });
 $("treeMenu").addEventListener("click", event => {
   if (event.target !== $("treeMenu")) return;
-  setTreeMenu(false);
-  $("treeMoreBtn").focus({ preventScroll: true });
+  const pointerFullscreenMobile = treeFullscreenActive && isMobileTreeUi() && event.detail > 0;
+  treeFullscreenPointerActivation = pointerFullscreenMobile;
+  setTreeMenu(false, { blurTrigger: pointerFullscreenMobile });
+  if (!pointerFullscreenMobile) $("treeMoreBtn").focus({ preventScroll: true });
 });
 let treeMenuTouchStartY = null;
 $("treeMenu").addEventListener("pointerdown", event => {
@@ -16142,18 +16159,24 @@ $("treeMenu").addEventListener("pointerup", event => {
 });
 $("fullscreenFitBtn").onclick = () => camera.fit();
 $("treeSearchToggleBtn").onclick = () => setTreeFullscreenSearch(!treeFullscreenSearchOpen);
-$("menuFitBtn").onclick = () => {
-  setTreeMenu(false);
+$("menuFitBtn").onclick = event => {
+  const pointerFullscreenMobile = treeFullscreenActive && isMobileTreeUi() && event.detail > 0;
+  treeFullscreenPointerActivation = pointerFullscreenMobile;
+  setTreeMenu(false, { blurTrigger: pointerFullscreenMobile });
   camera.fit();
-  $("treeMoreBtn").focus();
+  if (!pointerFullscreenMobile) $("treeMoreBtn").focus();
 };
-$("centerTreeBtn").onclick = () => {
-  setTreeMenu(false);
+$("centerTreeBtn").onclick = event => {
+  const pointerFullscreenMobile = treeFullscreenActive && isMobileTreeUi() && event.detail > 0;
+  treeFullscreenPointerActivation = pointerFullscreenMobile;
+  setTreeMenu(false, { blurTrigger: pointerFullscreenMobile });
   camera.recenter();
-  $("treeMoreBtn").focus();
+  if (!pointerFullscreenMobile) $("treeMoreBtn").focus();
 };
-$("autoLayoutBtn").onclick = () => {
-  setTreeMenu(false);
+$("autoLayoutBtn").onclick = event => {
+  const pointerFullscreenMobile = treeFullscreenActive && isMobileTreeUi() && event.detail > 0;
+  treeFullscreenPointerActivation = pointerFullscreenMobile;
+  setTreeMenu(false, { blurTrigger: pointerFullscreenMobile });
   if (Object.keys(manualOffsets).length && !confirm("Réinitialiser toutes les positions manuelles ?")) return;
   manualOffsets = {};
   saveOffsets();
@@ -16161,9 +16184,11 @@ $("autoLayoutBtn").onclick = () => {
   camera.fit();
   toast("Disposition automatique restaurée");
 };
-$("menuExportTreeBtn").onclick = () => {
-  setTreeMenu(false);
-  openTreeExportDialog(activeTreeId, $("treeMoreBtn"));
+$("menuExportTreeBtn").onclick = event => {
+  const pointerFullscreenMobile = treeFullscreenActive && isMobileTreeUi() && event.detail > 0;
+  treeFullscreenPointerActivation = pointerFullscreenMobile;
+  setTreeMenu(false, { blurTrigger: pointerFullscreenMobile });
+  openTreeExportDialog(activeTreeId, $("treeMoreBtn"), { restoreFocus: !pointerFullscreenMobile });
 };
 document.querySelectorAll("[data-export-format]").forEach(button => {
   button.onclick = () => {
@@ -16176,14 +16201,25 @@ document.querySelectorAll("[data-export-format]").forEach(button => {
 });
 $("treeExportDialog").addEventListener("close", () => {
   const focusReturn = treeExportReturnFocus;
+  const restoreFocus = treeExportRestoreFocus || !treeFullscreenPointerActivation;
   pendingTreeExportId = activeTreeId;
   treeExportReturnFocus = null;
-  if (!$("appMain").hidden && focusReturn?.isConnected && getComputedStyle(focusReturn).display !== "none") focusReturn.focus({ preventScroll: true });
-  else if (!$("appMain").hidden) $("treeMoreBtn").focus({ preventScroll: true });
+  treeExportRestoreFocus = true;
+  if (restoreFocus && !$("appMain").hidden && focusReturn?.isConnected && getComputedStyle(focusReturn).display !== "none") focusReturn.focus({ preventScroll: true });
+  else if (restoreFocus && !$("appMain").hidden) $("treeMoreBtn").focus({ preventScroll: true });
+  else if (!restoreFocus && treeFullscreenActive && isMobileTreeUi()) {
+    const trigger = $("treeMoreBtn");
+    trigger.blur();
+    requestAnimationFrame(() => trigger.blur());
+  }
 });
 document.addEventListener("click", event => {
   const menu = $("treeMenu");
-  if (!menu.hidden && !event.target.closest(".view-control") && !menu.contains(event.target)) setTreeMenu(false);
+  if (!menu.hidden && !event.target.closest(".view-control") && !menu.contains(event.target)) {
+    const pointerFullscreenMobile = treeFullscreenActive && isMobileTreeUi() && event.detail > 0;
+    treeFullscreenPointerActivation = pointerFullscreenMobile;
+    setTreeMenu(false, { blurTrigger: pointerFullscreenMobile });
+  }
   const searchPanel = $("treeFullscreenSearch");
   if (!searchPanel.hidden && !event.target.closest(".view-control") && !searchPanel.contains(event.target)) setTreeFullscreenSearch(false, { focusToggle: false });
 });

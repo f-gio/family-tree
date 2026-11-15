@@ -1699,6 +1699,17 @@ dialog[open] {
 .person-attestation-dialog .attestation-comment-field { min-width: 0; width: 100%; }
 .person-attestation-dialog .attestation-date-panel .field,
 .person-attestation-dialog .attestation-comment-field { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
+.person-attestation-dialog .attestation-form .attestation-date-panel .field,
+.person-attestation-dialog .attestation-form .attestation-comment-field {
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.person-attestation-dialog .attestation-form .attestation-date-panel .field:focus,
+.person-attestation-dialog .attestation-form .attestation-comment-field:focus {
+  border-color: var(--color-brand);
+  box-shadow: var(--shadow-focus);
+}
 .person-attestation-dialog .attestation-date-panel .life-fields { margin: 0; padding: 0; border: 0; background: transparent; }
 .person-attestation-dialog .attestation-date-panel .field-error { margin-top: var(--space-2); }
 .person-attestation-dialog .attestation-association-list { display: grid; gap: var(--space-1); min-width: 0; }
@@ -5123,6 +5134,7 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
     width: 100%;
     max-width: 100%;
   }
+  #personAttestationDialog .attestation-date-panel .date-value-panel { grid-template-columns: minmax(0, 1fr); }
   #personAttestationDialog .attestation-date-panel .date-type-switch {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -5131,7 +5143,23 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   }
   #personAttestationDialog .attestation-date-panel .date-type-switch::-webkit-scrollbar { display: none; width: 0; height: 0; }
   #personAttestationDialog .attestation-date-panel .date-type-button { flex: 0 0 auto; min-width: max-content; }
-  #personAttestationDialog .attestation-date-panel .field { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
+  #personAttestationDialog .attestation-date-panel .date-value-panel .field {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    inline-size: 100%;
+    min-width: 0;
+    min-inline-size: 0;
+    max-width: 100%;
+    max-inline-size: 100%;
+  }
+  /* Safari iOS peut imposer au champ date une largeur intrinsèque supérieure
+     à sa piste. L'apparence native est neutralisée sans changer input[type=date]
+     ni désactiver son sélecteur de calendrier. */
+  #personAttestationDialog .attestation-date-panel input[type="date"].field {
+    -webkit-appearance: none;
+    appearance: none;
+  }
   #personAttestationDialog .attestation-association-option { align-items: flex-start; gap: var(--space-2); padding: var(--space-2); }
   #personAttestationDialog .attestation-association-option > input { margin-top: 0.25rem; }
 

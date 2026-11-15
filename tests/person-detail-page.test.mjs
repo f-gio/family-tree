@@ -117,6 +117,27 @@ window.__personPageTest = {
 window.__personPageUpdates = [];
 `;
 
+async function readAttestationFieldPaint(page) {
+  return page.evaluate(() => {
+    const paint = selector => {
+      const style = getComputedStyle(document.querySelector(selector));
+      return {
+        background: style.backgroundColor,
+        borderColor: style.borderTopColor,
+        borderStyle: style.borderTopStyle,
+        borderWidth: style.borderTopWidth,
+        radius: style.borderTopLeftRadius
+      };
+    };
+    return {
+      date: paint("#personAttestationDialog #journeyDateValue"),
+      comment: paint("#personAttestationDialog #journeyAttComment"),
+      birthYear: paint("#birthYear"),
+      deathPlace: paint("#deathPlace")
+    };
+  });
+}
+
 test("la page Personne consulte les données, réutilise la modale et restaure le parcours Document", async t => {
   let browser;
   try { browser = await chromium.launch({ headless: true }); }
@@ -841,6 +862,14 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.locator("#personAttestationDialogTitle").innerText(), "Ajouter une attestation");
     assert.deepEqual(await page.locator("#personAttestationDialog [data-journey-form] .attestation-form-section > h4").allTextContents(), ["Date de l’attestation", "Commentaire", "Documents associés", "Sources", "Preuves"], "cinq rubriques hiérarchisées dans le formulaire d’attestation");
     assert.equal(await page.locator("#personAttestationDialog .attestation-form-panel").count(), 5, "chaque rubrique dispose de son conteneur cohérent");
+    const mobileAttestationFieldPaint = await readAttestationFieldPaint(page);
+    assert.deepEqual(mobileAttestationFieldPaint.date, mobileAttestationFieldPaint.birthYear, "mobile : Date reprend le fond et la bordure du champ Année de Nouvelle personne");
+    assert.deepEqual(mobileAttestationFieldPaint.comment, mobileAttestationFieldPaint.deathPlace, "mobile : Commentaire reprend le fond et la bordure du Lieu de décès");
+    await page.locator("#journeyAttComment").focus();
+    const mobileCommentFocus = await page.locator("#journeyAttComment").evaluate(input => ({ active: document.activeElement === input, border: getComputedStyle(input).borderTopColor, shadow: getComputedStyle(input).boxShadow }));
+    assert.equal(mobileCommentFocus.active, true, "mobile : le champ Commentaire reste focusable");
+    assert.notEqual(mobileCommentFocus.shadow, "none", "mobile : le focus du champ conserve son indicateur accessible");
+    await page.locator("#journeyAttComment").evaluate(input => input.blur());
     assert.equal(await page.locator("[data-journey-document-check]").count(), 4, "documents rattachés à la personne proposés");
     assert.equal(await page.locator('[data-journey-document-check="person-page-unlinked"]').count(), 0, "document non associé exclu du sélecteur");
     assert.equal(await page.locator("[data-journey-source-check]").count(), 1, "sources officielles liées à la personne proposées");
@@ -877,14 +906,29 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         const last = unknown.getBoundingClientRect();
         const longCopy = document.querySelector('[data-journey-document-check="person-page-pdf"] + .attestation-association-copy');
         const longLineHeight = Number.parseFloat(getComputedStyle(longCopy).lineHeight);
-        return { panel: box.toJSON(), date: date.toJSON(), leftInset: date.left - box.left, rightInset: box.right - date.right, switcher: switcher.getBoundingClientRect().toJSON(), last: last.toJSON(), overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth, typeCount: switcher.querySelectorAll("[data-journey-date-type]").length, longCopyHeight: longCopy.getBoundingClientRect().height, longLineHeight, longCopyWidth: longCopy.getBoundingClientRect().width, longCopyScrollWidth: longCopy.scrollWidth };
+        return { panel: box.toJSON(), date: date.toJSON(), dateType: panel.querySelector("#journeyDateValue").type, leftInset: date.left - box.left, rightInset: box.right - date.right, switcher: switcher.getBoundingClientRect().toJSON(), last: last.toJSON(), overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth, typeCount: switcher.querySelectorAll("[data-journey-date-type]").length, longCopyHeight: longCopy.getBoundingClientRect().height, longLineHeight, longCopyWidth: longCopy.getBoundingClientRect().width, longCopyScrollWidth: longCopy.scrollWidth };
       });
       assert.equal(geometry.typeCount, 5, `${width}px : les cinq choix de date sont disponibles`);
+      assert.equal(geometry.dateType, "date", `${width}px : le champ conserve son calendrier natif`);
       assert.ok(geometry.date.left >= geometry.panel.left && geometry.date.right <= geometry.panel.right + 1, `${width}px : champ Date contenu avec des marges égales (${JSON.stringify(geometry)})`);
       assert.ok(Math.abs(geometry.leftInset - geometry.rightInset) <= 1, `${width}px : marges du champ Date symétriques (${JSON.stringify(geometry)})`);
       assert.ok(geometry.last.left >= geometry.switcher.left - 1 && geometry.last.right <= geometry.switcher.right + 1, `${width}px : le choix Inconnue est atteignable dans le sélecteur (${JSON.stringify(geometry)})`);
       assert.ok(geometry.longCopyHeight > geometry.longLineHeight * 2 && geometry.longCopyScrollWidth <= geometry.longCopyWidth + 1, `${width}px : l’intitulé long du document revient à la ligne dans sa case (${JSON.stringify(geometry)})`);
       assert.ok(geometry.overflow <= 1, `${width}px : aucun débordement horizontal de page`);
+      for (const [type, expectedFields] of [["exact", 1], ["year", 1], ["about", 1], ["between", 2], ["unknown", 0]]) {
+        await page.locator(`#personAttestationDialog [data-journey-date-type="${type}"]`).click();
+        const conditionalDateFields = await page.locator("#personAttestationDialog .attestation-date-panel").evaluate(panel => {
+          const box = panel.getBoundingClientRect();
+          const rects = [...panel.querySelectorAll(".date-value-panel:not([hidden]) .field")].map(field => field.getBoundingClientRect());
+          const left = rects.length ? Math.min(...rects.map(rect => rect.left)) : null;
+          const right = rects.length ? Math.max(...rects.map(rect => rect.right)) : null;
+          return { count: rects.length, leftInset: left === null ? null : left - box.left, rightInset: right === null ? null : box.right - right, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+        });
+        assert.equal(conditionalDateFields.count, expectedFields, `${width}px : champs conditionnels présents pour ${type}`);
+        if (expectedFields) assert.ok(Math.abs(conditionalDateFields.leftInset - conditionalDateFields.rightInset) <= 1, `${width}px : champs ${type} contenus avec marges symétriques (${JSON.stringify(conditionalDateFields)})`);
+        assert.ok(conditionalDateFields.overflow <= 1, `${width}px : aucun débordement horizontal avec ${type}`);
+      }
+      await page.locator('#personAttestationDialog [data-journey-date-type="exact"]').click();
     }
     await page.setViewportSize({ width: 390, height: 844 });
     const mobileAttestationDialog = await page.locator("#personAttestationDialog").evaluate(dialog => {
@@ -920,6 +964,9 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.match(desktopAttestationDialog.personDialogStyle, /person-dialog modal-xl/, "même variante de modale que Nouvelle personne");
     assert.ok(desktopAttestationDialog.bodyHeight > 0 && desktopAttestationDialog.actionsHeight > 0, "corps et pied de page présents sur desktop");
     assert.equal(desktopAttestationDialog.bodyOverflow, "auto", "défilement interne disponible si le contenu dépasse sur desktop");
+    const desktopAttestationFieldPaint = await readAttestationFieldPaint(page);
+    assert.deepEqual(desktopAttestationFieldPaint.date, desktopAttestationFieldPaint.birthYear, "desktop : Date reprend le fond et la bordure du champ Année de Nouvelle personne");
+    assert.deepEqual(desktopAttestationFieldPaint.comment, desktopAttestationFieldPaint.deathPlace, "desktop : Commentaire reprend le fond et la bordure du Lieu de décès");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
     assert.match(await page.locator("#journeyError-attDate").innerText(), /date de l'attestation/, "attestation sans date refusée");
@@ -953,6 +1000,9 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator('[data-journey-attestation-edit^="residence:"]').first().click();
     await page.waitForFunction(() => document.getElementById("personAttestationDialog").open);
     assert.equal(await page.locator("#personAttestationDialogTitle").innerText(), "Modifier une attestation", "le mode Modification utilise le titre dédié");
+    const editMobileFieldPaint = await readAttestationFieldPaint(page);
+    assert.deepEqual(editMobileFieldPaint.date, editMobileFieldPaint.birthYear, "modification mobile : Date conserve le fond et la bordure de Nouvelle personne");
+    assert.deepEqual(editMobileFieldPaint.comment, editMobileFieldPaint.deathPlace, "modification mobile : Commentaire conserve le fond et la bordure de Nouvelle personne");
     assert.ok((await page.locator("#personAttestationDialogContext").innerText()).trim(), "le contexte de la résidence est conservé");
     assert.equal(await page.locator('#personAttestationDialog [data-journey-date-type="year"]').evaluate(button => button.classList.contains("active")), true, "type Année prérempli en modification");
     assert.equal(await page.locator("#journeyDateYear").inputValue(), "1895", "valeur de date préremplie en modification");

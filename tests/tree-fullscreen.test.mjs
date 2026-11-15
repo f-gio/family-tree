@@ -266,9 +266,11 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
             await assertFullscreenBarOrder(page, `${name} plein écran 390px`, MOBILE_FULLSCREEN_BAR);
            assert.ok(!(await page.locator("#zoomInBtn").isVisible()) && !(await page.locator("#zoomOutBtn").isVisible()), `${name} : zoom ± ne sont pas dans la barre immersive`);
            assert.equal(await page.locator("#treeFullscreenBtn").evaluate(button => button.getClientRects().length > 0), true, `${name} : croix de sortie conservée sur mobile`);
+           assert.equal(await page.locator("#treeMoreBtn").evaluate(button => button.matches(":focus-visible")), false, `${name} : l’entrée tactile en plein écran ne laisse pas de focus visible sur ⋯`);
           await page.locator("#treeMoreBtn").tap();
            assert.deepEqual(await visibleMenuLabels(page), ["Recentrer", "Réorganiser", "Exporter"],
              `${name} : le menu n’expose pas les actions déjà dans la barre`);
+           assert.equal(await page.locator("#treeMoreBtn").getAttribute("aria-expanded"), "true", `${name} : le déclencheur reste actif tant que le menu est ouvert`);
            const tactileMenuFocus = await page.evaluate(() => ({
              activeId: document.activeElement?.id,
              recenterFocused: document.getElementById("centerTreeBtn").matches(":focus"),
@@ -278,16 +280,42 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
            assert.equal(tactileMenuFocus.activeId, "treeMenu", `${name} : l’ouverture tactile garde le focus sur le conteneur, sans choisir une action`);
            assert.equal(tactileMenuFocus.recenterFocused, false, `${name} : Recentrer n’est pas présélectionné par le focus`);
            assert.equal(tactileMenuFocus.recenterFocusVisible, false, `${name} : aucun contour de focus clavier après un toucher`);
-           await page.keyboard.press("Escape");
+           // Sur iPhone, le menu modal intercepte le second appui : il frappe le
+           // fond du dialog, qui referme le menu (comportement réel du device).
+           const triggerBox = await page.locator("#treeMoreBtn").boundingBox();
+           assert.ok(triggerBox, `${name} : déclencheur ⋯ positionné`);
+           await page.touchscreen.tap(triggerBox.x + triggerBox.width / 2, triggerBox.y + triggerBox.height / 2);
+           await page.waitForFunction(() => !document.getElementById("treeMenu").open);
+           let closedTrigger = await page.locator("#treeMoreBtn").evaluate(button => ({
+             expanded: button.getAttribute("aria-expanded"),
+             focusVisible: button.matches(":focus-visible"),
+             outline: getComputedStyle(button).outlineStyle,
+             background: getComputedStyle(button).backgroundColor,
+             focused: document.activeElement === button
+           }));
+           assert.equal(closedTrigger.expanded, "false", `${name} : le second toucher ferme le menu`);
+           assert.equal(closedTrigger.focused, false, `${name} : le second toucher retire le focus du déclencheur`);
+           assert.equal(closedTrigger.focusVisible, false, `${name} : le second toucher efface le focus visible`);
+           assert.equal(closedTrigger.outline, "none", `${name} : le second toucher enlève immédiatement le contour`);
+           assert.equal(closedTrigger.background, "rgba(0, 0, 0, 0)", `${name} : l’apparence normale revient après le second toucher`);
+           await page.locator("#treeMoreBtn").tap();
+           await page.touchscreen.tap(2, 2);
+           await page.waitForFunction(() => !document.getElementById("treeMenu").open);
+           closedTrigger = await page.locator("#treeMoreBtn").evaluate(button => ({ expanded: button.getAttribute("aria-expanded"), focusVisible: button.matches(":focus-visible"), outline: getComputedStyle(button).outlineStyle }));
+           assert.equal(closedTrigger.expanded, "false", `${name} : toucher extérieur ferme le menu`);
+           assert.equal(closedTrigger.focusVisible, false, `${name} : toucher extérieur sans contour persistant`);
+           assert.equal(closedTrigger.outline, "none", `${name} : toucher extérieur restaure l’apparence normale`);
            await page.locator("#treeMoreBtn").focus();
            await page.keyboard.press("Enter");
            assert.equal(await page.evaluate(() => document.activeElement?.id), "centerTreeBtn", `${name} : l’ouverture clavier place le focus sur la première action disponible`);
            assert.equal(await page.locator("#centerTreeBtn").evaluate(button => button.matches(":focus-visible")), true, `${name} : le contour de focus reste visible au clavier`);
            await page.keyboard.press("Escape");
+           assert.equal(await page.locator("#treeMoreBtn").evaluate(button => button.matches(":focus-visible")), true, `${name} : la fermeture clavier restitue le focus visible au déclencheur`);
            await page.locator("#treeMoreBtn").tap();
-           assert.equal(await page.evaluate(() => document.activeElement?.id), "treeMenu", `${name} : aucune présélection après fermeture et réouverture tactile`);
            await page.keyboard.press("Escape");
-          const afterEntry = await centerOfView(page);
+           assert.equal(await page.locator("#treeMoreBtn").evaluate(button => button.matches(":focus-visible")), true, `${name} : l’indicateur clavier reste disponible après une ouverture tactile`);
+           await page.locator("#treeMoreBtn").evaluate(button => button.blur());
+           const afterEntry = await centerOfView(page);
           assert.ok(Math.abs(afterEntry.scale - before.scale) < 1e-6, `${name} : zoom conservé à l’entrée`);
           assert.ok(Math.abs(afterEntry.worldX - before.worldX) < 2 && Math.abs(afterEntry.worldY - before.worldY) < 2, `${name} : centre conservé à l’entrée`);
 
@@ -339,6 +367,8 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
            await page.locator("#treeMoreBtn").tap();
            assert.deepEqual(await visibleMenuLabels(page), ["Recentrer", "Réorganiser", "Exporter"], `${name} : Ajuster non dupliqué, Recentrer conservé`);
            await page.locator("#centerTreeBtn").tap();
+           await page.waitForFunction(() => !document.getElementById("treeMenu").open);
+           assert.equal(await page.locator("#treeMoreBtn").evaluate(button => button.matches(":focus-visible")), false, `${name} : la sélection d’une action n’affiche pas de contour tactile persistant`);
            const centeredAgain = await centerOfView(page);
            assert.ok(Math.abs(centeredAgain.scale - fitted.scale) < 1e-6, `${name} : Recentrer conserve l’échelle`);
 
