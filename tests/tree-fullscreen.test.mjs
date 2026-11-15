@@ -55,6 +55,31 @@ async function centerOfView(page) {
   });
 }
 
+async function pinchTree(page, startDistance, endDistance) {
+  return page.evaluate(({ startDistance, endDistance }) => {
+    const viewport = document.getElementById("treeViewport");
+    const rect = viewport.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    Object.defineProperty(viewport, "setPointerCapture", { configurable: true, value() {} });
+    const dispatch = (type, pointerId, clientX) => viewport.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, pointerId, pointerType: "touch", isPrimary: pointerId === 1,
+      clientX, clientY: centerY
+    }));
+    const leftStart = centerX - startDistance / 2;
+    const rightStart = centerX + startDistance / 2;
+    const leftEnd = centerX - endDistance / 2;
+    const rightEnd = centerX + endDistance / 2;
+    dispatch("pointerdown", 1, leftStart);
+    dispatch("pointerdown", 2, rightStart);
+    dispatch("pointermove", 1, leftEnd);
+    dispatch("pointermove", 2, rightEnd);
+    dispatch("pointerup", 1, leftEnd);
+    dispatch("pointerup", 2, rightEnd);
+    return window.__treeProbe.state.scale;
+  }, { startDistance, endDistance });
+}
+
 async function fullscreenBar(page) {
   return page.evaluate(() => window.__treeProbe.fullscreenBar());
 }
@@ -79,7 +104,8 @@ async function assertMenuInsideViewport(page, label, expectedItems) {
       viewport: { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth },
       clientHeight: menu.clientHeight,
       scrollHeight: menu.scrollHeight,
-      style: { position: getComputedStyle(menu).position, inline: menu.getAttribute("style") }
+      backdrop: { background: getComputedStyle(menu, "::backdrop").backgroundColor, filter: getComputedStyle(menu, "::backdrop").backdropFilter },
+      style: { position: getComputedStyle(menu).position, overflowY: getComputedStyle(menu).overflowY, inline: menu.getAttribute("style") }
     };
   });
   assert.equal(info.hidden, false, `${label} : le menu ⋯ s’ouvre`);
@@ -89,6 +115,12 @@ async function assertMenuInsideViewport(page, label, expectedItems) {
   assert.ok(info.box.x >= -1 && info.box.y >= -1 && info.box.right <= info.viewport.width + 1 && info.box.bottom <= info.viewport.height + 1,
     `${label} : menu entièrement dans le viewport (${JSON.stringify(info)})`);
   assert.ok(info.clientHeight > 0 && info.scrollHeight >= info.clientHeight, `${label} : menu défilable si nécessaire`);
+  if (info.scrollHeight <= info.clientHeight + 2) assert.notEqual(info.style.overflowY, "scroll", `${label} : aucun ascenseur vertical sans débordement`);
+  if (info.bottomSheet) assert.match(info.backdrop.filter, /blur\(/, `${label} : flou réservé au bottom sheet normal mobile`);
+  else {
+    assert.equal(info.backdrop.filter, "none", `${label} : aucun flou sur menu contextuel`);
+    assert.match(info.backdrop.background, /rgba\(0, 0, 0, 0\)|transparent/, `${label} : aucun voile sur menu contextuel`);
+  }
   assert.equal(info.viewport.scrollWidth, info.viewport.width, `${label} : aucun overflow horizontal`);
   if (label.includes("normal mobile")) assert.equal(info.bottomSheet, true, `${label} : bottom sheet utilisé hors plein écran`);
   else assert.equal(info.bottomSheet, false, `${label} : menu contextuel conservé en plein écran`);
@@ -121,7 +153,8 @@ async function assertFullscreenBarOrder(page, label, expectedVisible) {
   return { bar, menu, visible };
 }
 
-const FULLSCREEN_BAR = ["zoomOutBtn", "zoomInBtn", "fullscreenFitBtn", "treeSearchToggleBtn", "treeMoreBtn", "treeFullscreenBtn"];
+const DESKTOP_FULLSCREEN_BAR = ["zoomOutBtn", "zoomInBtn", "fullscreenFitBtn", "treeSearchToggleBtn", "treeMoreBtn"];
+const MOBILE_FULLSCREEN_BAR = ["fullscreenFitBtn", "treeSearchToggleBtn", "treeMoreBtn", "treeFullscreenBtn"];
 
 test("markup et CSS : barre d’icônes plein écran, menu sans doublons, panneau de recherche", async () => {
   const [html, css, app] = await Promise.all([
@@ -154,11 +187,18 @@ test("markup et CSS : barre d’icônes plein écran, menu sans doublons, pannea
   assert.match(css, /#treeFullscreenBtn\s*\{[^}]*width: var\(--control-touch\);[^}]*height: var\(--control-touch\)/);
   assert.match(css, /html\.tree-fullscreen-active #appMain \.tree-controls\s*\{[^}]*inset: max\(var\(--space-2\), env\(safe-area-inset-top\)\)/);
   assert.match(css, /html:not\(\.tree-fullscreen-active\) #appMain \.tree-controls \.zoom-control \{ display: none; \}/);
-  assert.match(css, /html\.tree-fullscreen-active #appMain \.tree-controls \.zoom-control \{ display: flex; \}/);
-  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.tree-toolbar \{[^}]*display: flex/);
+  assert.match(css, /html\.tree-fullscreen-active #appMain \.tree-controls \.zoom-control \{ display: none; \}/);
+  assert.match(html, /class="tree-toolbar-divider"/);
+  assert.match(html, /class="tree-command-divider"/);
+  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.tree-toolbar\s*\{[^}]*border: var\(--border-default\);[^}]*background: var\(--color-surface-raised\)/s);
+  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.zoom-control\s*\{[^}]*background: transparent;[^}]*box-shadow: none;/s);
+  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.view-control\s*\{[^}]*background: transparent;[^}]*box-shadow: none;/s);
   assert.match(html, /\.fullscreen-control\{position:absolute;bottom:0;right:0/, "Plein écran ancré en bas à droite en vue normale");
   assert.match(app, /window\.visualViewport\?\.addEventListener\("resize", scheduleTreePickerMenuPosition/);
   assert.match(css, /\.tree-shell\.tree-fullscreen-active \.fullscreen-control \{[^}]*top: 0;[^}]*right: 0/);
+  assert.match(css, /@media \(min-width: 761px\) and \(pointer: fine\) \{\s*\.tree-shell\.tree-fullscreen-active \.fullscreen-control \{ display: none; \}/);
+  assert.match(css, /\.tree-menu::backdrop \{ background: transparent; backdrop-filter: none;/);
+  assert.match(css, /\.tree-menu\.is-bottom-sheet::backdrop \{ background: rgb\(27 38 33 \/ 42%\); backdrop-filter: blur\(3px\);/);
   assert.match(css, /\.tree-shell\.tree-fullscreen-active \.tree-menu #menuFitBtn \{ display: none; \}/);
   assert.match(css, /@media \(max-width: 390px\)/);
   assert.match(css, /\.tree-shell\.tree-fullscreen-active \.tree-fullscreen-search\s*\{[^}]*position: absolute/);
@@ -215,9 +255,11 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
             assert.equal(await page.locator("#treeFullscreenBtn").getAttribute("aria-label"), "Quitter le plein écran de l’arbre");
             assert.equal(await page.locator("#treeFullscreenBtn use").getAttribute("href"), "#icon-close", `${name} : la croix est l’unique commande de sortie`);
            assert.equal(await page.locator("#treeFullscreenBtn").getAttribute("aria-pressed"), "true");
-           assert.ok(await page.locator("#zoomInBtn").isVisible() && await page.locator("#zoomOutBtn").isVisible(), `${name} : commandes de zoom présentes en plein écran mobile`);
+            assert.ok(!(await page.locator("#zoomInBtn").isVisible()) && !(await page.locator("#zoomOutBtn").isVisible()), `${name} : commandes de zoom masquées en plein écran mobile`);
 
-           await assertFullscreenBarOrder(page, `${name} plein écran 390px`, FULLSCREEN_BAR);
+            await assertFullscreenBarOrder(page, `${name} plein écran 390px`, MOBILE_FULLSCREEN_BAR);
+           assert.ok(!(await page.locator("#zoomInBtn").isVisible()) && !(await page.locator("#zoomOutBtn").isVisible()), `${name} : zoom ± ne sont pas dans la barre immersive`);
+           assert.equal(await page.locator("#treeFullscreenBtn").evaluate(button => button.getClientRects().length > 0), true, `${name} : croix de sortie conservée sur mobile`);
           await page.locator("#treeMoreBtn").tap();
            assert.deepEqual(await visibleMenuLabels(page), ["Recentrer", "Réorganiser", "Exporter"],
             `${name} : le menu n’expose pas les actions déjà dans la barre`);
@@ -264,9 +306,10 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
           await page.waitForFunction(() => document.getElementById("personDetailView").hidden);
           await page.waitForFunction(() => document.documentElement.classList.contains("tree-fullscreen-active"));
 
-          // Ajuster/Recentrer directement depuis la barre.
-          await page.locator("#zoomInBtn").tap();
+          // Le zoom tactile par pincement reste disponible dans le plein écran mobile.
+          const zoomedScale = await pinchTree(page, 120, 200);
           const zoomed = await centerOfView(page);
+          assert.ok(Math.abs(zoomed.scale - zoomedScale) < 1e-6 && zoomed.scale > before.scale, `${name} : pincement tactile zoome en plein écran sans boutons ±`);
           await page.locator("#fullscreenFitBtn").tap();
           const fitted = await centerOfView(page);
           assert.ok(fitted.scale !== zoomed.scale, `${name} : Ajuster agit depuis la barre`);
@@ -276,9 +319,10 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
            const centeredAgain = await centerOfView(page);
            assert.ok(Math.abs(centeredAgain.scale - fitted.scale) < 1e-6, `${name} : Recentrer conserve l’échelle`);
 
-          // Dézoom minimal à 10 %.
-          for (let index = 0; index < 20; index += 1) await page.locator("#zoomOutBtn").tap();
+          // Le pincement inverse atteint toujours le plancher de 10 %.
+          const zoomedOutScale = await pinchTree(page, 200, 70);
           const zoomedOut = await centerOfView(page);
+          assert.ok(Math.abs(zoomedOut.scale - zoomedOutScale) < 1e-6, `${name} : pincement inverse conservé en plein écran`);
           assert.ok(zoomedOut.scale >= 0.1 && zoomedOut.scale < 0.25, `${name} : dézoom minimal 10 % (${Math.round(zoomedOut.scale * 100)} %)`);
           await page.locator("#fullscreenFitBtn").tap();
           const rotationBaseline = await centerOfView(page);
@@ -294,7 +338,10 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
             assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), size[0], `${name} ${size.join("×")} : aucun débordement horizontal`);
             const direction = await page.locator(".tree-controls").evaluate(element => getComputedStyle(element).flexDirection);
             assert.equal(direction, "row", `${name} ${size.join("×")} : barre horizontale (pas de colonne)`);
-             await assertFullscreenBarOrder(page, `${name} ${size.join("×")}`, FULLSCREEN_BAR);
+             const expectedFullscreenBar = await page.evaluate(() => matchMedia("(pointer: coarse)").matches)
+               ? MOBILE_FULLSCREEN_BAR
+               : DESKTOP_FULLSCREEN_BAR;
+             await assertFullscreenBarOrder(page, `${name} ${size.join("×")}`, expectedFullscreenBar);
              await page.locator("#treeMoreBtn").tap();
              const expectedMenu = ["Recentrer", "Réorganiser", "Exporter"];
             await assertMenuInsideViewport(page, `${name} ${size.join("×")}`, expectedMenu);
@@ -338,8 +385,9 @@ test("plein écran natif desktop : barre complète, menu réduit, recherche et �
         await page.locator("#treeFullscreenBtn").click();
         await page.waitForFunction(() => document.documentElement.classList.contains("tree-fullscreen-active"));
         await page.waitForTimeout(100);
-        assert.equal(await page.evaluate(() => document.fullscreenElement === document.getElementById("treeViewport")), true, `${width}px : plein écran natif`);
-         await assertFullscreenBarOrder(page, `${width}px desktop`, FULLSCREEN_BAR);
+         assert.equal(await page.evaluate(() => document.fullscreenElement === document.getElementById("treeViewport")), true, `${width}px : plein écran natif`);
+         await assertFullscreenBarOrder(page, `${width}px desktop`, DESKTOP_FULLSCREEN_BAR);
+         assert.equal(await page.locator("#treeFullscreenBtn").evaluate(button => button.getClientRects().length), 0, `${width}px : aucune croix X superflue en plein écran desktop`);
 
         // Toutes les commandes de la barre fonctionnent.
         const initial = await centerOfView(page);

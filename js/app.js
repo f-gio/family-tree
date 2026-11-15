@@ -15786,6 +15786,9 @@ function resetTreeFullscreenScroll() {
 }
 $("appMain").addEventListener("scroll", resetTreeFullscreenScroll, { passive: true });
 window.addEventListener("scroll", resetTreeFullscreenScroll, { passive: true });
+function setTreeMenuScrollMode(menu, contentHeight, availableHeight) {
+  menu.style.overflowY = contentHeight > availableHeight + 1 ? "auto" : "hidden";
+}
 function positionFullscreenTreeMenu() {
   const menu = $("treeMenu");
   if (!treeFullscreenActive || menu.hidden) return;
@@ -15825,7 +15828,7 @@ function positionFullscreenTreeMenu() {
   menu.style.bottom = "auto";
   menu.style.maxWidth = `${maxWidth}px`;
   menu.style.maxHeight = `${availableHeight}px`;
-  menu.style.overflowY = "auto";
+  setTreeMenuScrollMode(menu, naturalHeight, availableHeight);
 }
 function positionNormalTreeMenu() {
   const menu = $("treeMenu");
@@ -15852,7 +15855,7 @@ function positionNormalTreeMenu() {
   const availableHeight = Math.min(naturalHeight, openUp ? roomAbove : roomBelow);
   menu.classList.toggle("is-open-up", openUp);
   menu.style.maxHeight = `${availableHeight}px`;
-  menu.style.overflowY = "auto";
+  setTreeMenuScrollMode(menu, naturalHeight, availableHeight);
   const availableMenuWidth = Math.min(menu.getBoundingClientRect().width, right - safeRight - left - safeLeft - margin * 2);
   const menuLeft = Math.max(left + safeLeft + margin, Math.min(anchor.right - availableMenuWidth, right - safeRight - margin - availableMenuWidth));
   const menuTop = openUp ? anchor.top - 6 - availableHeight : anchor.bottom + 6;

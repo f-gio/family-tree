@@ -773,7 +773,7 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   min-width: 0;
   max-height: min(70dvh, 34rem);
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   overscroll-behavior: contain;
   padding: var(--space-1);
   gap: var(--space-1);
@@ -805,10 +805,15 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 .tree-menu button:focus-visible { outline: 3px solid rgb(40 75 63 / 28%); outline-offset: -2px; }
 .tree-menu[hidden] { display: none !important; }
 .tree-menu[open] { display: grid; grid-auto-rows: max-content; align-content: start; animation: none; }
-.tree-menu::backdrop { background: transparent; animation: none; }
+.tree-menu::backdrop { background: transparent; backdrop-filter: none; animation: none; }
 .tree-menu.is-bottom-sheet { position: fixed; inset: auto 0 0; box-sizing: border-box; width: 100vw; height: max-content; max-width: none; max-height: min(72dvh, calc(100dvh - env(safe-area-inset-top) - 1rem)); margin: 0; padding: var(--space-2) var(--space-3) max(var(--space-3), env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; border: var(--border-default); border-bottom: 0; border-radius: var(--radius-xl) var(--radius-xl) 0 0; background: var(--color-surface); box-shadow: var(--shadow-lg); }
-.tree-menu.is-bottom-sheet::backdrop { background: rgb(27 38 33 / 42%); }
+.tree-menu.is-bottom-sheet::backdrop { background: rgb(27 38 33 / 42%); backdrop-filter: blur(3px); }
 .tree-menu.is-bottom-sheet button { min-height: var(--control-touch); padding-inline: var(--space-3); }
+@media (hover: none) {
+  .tree-menu button:hover:not(:disabled) { background: transparent; }
+  .tree-menu button:focus:not(:focus-visible) { outline: 0; box-shadow: none; background: transparent; }
+  .view-control #treeMoreBtn:hover { background: transparent; }
+}
 .tree-canvas-clip {
   position: absolute;
   inset: 0;
@@ -869,8 +874,32 @@ html.tree-fullscreen-active #appMain .tree-controls {
 }
 .tree-shell.tree-fullscreen-active { overflow: visible; }
 .tree-shell.tree-fullscreen-active .canvas-help { display: none; }
-.tree-shell.tree-fullscreen-active .tree-toolbar { position: static; inset: auto; display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; pointer-events: none; }
+.tree-shell.tree-fullscreen-active .tree-toolbar {
+  position: static;
+  inset: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-1);
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-low);
+  pointer-events: none;
+}
 .tree-shell.tree-fullscreen-active .tree-toolbar > * { pointer-events: auto; }
+.tree-toolbar-divider,
+.tree-command-divider { display: none; }
+.tree-shell.tree-fullscreen-active .tree-toolbar-divider,
+.tree-shell.tree-fullscreen-active .tree-command-divider {
+  display: block;
+  flex: 0 0 1px;
+  width: 1px;
+  height: 28px;
+  margin-inline: var(--space-1);
+  background: var(--color-border-subtle);
+}
 .tree-shell.tree-fullscreen-active .tree-controls button {
   min-width: var(--control-touch);
   min-height: var(--control-touch);
@@ -880,6 +909,11 @@ html.tree-fullscreen-active #appMain .tree-controls {
   flex-direction: row;
   gap: var(--space-1);
   flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 .tree-shell.tree-fullscreen-active .zoom-level {
   top: calc(100% + var(--space-2));
@@ -896,6 +930,7 @@ html.tree-fullscreen-active #appMain .tree-controls {
   border: 0;
   background: transparent;
   box-shadow: none;
+  backdrop-filter: none;
 }
 .tree-shell.tree-fullscreen-active .fullscreen-control {
   position: absolute;
@@ -906,6 +941,7 @@ html.tree-fullscreen-active #appMain .tree-controls {
   display: inline-flex;
   align-items: center;
 }
+@media (min-width: 761px) and (pointer: fine) { .tree-shell.tree-fullscreen-active .fullscreen-control { display: none; } }
 /* Ajuster est dans la barre ; Recentrer reste disponible dans ⋯ et distinct. */
 .tree-shell.tree-fullscreen-active .tree-menu #menuFitBtn { display: none; }
 .tree-shell.tree-fullscreen-active .tree-menu { z-index: 210; }
@@ -933,6 +969,8 @@ html.tree-fullscreen-active #appMain .tree-controls {
   .tree-shell.tree-fullscreen-active .tree-toolbar { gap: var(--space-1); }
   .tree-shell.tree-fullscreen-active .zoom-control { gap: 0; padding: 2px; }
   .tree-shell.tree-fullscreen-active .view-control { gap: 0; }
+  .tree-shell.tree-fullscreen-active .tree-toolbar-divider,
+  .tree-shell.tree-fullscreen-active .tree-command-divider { margin-inline: 2px; }
   .tree-shell.tree-fullscreen-active .tree-toolbar button,
   .tree-shell.tree-fullscreen-active .fullscreen-control button { width: var(--control-touch); min-width: var(--control-touch); }
 }
@@ -951,8 +989,9 @@ html.tree-fullscreen-active #appMain .tree-controls {
 .tree-filter-toolbar .toolbar-branch .field { min-height: var(--control-touch); }
 .tree-menu button { min-height: var(--control-touch); }
 .tree-picker-menu { overscroll-behavior: contain; touch-action: pan-y; }
-html:not(.tree-fullscreen-active) #appMain .tree-controls .zoom-control { display: none; }
-html.tree-fullscreen-active #appMain .tree-controls .zoom-control { display: flex; }
+  html:not(.tree-fullscreen-active) #appMain .tree-controls .zoom-control { display: none; }
+  html.tree-fullscreen-active #appMain .tree-controls .zoom-control { display: none; }
+  .tree-shell.tree-fullscreen-active .tree-toolbar-divider { display: none; }
 
   /* Quand le menu est ouvert, le canvas déborde temporairement de son shell;
      la scène reste rognée par .tree-canvas-clip, mais le menu peut remonter. */
@@ -969,6 +1008,16 @@ html.tree-fullscreen-active #appMain .tree-controls .zoom-control { display: fle
     min-width: 0;
     min-height: var(--control-touch);
   }
+}
+
+@media (pointer: coarse) {
+  html.tree-fullscreen-active #appMain .tree-controls .zoom-control { display: none; }
+  .tree-shell.tree-fullscreen-active .tree-toolbar-divider { display: none; }
+}
+
+@media (max-width: 760px), (pointer: coarse) {
+  .tree-shell.tree-fullscreen-active .tree-toolbar button,
+  .tree-shell.tree-fullscreen-active .fullscreen-control button { min-width: var(--control-touch); min-height: var(--control-touch); }
 }
 
 #treeFullscreenBtn {

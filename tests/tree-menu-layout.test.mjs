@@ -54,6 +54,7 @@ test("le menu des commandes de l’arbre aligne les icônes et s’adapte au con
               viewport: { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth },
               menuBox: (() => { const r = document.getElementById("treeMenu").getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; })(),
               menuScroll: { scrollHeight: document.getElementById("treeMenu").scrollHeight, clientHeight: document.getElementById("treeMenu").clientHeight, overflowY: getComputedStyle(document.getElementById("treeMenu")).overflowY, maxHeight: getComputedStyle(document.getElementById("treeMenu")).maxHeight, inlineMaxHeight: document.getElementById("treeMenu").style.maxHeight },
+              backdropFilter: getComputedStyle(document.getElementById("treeMenu"), "::backdrop").backdropFilter,
               shellBox: (() => { const r = document.getElementById("treeViewport").getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom }; })(),
               shellOverflow: getComputedStyle(document.getElementById("treeViewport")).overflow,
               sceneClipOverflow: getComputedStyle(document.querySelector(".tree-canvas-clip")).overflow,
@@ -89,6 +90,8 @@ test("le menu des commandes de l’arbre aligne les icônes et s’adapte au con
             assert.ok(menu.menuBox.height < 240, `bottom sheet compact, adapté aux quatre actions (${menu.menuBox.height}px)`);
             assert.ok(menu.rows.every(row => row.visible && row.y >= menu.menuBox.y - 0.5 && row.bottom <= menu.menuBox.bottom + 0.5), "les quatre actions sont visibles dans le bottom sheet");
             assert.ok(menu.rows.every(row => row.height >= 43.5), "cibles tactiles ≥44 px");
+            assert.match(menu.backdropFilter, /blur\(/, "le flou reste réservé au bottom sheet de la vue normale tactile");
+            if (menu.menuScroll.scrollHeight <= menu.menuScroll.clientHeight + 2) assert.notEqual(menu.menuScroll.overflowY, "scroll", "aucun ascenseur quand les quatre actions tiennent");
             assert.equal(menu.viewport.scrollWidth, menu.viewport.clientWidth, "aucun overflow horizontal de page");
           } else {
             assert.equal(menu.open, true, "dialogue contextuel ouvert sur desktop");
@@ -96,6 +99,8 @@ test("le menu des commandes de l’arbre aligne les icônes et s’adapte au con
             assert.ok(menu.menuBox.y >= menu.anchorBox.bottom - 1, "menu desktop sous le bouton ⋯");
             assert.ok(Math.abs(menu.menuBox.right - menu.anchorBox.right) < 2, "menu desktop aligné à droite du bouton ⋯");
             assert.ok(menu.menuBox.x >= 0 && menu.menuBox.right <= menu.viewport.width && menu.menuBox.bottom <= menu.viewport.height, "menu desktop dans le viewport");
+            assert.equal(menu.backdropFilter, "none", "aucun flou d'arrière-plan du menu desktop");
+            assert.ok(menu.menuScroll.scrollHeight <= menu.menuScroll.clientHeight + 2, "les actions tiennent sans ascenseur inutile sur desktop");
           }
           const iconAxis = menu.rows.map(row => row.iconCount);
           const textAxis = menu.rows.map(row => row.textLeft);
