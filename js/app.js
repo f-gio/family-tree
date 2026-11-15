@@ -2828,27 +2828,38 @@ function journeyAttestationFormMarkup(item, entry, attestation, { pendingEntry =
   const documentChecks = linkedDocuments.map(documentItem => {
     const checked = (attestation?.documentIds || []).includes(documentItem.id) ? " checked" : "";
     const type = documentItem.type || documentItem.fileName || "Document";
-    return `<label><input type="checkbox" data-journey-document-check="${esc(documentItem.id)}"${checked}><span>${esc(documentDisplayLabel(documentItem))}<small>${esc(type)}</small></span></label>`;
+    return `<label class="attestation-association-option"><input type="checkbox" data-journey-document-check="${esc(documentItem.id)}"${checked}><span class="attestation-association-copy">${esc(documentDisplayLabel(documentItem))}<small>${esc(type)}</small></span></label>`;
   }).join("");
   const sourceChecks = sources.length ? sources.map(record => {
     const data = genealogyRecordData(record);
     const checked = (attestation?.sourceIds || []).includes(record.id) ? " checked" : "";
-    return `<label><input type="checkbox" data-journey-source-check="${esc(record.id)}"${checked}><span>${esc(data.title || data.cote || "Source")}<small>${esc(data.category || "Source officielle")}</small></span></label>`;
+    return `<label class="attestation-association-option"><input type="checkbox" data-journey-source-check="${esc(record.id)}"${checked}><span class="attestation-association-copy">${esc(data.title || data.cote || "Source")}<small>${esc(data.category || "Source officielle")}</small></span></label>`;
   }).join("") : `<p class="card-meta">Aucune source associée à cette personne.</p>`;
   const proofChecks = proofs.length ? proofs.map(record => {
     const data = genealogyRecordData(record);
     const label = proofFactLabel(data.factType) || data.factId || "Preuve";
     const checked = (attestation?.proofIds || []).includes(record.id) ? " checked" : "";
-    return `<label><input type="checkbox" data-journey-proof-check="${esc(record.id)}"${checked}><span>${esc(label)}<small>Preuve</small></span></label>`;
+    return `<label class="attestation-association-option"><input type="checkbox" data-journey-proof-check="${esc(record.id)}"${checked}><span class="attestation-association-copy">${esc(label)}<small>Preuve</small></span></label>`;
   }).join("") : `<p class="card-meta">Aucune preuve associée à cette personne.</p>`;
-  const documentsGroup = `<section class="life-journey-justification-group"><strong>Documents associés</strong>${documentChecks || `<p class="card-meta">Aucun document associé à cette personne.</p>`}</section>`;
-  const sourcesGroup = `<section class="life-journey-justification-group"><strong>Sources</strong>${sourceChecks}</section>`;
-  const proofsGroup = `<section class="life-journey-justification-group"><strong>Preuves</strong>${proofChecks}</section>`;
-  return `<div class="life-journey-form" data-journey-form>
+  const associationGroup = (title, options, emptyMessage, kind) => `<section class="attestation-form-section" aria-labelledby="journeyAttestation${kind}Title">
+      <h4 id="journeyAttestation${kind}Title">${title}</h4>
+      <div class="attestation-form-panel"><div class="attestation-association-list">${options || `<p class="card-meta">${emptyMessage}</p>`}</div></div>
+    </section>`;
+  return `<div class="life-journey-form attestation-form" data-journey-form>
     ${pendingEntry ? `<p class="hint">Cette attestation sera enregistrée avec l’élément du Parcours détaillé.</p>` : ""}
-    <fieldset class="life-fields"><legend>Date de l’attestation</legend>${journeyDateFormMarkup(attestation?.date)}${journeyErrorMarkup("attDate")}</fieldset>
-    <label>Commentaire<input class="field" id="journeyAttComment" maxlength="300" value="${attestation ? esc(attestation.comment || "") : ""}"></label>
-    <div class="life-journey-justifications">${documentsGroup}${sourcesGroup}${proofsGroup}</div>
+    <section class="attestation-form-section" aria-labelledby="journeyAttestationDateTitle">
+      <h4 id="journeyAttestationDateTitle">Date de l’attestation</h4>
+      <div class="attestation-form-panel attestation-date-panel">${journeyDateFormMarkup(attestation?.date)}${journeyErrorMarkup("attDate")}</div>
+    </section>
+    <section class="attestation-form-section" aria-labelledby="journeyAttestationCommentTitle">
+      <h4 id="journeyAttestationCommentTitle">Commentaire</h4>
+      <div class="attestation-form-panel"><label class="sr-only" for="journeyAttComment">Commentaire</label><input class="field attestation-comment-field" id="journeyAttComment" aria-labelledby="journeyAttestationCommentTitle" maxlength="300" value="${attestation ? esc(attestation.comment || "") : ""}"></div>
+    </section>
+    <div class="life-journey-justifications">
+      ${associationGroup("Documents associés", documentChecks, "Aucun document associé à cette personne.", "Documents")}
+      ${associationGroup("Sources", sourceChecks, "Aucune source associée à cette personne.", "Sources")}
+      ${associationGroup("Preuves", proofChecks, "Aucune preuve associée à cette personne.", "Proofs")}
+    </div>
     <div class="life-journey-form-actions">
       <button class="btn small" type="button" data-journey-attestation-cancel>Annuler</button>
       <button class="btn small primary" type="button" data-journey-attestation-save>${pendingEntry ? "Ajouter à l’élément" : "Enregistrer"}</button>
@@ -2857,7 +2868,7 @@ function journeyAttestationFormMarkup(item, entry, attestation, { pendingEntry =
 }
 
 function personPageScrollSnapshot() {
-  const nodes = [document.scrollingElement, $("personDetailView"), $("personPageContent"), $("personPageEditHost")]
+  const nodes = [document.scrollingElement, $("personDetailView"), $("personPageContent"), $("personPageEditHost"), $("personDialog")?.querySelector(".person-modal-form"), $("familyDetailsDialog")?.querySelector(".modal-body")]
     .filter((node, index, list) => node && list.indexOf(node) === index);
   return { x: window.scrollX || 0, y: window.scrollY || 0, nodes: nodes.map(node => ({ node, top: node.scrollTop, left: node.scrollLeft })) };
 }
@@ -2891,15 +2902,21 @@ function journeyAttestationDialogFocusSelector() {
   const editor = journeyEditor;
   if (!editor) return "";
   if (editor.pendingEntry) return "#personPageDetailedJourney [data-journey-entry-attestation-add]";
-  const majorControl = { birth: "birthAttestationControl", death: "deathAttestationControl" }[editor.entryKind];
-  if (majorControl) return `#${majorControl} [data-journey-attestation-add]`;
+  const majorControl = { birth: "birthAttestationControl", death: "deathAttestationControl", marriage: "familyMarriageAttestationControl" }[editor.entryKind];
+  if (majorControl) {
+    if (editor.mode === "edit") {
+      const attestationId = `${editor.entryKind}:${editor.entryId}:${editor.attId}`;
+      return `#${majorControl} [data-journey-attestation-edit="${CSS.escape(attestationId)}"]`;
+    }
+    return `#${majorControl} [data-journey-attestation-add]`;
+  }
   if (!editor.entryId) return "";
   return `#personPageDetailedJourney [data-journey-attestation-add="${CSS.escape(String(editor.entryId))}"]`;
 }
 
 function openJourneyAttestationDialog(returnFocus = null, scrollSnapshot = null) {
-  if (!personPageInlineEditing || journeyEditor?.type !== "attestation" || journeyEditor.mode !== "add") return false;
-  const majorListId = { birth: "birthAttestationList", death: "deathAttestationList" }[journeyEditor.entryKind];
+  if (journeyEditor?.type !== "attestation" || !["add", "edit"].includes(journeyEditor.mode)) return false;
+  const majorListId = { birth: "birthAttestationList", death: "deathAttestationList", marriage: "familyMarriageAttestationList" }[journeyEditor.entryKind];
   const formRoot = journeyEditor.pendingEntry || !majorListId
     ? $("personPageDetailedJourney")
     : $(majorListId);
@@ -2910,6 +2927,7 @@ function openJourneyAttestationDialog(returnFocus = null, scrollSnapshot = null)
   }
   form.querySelector(".life-journey-form-actions")?.remove();
   const dialog = $("personAttestationDialog");
+  $("personAttestationDialogTitle").textContent = journeyEditor.mode === "edit" ? "Modifier une attestation" : "Ajouter une attestation";
   $("personAttestationDialogContext").textContent = journeyAttestationDialogContext();
   $("personAttestationDialogBody").replaceChildren(form);
   journeyAttestationDialogReturnFocus = returnFocus;
@@ -14758,10 +14776,8 @@ function journeyScrollEntryFormIntoView() {
 
 function journeyOpenEditor(next) {
   if (journeyEditor && !journeyConfirmDiscard()) return;
-  const opensAttestationModal = personPageInlineEditing
-    && next?.type === "attestation"
-    && next.mode === "add"
-    && next.entryKind !== "marriage";
+  const opensAttestationModal = next?.type === "attestation"
+    && ["add", "edit"].includes(next.mode);
   const returnFocus = opensAttestationModal ? document.activeElement : null;
   const scrollSnapshot = opensAttestationModal ? personPageScrollSnapshot() : null;
   const previousEditor = journeyEditor;
@@ -16081,7 +16097,7 @@ async function toggleTreeFullscreen() {
 }
 document.addEventListener("fullscreenchange", syncTreeFullscreenFromBrowser);
 document.addEventListener("webkitfullscreenchange", syncTreeFullscreenFromBrowser);
-function setTreeMenu(open) {
+function setTreeMenu(open, { focusFirst = true } = {}) {
   const menu = $("treeMenu");
   if (!open) {
     if (menu.open) menu.close();
@@ -16100,10 +16116,12 @@ function setTreeMenu(open) {
   if (treeFullscreenActive) positionFullscreenTreeMenu();
   else if (!mobileSheet) { resetTreeMenuPosition(); positionNormalTreeMenu(); }
   const firstVisible = [...menu.querySelectorAll('[role="menuitem"]')].find(item => item.offsetParent !== null);
-  firstVisible?.focus();
+  if (focusFirst) firstVisible?.focus();
+  else menu.focus({ preventScroll: true });
 }
-$("treeMoreBtn").onclick = () => {
-  setTreeMenu(!$("treeMenu").open);
+$("treeMoreBtn").onclick = event => {
+  const pointerFullscreenMobile = treeFullscreenActive && isMobileTreeUi() && event.detail > 0;
+  setTreeMenu(!$("treeMenu").open, { focusFirst: !pointerFullscreenMobile });
 };
 $("treeMenu").addEventListener("cancel", event => { event.preventDefault(); setTreeMenu(false); $("treeMoreBtn").focus({ preventScroll: true }); });
 $("treeMenu").addEventListener("click", event => {

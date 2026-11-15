@@ -268,8 +268,25 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
            assert.equal(await page.locator("#treeFullscreenBtn").evaluate(button => button.getClientRects().length > 0), true, `${name} : croix de sortie conservée sur mobile`);
           await page.locator("#treeMoreBtn").tap();
            assert.deepEqual(await visibleMenuLabels(page), ["Recentrer", "Réorganiser", "Exporter"],
-            `${name} : le menu n’expose pas les actions déjà dans la barre`);
-          await page.keyboard.press("Escape");
+             `${name} : le menu n’expose pas les actions déjà dans la barre`);
+           const tactileMenuFocus = await page.evaluate(() => ({
+             activeId: document.activeElement?.id,
+             recenterFocused: document.getElementById("centerTreeBtn").matches(":focus"),
+             recenterFocusVisible: document.getElementById("centerTreeBtn").matches(":focus-visible"),
+             recenterOutline: getComputedStyle(document.getElementById("centerTreeBtn")).outlineStyle
+           }));
+           assert.equal(tactileMenuFocus.activeId, "treeMenu", `${name} : l’ouverture tactile garde le focus sur le conteneur, sans choisir une action`);
+           assert.equal(tactileMenuFocus.recenterFocused, false, `${name} : Recentrer n’est pas présélectionné par le focus`);
+           assert.equal(tactileMenuFocus.recenterFocusVisible, false, `${name} : aucun contour de focus clavier après un toucher`);
+           await page.keyboard.press("Escape");
+           await page.locator("#treeMoreBtn").focus();
+           await page.keyboard.press("Enter");
+           assert.equal(await page.evaluate(() => document.activeElement?.id), "centerTreeBtn", `${name} : l’ouverture clavier place le focus sur la première action disponible`);
+           assert.equal(await page.locator("#centerTreeBtn").evaluate(button => button.matches(":focus-visible")), true, `${name} : le contour de focus reste visible au clavier`);
+           await page.keyboard.press("Escape");
+           await page.locator("#treeMoreBtn").tap();
+           assert.equal(await page.evaluate(() => document.activeElement?.id), "treeMenu", `${name} : aucune présélection après fermeture et réouverture tactile`);
+           await page.keyboard.press("Escape");
           const afterEntry = await centerOfView(page);
           assert.ok(Math.abs(afterEntry.scale - before.scale) < 1e-6, `${name} : zoom conservé à l’entrée`);
           assert.ok(Math.abs(afterEntry.worldX - before.worldX) < 2 && Math.abs(afterEntry.worldY - before.worldY) < 2, `${name} : centre conservé à l’entrée`);
