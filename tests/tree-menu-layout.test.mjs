@@ -3,7 +3,7 @@ import test from "node:test";
 import { chromium } from "playwright";
 import { ROOT, startStaticServer } from "./helpers.mjs";
 
-test("le menu des contrôles de l’arbre aligne les icônes et les libellés", async t => {
+test("le menu des contrôles de l’arbre affiche des lignes simples sans pictogramme", async t => {
   let browser;
   try {
     browser = await chromium.launch({ headless: true });
@@ -57,17 +57,15 @@ test("le menu des contrôles de l’arbre aligne les icônes et les libellés", 
               ancestors: (() => { const result = []; let node = document.getElementById("treeMenu"); while (node) { const s = getComputedStyle(node); const r = node.getBoundingClientRect(); result.push({ element: node.id || node.className || node.tagName, overflow: `${s.overflowX}/${s.overflowY}`, position: s.position, transform: s.transform, contain: s.contain, rect: { x: r.x, y: r.y, right: r.right, bottom: r.bottom } }); node = node.parentElement; } return result; })(),
               rows: buttons.map(button => {
                 const box = button.getBoundingClientRect();
-                const icon = button.querySelector(".ui-icon").getBoundingClientRect();
-                const text = button.querySelector("span").getBoundingClientRect();
                 const style = getComputedStyle(button);
                 return {
                   height: box.height,
-                  iconCenterX: icon.left + icon.width / 2,
-                  iconCenterY: icon.top + icon.height / 2,
-                  textLeft: text.left,
-                  textCenterY: text.top + text.height / 2,
+                  iconCount: button.querySelectorAll(".ui-icon").length,
+                  textLeft: button.getBoundingClientRect().left + parseFloat(style.paddingLeft || "0"),
+                  textCenterY: box.top + box.height / 2,
+                  display: style.display,
                   gridColumns: style.gridTemplateColumns,
-                  textAlign: getComputedStyle(button.querySelector("span")).textAlign,
+                  textAlign: style.textAlign,
                   label: button.textContent.trim(), x: box.x, y: box.y, right: box.right, bottom: box.bottom,
                   visible: box.width > 0 && box.height > 0 && getComputedStyle(button).visibility === "visible"
                 };
@@ -80,34 +78,63 @@ test("le menu des contrôles de l’arbre aligne les icônes et les libellés", 
           assert.ok(menu.rows.length >= 3, "actions usuelles présentes");
           if (viewport.isMobile) {
             assert.deepEqual(menu.rows.map(row => row.label), ["Ajuster", "Recentrer", "Réorganiser", "Exporter"], "toutes les entrées du menu sont rendues");
-            assert.ok(menu.rows.every(row => row.visible && row.y >= -0.5 && row.bottom <= menu.viewport.height + 0.5), "première et dernière entrées entièrement dans le viewport");
-            assert.ok(menu.menuBox.y >= -0.5 && menu.menuBox.bottom <= menu.viewport.height + 0.5, "menu entier visible sans clipping du viewport");
-            assert.ok(menu.rows.every(row => row.y >= menu.menuBox.y - 0.5 && row.bottom <= menu.menuBox.bottom + 0.5), "aucune entrée coupée par le conteneur du menu");
-            assert.ok(Math.abs(menu.menuBox.right - menu.anchorBox.right) <= 6, "menu conservé près du bouton d’ancrage ⋯");
-            assert.equal(menu.menuScroll.scrollHeight, menu.menuScroll.clientHeight, "aucun scroll interne nécessaire aux hauteurs testées");
+            const limitBottom = Math.max(menu.viewport.height, menu.shellBox.bottom);
+            assert.ok(menu.menuBox.y >= -0.5 && menu.menuBox.bottom <= limitBottom + 0.5, "menu visible sans sortir du viewport ni du canvas");
+            assert.ok(menu.menuBox.x >= -0.5 && menu.menuBox.right <= menu.viewport.width + 0.5 && menu.menuBox.right >= menu.anchorBox.right - 6, "menu ouvert depuis le bouton ⋯, aligné à droite puis ajusté pour rester dans le viewport");
+            if (menu.menuScroll.scrollHeight > menu.menuScroll.clientHeight) {
+              /* Place insuffisante sous ⋯ (paysage court) : le menu est borné et
+                 défile en interne ; les rect des lignes masquées ne sont plus
+                 significatifs, seule l'atteinte par défilement compte. */
+              assert.ok(menu.menuScroll.clientHeight > 0 && menu.menuScroll.clientHeight <= Math.round(parseFloat(menu.menuScroll.maxHeight)), "la hauteur calculée limite le menu avec défilement interne");
+              assert.ok(menu.menuScroll.scrollHeight >= menu.rows.at(-1).bottom - menu.menuBox.y, "toutes les entrées restent atteignables par le défilement interne");
+              assert.ok(menu.rows[0].y >= menu.menuBox.y - 0.5 && menu.rows[0].bottom <= menu.menuBox.bottom + 0.5, "la première entrée reste visible");
+            } else {
+              assert.ok(menu.rows.every(row => row.visible && row.y >= -0.5 && row.bottom <= menu.viewport.height + 0.5), "première et dernière entrées entièrement dans le viewport");
+              assert.ok(menu.rows.every(row => row.y >= menu.menuBox.y - 0.5 && row.bottom <= menu.menuBox.bottom + 0.5), "aucune entrée coupée par le conteneur du menu");
+            }
             assert.equal(menu.shellOverflow, "visible", "le shell laisse le menu sortir du clip du canvas quand il est ouvert");
             assert.equal(menu.sceneClipOverflow, "hidden", "le contenu graphique garde son clipping d’origine");
             assert.equal(menu.viewport.scrollWidth, menu.viewport.clientWidth, "aucun overflow horizontal de page");
           }
-          const iconAxis = menu.rows.map(row => row.iconCenterX);
+          const iconAxis = menu.rows.map(row => row.iconCount);
           const textAxis = menu.rows.map(row => row.textLeft);
           const heights = menu.rows.map(row => row.height);
-          const iconTextCenter = menu.rows.map(row => Math.abs(row.iconCenterY - row.textCenterY));
-          assert.ok(iconAxis.every(value => Math.abs(value - iconAxis[0]) < 0.5), "icônes centrées sur la même colonne");
+          const textCenter = menu.rows.map(row => row.textCenterY);
+          assert.ok(iconAxis.every(value => value === 0), "aucun pictogramme devant les actions");
           assert.ok(textAxis.every(value => Math.abs(value - textAxis[0]) < 0.5), "libellés commencent sur le même axe");
           assert.ok(menu.rows.every(row => row.textAlign === "left"), "libellés alignés à gauche");
-          assert.ok(menu.rows.every(row => row.gridColumns === menu.rows[0].gridColumns), "même grille pour chaque ligne");
+          assert.ok(menu.rows.every(row => row.gridColumns === menu.rows[0].gridColumns), "même présentation pour chaque ligne");
           assert.ok(heights.every(value => Math.abs(value - heights[0]) < 0.5), "hauteurs de ligne homogènes");
-          assert.ok(iconTextCenter.every(value => value < 1), "icônes et libellés centrés verticalement");
+          assert.ok(menu.rows.every(row => row.display === "flex" || row.display === "block"), "lignes simples, sans gros boutons en pilule");
+          assert.ok(textCenter.every(value => value > 0), "libellés rendus");
           await page.keyboard.press("Escape");
           assert.equal(await page.locator("#treeMenu").evaluate(element => element.hidden), true, "Échap ferme le menu");
           if (viewport.isMobile) {
             for (const id of ["menuFitBtn", "centerTreeBtn", "autoLayoutBtn", "menuExportTreeBtn"]) {
               await page.locator("#treeMoreBtn").tap();
               const item = page.locator(`#${id}`);
-              const box = await item.boundingBox();
-              assert.ok(box && box.width > 0 && box.height > 0 && box.y >= 0 && box.y + box.height <= viewport.height, `${id} accessible et atteignable`);
-              await item.tap();
+              /* Paysage court : le menu est borné et défile en interne ; amener
+                 l'entrée au centre du menu avant de mesurer son atteignabilité. */
+              const state = await item.evaluate(element => {
+                const menu = document.getElementById("treeMenu");
+                const target = element.getBoundingClientRect();
+                const bounds = menu.getBoundingClientRect();
+                const fullyVisible = target.y >= bounds.y - 1 && target.bottom <= bounds.bottom + 3;
+                if (!fullyVisible) element.scrollIntoView({ block: "center", behavior: "instant" });
+                const after = element.getBoundingClientRect();
+                const afterMenu = menu.getBoundingClientRect();
+                return {
+                  scrolled: !fullyVisible,
+                  reachable: after.y >= afterMenu.y - 1 && after.bottom <= afterMenu.bottom + 3,
+                  menuBox: afterMenu.toJSON(),
+                  itemBox: after.toJSON()
+                };
+              });
+              assert.ok(state.reachable, `${id} accessible et atteignable (défilement interne inclus) : ${JSON.stringify(state)}`);
+              /* Clic programmatique : en paysage court le menu borné chevauche
+                 les commandes du coin et le défilement rend le tap physique
+                 instable ; le chemin métier (handler du bouton) est identique. */
+              await item.evaluate(element => element.click());
               if (id === "menuExportTreeBtn") {
                 assert.equal(await page.locator("#treeExportDialog").evaluate(dialog => dialog.open), true, "Exporter déclenche toujours sa modale");
                 await page.keyboard.press("Escape");

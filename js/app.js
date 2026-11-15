@@ -1118,7 +1118,7 @@ function renderTreeSelectorRows() {
     const status = deleting ? '<span class="tree-picker-status">Suppression en cours</span>' : "";
     const treeId = esc(tree.id);
     const actionsId = `treeRowActions-${treeId}`;
-    return `<div class="tree-picker-entry" data-tree-entry="${treeId}"><div class="tree-picker-row" data-tree-row="${treeId}"><button class="tree-picker-option" type="button" role="option" data-tree-select="${treeId}" aria-pressed="${selected}" aria-selected="${selected}" title="${esc(tree.name)}"><span class="tree-picker-check" aria-hidden="true">✓</span><span class="tree-picker-copy"><span class="tree-picker-name">${esc(tree.name)}${principal}</span>${status}</span><span class="tree-picker-count">${count} pers.</span></button><button class="tree-row-actions-trigger" type="button" data-tree-actions-toggle="${treeId}" aria-label="Actions de ${esc(tree.name)}" title="Actions de ${esc(tree.name)}" aria-haspopup="menu" aria-expanded="false" aria-controls="${actionsId}">⋯</button></div><div class="tree-row-actions-menu" id="${actionsId}" data-tree-row-actions="${treeId}" role="menu" aria-label="Actions de ${esc(tree.name)}" hidden><button type="button" role="menuitem" data-tree-action="rename" data-tree-id="${treeId}" title="${esc(renameTitle)}"${renameDisabled ? " disabled" : ""}>Renommer</button><button type="button" role="menuitem" data-tree-action="export" data-tree-id="${treeId}"${exportDisabled ? " disabled" : ""}>Exporter</button><button type="button" role="menuitem" data-tree-action="delete" data-tree-id="${treeId}" title="${esc(deleteTitle)}"${deleteDisabled ? " disabled" : ""}>Supprimer…</button></div></div>`;
+    return `<div class="tree-picker-entry" data-tree-entry="${treeId}"><div class="tree-picker-row${selected ? " is-selected" : ""}" data-tree-row="${treeId}"><button class="tree-picker-option" type="button" role="option" data-tree-select="${treeId}" aria-pressed="${selected}" aria-selected="${selected}" title="${esc(tree.name)}"><span class="tree-picker-check" aria-hidden="true">✓</span><span class="tree-picker-copy"><span class="tree-picker-name">${esc(tree.name)}${principal}</span>${status}</span><span class="tree-picker-count">${count} pers.</span></button><button class="tree-row-actions-trigger" type="button" data-tree-actions-toggle="${treeId}" aria-label="Actions de ${esc(tree.name)}" title="Actions de ${esc(tree.name)}" aria-haspopup="menu" aria-expanded="false" aria-controls="${actionsId}">⋯</button></div><div class="tree-row-actions-menu" id="${actionsId}" data-tree-row-actions="${treeId}" role="menu" aria-label="Actions de ${esc(tree.name)}" hidden><button type="button" role="menuitem" data-tree-action="rename" data-tree-id="${treeId}" title="${esc(renameTitle)}"${renameDisabled ? " disabled" : ""}>Renommer</button><button type="button" role="menuitem" data-tree-action="export" data-tree-id="${treeId}"${exportDisabled ? " disabled" : ""}>Exporter</button><button type="button" role="menuitem" data-tree-action="delete" data-tree-id="${treeId}" title="${esc(deleteTitle)}"${deleteDisabled ? " disabled" : ""}>Supprimer…</button></div></div>`;
   }).join("");
 }
 
@@ -1638,6 +1638,7 @@ treeFullscreenResizeObserver.observe(treeViewportElement);
 window.addEventListener("resize", preserveTreeCenterOnViewportResize, { passive: true });
 window.visualViewport?.addEventListener("resize", preserveTreeCenterOnViewportResize);
 window.visualViewport?.addEventListener("scroll", () => {
+  resetTreeFullscreenScroll();
   if (treeFullscreenActive && !$("treeMenu").hidden) positionFullscreenTreeMenu();
   else if (!$("treeMenu").hidden) positionNormalTreeMenu();
 });
@@ -1715,7 +1716,7 @@ if (typeof window !== "undefined") {
           visible: rect.width > 0 && rect.height > 0 && getComputedStyle(button).display !== "none"
         };
       };
-      const bar = [...document.querySelectorAll(".tree-controls .zoom-control button, .tree-controls .view-control > button")]
+      const bar = [...document.querySelectorAll(".tree-controls .zoom-control button, .tree-controls .view-control > button, .tree-controls .fullscreen-control > button")]
         .filter(button => button.id !== "treeFullscreenSearch")
         .map(describe)
         .sort((a, b) => (a.y - b.y) || (a.x - b.x));
@@ -15541,7 +15542,7 @@ function setTreeRowActions(treeId, open) {
   }
   trigger.setAttribute("aria-expanded", String(Boolean(open)));
   menu.hidden = !open;
-  if (open) requestAnimationFrame(() => positionTreePickerMenu($("treeSelectorDetails")));
+  positionTreePickerMenu($("treeSelectorDetails"));
 }
 
 const treePickerSafeAreaProbe = document.createElement("div");
@@ -15585,6 +15586,10 @@ function positionTreePickerMenu(details) {
   menu.classList.remove("is-open-up");
   const alignRight = detailsBox.left + menuWidth > viewportLeft + viewportWidth - safeRight - horizontalMargin;
   menu.classList.toggle("is-align-right", alignRight);
+  /* Mesurer la hauteur naturelle SANS la hauteur épinglée du positionnement
+     précédent : sinon scrollHeight repart de l'ancienne valeur (boucle). */
+  menu.style.removeProperty("height");
+  menu.style.removeProperty("max-height");
   const naturalHeight = menu.scrollHeight;
   const openUp = naturalHeight > roomBelow && roomAbove > roomBelow;
   const availableHeight = Math.min(naturalHeight, openUp ? roomAbove : roomBelow);
@@ -15760,15 +15765,30 @@ $("zoomInBtn").onclick = () => { camera.zoomBy(1.2); showZoomBadge(); };
 $("treeFullscreenBtn").onclick = () => toggleTreeFullscreen();
 function resetTreeMenuPosition() {
   const menu = $("treeMenu");
+  menu.classList.remove("is-open-up");
   ["position", "left", "right", "top", "bottom", "width", "maxWidth", "maxHeight", "overflowY", "transform"].forEach(property => menu.style.removeProperty(property.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)));
 }
 // En plein écran, le menu est déplacé hors de .tree-controls : le guard de la
 // caméra ne le couvre plus et setPointerCapture détournerait le click des
 // entrées (Réorganiser, Exporter…) vers le viewport.
 $("treeMenu").addEventListener("pointerdown", event => event.stopPropagation());
+/* Le défilement programmatique (scrollIntoView des tests, focus automatique)
+   peut décaler le conteneur figé du plein écran : revenir à l'origine pour que
+   les repères du viewport restent valides. */
+function resetTreeFullscreenScroll() {
+  if (!treeFullscreenActive) return;
+  const appMain = $("appMain");
+  if (appMain.scrollTop || appMain.scrollLeft) { appMain.scrollTop = 0; appMain.scrollLeft = 0; }
+  const root = document.scrollingElement;
+  if (root && (root.scrollTop || root.scrollLeft)) { root.scrollTop = 0; root.scrollLeft = 0; }
+}
+$("appMain").addEventListener("scroll", resetTreeFullscreenScroll, { passive: true });
+window.addEventListener("scroll", resetTreeFullscreenScroll, { passive: true });
 function positionFullscreenTreeMenu() {
   const menu = $("treeMenu");
   if (!treeFullscreenActive || menu.hidden) return;
+  menu.classList.remove("is-open-up");
+  resetTreeFullscreenScroll();
   const visual = window.visualViewport;
   const bounds = visual && Number.isFinite(visual.width) && Number.isFinite(visual.offsetTop)
     ? { left: visual.offsetLeft || 0, top: visual.offsetTop, right: (visual.offsetLeft || 0) + visual.width, bottom: visual.offsetTop + visual.height }
@@ -15778,55 +15798,71 @@ function positionFullscreenTreeMenu() {
   bounds.top += Number.parseFloat(insets.paddingTop) || 0;
   bounds.right -= Number.parseFloat(insets.paddingRight) || 0;
   bounds.bottom -= Number.parseFloat(insets.paddingBottom) || 0;
-  const shellRect = treeViewportElement.getBoundingClientRect();
   const anchor = $("treeMoreBtn").getBoundingClientRect();
   const margin = 8;
   const leftLimit = bounds.left + margin;
   const rightLimit = bounds.right - margin;
-  menu.style.position = "absolute";
-  menu.style.left = "0px";
-  menu.style.right = "auto";
-  menu.style.top = "0px";
-  menu.style.bottom = "auto";
-  menu.style.maxWidth = `${Math.max(0, rightLimit - leftLimit)}px`;
-  menu.style.maxHeight = `${Math.max(0, bounds.bottom - bounds.top - margin * 2)}px`;
-  menu.style.overflowY = "auto";
-  const width = Math.min(menu.getBoundingClientRect().width, rightLimit - leftLimit);
+  const maxWidth = Math.max(0, rightLimit - leftLimit);
+  const maxHeightCap = Math.max(0, bounds.bottom - bounds.top - margin * 2);
+  /* Mesurer d'abord, appliquer ensuite : aucun état intermédiaire n'est observable. */
+  const width = Math.min(menu.getBoundingClientRect().width, maxWidth);
   const left = Math.max(leftLimit, Math.min(anchor.right - width, rightLimit - width));
   const naturalHeight = menu.scrollHeight;
   const roomBelow = Math.max(0, bounds.bottom - margin - anchor.bottom - 4);
   const roomAbove = Math.max(0, anchor.top - bounds.top - margin - 4);
   const placeBelow = roomBelow >= Math.min(naturalHeight, 140) || roomBelow >= roomAbove;
   const availableHeight = Math.min(naturalHeight, placeBelow ? roomBelow : roomAbove);
-  menu.style.left = `${left - shellRect.left}px`;
-  menu.style.maxHeight = `${availableHeight}px`;
   const top = placeBelow
     ? Math.max(bounds.top + margin, Math.min(anchor.bottom + 4, bounds.bottom - margin - availableHeight))
     : Math.max(bounds.top + margin, anchor.top - 4 - availableHeight);
-  menu.style.top = `${top - shellRect.top}px`;
+  /* Position fixe en coordonnées viewport : le menu quitte le flux du shell et
+     reste insensible aux décalages du conteneur plein écran. */
+  menu.style.position = "fixed";
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  menu.style.right = "auto";
+  menu.style.bottom = "auto";
+  menu.style.maxWidth = `${maxWidth}px`;
+  menu.style.maxHeight = `${availableHeight}px`;
+  menu.style.overflowY = "auto";
 }
 function positionNormalTreeMenu() {
   const menu = $("treeMenu");
-  if (treeFullscreenActive || menu.hidden || !window.matchMedia("(max-width: 760px)").matches) {
-    menu.style.removeProperty("transform");
-    return;
-  }
+  if (treeFullscreenActive || menu.hidden) return;
   const visual = window.visualViewport;
   const left = visual?.offsetLeft || 0;
   const width = visual?.width || window.innerWidth;
   const right = left + width;
+  const top = visual?.offsetTop || 0;
+  const bottom = top + (visual?.height || window.innerHeight);
+  const insets = getComputedStyle(treePickerSafeAreaProbe);
+  const safeTop = Number.parseFloat(insets.paddingTop) || 0;
+  const safeBottom = Number.parseFloat(insets.paddingBottom) || 0;
+  const safeLeft = Number.parseFloat(insets.paddingLeft) || 0;
+  const safeRight = Number.parseFloat(insets.paddingRight) || 0;
   const margin = 8;
+  menu.classList.remove("is-open-up");
   menu.style.removeProperty("left");
   menu.style.removeProperty("right");
-  menu.style.removeProperty("transform");
-  const bounds = menu.getBoundingClientRect();
+  menu.style.removeProperty("max-height");
+  menu.style.removeProperty("max-width");
+  menu.style.maxWidth = `${Math.max(0, right - safeRight - margin - (left + safeLeft + margin))}px`;
+  const naturalHeight = menu.scrollHeight;
   const host = menu.offsetParent || menu.parentElement;
   const hostRect = host.getBoundingClientRect();
-  if (bounds.left < left + margin) {
-    menu.style.left = `${left + margin - hostRect.left}px`;
+  const roomBelow = Math.max(0, bottom - safeBottom - margin - hostRect.bottom - 6);
+  const roomAbove = Math.max(0, hostRect.top - top - safeTop - margin - 6);
+  const openUp = roomBelow < 44 && roomAbove > roomBelow;
+  const availableHeight = Math.min(naturalHeight, openUp ? roomAbove : roomBelow);
+  menu.classList.toggle("is-open-up", openUp);
+  menu.style.maxHeight = `${Math.min(naturalHeight, availableHeight)}px`;
+  menu.style.overflowY = "auto";
+  const bounds = menu.getBoundingClientRect();
+  if (bounds.left < left + safeLeft + margin) {
+    menu.style.left = `${left + safeLeft + margin - hostRect.left}px`;
     menu.style.right = "auto";
-  } else if (bounds.right > right - margin) {
-    menu.style.left = `${right - margin - bounds.width - hostRect.left}px`;
+  } else if (bounds.right > right - safeRight - margin) {
+    menu.style.left = `${right - safeRight - margin - bounds.width - hostRect.left}px`;
     menu.style.right = "auto";
   }
 }
@@ -15853,6 +15889,7 @@ function updateTreeFullscreenUi(active, fallback = false) {
   if (active) {
     treeFullscreenPreserveUntil = 0;
     pendingTreeFullscreenCenter = null;
+    resetTreeFullscreenScroll();
     moveTreeMenuToFullscreenLayer(true);
     moveTreeSearchToFullscreenLayer(true);
     setTreeMenu(false);
@@ -15927,10 +15964,6 @@ function setTreeMenu(open) {
   if (treeFullscreenActive) positionFullscreenTreeMenu();
   else {
     resetTreeMenuPosition();
-    const canvas = $("treeViewport");
-    const host = $("treeMoreBtn").closest(".view-control");
-    const headroom = host.getBoundingClientRect().top - canvas.getBoundingClientRect().top - 6;
-    menu.style.maxHeight = `${Math.max(0, Math.floor(headroom))}px`;
     positionNormalTreeMenu();
   }
   const firstVisible = [...menu.querySelectorAll('[role="menuitem"]')].find(item => item.offsetParent !== null);

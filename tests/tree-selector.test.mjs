@@ -6,6 +6,10 @@ import { blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./
 const testHooks = `
 window.__treeSelectorHarness = {
   setData({ people: personRecords = [], families: familyRecords = [], trees: treeRecords = [] } = {}) {
+    /* Réaffirmer le contrôle du harnais après l'installation des abonnements auth. */
+    startData = function() {};
+    stopPrivateData = function() {};
+    showAuthPanel = function() {};
     people = personRecords;
     families = familyRecords;
     treeMetadata = treeRecords;
@@ -539,6 +543,7 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
           const triggerBeforeOpen = await page.locator("#treeSelectTrigger").evaluate(trigger => ({ rect: trigger.getBoundingClientRect().toJSON(), display: getComputedStyle(trigger).display, visibility: getComputedStyle(trigger).visibility, details: trigger.parentElement.open, host: trigger.closest(".tree-picker-host").getBoundingClientRect().toJSON(), app: { hidden: document.getElementById("appMain").hidden, display: getComputedStyle(document.getElementById("appMain")).display, rect: document.getElementById("appMain").getBoundingClientRect().toJSON() }, viewport: { width: innerWidth, height: innerHeight } }));
           assert.ok(triggerBeforeOpen.rect.width > 0 && triggerBeforeOpen.rect.height > 0, `déclencheur visible à ${width}px : ${JSON.stringify(triggerBeforeOpen)}`);
           await page.locator("#treeSelectTrigger").click();
+          await page.waitForFunction(() => document.getElementById("treeSelectorMenu").style.height !== "");
           const mobileGeometry = await page.evaluate(() => {
             const menu = document.getElementById("treeSelectorMenu");
             const trigger = document.getElementById("treeSelectTrigger");
@@ -575,8 +580,39 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
           assert.equal(inlineFlow.rootOpen, true, "le menu Arbre reste ouvert pendant le dépliage");
           assert.equal(inlineFlow.panelHidden, false, "actions intégrées visibles");
           assert.ok(inlineFlow.panelTop >= inlineFlow.rowBottom && inlineFlow.nextTop >= inlineFlow.panelBottom, `actions en flux, sans recouvrir les arbres suivants : ${JSON.stringify(inlineFlow)}`);
+          const highlight = await page.evaluate(() => {
+            const row = document.querySelector('[data-tree-row="main"]');
+            const trigger = document.querySelector('[data-tree-actions-toggle="main"]');
+            const option = row.querySelector(".tree-picker-option");
+            const rowBox = row.getBoundingClientRect();
+            const triggerBox = trigger.getBoundingClientRect();
+            return {
+              selected: row.classList.contains("is-selected"),
+              rowBg: getComputedStyle(row).backgroundColor,
+              optionBg: getComputedStyle(option).backgroundColor,
+              triggerBg: getComputedStyle(trigger).backgroundColor,
+              coversTrigger: rowBox.right >= triggerBox.right - 0.5 && rowBox.left <= triggerBox.left + 0.5,
+              menuWidth: document.getElementById("treeSelectorMenu").getBoundingClientRect().width,
+              menuX: document.getElementById("treeSelectorMenu").getBoundingClientRect().x
+            };
+          });
+          assert.equal(highlight.selected, true, "la ligne active porte le surlignage");
+          assert.notEqual(highlight.rowBg, "rgba(0, 0, 0, 0)", "fond gris clair sur la ligne active");
+          assert.equal(highlight.coversTrigger, true, "le surlignage couvre la zone du bouton …");
+          assert.equal(highlight.optionBg, "rgba(0, 0, 0, 0)", "le surlignage vient de la ligne, pas d'un fond redondant");
+          assert.equal(highlight.triggerBg, "rgb(243, 238, 229)", "bouton … plus foncé quand les actions sont ouvertes");
+          assert.ok(Math.abs(highlight.menuWidth - mobileGeometry.menu.width) < 1 && Math.abs(highlight.menuX - mobileGeometry.menu.x) < 1, `largeur et position du menu stables pendant le dépliage : ${JSON.stringify({ avant: mobileGeometry.menu, apres: { width: highlight.menuWidth, x: highlight.menuX } })}`);
           await page.locator('[data-tree-actions-toggle="main"]').click();
           assert.equal(await page.locator('[data-tree-row-actions="main"]').isHidden(), true, "second clic replie les actions");
+          await page.mouse.move(4, 4);
+          await page.waitForFunction(previous => {
+            const menu = document.getElementById("treeSelectorMenu");
+            return Math.abs(menu.getBoundingClientRect().height - previous) < 1;
+          }, mobileGeometry.menu.height).catch(() => {});
+          const restored = await page.evaluate(() => ({ height: document.getElementById("treeSelectorMenu").getBoundingClientRect().height, width: document.getElementById("treeSelectorMenu").getBoundingClientRect().width, x: document.getElementById("treeSelectorMenu").getBoundingClientRect().x, triggerBg: getComputedStyle(document.querySelector('[data-tree-actions-toggle="main"]')).backgroundColor }));
+          assert.ok(Math.abs(restored.height - mobileGeometry.menu.height) < 1, `hauteur naturelle restaurée après repli : ${JSON.stringify({ avant: mobileGeometry.menu.height, apres: restored.height })}`);
+          assert.ok(Math.abs(restored.width - mobileGeometry.menu.width) < 1 && Math.abs(restored.x - mobileGeometry.menu.x) < 1, "largeur et position conservées après repli");
+          assert.equal(restored.triggerBg, "rgba(0, 0, 0, 0)", "fond normal du bouton … restauré au repli (hors survol)");
           await page.locator('[data-tree-actions-toggle="main"]').click();
           await page.locator('[data-tree-actions-toggle="tree-empty"]').click();
           assert.equal(await page.locator('[data-tree-row-actions="main"]').isHidden(), true, "ouvrir un autre arbre replie les actions précédentes");
@@ -607,13 +643,14 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
           const row = document.querySelector('[data-tree-row="main"]');
           const panel = document.querySelector('[data-tree-row-actions="main"]');
           const next = document.querySelector('[data-tree-row="tree-conti"]');
-          return { rootOpen: document.getElementById("treeSelectorDetails").open, activeTreeId: window.__treeSelectorHarness.state().activeTreeId, hidden: panel.hidden, rowBottom: row.getBoundingClientRect().bottom, panelTop: panel.getBoundingClientRect().top, panelBottom: panel.getBoundingClientRect().bottom, nextTop: next.getBoundingClientRect().top, position: getComputedStyle(panel).position };
+          return { rootOpen: document.getElementById("treeSelectorDetails").open, activeTreeId: window.__treeSelectorHarness.state().activeTreeId, hidden: panel.hidden, rowBottom: row.getBoundingClientRect().bottom, panelTop: panel.getBoundingClientRect().top, panelBottom: panel.getBoundingClientRect().bottom, nextTop: next.getBoundingClientRect().top, position: getComputedStyle(panel).position, menuWidth: document.getElementById("treeSelectorMenu").getBoundingClientRect().width, menuX: document.getElementById("treeSelectorMenu").getBoundingClientRect().x };
         });
         assert.equal(desktopInline.rootOpen, true, "le menu reste ouvert pendant le dépliage desktop");
         assert.equal(desktopInline.activeTreeId, "main", "cliquer sur … ne sélectionne pas l'arbre");
         assert.equal(desktopInline.hidden, false);
         assert.equal(desktopInline.position, "static", "pas de sous-menu flottant sur desktop");
         assert.ok(desktopInline.panelTop >= desktopInline.rowBottom && desktopInline.nextTop >= desktopInline.panelBottom, `les actions repoussent naturellement la ligne suivante desktop : ${JSON.stringify(desktopInline)}`);
+        assert.ok(Math.abs(desktopInline.menuWidth - desktopMenu.width) < 1 && Math.abs(desktopInline.menuX - desktopMenu.x) < 1, `largeur et position du menu stables pendant le dépliage desktop : ${JSON.stringify({ avant: desktopMenu, apres: { width: desktopInline.menuWidth, x: desktopInline.menuX } })}`);
         await page.locator('[data-tree-actions-toggle="main"]').click();
         assert.equal(await page.locator('[data-tree-row-actions="main"]').isHidden(), true, "second clic replie les actions desktop");
         await page.locator('[data-tree-actions-toggle="main"]').click();

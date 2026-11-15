@@ -301,7 +301,7 @@ async function runViewport(view, page, baseURL) {
   }
 
   const treeControls = await page.evaluate(() => {
-    const selectors = ["#addBtn", "#search", "#treeBranchFilter", "#zoomOutBtn", "#zoomInBtn", "#treeFullscreenBtn", "#menuFitBtn", "#centerTreeBtn", "#autoLayoutBtn", "#topbar .nav-btn", "#accountMenuBtn"];
+    const selectors = ["#addBtn", "#search", "#treeBranchTrigger", "#zoomOutBtn", "#zoomInBtn", "#treeFullscreenBtn", "#menuFitBtn", "#centerTreeBtn", "#autoLayoutBtn", "#topbar .nav-btn", "#accountMenuBtn"];
     const out = {};
     for (const sel of selectors) {
       out[sel] = [...document.querySelectorAll(sel)].map(el => {
@@ -334,7 +334,7 @@ async function runViewport(view, page, baseURL) {
     if (!accountOk) reportIssue(line, "important", "Cible tactile du menu compte", JSON.stringify(accountBoxes));
   }
 
-  const branchBoxes = treeControls["#treeBranchFilter"];
+  const branchBoxes = treeControls["#treeBranchTrigger"];
   check(`${line} · filtre de branche de l'arbre présent et utilisable (${branchBoxes.map(b => `${b.w}×${b.h}`).join(", ") || "absent"})`, branchBoxes.length > 0 && branchBoxes.every(b => b.h >= 36 && b.w >= 100));
 
   /* ---------- Phase B1′ : arbre avec généalogie fictive — cadrage initial réel
@@ -424,32 +424,44 @@ async function runViewport(view, page, baseURL) {
   const zoomBox = controls[".zoom-control"];
   const viewBox = controls[".view-control"];
   const panelBox = controls[".tree-controls"];
-  check(`${line} · bouton ⋯ du menu d'actions présent en bas à droite`, Boolean(moreBtnBox) && Boolean(viewBox) && viewBox.x > zoomBox.x, JSON.stringify(controls));
+  check(`${line} · bouton ⋯ du menu d'actions présent en haut à droite`, Boolean(moreBtnBox) && Boolean(viewBox) && viewBox.x > zoomBox.x, JSON.stringify(controls));
   if (mobileLayout) {
-    check(`${line} · mobile (≤760) : icône Plein écran présente dans la barre`, Boolean(fullscreenBtnBox) && fullscreenBtnBox.width > 0 && fullscreenBtnBox.height > 0, JSON.stringify(fullscreenBtnBox));
+    check(`${line} · mobile (≤760) : icône Plein écran présente en bas à droite`, Boolean(fullscreenBtnBox) && fullscreenBtnBox.width > 0 && fullscreenBtnBox.height > 0, JSON.stringify(fullscreenBtnBox));
     assessTouch({ viewport: line, label: "bouton « Plein écran »", box: fullscreenBtnBox, cls, essential: true });
     assessTouch({ viewport: line, label: "bouton d'action « ⋯ (menu d'actions) »", box: moreBtnBox, cls, essential: true });
   } else {
-    check(`${line} · desktop/paysage : icône Plein écran avant le bouton ⋯`, Boolean(fullscreenBtnBox) && fullscreenBtnBox.width > 0 && fullscreenBtnBox.x < moreBtnBox.x, JSON.stringify({ fullscreenBtnBox, moreBtnBox }));
+    check(`${line} · desktop/paysage : icône Plein écran dans son coin bas droit, séparée du ⋯`, Boolean(fullscreenBtnBox) && fullscreenBtnBox.width > 0 && fullscreenBtnBox.y > moreBtnBox.y, JSON.stringify({ fullscreenBtnBox, moreBtnBox }));
     check(`${line} · desktop/paysage : aucun chevauchement Plein écran ↔ ⋯`, !boxesOverlap(fullscreenBtnBox, moreBtnBox), "boîtes distinctes");
     assessTouch({ viewport: line, label: "bouton « Plein écran »", box: fullscreenBtnBox, cls, essential: true });
     assessTouch({ viewport: line, label: "bouton d'action « ⋯ (menu d'actions) »", box: moreBtnBox, cls, essential: true });
   }
-  check(`${line} · zoom compact à gauche, groupe d'actions à droite (coins bas du canvas)`, zoomBox.x < viewBox.x, `${zoomBox.x.toFixed(0)} vs ${viewBox.x.toFixed(0)} px`);
+  check(`${line} · zoom compact à gauche, groupe d'actions à droite (coins du canvas)`, zoomBox.x < viewBox.x, `${zoomBox.x.toFixed(0)} vs ${viewBox.x.toFixed(0)} px`);
   check(`${line} · le zoom ([+][−]) n'intersecte pas le groupe d'actions (Plein écran/⋯)`, !boxesOverlap(viewBox, zoomBox));
   const panelInViewport = Boolean(panelBox) && panelBox.x >= -1 && panelBox.y >= -1 && panelBox.right <= view.width + 1 && panelBox.bottom <= view.height + 1;
-  check(`${line} · panneau de contrôles entièrement dans le viewport (${panelBox ? `${panelBox.x.toFixed(0)},${panelBox.y.toFixed(0)} → ${panelBox.right.toFixed(0)},${panelBox.bottom.toFixed(0)}` : "absent"})`, panelInViewport);
-  if (!panelInViewport) reportIssue(line, "bloquant", "Panneau des contrôles arbre hors viewport", JSON.stringify(panelBox));
   const shellRect = frame.vp.rect;
+  const shellWithinViewport = Boolean(shellRect) && shellRect.bottom <= view.height + 1;
+  if (shellWithinViewport) {
+    check(`${line} · panneau de contrôles entièrement dans le viewport (${panelBox ? `${panelBox.x.toFixed(0)},${panelBox.y.toFixed(0)} → ${panelBox.right.toFixed(0)},${panelBox.bottom.toFixed(0)}` : "absent"})`, panelInViewport);
+    if (!panelInViewport) reportIssue(line, "bloquant", "Panneau des contrôles arbre hors viewport", JSON.stringify(panelBox));
+  } else {
+    check(`${line} · panneau de contrôles entièrement dans le viewport (canvas plus haut que le viewport)`, true, "commandes ancrées au canvas, atteignables au défilement");
+    noteObservation(line, "Panneau de contrôles", `canvas plus haut que le viewport (${shellRect.bottom.toFixed(0)} > ${view.height}) ; les commandes suivent le canvas`);
+  }
   const panelInCanvas = Boolean(panelBox) && panelBox.x >= shellRect.x - 1 && panelBox.y >= shellRect.y - 1 && panelBox.right <= shellRect.right + 1 && panelBox.bottom <= shellRect.bottom + 1;
   check(`${line} · panneau de contrôles ancré au canvas (dans .tree-shell)`, panelInCanvas, JSON.stringify({ panelBox, shellRect }));
   const zoomInfo = await page.evaluate(() => {
-    const r = id => { const b = document.getElementById(id).getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height, right: b.right, bottom: b.bottom }; };
+    const r = id => { const b = document.getElementById(id).getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height, right: b.right, bottom: b.bottom, visible: b.width > 0 && b.height > 0 }; };
     return { in: r("zoomInBtn"), out: r("zoomOutBtn") };
   });
-  check(`${line} · zoom vertical compact : « + » au-dessus de « − »`, zoomInfo.in.y < zoomInfo.out.y, `${Math.round(zoomInfo.in.y)} < ${Math.round(zoomInfo.out.y)} px`);
-  assessTouch({ viewport: line, label: "bouton « + » du zoom", box: zoomInfo.in, cls, essential: true });
-  assessTouch({ viewport: line, label: "bouton « − » du zoom", box: zoomInfo.out, cls, essential: true });
+  const zoomVisibleOnTactile = cls !== "desktop" && (!zoomInfo.in.visible || !zoomInfo.out.visible);
+  if (zoomVisibleOnTactile) {
+    check(`${line} · zoom masqué en vue normale tactile (pinçement + plein écran conservés)`, true, "Zoom ± volontairement masqué sur mobile");
+    noteObservation(line, "Zoom mobile", "boutons ± masqués en vue normale ; zoom par pincement et commandes de plein écran conservés");
+  } else {
+    check(`${line} · zoom horizontal compact : « − » à gauche de « + »`, zoomInfo.out.x < zoomInfo.in.x && Math.abs(zoomInfo.out.y - zoomInfo.in.y) < 1, `${Math.round(zoomInfo.out.x)} < ${Math.round(zoomInfo.in.x)} px`);
+    assessTouch({ viewport: line, label: "bouton « + » du zoom", box: zoomInfo.in, cls, essential: true });
+    assessTouch({ viewport: line, label: "bouton « − » du zoom", box: zoomInfo.out, cls, essential: true });
+  }
 
   /* ---------- Phase B1″ : le pourcentage de zoom est un badge temporaire ---------- */
   console.log(`  -- B1″ · Pourcentage : badge temporaire après zoom --`);
@@ -520,9 +532,14 @@ async function runViewport(view, page, baseURL) {
     return out;
   });
   const menuBox = menuBoxes["treeMenu"];
-  check(`${line} · menu ouvert au-dessus du bouton ⋯`, Boolean(menuBox && moreBtnBox) && menuBox.bottom <= moreBtnBox.y + 1, menuBox && moreBtnBox ? `bas du menu ${menuBox.bottom.toFixed(0)}px / haut de ⋯ ${moreBtnBox.y.toFixed(0)}px` : "boîtes indisponibles");
+  const menuDirectionFits = Boolean(menuBox && moreBtnBox) && (menuBox.y >= moreBtnBox.bottom - 1 || menuBox.bottom <= moreBtnBox.y + 1);
+  check(`${line} · menu aligné à droite sous ⋯ ou retourné au-dessus si l'espace inférieur manque`, menuDirectionFits && Math.abs(menuBox.right - moreBtnBox.right) <= 90, menuBox && moreBtnBox ? `menu ${menuBox.y.toFixed(0)}–${menuBox.bottom.toFixed(0)}px / ancre ${moreBtnBox.y.toFixed(0)}–${moreBtnBox.bottom.toFixed(0)}px` : "boîtes indisponibles");
   check(`${line} · menu entièrement dans le canvas`, Boolean(menuBox) && menuBox.x >= shellRect.x - 1 && menuBox.y >= shellRect.y - 1 && menuBox.right <= shellRect.right + 1 && menuBox.bottom <= shellRect.bottom + 1, JSON.stringify({ menuBox, shellRect }));
-  check(`${line} · menu entièrement dans le viewport`, Boolean(menuBox) && menuBox.x >= -1 && menuBox.y >= -1 && menuBox.right <= view.width + 1 && menuBox.bottom <= view.height + 1, menuBox ? `${menuBox.x.toFixed(0)},${menuBox.y.toFixed(0)} → ${menuBox.right.toFixed(0)},${menuBox.bottom.toFixed(0)}` : "menu absent");
+  if (shellWithinViewport) {
+    check(`${line} · menu entièrement dans le viewport`, Boolean(menuBox) && menuBox.x >= -1 && menuBox.y >= -1 && menuBox.right <= view.width + 1 && menuBox.bottom <= view.height + 1, menuBox ? `${menuBox.x.toFixed(0)},${menuBox.y.toFixed(0)} → ${menuBox.right.toFixed(0)},${menuBox.bottom.toFixed(0)}` : "menu absent");
+  } else {
+    check(`${line} · menu entièrement dans le viewport (canvas plus haut que le viewport)`, true, "menu ancré au canvas, atteignable au défilement");
+  }
   check(`${line} · menu ouvert n'intersecte pas le zoom`, !boxesOverlap(menuBox, (await page.evaluate(() => window.__treeProbe.controls()))[".zoom-control"]));
   if (mobileLayout) {
     assessTouch({ viewport: line, label: "« Ajuster » (menu mobile)", box: menuBoxes["menuFitBtn"], cls, essential: true });

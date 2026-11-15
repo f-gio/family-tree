@@ -537,6 +537,9 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    /* transition-property: none évite les transitions fantômes figées sur la
+       valeur de départ (durée 0.01ms + transition-property:all par défaut). */
+    transition-property: none !important;
     transition-duration: 0.01ms !important;
   }
 }
@@ -655,7 +658,12 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 }
 .tree-picker-rows { display: grid; gap: 2px; min-width: 0; }
 .tree-picker-entry { display: grid; min-width: 0; }
-.tree-picker-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-1); min-width: 0; }
+.tree-picker-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-1); min-width: 0; padding: 2px var(--space-2); border-radius: var(--radius-sm); }
+.tree-picker-row:hover { background: var(--color-surface-soft); }
+.tree-picker-row.is-selected { background: var(--color-surface-soft); }
+.tree-picker-row .tree-picker-option { padding-inline: 0; }
+.tree-picker-row .tree-picker-option:hover,
+.tree-picker-row .tree-picker-option[aria-pressed="true"] { border-color: transparent; background: transparent; }
 .tree-picker-option {
   display: grid;
   grid-template-columns: 1.25rem minmax(0, 1fr) auto;
@@ -693,8 +701,9 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   color: var(--color-text-muted);
   cursor: pointer;
 }
-.tree-row-actions-trigger:hover,
-.tree-row-actions-trigger[aria-expanded="true"] { background: var(--color-surface-soft); color: var(--color-text); }
+.tree-row-actions-trigger:hover { background: var(--color-surface-soft); color: var(--color-text); }
+.tree-row-actions-trigger[aria-expanded="true"],
+.tree-row-actions-trigger[aria-expanded="true"]:hover { background: var(--color-surface-muted); color: var(--color-text); }
 .tree-row-actions-menu { position: static; display: grid; gap: 2px; min-width: 0; margin: var(--space-1) var(--space-2) var(--space-2) 2.75rem; padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface-soft); }
 .tree-row-actions-menu[hidden] { display: none; }
 .tree-row-actions-menu button { display: flex; align-items: center; width: 100%; min-width: 0; min-height: var(--control-touch); padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text); font: inherit; text-align: left; }
@@ -734,9 +743,8 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   font-size: var(--text-sm);
 }
 
-/* Le menu reste attaché au bord droit du groupe de contrôles, sans dépasser
-   la fenêtre sur les petits écrans. */
-.view-control { position: relative; }
+/* Le groupe d'actions reste le bloc conteneur du menu ⋯ : le positionnement
+   (coin haut droit en vue normale) est défini par la couche de mise en page. */
 .tree-menu {
   left: auto;
   right: 0;
@@ -747,18 +755,23 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   gap: var(--space-1);
 }
 .tree-menu button {
-  display: grid;
-  grid-template-columns: 1.125rem minmax(0, 1fr);
+  display: flex;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
   min-height: var(--control-md);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
   text-align: left;
   white-space: nowrap;
 }
-.tree-menu button .ui-icon { justify-self: center; }
+.tree-menu button:hover:not(:disabled) { background: var(--color-surface-soft); }
 .tree-menu button span { min-width: 0; text-align: left; }
+.tree-menu.is-open-up { top: auto; bottom: calc(100% + 6px); }
 .tree-canvas-clip {
   position: absolute;
   inset: 0;
@@ -827,6 +840,8 @@ html.tree-fullscreen-active #appMain .tree-controls {
   min-height: var(--control-touch);
 }
 .tree-shell.tree-fullscreen-active .zoom-control {
+  position: static;
+  order: 0;
   flex-direction: row;
   gap: var(--space-1);
 }
@@ -836,6 +851,8 @@ html.tree-fullscreen-active #appMain .tree-controls {
   bottom: auto;
 }
 .tree-shell.tree-fullscreen-active .view-control {
+  position: static;
+  order: 1;
   flex-wrap: nowrap;
   gap: var(--space-1);
 }
@@ -843,7 +860,12 @@ html.tree-fullscreen-active #appMain .tree-controls {
 .tree-shell.tree-fullscreen-active .view-control #fullscreenCenterBtn { order: 2; }
 .tree-shell.tree-fullscreen-active .view-control #treeSearchToggleBtn { order: 3; }
 .tree-shell.tree-fullscreen-active .view-control #treeMoreBtn { order: 4; }
-.tree-shell.tree-fullscreen-active .view-control #treeFullscreenBtn { order: 5; display: inline-flex; }
+.tree-shell.tree-fullscreen-active .fullscreen-control {
+  position: static;
+  order: 5;
+  display: inline-flex;
+  align-items: center;
+}
 /* Barre large : Ajuster/Recentrer sont des icônes directes, le menu ne les répète pas. */
 .tree-shell.tree-fullscreen-active .tree-menu #menuFitBtn,
 .tree-shell.tree-fullscreen-active .tree-menu #centerTreeBtn { display: none; }
@@ -4303,20 +4325,15 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   font-weight: var(--weight-bold);
   line-height: 1;
 }
-/* Canvas sur écrans très courts : garder la zone de dessin dans l'espace restant
-   et ancrer ses commandes au viewport pour ne pas les perdre sous le pli. */
+/* Canvas sur écrans très courts : garder la zone de dessin dans l'espace restant.
+   Les commandes restent ancrées aux coins du canvas (overlay inset), elles
+   suivent donc le canvas lors du défilement. */
 @media (max-height: 620px) {
   #appMain { padding-top: 8px; padding-bottom: 8px; }
   #appMain .intro .lead,
   #appMain .intro .eyebrow { display: none; }
   #appMain .intro { margin-bottom: 6px; }
   #appMain .intro h2 { font-size: 1.25rem; }
-  #appMain .tree-controls {
-    position: fixed;
-    z-index: 30;
-    left: max(1rem, calc((100vw - 776px) / 2 + 6px));
-    right: max(1rem, calc((100vw - 776px) / 2 + 6px));
-  }
   #appMain .tree-shell { height: calc(100dvh - 250px); min-height: 220px; }
   #appMain .tree-shell:has(#treeMenu:not([hidden])) { overflow: visible; }
 }
@@ -4326,7 +4343,8 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 }
 @media (max-width: 760px) and (max-height: 460px) {
   #appMain .tree-shell:has(#treeMenu:not([hidden])) { overflow: visible; }
-  #treeMenu { max-height: calc(100dvh - 2rem) !important; }
+  /* La hauteur du menu ⋯ est calculée par le script (place sous le bouton) :
+     aucune surcharge CSS, le menu défile en interne quand la place manque. */
 }
 @media (max-width: 760px) {
   /* iOS zoome le viewport au focus si font-size < 16px : forcer 16px sur les

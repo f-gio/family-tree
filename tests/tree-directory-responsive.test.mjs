@@ -63,32 +63,21 @@ test("les contrôles mobiles de l’Arbre reprennent la largeur et le rythme de 
             filterGap: getComputedStyle(document.querySelector("#directoryView .directory-toolbar")).rowGap
           };
           activate("appMain");
-          const treeDescription = document.querySelector("#appMain .page-title + p");
-          const treeDescriptionStyle = getComputedStyle(treeDescription);
           const tree = {
             cta: rect("#addBtn"),
             title: rect("#appMain .page-title"),
-            description: rect("#appMain .page-title + p"),
-            descriptionStyle: {
-              display: treeDescriptionStyle.display,
-              fontSize: treeDescriptionStyle.fontSize,
-              lineHeight: treeDescriptionStyle.lineHeight,
-              color: treeDescriptionStyle.color,
-              scrollWidth: treeDescription.scrollWidth,
-              clientWidth: treeDescription.clientWidth,
-              text: treeDescription.textContent.trim()
-            },
+            description: document.querySelector("#appMain .page-title + p"),
             search: rect("#appMain .search-bar"),
-            treeSelector: rect("#treeSelect"),
-            branch: rect("#treeBranchFilter"),
+            treeSelector: rect("#treeSelectTrigger"),
+            branch: rect("#treeBranchTrigger"),
             shell: rect("#treeViewport"),
             status: rect("#appMain .tree-sync-status"),
             controls: rect("#appMain .tree-controls"),
-            descriptionCtaGap: rect("#headerTreeActions").y - rect("#appMain .page-title + p").bottom,
+            descriptionCtaGap: rect("#headerTreeActions").y - rect("#appMain .page-title").bottom,
             ctaSearchGap: rect("#appMain .search-bar").y - rect("#addBtn").bottom,
-            searchTreeGap: rect("#treeSelect").y - rect("#appMain .search-bar").bottom,
-            treeBranchGap: rect("#treeBranchFilter").y - rect("#treeSelect").bottom,
-            branchCanvasGap: rect("#treeViewport").y - rect("#treeBranchFilter").bottom,
+            searchTreeGap: rect("#treeSelectTrigger").y - rect("#appMain .search-bar").bottom,
+            treeBranchGap: rect("#treeBranchTrigger").y - rect("#treeSelectTrigger").bottom,
+            branchCanvasGap: rect("#treeViewport").y - rect("#treeBranchTrigger").bottom,
             filterGap: getComputedStyle(document.querySelector("#appMain .tree-filter-toolbar")).rowGap
           };
           return {
@@ -106,16 +95,8 @@ test("les contrôles mobiles de l’Arbre reprennent la largeur et le rythme de 
         assert.equal(measures.visible.directoryCta, true);
         assert.ok(measures.overflow.scrollWidth <= measures.overflow.clientWidth, "aucun débordement horizontal");
         if (width <= 760) {
-          assert.notEqual(measures.tree.descriptionStyle.display, "none", "la description de l’Arbre est visible");
-          assert.equal(measures.tree.descriptionStyle.text, "Cliquez sur une carte pour modifier la personne. Faites-la glisser pour ajuster sa position.");
-          for (const property of ["fontSize", "lineHeight", "color"]) {
-            assert.equal(measures.tree.descriptionStyle[property], measures.directory.descriptionStyle[property], `style de description commun : ${property}`);
-          }
-            assert.ok(measures.tree.descriptionStyle.scrollWidth <= measures.tree.descriptionStyle.clientWidth, "la description de l’Arbre ne déborde pas");
-            assert.ok(Math.abs(measures.tree.description.width - measures.directory.description.width) < 0.1, "les descriptions partagent la largeur disponible");
-            assert.ok(Math.abs(measures.tree.description.y - measures.tree.title.bottom - 7) < 0.1, "H2 → description reprend la règle responsive commune");
-            assert.ok(Math.abs(measures.tree.descriptionCtaGap - measures.directory.descriptionCtaGap) < 0.1, "espacement description → CTA commun");
-            assert.ok(Math.abs(measures.tree.descriptionCtaGap - 16) < 0.1, "description → CTA utilise --space-4");
+          assert.equal(measures.tree.description, null, "la description de l’Arbre est retirée (lot UX en-têtes)");
+          assert.ok(Math.abs(measures.tree.descriptionCtaGap - 16) < 0.1, "titre → CTA utilise --space-4");
           assert.ok(Math.abs(measures.tree.cta.x - measures.directory.cta.x) < 0.1, "les CTA partagent le même axe gauche");
           assert.ok(Math.abs(measures.tree.cta.width - measures.directory.cta.width) < 0.1, "le CTA Arbre a la même largeur que celui de l’Annuaire");
           assert.ok(Math.abs(measures.tree.cta.height - measures.directory.cta.height) < 0.1, "les CTA ont la même hauteur");

@@ -77,7 +77,7 @@ async function assertMenuInsideViewport(page, label, expectedItems) {
       viewport: { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth },
       clientHeight: menu.clientHeight,
       scrollHeight: menu.scrollHeight,
-      style: { transform: getComputedStyle(menu).transform, position: getComputedStyle(menu).position, inline: menu.getAttribute("style"), trigger: document.getElementById("treeMoreBtn").getBoundingClientRect().toJSON() }
+      style: { position: getComputedStyle(menu).position, inline: menu.getAttribute("style") }
     };
   });
   assert.equal(info.hidden, false, `${label} : le menu ⋯ s’ouvre`);
@@ -131,20 +131,25 @@ test("markup et CSS : barre d’icônes plein écran, menu sans doublons, pannea
   assert.match(html, /<link rel="apple-touch-icon"/);
   assert.doesNotMatch(html, /rel="manifest"/i, "aucun manifeste PWA nouveau n'est introduit");
   assert.match(html, /<button id="treeFullscreenBtn"[^>]*aria-label="Afficher l’arbre en plein écran"[^>]*aria-pressed="false"[^>]*title="Plein écran"><svg[^>]*><use href="#icon-maximize"><\/use><\/svg><\/button>/);
-  assert.match(html, /id="menuFitBtn"[^>]*role="menuitem"[^>]*>.*?Ajuster/s);
+  assert.match(html, /<div class="fullscreen-control">\s*<button id="treeFullscreenBtn"/, "Plein écran isolé dans son groupe bas-droit en vue normale");
+  assert.match(html, /<button id="menuFitBtn"[^>]*role="menuitem"[^>]*><span>Ajuster<\/span><\/button>/);
+  assert.doesNotMatch(html, /id="menuFitBtn"[^>]*role="menuitem"[^>]*>[\s\S]{0,140}?<svg/, "aucun pictogramme dans le menu ⋯ de l’arbre");
   assert.doesNotMatch(html, /id="treeFullscreenMenuBtn"/);
   assert.match(app, /function toggleTreeFullscreen\(\)/);
   assert.match(app, /function moveTreeSearchToFullscreenLayer\(/);
   assert.match(app, /function setTreeFullscreenSearch\(/);
+  assert.match(app, /function resetTreeFullscreenScroll\(\)/);
   assert.match(css, /html\.tree-fullscreen-fallback #appMain > :not\(#treeViewport\) \{ display: none !important; \}/);
   assert.match(css, /#treeFullscreenBtn\s*\{[^}]*width: var\(--control-touch\);[^}]*height: var\(--control-touch\)/);
   assert.match(css, /html\.tree-fullscreen-active #appMain \.tree-controls\s*\{[^}]*inset: max\(var\(--space-2\), env\(safe-area-inset-top\)\)/);
   assert.match(css, /html:not\(\.tree-fullscreen-active\) #appMain \.tree-controls \.zoom-control \{ display: none; \}/);
   assert.match(css, /html\.tree-fullscreen-active #appMain \.tree-controls \.zoom-control \{ display: flex; \}/);
+  assert.match(html, /\.zoom-control\{position:absolute;top:0;left:0;[\s\S]*?flex-direction:row/, "Zoom − / Zoom + alignés horizontalement en haut à gauche");
+  assert.match(html, /\.fullscreen-control\{position:absolute;bottom:0;right:0/, "Plein écran ancré en bas à droite en vue normale");
   assert.match(app, /window\.visualViewport\?\.addEventListener\("resize", scheduleTreePickerMenuPosition/);
   assert.match(css, /\.tree-shell\.tree-fullscreen-active \.view-control #fullscreenFitBtn \{ order: 1; \}/);
   assert.match(css, /\.tree-shell\.tree-fullscreen-active \.view-control #treeMoreBtn \{ order: 4; \}/);
-  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.view-control #treeFullscreenBtn \{ order: 5; display: inline-flex; \}/);
+  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.fullscreen-control\s*\{[^}]*order: 5;/);
   assert.match(css, /\.tree-shell\.tree-fullscreen-active \.tree-menu #menuFitBtn,\s*\.tree-shell\.tree-fullscreen-active \.tree-menu #centerTreeBtn \{ display: none; \}/);
   assert.match(css, /@media \(max-width: 371px\) \{[\s\S]*?#fullscreenFitBtn,[\s\S]*?#fullscreenCenterBtn \{ display: none; \}[\s\S]*?#menuFitBtn,[\s\S]*?#centerTreeBtn \{ display: grid; \}/);
   assert.match(css, /\.tree-shell\.tree-fullscreen-active \.tree-fullscreen-search\s*\{[^}]*position: absolute/);

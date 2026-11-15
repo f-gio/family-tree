@@ -114,7 +114,12 @@ test("la page Arbre défile en paysage sans transformer le canvas en zone de scr
         const topbarBox = await page.locator("#topbar").boundingBox();
         assert.ok(shellBox && shellBox.height > 20, "canvas présent");
         const startX = shellBox.x + shellBox.width / 2;
-        const startY = Math.max(1, shellBox.y + 18, (topbarBox?.y ?? 0) + (topbarBox?.height ?? 0) + 5);
+        /* Les commandes occupent désormais les coins du canvas : le pan part du
+           centre vertical, hors des panneaux de zoom/actions et du plein écran. */
+        const startY = Math.min(
+          Math.max(shellBox.y + shellBox.height / 2, (topbarBox?.y ?? 0) + (topbarBox?.height ?? 0) + 5),
+          shellBox.y + shellBox.height - 60
+        );
         assert.ok(startY < Math.min(shellBox.y + shellBox.height, viewport.height), "une portion du canvas est atteignable pour le pan");
         await page.mouse.move(startX, startY);
         await page.mouse.down();
