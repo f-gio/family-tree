@@ -40,8 +40,8 @@ test("lot 2 : trois sections clairement séparées, chacune avec son panneau bei
 });
 
 test("lot 2 : le sélecteur de dates et les liens restent lisibles sur mobile", () => {
-  assert.match(css, /#familyDetailsDialog \.family-detail-panel \.date-type-switch \{[^}]*flex-wrap: wrap/, "options du sélecteur de dates sur plusieurs lignes");
-  assert.match(css, /#familyDetailsDialog \.family-detail-panel \.date-type-switch \{[^}]*overflow-x: visible/, "aucun débordement interne du sélecteur");
+  assert.match(css, /\.family-detail-panel \.date-type-switch \{[^}]*flex-wrap: wrap/, "options du sélecteur de dates sur plusieurs lignes");
+  assert.match(css, /\.family-detail-panel \.date-type-switch \{[^}]*overflow-x: visible/, "aucun débordement interne du sélecteur");
   assert.match(css, /\.filiation-editor \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(11rem, 0\.6fr\) auto/, "nom, filiation et action sur desktop");
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*?\.filiation-editor,\r?\n\s*\.filiation-editor--child \{[^}]*grid-template-columns: minmax\(0, 1fr\)/, "carte empilée sur mobile");
   assert.match(css, /\.filiation-editor \.filiation-dissociate \{[^}]*min-height: var\(--control-touch\)/, "cible tactile ≥ 44 px");

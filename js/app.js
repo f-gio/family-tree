@@ -286,11 +286,13 @@ const locationFieldDefinitions = {
   deathPlace: { textKey: "deathPlace", infoKey: "deathPlaceInfo" },
   unionPlace: { textKey: "unionPlace", infoKey: "unionPlaceInfo" },
   endPlace: { textKey: "endPlace", infoKey: "endPlaceInfo" },
+  parentUnionPlace: { textKey: "unionPlace", infoKey: "unionPlaceInfo" },
+  parentEndPlace: { textKey: "endPlace", infoKey: "endPlaceInfo" },
   documentPlace: { textKey: "place", infoKey: "placeInfo" }
 };
 
 function configureResponsiveFormSemantics() {
-  ["birthYear", "birthYearFrom", "birthYearTo", "deathYear", "deathYearFrom", "deathYearTo", "unionYear", "unionYearFrom", "unionYearTo", "endYear", "endYearFrom", "endYearTo"].forEach(id => {
+  ["birthYear", "birthYearFrom", "birthYearTo", "deathYear", "deathYearFrom", "deathYearTo", "unionYear", "unionYearFrom", "unionYearTo", "endYear", "endYearFrom", "endYearTo", "parentUnionYear", "parentUnionYearFrom", "parentUnionYearTo", "parentEndYear", "parentEndYearFrom", "parentEndYearTo"].forEach(id => {
     const field = $(id);
     if (!field) return;
     field.inputMode = "numeric";
@@ -3635,6 +3637,17 @@ function handlePersonPageContentClick(event) {
 }
 $("personPageContent").addEventListener("click", handlePersonPageContentClick);
 $("personPageEditHost").addEventListener("click", handlePersonPageContentClick);
+/* Fiche Personne en modale : seuls les noms de la section Famille (parents,
+   partenaires, enfants) ouvrent la fiche correspondante, sans déclencher les
+   autres actions de la page de consultation. */
+$("personDialog").addEventListener("click", event => {
+  const button = event.target.closest("[data-open-person-page]");
+  if (!button) return;
+  if (personPageInlineEditing && !requestPersonPageInlineExit()) return;
+  const item = person(button.dataset.openPersonPage);
+  if (!item) return toast("Cette personne n’est plus disponible.", "error");
+  renderPersonPage(item, personPageContext());
+});
 $("personAttestationDialog").addEventListener("click", event => {
   if (event.target === $("personAttestationDialog")) return journeyCancelEditor();
   handlePersonPageContentClick(event);
@@ -4171,6 +4184,7 @@ function openPerson(item = null, source = "tree", { showDialog = true } = {}) {
   updateMarriedNameVisibility();
   if (item) renderPersonDocuments(item.id);
   $("relationBuilder").hidden = true;
+  resetParentBuilderRelationship();
   $("toggleRelationBuilderBtn").setAttribute("aria-expanded", "false");
   setRelationBuilderKind("parent");
   setPersonSection("identity");
@@ -4245,6 +4259,7 @@ function setRelationBuilderKind(kind = "parent") {
 }
 
 function setRelationBuilderOpen(open, kind = "parent") {
+  if (!open) resetParentBuilderRelationship();
   $("relationBuilder").hidden = !open;
   $("toggleRelationBuilderBtn").setAttribute("aria-expanded", String(open));
   if (open) {
@@ -4305,7 +4320,7 @@ function renderRelations() {
       kind: "partner",
       familyId: family.id,
       relative,
-      nameHtml: `<strong>${esc(relationOptionName(relative))}</strong>`,
+      nameHtml: `<button class="person-detail-relative-link" type="button" data-open-person-page="${esc(relative.id)}">${esc(relationOptionName(relative))}</button>`,
       meta,
       counter: partnerCounter,
       panelBody: partnerPanelParts.join(""),
@@ -4325,7 +4340,7 @@ function renderRelations() {
       kind: "child",
       familyId: family.id,
       relative,
-      nameHtml: `<strong>${esc(relationOptionName(relative))}</strong>`,
+      nameHtml: `<button class="person-detail-relative-link" type="button" data-open-person-page="${esc(relative.id)}">${esc(relationOptionName(relative))}</button>`,
       meta: [filiation, otherParents.length ? `Avec ${otherParents.join(" et ")}` : ""],
       counter: childCounter,
       panelBody: childPanelParts.join(""),
@@ -4356,6 +4371,7 @@ function renderRelations() {
   $("childSelect").innerHTML = options;
   $("parentSelect").innerHTML = options;
   $("parent2Select").innerHTML = options;
+  updateParentUnionSectionsVisibility();
   const hasSingleParentFamily = ownFamilies.some(family => (family.partnerIds || []).length === 1);
   $("childFamilySelect").innerHTML = (hasSingleParentFamily ? "" : '<option value="new">Cette personne uniquement</option>') + ownFamilies.map(family => {
     const others = (family.partnerIds || []).filter(id => id !== item.id);
@@ -4405,7 +4421,8 @@ async function addParent() {
     const parentIds = [firstParentId, secondParentId].filter(Boolean);
     const linkTypes = { [firstParentId]: $("parentFiliationType").value };
     if (secondParentId) linkTypes[secondParentId] = $("parent2FiliationType").value;
-    await linkChildToParents(activeId, parentIds, "", linkTypes);
+    const familyId = await linkChildToParents(activeId, parentIds, "", linkTypes);
+    await applyParentBuilderRelationship(familyId);
     setRelationBuilderOpen(false);
     toast(parentIds.length > 1 ? "Parents rattachés" : "Parent rattaché");
   } catch (error) { toast(error.message || "Lien impossible", "error"); }
@@ -4499,13 +4516,62 @@ async function linkChildToParents(childId, requestedParentIds, preferredFamilyId
       parentChildLinks,
       updatedAt: serverTimestamp()
     });
-  } else {
-    await addDoc(refs.families, { partnerIds: mergedParents, childIds: [childId], relationType: "unknown", unionDateInfo: { type: "unknown" }, unionPlace: "", endType: "none", endDateInfo: { type: "unknown" }, endPlace: "", parentChildLinks, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    return family.id;
   }
+  const createdFamily = await addDoc(refs.families, { partnerIds: mergedParents, childIds: [childId], relationType: "unknown", unionDateInfo: { type: "unknown" }, unionPlace: "", endType: "none", endDateInfo: { type: "unknown" }, endPlace: "", parentChildLinks, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  return createdFamily.id;
 }
 
 function updateEndDetailsVisibility() {
   $("endDetailsFields").hidden = !["separation", "divorce", "other"].includes($("familyEndType").value);
+}
+
+function updateParentUnionSectionsVisibility() {
+  const sections = $("parentUnionSections");
+  if (sections) sections.hidden = !$("parent2Select")?.value;
+}
+
+function updateParentEndDetailsVisibility() {
+  const fields = $("parentEndDetailsFields");
+  if (fields) fields.hidden = !["separation", "divorce", "other"].includes($("parentEndType")?.value);
+}
+
+function resetParentBuilderRelationship() {
+  if ($("parentUnionSections")) $("parentUnionSections").hidden = true;
+  if ($("parentUnionRelationType")) $("parentUnionRelationType").value = "unknown";
+  setLocationField("parentUnionPlace", "");
+  setGenealogyDateForm("parentUnion", null);
+  if ($("parentEndType")) $("parentEndType").value = "none";
+  setLocationField("parentEndPlace", "");
+  setGenealogyDateForm("parentEnd", null);
+  updateParentEndDetailsVisibility();
+}
+
+/* Union et fin de relation facultatives saisies dans « Ajouter un lien →
+   Parent » : seules les valeurs explicitement renseignées sont écrites, afin
+   de ne jamais écraser les données d'un foyer déjà existant. */
+function readParentBuilderRelationship() {
+  if ($("parentUnionSections")?.hidden) return null;
+  const data = {};
+  const relationType = normalizeRelationType($("parentUnionRelationType")?.value);
+  if (relationType !== "unknown") data.relationType = relationType;
+  if (readLocationField("parentUnionPlace").text.trim()) applyLocationField(data, "parentUnionPlace", null, true);
+  const unionDateInfo = readGenealogyDateForm("parentUnion");
+  if (unionDateInfo?.type && unionDateInfo.type !== "unknown") data.unionDateInfo = unionDateInfo;
+  const endType = normalizeEndType($("parentEndType")?.value);
+  if (endType !== "none") data.endType = endType;
+  if (readLocationField("parentEndPlace").text.trim()) applyLocationField(data, "parentEndPlace", null, true);
+  const endDateInfo = readGenealogyDateForm("parentEnd");
+  if (endDateInfo?.type && endDateInfo.type !== "unknown") data.endDateInfo = endDateInfo;
+  return Object.keys(data).length ? data : null;
+}
+
+async function applyParentBuilderRelationship(familyId) {
+  if (!familyId) return;
+  const data = readParentBuilderRelationship();
+  if (!data) return;
+  data.updatedAt = serverTimestamp();
+  await updateDoc(doc(db, "families", familyId), data);
 }
 
 const FILIATION_OPTION_ORDER = ["unknown", "biological", "adoptive", "uncertain"];
@@ -15296,6 +15362,8 @@ document.querySelectorAll("[data-relation-kind]").forEach(button => {
 $("addPartnerBtn").onclick = event => withButtonPending(event.currentTarget, () => runSafely(addPartner, "Ajout du partenaire impossible"), "Ajout…");
 $("addChildBtn").onclick = event => withButtonPending(event.currentTarget, () => runSafely(addChild, "Ajout de l’enfant impossible"), "Ajout…");
 $("addParentBtn").onclick = event => withButtonPending(event.currentTarget, () => runSafely(addParent, "Ajout du parent impossible"), "Ajout…");
+$("parent2Select").addEventListener("change", updateParentUnionSectionsVisibility);
+$("parentEndType").addEventListener("change", updateParentEndDetailsVisibility);
 $("relationsList").onclick = event => {
   const detailsButton = event.target.closest("[data-edit-family]");
   if (detailsButton) return openFamilyDetails(detailsButton.dataset.editFamily);

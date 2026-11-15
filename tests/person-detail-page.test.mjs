@@ -1959,7 +1959,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         const documentAria = document.getElementById("linkDocumentBtn").getAttribute("aria-label");
         const proofAria = document.getElementById("genealogyProposeProofForPersonBtn").getAttribute("aria-label");
         const copy = document.querySelector("#personRelationsPanel .relation-person-copy");
-        const link = copy.querySelector("strong");
+        const link = copy.querySelector(".person-detail-relative-link") || copy.querySelector("strong");
         const meta = copy.querySelector(".relation-person-meta");
         const textRect = element => { const range = document.createRange(); range.selectNodeContents(element); return range.getBoundingClientRect(); };
         const linkText = textRect(link), metaText = textRect(meta);
@@ -2026,7 +2026,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         const footerStyle = getComputedStyle(footer);
         const footerButtons = [...footer.querySelectorAll(".right .btn:not([hidden])")].map(button => { const box = button.getBoundingClientRect(); return { label: button.innerText.trim(), top: Math.round(box.top), bottom: Math.round(box.bottom), height: Math.round(box.height) }; });
         const copy = document.querySelector("#personRelationsPanel .relation-person-copy");
-        const link = copy.querySelector("strong");
+        const link = copy.querySelector(".person-detail-relative-link") || copy.querySelector("strong");
         const meta = copy.querySelector(".relation-person-meta");
         const textRect = element => { const range = document.createRange(); range.selectNodeContents(element); return range.getBoundingClientRect(); };
         const linkText = textRect(link), metaText = textRect(meta);
