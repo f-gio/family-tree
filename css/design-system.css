@@ -2780,7 +2780,57 @@ label .field { margin-top: var(--space-2); }
   border-top: var(--border-subtle);
 }
 
-.family-detail-section h4 { margin-bottom: var(--space-4); }
+/* Modales « Modifier les parents » / « Modifier le partenaire » : mêmes
+   blocs de section que la modale d'attestation — titre serif foncé avec
+   filet, puis panneau beige ivoire à contour discret et coins arrondis. */
+.family-detail-section h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0 0 var(--space-3);
+  color: var(--color-text);
+  font: var(--weight-semibold) var(--text-lg)/1.25 var(--font-display);
+}
+
+.family-detail-section h4::after {
+  content: "";
+  flex: 1 1 auto;
+  border-top: var(--border-subtle);
+}
+
+.family-detail-panel {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  padding: var(--space-4);
+  border: var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-surface-soft) 72%, transparent);
+}
+
+.family-detail-panel > .family-union-attestation-layout,
+.family-detail-panel > label { min-width: 0; }
+
+/* Section C : un lien parent-enfant par ligne (nom + rôle, type de filiation,
+   action Dissocier réservée aux parents). */
+.filiation-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(11rem, 0.6fr) auto;
+  align-items: end;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-subtle);
+}
+.filiation-editor:last-child { border-bottom: 0; }
+.filiation-editor--child { grid-template-columns: minmax(0, 1fr) minmax(11rem, 0.6fr); }
+.filiation-person { display: grid; gap: 2px; min-width: 0; align-self: center; }
+.filiation-person-name { color: var(--color-text); overflow-wrap: anywhere; }
+.filiation-person-role { color: var(--color-text-muted); font-size: var(--text-sm); }
+.filiation-type { display: grid; gap: var(--space-2); min-width: 0; }
+.filiation-type .field { width: 100%; min-width: 0; }
+.filiation-dissociate { justify-self: end; white-space: nowrap; }
 
 /* Liens familiaux : lecture centrée sur les personnes, puis ajout progressif. */
 .relations-overview {
@@ -4794,6 +4844,58 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   #personForm .event-information-group:has(> .major-event-attestation-control) > .major-event-attestation-list { grid-column: 1; }
   .family-union-attestation-layout { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
   .family-union-attestation-control { justify-self: end; }
+
+  /* Modales familiales : le sélecteur de dates s'adapte à la largeur utile
+     sans débordement, et les options restent toutes lisibles. */
+  #familyDetailsDialog .family-detail-panel .genealogy-date,
+  #familyDetailsDialog .family-detail-panel .date-value-panel,
+  #familyDetailsDialog .family-detail-panel .date-value-panel > label {
+    box-sizing: border-box;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+  #familyDetailsDialog .family-detail-panel .date-type-switch {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    padding: var(--space-1);
+  }
+  #familyDetailsDialog .family-detail-panel .date-type-button {
+    flex: 1 1 auto;
+    min-width: max-content;
+    min-height: var(--control-touch);
+  }
+  #familyDetailsDialog .family-detail-panel .date-value-panel .field {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    inline-size: 100%;
+    min-width: 0;
+    min-inline-size: 0;
+    max-width: 100%;
+    max-inline-size: 100%;
+  }
+
+  /* Section C : une carte par parent (ou par enfant), filiation pleine
+     largeur et action Dissocier distincte. */
+  .filiation-editor,
+  .filiation-editor--child {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+  .filiation-editor + .filiation-editor { margin-top: var(--space-3); }
+  .filiation-editor:last-child { border-bottom: var(--border-subtle); }
+  .filiation-editor .filiation-type .field { width: 100%; min-height: var(--control-touch); }
+  .filiation-editor .filiation-dissociate {
+    justify-self: stretch;
+    width: 100%;
+    min-height: var(--control-touch);
+    white-space: normal;
+  }
 
   .identity-life-section .date-type-button {
     flex: 1 1 calc(33.333% - var(--space-1));

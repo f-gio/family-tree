@@ -19,6 +19,7 @@ import { filterAndSortDirectory, countActiveDirectoryFilters, directoryTreeLabel
 import { filterAndSortProcedures, sortProcedureActions, procedureTypeLabel, procedureStatusLabel, procedureActionTypeLabel, isProcedureClosed, DOSSIER_MIN_QUERY_LENGTH } from "./procedures.js";
 import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText, genealogyDateYears } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
+import { planParentDissociation, dissociationConfirmationMessage } from "./family-dissociation.js";
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
 import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
 import { createNavigationContextStore, GENEALOGY_VIEW_CONTEXT_KEY } from "./navigation-context.js";
@@ -4430,6 +4431,28 @@ async function removeRelation(familyId, personId, type) {
   toast("Lien familial dissocié");
 }
 
+/* Dissociation individuelle d'un lien parent-enfant depuis la modale
+   « Modifier les parents » : aucun fichier ni lien hors de celui concerné
+   n'est supprimé, l'union d'origine est conservée. */
+async function applyParentDissociation(plan) {
+  const batch = writeBatch(db);
+  batch.update(doc(db, "families", plan.familyId), { ...plan.familyUpdate, updatedAt: serverTimestamp() });
+  if (plan.newFamily) batch.set(doc(refs.families), { ...plan.newFamily, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  await batch.commit();
+}
+
+async function dissociateParentFromChild(familyId, parentId, childId) {
+  const family = families.find(item => item.id === familyId);
+  if (!family) return toast("Cette relation est introuvable", "error");
+  const plan = planParentDissociation(family, parentId, childId);
+  if (!plan.ok) return toast(plan.error, "error");
+  try {
+    await applyParentDissociation(plan);
+    toast("Lien de filiation dissocié");
+    $("familyDetailsDialog").close();
+  } catch (error) { toast(error.message || "Dissociation impossible", "error"); }
+}
+
 function ancestorsOf(personId, seen = new Set()) {
   if (seen.has(personId)) return seen;
   for (const family of families.filter(item => (item.childIds || []).includes(personId))) {
@@ -4485,6 +4508,28 @@ function updateEndDetailsVisibility() {
   $("endDetailsFields").hidden = !["separation", "divorce", "other"].includes($("familyEndType").value);
 }
 
+const FILIATION_OPTION_ORDER = ["unknown", "biological", "adoptive", "uncertain"];
+
+function filiationTypeOptionsMarkup(selectedType) {
+  return FILIATION_OPTION_ORDER.map(value => `<option value="${value}"${value === selectedType ? " selected" : ""}>${esc(FILIATION_TYPE_LABELS[value])}</option>`).join("");
+}
+
+/* Section C des modales familiales : un lien par personne. Les parents
+   affichent nom, rôle, filiation et l'action « Dissocier » (lien individuel) ;
+   les enfants n'affichent que nom, rôle et filiation. */
+function filiationEditorsMarkup(links = [], forParents = false) {
+  if (!links.length) return '<p class="hint">Aucun lien parent-enfant à modifier pour cette personne.</p>';
+  return links.map((link, index) => {
+    const select = `<label class="filiation-type">Type de filiation<select class="field" data-filiation-index="${index}" data-parent-id="${esc(link.parentId)}" data-child-id="${esc(link.childId)}">${filiationTypeOptionsMarkup(link.type)}</select></label>`;
+    if (!forParents) {
+      return `<div class="filiation-editor filiation-editor--child"><div class="filiation-person"><strong class="filiation-person-name">${esc(nameOf(link.childId))}</strong><span class="filiation-person-role">${esc(relationRole(person(link.childId), "child"))}</span></div>${select}</div>`;
+    }
+    const parentName = esc(nameOf(link.parentId));
+    const childName = esc(nameOf(link.childId));
+    return `<div class="filiation-editor filiation-editor--parent"><div class="filiation-person"><strong class="filiation-person-name">${parentName}</strong><span class="filiation-person-role">${esc(relationRole(person(link.parentId), "parent"))}</span></div>${select}<button class="btn small tertiary danger filiation-dissociate" type="button" data-dissociate-parent data-parent-id="${esc(link.parentId)}" data-child-id="${esc(link.childId)}" aria-label="Dissocier ${parentName} de ${childName}">${icon("unlink")}<span>Dissocier</span></button></div>`;
+  }).join("");
+}
+
 function openFamilyDetails(familyId) {
   if (journeyEditor && !journeyConfirmDiscard()) return;
   if (journeyEditor) {
@@ -4517,7 +4562,7 @@ function openFamilyDetails(familyId) {
   updateEndDetailsVisibility();
   const relevantLinks = normalizedParentChildLinks(family).filter(link => currentIsPartner ? link.parentId === activeId : currentIsChild ? link.childId === activeId : true);
   $("filiationDetailsTitle").textContent = currentIsChild ? "Liens avec les parents" : "Liens avec les enfants";
-  $("filiationEditors").innerHTML = relevantLinks.map((link, index) => `<div class="filiation-editor"><span><strong>${esc(nameOf(link.parentId))}</strong> → ${esc(nameOf(link.childId))}</span><label>Type de filiation<select class="field" data-filiation-index="${index}" data-parent-id="${link.parentId}" data-child-id="${link.childId}"><option value="unknown" ${link.type === "unknown" ? "selected" : ""}>Non précisée</option><option value="biological" ${link.type === "biological" ? "selected" : ""}>Biologique</option><option value="adoptive" ${link.type === "adoptive" ? "selected" : ""}>Adoptive</option><option value="uncertain" ${link.type === "uncertain" ? "selected" : ""}>Incertaine</option></select></label></div>`).join("") || '<p class="hint">Aucun lien parent-enfant à modifier pour cette personne.</p>';
+  $("filiationEditors").innerHTML = filiationEditorsMarkup(relevantLinks, currentIsChild);
   renderMajorEventAttestations("marriage");
   if ($("personDialog").open) $("personDialog").close();
   $("familyDetailsDialog").showModal();
@@ -15263,6 +15308,17 @@ document.addEventListener("click", event => {
   if (button) setGenealogyDateType(button.dataset.datePrefix, button.dataset.dateType);
 });
 $("familyEndType").onchange = updateEndDetailsVisibility;
+$("familyDetailsForm").addEventListener("click", event => {
+  const button = event.target.closest("[data-dissociate-parent]");
+  if (!button) return;
+  const parentId = button.dataset.parentId;
+  const childId = button.dataset.childId;
+  const parent = person(parentId);
+  const child = person(childId);
+  if (!parent || !child) return toast("Cette personne n’est plus disponible.", "error");
+  if (!confirm(dissociationConfirmationMessage(nameOf(parentId), nameOf(childId)))) return;
+  dissociateParentFromChild($("familyDetailsId").value, parentId, childId);
+});
 $("familyDetailsForm").addEventListener("submit", saveFamilyDetails);
 $("familyDetailsDialog").addEventListener("click", event => {
   if (!event.target.closest('[data-close="familyDetailsDialog"]')) return;
