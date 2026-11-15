@@ -152,6 +152,7 @@ test("le sélecteur unifié regroupe sélection, actions par arbre et création"
   assert.match(css, /\.tree-picker-menu/);
   assert.match(css, /\.tree-row-actions-menu/);
   assert.match(css, /\.tree-row-actions-menu\s*\{[^}]*position:\s*static/s, "les actions sont intégrées sous leur arbre, sans panneau flottant");
+  assert.match(css, /\.tree-row-actions-menu\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent/s, "les actions ne sont plus enfermées dans un encadré");
   assert.match(html, /class="tree-picker branch-picker"/);
   const headerActions = html.match(/<div class="hero-actions" id="headerTreeActions">([\s\S]*?)<\/div>\s*<\/section>/)?.[1] || "";
   const addIndex = headerActions.indexOf('id="addBtn"');
@@ -567,9 +568,12 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
           const actionGeometry = await page.evaluate(() => {
             const menu = document.querySelector('[data-tree-row-actions="main"]');
             const box = menu.getBoundingClientRect();
-            return { x: box.x, y: box.y, width: box.width, height: box.height, right: box.right, viewport: window.innerWidth, buttons: [...menu.querySelectorAll("button")].map(button => ({ text: button.textContent.trim(), width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height })) };
+            const style = getComputedStyle(menu);
+            return { x: box.x, y: box.y, width: box.width, height: box.height, right: box.right, viewport: window.innerWidth, border: style.borderWidth, background: style.backgroundColor, buttons: [...menu.querySelectorAll("button")].map(button => ({ text: button.textContent.trim(), width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height })) };
           });
           assert.ok(actionGeometry.x >= 0 && actionGeometry.right <= actionGeometry.viewport, `menu d'actions visible à ${width}px : ${JSON.stringify(actionGeometry)}`);
+          assert.equal(actionGeometry.border, "0px", "les actions restent sans bordure encadrante");
+          assert.equal(actionGeometry.background, "rgba(0, 0, 0, 0)", "les actions sont posées sur le fond du menu Arbre");
           assert.ok(actionGeometry.buttons.every(button => button.width >= 43 && button.height >= 43), `actions tactiles et lisibles à ${width}px : ${JSON.stringify(actionGeometry)}`);
           const inlineFlow = await page.evaluate(() => {
             const row = document.querySelector('[data-tree-row="main"]');
@@ -583,6 +587,7 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
           const highlight = await page.evaluate(() => {
             const row = document.querySelector('[data-tree-row="main"]');
             const trigger = document.querySelector('[data-tree-actions-toggle="main"]');
+            const panel = document.querySelector('[data-tree-row-actions="main"]');
             const option = row.querySelector(".tree-picker-option");
             const rowBox = row.getBoundingClientRect();
             const triggerBox = trigger.getBoundingClientRect();
@@ -591,6 +596,8 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
               rowBg: getComputedStyle(row).backgroundColor,
               optionBg: getComputedStyle(option).backgroundColor,
               triggerBg: getComputedStyle(trigger).backgroundColor,
+              panelBg: getComputedStyle(panel).backgroundColor,
+              panelBorder: getComputedStyle(panel).borderWidth,
               coversTrigger: rowBox.right >= triggerBox.right - 0.5 && rowBox.left <= triggerBox.left + 0.5,
               menuWidth: document.getElementById("treeSelectorMenu").getBoundingClientRect().width,
               menuX: document.getElementById("treeSelectorMenu").getBoundingClientRect().x
@@ -601,6 +608,8 @@ test("sélecteur unifié : menus accessibles, actions par arbre et cibles tactil
           assert.equal(highlight.coversTrigger, true, "le surlignage couvre la zone du bouton …");
           assert.equal(highlight.optionBg, "rgba(0, 0, 0, 0)", "le surlignage vient de la ligne, pas d'un fond redondant");
           assert.equal(highlight.triggerBg, "rgb(243, 238, 229)", "bouton … plus foncé quand les actions sont ouvertes");
+          assert.equal(highlight.panelBg, "rgba(0, 0, 0, 0)", "aucun fond encadrant autour des actions");
+          assert.equal(highlight.panelBorder, "0px", "aucune bordure autour des actions dépliées");
           assert.ok(Math.abs(highlight.menuWidth - mobileGeometry.menu.width) < 1 && Math.abs(highlight.menuX - mobileGeometry.menu.x) < 1, `largeur et position du menu stables pendant le dépliage : ${JSON.stringify({ avant: mobileGeometry.menu, apres: { width: highlight.menuWidth, x: highlight.menuX } })}`);
           await page.locator('[data-tree-actions-toggle="main"]').click();
           assert.equal(await page.locator('[data-tree-row-actions="main"]').isHidden(), true, "second clic replie les actions");

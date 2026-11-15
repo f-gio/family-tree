@@ -1644,6 +1644,9 @@ window.visualViewport?.addEventListener("scroll", () => {
 });
 
 const treeViewportQuery = window.matchMedia("(max-width: 760px)");
+function isMobileTreeUi() {
+  return treeViewportQuery.matches || window.matchMedia("(pointer: coarse)").matches;
+}
 let treeViewportPortrait = window.matchMedia("(orientation: portrait)").matches;
 let treeViewportFitTimer = 0;
 
@@ -1695,7 +1698,7 @@ if (typeof window !== "undefined") {
       return { state: camera.getState(), layout: currentLayout };
     },
     controls: () => {
-      const selectors = ["#treeFullscreenBtn", "#treeMoreBtn", "#treeMenu", "#menuFitBtn", "#centerTreeBtn", "#autoLayoutBtn", "#zoomInBtn", "#zoomOutBtn", "#zoomLevel", "#fullscreenFitBtn", "#fullscreenCenterBtn", "#treeSearchToggleBtn", "#treeFullscreenSearch", ".zoom-control", ".view-control", ".tree-controls"];
+      const selectors = ["#treeFullscreenBtn", "#treeMoreBtn", "#treeMenu", "#menuFitBtn", "#centerTreeBtn", "#autoLayoutBtn", "#zoomInBtn", "#zoomOutBtn", "#zoomLevel", "#fullscreenFitBtn", "#treeSearchToggleBtn", "#treeFullscreenSearch", ".zoom-control", ".view-control", ".tree-toolbar", ".fullscreen-control", ".tree-controls"];
       const out = {};
       selectors.forEach(sel => {
         const element = document.querySelector(sel);
@@ -1718,8 +1721,7 @@ if (typeof window !== "undefined") {
       };
       const bar = [...document.querySelectorAll(".tree-controls .zoom-control button, .tree-controls .view-control > button, .tree-controls .fullscreen-control > button")]
         .filter(button => button.id !== "treeFullscreenSearch")
-        .map(describe)
-        .sort((a, b) => (a.y - b.y) || (a.x - b.x));
+        .map(describe);
       const menu = [...document.querySelectorAll('#treeMenu [role="menuitem"]')].map(item => ({
         id: item.id,
         label: item.textContent.trim(),
@@ -15803,7 +15805,6 @@ function positionFullscreenTreeMenu() {
   const leftLimit = bounds.left + margin;
   const rightLimit = bounds.right - margin;
   const maxWidth = Math.max(0, rightLimit - leftLimit);
-  const maxHeightCap = Math.max(0, bounds.bottom - bounds.top - margin * 2);
   /* Mesurer d'abord, appliquer ensuite : aucun état intermédiaire n'est observable. */
   const width = Math.min(menu.getBoundingClientRect().width, maxWidth);
   const left = Math.max(leftLimit, Math.min(anchor.right - width, rightLimit - width));
@@ -15828,7 +15829,7 @@ function positionFullscreenTreeMenu() {
 }
 function positionNormalTreeMenu() {
   const menu = $("treeMenu");
-  if (treeFullscreenActive || menu.hidden) return;
+  if (treeFullscreenActive || !menu.open || isMobileTreeUi()) return;
   const visual = window.visualViewport;
   const left = visual?.offsetLeft || 0;
   const width = visual?.width || window.innerWidth;
@@ -15841,30 +15842,25 @@ function positionNormalTreeMenu() {
   const safeLeft = Number.parseFloat(insets.paddingLeft) || 0;
   const safeRight = Number.parseFloat(insets.paddingRight) || 0;
   const margin = 8;
-  menu.classList.remove("is-open-up");
-  menu.style.removeProperty("left");
-  menu.style.removeProperty("right");
   menu.style.removeProperty("max-height");
-  menu.style.removeProperty("max-width");
   menu.style.maxWidth = `${Math.max(0, right - safeRight - margin - (left + safeLeft + margin))}px`;
   const naturalHeight = menu.scrollHeight;
-  const host = menu.offsetParent || menu.parentElement;
-  const hostRect = host.getBoundingClientRect();
-  const roomBelow = Math.max(0, bottom - safeBottom - margin - hostRect.bottom - 6);
-  const roomAbove = Math.max(0, hostRect.top - top - safeTop - margin - 6);
-  const openUp = roomBelow < 44 && roomAbove > roomBelow;
+  const anchor = $("treeMoreBtn").getBoundingClientRect();
+  const roomBelow = Math.max(0, bottom - safeBottom - margin - anchor.bottom - 6);
+  const roomAbove = Math.max(0, anchor.top - top - safeTop - margin - 6);
+  const openUp = naturalHeight > roomBelow && roomAbove > roomBelow;
   const availableHeight = Math.min(naturalHeight, openUp ? roomAbove : roomBelow);
   menu.classList.toggle("is-open-up", openUp);
-  menu.style.maxHeight = `${Math.min(naturalHeight, availableHeight)}px`;
+  menu.style.maxHeight = `${availableHeight}px`;
   menu.style.overflowY = "auto";
-  const bounds = menu.getBoundingClientRect();
-  if (bounds.left < left + safeLeft + margin) {
-    menu.style.left = `${left + safeLeft + margin - hostRect.left}px`;
-    menu.style.right = "auto";
-  } else if (bounds.right > right - safeRight - margin) {
-    menu.style.left = `${right - safeRight - margin - bounds.width - hostRect.left}px`;
-    menu.style.right = "auto";
-  }
+  const availableMenuWidth = Math.min(menu.getBoundingClientRect().width, right - safeRight - left - safeLeft - margin * 2);
+  const menuLeft = Math.max(left + safeLeft + margin, Math.min(anchor.right - availableMenuWidth, right - safeRight - margin - availableMenuWidth));
+  const menuTop = openUp ? anchor.top - 6 - availableHeight : anchor.bottom + 6;
+  menu.style.position = "fixed";
+  menu.style.left = `${menuLeft}px`;
+  menu.style.top = `${Math.max(top + safeTop + margin, Math.min(menuTop, bottom - safeBottom - margin - availableHeight))}px`;
+  menu.style.right = "auto";
+  menu.style.bottom = "auto";
 }
 function updateTreeFullscreenUi(active, fallback = false) {
   const wasActive = treeFullscreenActive;
@@ -15882,9 +15878,8 @@ function updateTreeFullscreenUi(active, fallback = false) {
   button.setAttribute("aria-label", active ? "Quitter le plein écran de l’arbre" : "Afficher l’arbre en plein écran");
   button.title = label;
   button.setAttribute("aria-pressed", String(active));
-  button.querySelector("use")?.setAttribute("href", active ? "#icon-minimize" : "#icon-maximize");
+  button.querySelector("use")?.setAttribute("href", active ? "#icon-close" : "#icon-expand");
   $("fullscreenFitBtn").hidden = !active;
-  $("fullscreenCenterBtn").hidden = !active;
   $("treeSearchToggleBtn").hidden = !active;
   if (active) {
     treeFullscreenPreserveUntil = 0;
@@ -15954,26 +15949,46 @@ document.addEventListener("fullscreenchange", syncTreeFullscreenFromBrowser);
 document.addEventListener("webkitfullscreenchange", syncTreeFullscreenFromBrowser);
 function setTreeMenu(open) {
   const menu = $("treeMenu");
-  menu.hidden = !open;
-  $("treeMoreBtn").setAttribute("aria-expanded", String(open));
-  if (open) setTreeFullscreenSearch(false);
   if (!open) {
+    if (menu.open) menu.close();
+    menu.hidden = true;
+    menu.classList.remove("is-bottom-sheet", "is-open-up");
+    $("treeMoreBtn").setAttribute("aria-expanded", "false");
     resetTreeMenuPosition();
     return;
   }
+  setTreeFullscreenSearch(false);
+  const mobileSheet = !treeFullscreenActive && isMobileTreeUi();
+  menu.classList.toggle("is-bottom-sheet", mobileSheet);
+  menu.hidden = false;
+  if (!menu.open) menu.showModal();
+  $("treeMoreBtn").setAttribute("aria-expanded", "true");
   if (treeFullscreenActive) positionFullscreenTreeMenu();
-  else {
-    resetTreeMenuPosition();
-    positionNormalTreeMenu();
-  }
+  else if (!mobileSheet) { resetTreeMenuPosition(); positionNormalTreeMenu(); }
   const firstVisible = [...menu.querySelectorAll('[role="menuitem"]')].find(item => item.offsetParent !== null);
   firstVisible?.focus();
 }
 $("treeMoreBtn").onclick = () => {
-  setTreeMenu($("treeMenu").hidden);
+  setTreeMenu(!$("treeMenu").open);
 };
+$("treeMenu").addEventListener("cancel", event => { event.preventDefault(); setTreeMenu(false); $("treeMoreBtn").focus({ preventScroll: true }); });
+$("treeMenu").addEventListener("click", event => {
+  if (event.target !== $("treeMenu")) return;
+  setTreeMenu(false);
+  $("treeMoreBtn").focus({ preventScroll: true });
+});
+let treeMenuTouchStartY = null;
+$("treeMenu").addEventListener("pointerdown", event => {
+  treeMenuTouchStartY = event.pointerType === "touch" && $("treeMenu").classList.contains("is-bottom-sheet") ? event.clientY : null;
+});
+$("treeMenu").addEventListener("pointerup", event => {
+  if (treeMenuTouchStartY !== null && event.clientY - treeMenuTouchStartY > 64) {
+    setTreeMenu(false);
+    $("treeMoreBtn").focus({ preventScroll: true });
+  }
+  treeMenuTouchStartY = null;
+});
 $("fullscreenFitBtn").onclick = () => camera.fit();
-$("fullscreenCenterBtn").onclick = () => camera.recenter();
 $("treeSearchToggleBtn").onclick = () => setTreeFullscreenSearch(!treeFullscreenSearchOpen);
 $("menuFitBtn").onclick = () => {
   setTreeMenu(false);

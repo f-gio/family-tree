@@ -71,6 +71,8 @@ async function assertMenuInsideViewport(page, label, expectedItems) {
     const box = menu.getBoundingClientRect();
     return {
       hidden: menu.hidden,
+      open: menu.open,
+      bottomSheet: menu.classList.contains("is-bottom-sheet"),
       expanded: document.getElementById("treeMoreBtn").getAttribute("aria-expanded"),
       text: [...menu.querySelectorAll('[role="menuitem"]')].filter(item => getComputedStyle(item).display !== "none").map(item => item.textContent.trim()),
       box: { x: box.x, y: box.y, right: box.right, bottom: box.bottom },
@@ -81,12 +83,15 @@ async function assertMenuInsideViewport(page, label, expectedItems) {
     };
   });
   assert.equal(info.hidden, false, `${label} : le menu ⋯ s’ouvre`);
+  assert.equal(info.open, true, `${label} : le dialogue de commandes est ouvert`);
   assert.equal(info.expanded, "true", `${label} : aria-expanded indique l’ouverture`);
   assert.deepEqual(info.text, expectedItems, `${label} : actions du menu sans doublon`);
   assert.ok(info.box.x >= -1 && info.box.y >= -1 && info.box.right <= info.viewport.width + 1 && info.box.bottom <= info.viewport.height + 1,
     `${label} : menu entièrement dans le viewport (${JSON.stringify(info)})`);
   assert.ok(info.clientHeight > 0 && info.scrollHeight >= info.clientHeight, `${label} : menu défilable si nécessaire`);
   assert.equal(info.viewport.scrollWidth, info.viewport.width, `${label} : aucun overflow horizontal`);
+  if (label.includes("normal mobile")) assert.equal(info.bottomSheet, true, `${label} : bottom sheet utilisé hors plein écran`);
+  else assert.equal(info.bottomSheet, false, `${label} : menu contextuel conservé en plein écran`);
 }
 
 async function assertFullscreenBarOrder(page, label, expectedVisible) {
@@ -104,6 +109,10 @@ async function assertFullscreenBarOrder(page, label, expectedVisible) {
     assert.ok(button.width >= 43.5 && button.height >= 43.5, `${label} : ${button.id} ≥ 44×44 (mesuré ${button.width}×${button.height})`);
     assert.ok(button.label?.trim(), `${label} : ${button.id} conserve un nom accessible`);
   }
+  for (let index = 1; index < visible.length; index += 1) {
+    assert.ok(visible[index].x >= visible[index - 1].right - 0.5,
+      `${label} : ${visible[index - 1].id} et ${visible[index].id} ne se chevauchent pas`);
+  }
   const controls = await page.locator(".tree-controls").boundingBox();
   assert.ok(controls && controls.x >= -1 && controls.y >= -1
     && controls.x + controls.width <= (await page.viewportSize()).width + 1
@@ -112,8 +121,7 @@ async function assertFullscreenBarOrder(page, label, expectedVisible) {
   return { bar, menu, visible };
 }
 
-const WIDE_BAR = ["zoomOutBtn", "zoomInBtn", "fullscreenFitBtn", "fullscreenCenterBtn", "treeSearchToggleBtn", "treeMoreBtn", "treeFullscreenBtn"];
-const NARROW_BAR = ["zoomOutBtn", "zoomInBtn", "treeSearchToggleBtn", "treeMoreBtn", "treeFullscreenBtn"];
+const FULLSCREEN_BAR = ["zoomOutBtn", "zoomInBtn", "fullscreenFitBtn", "treeSearchToggleBtn", "treeMoreBtn", "treeFullscreenBtn"];
 
 test("markup et CSS : barre d’icônes plein écran, menu sans doublons, panneau de recherche", async () => {
   const [html, css, app] = await Promise.all([
@@ -122,7 +130,7 @@ test("markup et CSS : barre d’icônes plein écran, menu sans doublons, pannea
     readFile(new URL("../js/app.js", import.meta.url), "utf8")
   ]);
   assert.match(html, /id="fullscreenFitBtn"[^>]*hidden/);
-  assert.match(html, /id="fullscreenCenterBtn"[^>]*hidden/);
+  assert.doesNotMatch(html, /id="fullscreenCenterBtn"/, "aucun bouton Recentrer dupliqué dans la barre");
   assert.match(html, /id="treeSearchToggleBtn"[^>]*hidden/);
   assert.match(html, /id="treeFullscreenSearch"[^>]*hidden/);
   assert.match(html, /<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">/);
@@ -130,10 +138,13 @@ test("markup et CSS : barre d’icônes plein écran, menu sans doublons, pannea
   assert.match(html, /<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">/);
   assert.match(html, /<link rel="apple-touch-icon"/);
   assert.doesNotMatch(html, /rel="manifest"/i, "aucun manifeste PWA nouveau n'est introduit");
-  assert.match(html, /<button id="treeFullscreenBtn"[^>]*aria-label="Afficher l’arbre en plein écran"[^>]*aria-pressed="false"[^>]*title="Plein écran"><svg[^>]*><use href="#icon-maximize"><\/use><\/svg><\/button>/);
+  assert.match(html, /<button id="treeFullscreenBtn"[^>]*aria-label="Afficher l’arbre en plein écran"[^>]*aria-pressed="false"[^>]*title="Plein écran"><svg[^>]*><use href="#icon-expand"><\/use><\/svg><\/button>/);
   assert.match(html, /<div class="fullscreen-control">\s*<button id="treeFullscreenBtn"/, "Plein écran isolé dans son groupe bas-droit en vue normale");
-  assert.match(html, /<button id="menuFitBtn"[^>]*role="menuitem"[^>]*><span>Ajuster<\/span><\/button>/);
-  assert.doesNotMatch(html, /id="menuFitBtn"[^>]*role="menuitem"[^>]*>[\s\S]{0,140}?<svg/, "aucun pictogramme dans le menu ⋯ de l’arbre");
+  assert.match(html, /<dialog class="tree-menu" id="treeMenu"/);
+  assert.match(html, /id="menuFitBtn"[^>]*role="menuitem"[^>]*>[\s\S]*?href="#icon-scan"/);
+  assert.match(html, /id="centerTreeBtn"[^>]*role="menuitem"[^>]*>[\s\S]*?href="#icon-crosshair"/);
+  assert.match(html, /id="autoLayoutBtn"[^>]*role="menuitem"[^>]*>[\s\S]*?href="#icon-git-branch"/);
+  assert.match(html, /id="menuExportTreeBtn"[^>]*role="menuitem"[^>]*>[\s\S]*?href="#icon-download"/);
   assert.doesNotMatch(html, /id="treeFullscreenMenuBtn"/);
   assert.match(app, /function toggleTreeFullscreen\(\)/);
   assert.match(app, /function moveTreeSearchToFullscreenLayer\(/);
@@ -144,14 +155,12 @@ test("markup et CSS : barre d’icônes plein écran, menu sans doublons, pannea
   assert.match(css, /html\.tree-fullscreen-active #appMain \.tree-controls\s*\{[^}]*inset: max\(var\(--space-2\), env\(safe-area-inset-top\)\)/);
   assert.match(css, /html:not\(\.tree-fullscreen-active\) #appMain \.tree-controls \.zoom-control \{ display: none; \}/);
   assert.match(css, /html\.tree-fullscreen-active #appMain \.tree-controls \.zoom-control \{ display: flex; \}/);
-  assert.match(html, /\.zoom-control\{position:absolute;top:0;left:0;[\s\S]*?flex-direction:row/, "Zoom − / Zoom + alignés horizontalement en haut à gauche");
+  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.tree-toolbar \{[^}]*display: flex/);
   assert.match(html, /\.fullscreen-control\{position:absolute;bottom:0;right:0/, "Plein écran ancré en bas à droite en vue normale");
   assert.match(app, /window\.visualViewport\?\.addEventListener\("resize", scheduleTreePickerMenuPosition/);
-  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.view-control #fullscreenFitBtn \{ order: 1; \}/);
-  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.view-control #treeMoreBtn \{ order: 4; \}/);
-  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.fullscreen-control\s*\{[^}]*order: 5;/);
-  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.tree-menu #menuFitBtn,\s*\.tree-shell\.tree-fullscreen-active \.tree-menu #centerTreeBtn \{ display: none; \}/);
-  assert.match(css, /@media \(max-width: 371px\) \{[\s\S]*?#fullscreenFitBtn,[\s\S]*?#fullscreenCenterBtn \{ display: none; \}[\s\S]*?#menuFitBtn,[\s\S]*?#centerTreeBtn \{ display: grid; \}/);
+  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.fullscreen-control \{[^}]*top: 0;[^}]*right: 0/);
+  assert.match(css, /\.tree-shell\.tree-fullscreen-active \.tree-menu #menuFitBtn \{ display: none; \}/);
+  assert.match(css, /@media \(max-width: 390px\)/);
   assert.match(css, /\.tree-shell\.tree-fullscreen-active \.tree-fullscreen-search\s*\{[^}]*position: absolute/);
   assert.match(css, /env\(safe-area-inset-(?:top|right|bottom|left)\)/);
 });
@@ -180,21 +189,37 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
            assert.equal(await page.locator(".zoom-control").evaluate(element => getComputedStyle(element).display), "none", `${name} : aucun espace réservé aux zooms en vue normale`);
           assert.ok(!(await page.locator("#fullscreenFitBtn").isVisible()), `${name} : Ajuster masqué hors plein écran`);
           assert.ok(!(await page.locator("#treeSearchToggleBtn").isVisible()), `${name} : loupe masquée hors plein écran`);
-          await page.locator("#treeMoreBtn").tap();
-          await assertMenuInsideViewport(page, `${name} menu normal`, ["Ajuster", "Recentrer", "Réorganiser", "Exporter"]);
-          await page.keyboard.press("Escape");
+           await page.locator("#treeMoreBtn").tap();
+           await assertMenuInsideViewport(page, `${name} menu normal mobile`, ["Ajuster", "Recentrer", "Réorganiser", "Exporter"]);
+           const sheetCenter = await centerOfView(page);
+           await page.mouse.click(2, 2);
+           await page.waitForFunction(() => !document.getElementById("treeMenu").open);
+           assert.equal(await page.locator("#treeMoreBtn").getAttribute("aria-expanded"), "false", `${name} : fermeture du bottom sheet par l’arrière-plan`);
+           const sheetClosedCenter = await centerOfView(page);
+           assert.ok(Math.abs(sheetCenter.scale - sheetClosedCenter.scale) < 1e-6 && Math.abs(sheetCenter.worldX - sheetClosedCenter.worldX) < 1 && Math.abs(sheetCenter.worldY - sheetClosedCenter.worldY) < 1,
+             `${name} : ouverture/fermeture du bottom sheet sans déplacer ni zoomer l’arbre`);
+           await page.locator("#treeMoreBtn").tap();
+           await page.keyboard.press("Escape");
+           assert.equal(await page.locator("#treeMenu").evaluate(element => element.open), false, `${name} : Échap ferme le bottom sheet`);
+           assert.equal(await page.locator("#treeMoreBtn").getAttribute("aria-expanded"), "false", `${name} : déclencheur désactivé après fermeture`);
+           await page.locator("#treeMoreBtn").tap();
+           await page.locator("#treeMenu").dispatchEvent("pointerdown", { pointerId: 7, pointerType: "touch", clientY: 80 });
+           await page.locator("#treeMenu").dispatchEvent("pointerup", { pointerId: 7, pointerType: "touch", clientY: 150 });
+           assert.equal(await page.locator("#treeMenu").evaluate(element => element.open), false, `${name} : balayage vers le bas ferme le bottom sheet`);
 
            await page.locator("#treeFullscreenBtn").tap();
            await page.waitForFunction(() => document.documentElement.classList.contains("tree-fullscreen-fallback"));
           await page.waitForTimeout(100);
           assert.equal(await page.locator("#topbar").evaluate(element => getComputedStyle(element).display), "none", `${name} : navigation extérieure masquée`);
-          assert.equal(await page.locator("#treeFullscreenBtn").getAttribute("title"), "Quitter le plein écran");
+            assert.equal(await page.locator("#treeFullscreenBtn").getAttribute("title"), "Quitter le plein écran");
+            assert.equal(await page.locator("#treeFullscreenBtn").getAttribute("aria-label"), "Quitter le plein écran de l’arbre");
+            assert.equal(await page.locator("#treeFullscreenBtn use").getAttribute("href"), "#icon-close", `${name} : la croix est l’unique commande de sortie`);
            assert.equal(await page.locator("#treeFullscreenBtn").getAttribute("aria-pressed"), "true");
            assert.ok(await page.locator("#zoomInBtn").isVisible() && await page.locator("#zoomOutBtn").isVisible(), `${name} : commandes de zoom présentes en plein écran mobile`);
 
-          await assertFullscreenBarOrder(page, `${name} plein écran 390px`, WIDE_BAR);
+           await assertFullscreenBarOrder(page, `${name} plein écran 390px`, FULLSCREEN_BAR);
           await page.locator("#treeMoreBtn").tap();
-          assert.deepEqual(await visibleMenuLabels(page), ["Réorganiser", "Exporter"],
+           assert.deepEqual(await visibleMenuLabels(page), ["Recentrer", "Réorganiser", "Exporter"],
             `${name} : le menu n’expose pas les actions déjà dans la barre`);
           await page.keyboard.press("Escape");
           const afterEntry = await centerOfView(page);
@@ -245,9 +270,11 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
           await page.locator("#fullscreenFitBtn").tap();
           const fitted = await centerOfView(page);
           assert.ok(fitted.scale !== zoomed.scale, `${name} : Ajuster agit depuis la barre`);
-          await page.locator("#fullscreenCenterBtn").tap();
-          const centeredAgain = await centerOfView(page);
-          assert.ok(Math.abs(centeredAgain.scale - fitted.scale) < 1e-6, `${name} : Recentrer conserve l’échelle`);
+           await page.locator("#treeMoreBtn").tap();
+           assert.deepEqual(await visibleMenuLabels(page), ["Recentrer", "Réorganiser", "Exporter"], `${name} : Ajuster non dupliqué, Recentrer conservé`);
+           await page.locator("#centerTreeBtn").tap();
+           const centeredAgain = await centerOfView(page);
+           assert.ok(Math.abs(centeredAgain.scale - fitted.scale) < 1e-6, `${name} : Recentrer conserve l’échelle`);
 
           // Dézoom minimal à 10 %.
           for (let index = 0; index < 20; index += 1) await page.locator("#zoomOutBtn").tap();
@@ -267,10 +294,9 @@ test("repli mobile : barre horizontale, menu sans doublons, recherche, rotations
             assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), size[0], `${name} ${size.join("×")} : aucun débordement horizontal`);
             const direction = await page.locator(".tree-controls").evaluate(element => getComputedStyle(element).flexDirection);
             assert.equal(direction, "row", `${name} ${size.join("×")} : barre horizontale (pas de colonne)`);
-            const expected = size[0] <= 371 ? NARROW_BAR : WIDE_BAR;
-            await assertFullscreenBarOrder(page, `${name} ${size.join("×")}`, expected);
-            await page.locator("#treeMoreBtn").tap();
-            const expectedMenu = size[0] <= 371 ? ["Ajuster", "Recentrer", "Réorganiser", "Exporter"] : ["Réorganiser", "Exporter"];
+             await assertFullscreenBarOrder(page, `${name} ${size.join("×")}`, FULLSCREEN_BAR);
+             await page.locator("#treeMoreBtn").tap();
+             const expectedMenu = ["Recentrer", "Réorganiser", "Exporter"];
             await assertMenuInsideViewport(page, `${name} ${size.join("×")}`, expectedMenu);
             await page.keyboard.press("Escape");
             assert.equal(await page.locator("#treeMenu").evaluate(element => element.hidden), true, `${name} ${size.join("×")} : menu refermé par Échap`);
@@ -313,7 +339,7 @@ test("plein écran natif desktop : barre complète, menu réduit, recherche et �
         await page.waitForFunction(() => document.documentElement.classList.contains("tree-fullscreen-active"));
         await page.waitForTimeout(100);
         assert.equal(await page.evaluate(() => document.fullscreenElement === document.getElementById("treeViewport")), true, `${width}px : plein écran natif`);
-        await assertFullscreenBarOrder(page, `${width}px desktop`, WIDE_BAR);
+         await assertFullscreenBarOrder(page, `${width}px desktop`, FULLSCREEN_BAR);
 
         // Toutes les commandes de la barre fonctionnent.
         const initial = await centerOfView(page);
@@ -324,7 +350,9 @@ test("plein écran natif desktop : barre complète, menu réduit, recherche et �
         await page.locator("#fullscreenFitBtn").click();
         const fitted = await centerOfView(page);
         assert.ok(fitted.scale >= 0.25 - 1e-6, `${width}px : Ajuster avec minimum 25 %`);
-        await page.locator("#fullscreenCenterBtn").click();
+         await page.locator("#treeMoreBtn").click();
+         assert.deepEqual(await visibleMenuLabels(page), ["Recentrer", "Réorganiser", "Exporter"], `${width}px : Ajuster absent du menu en doublon`);
+         await page.locator("#centerTreeBtn").click();
         assert.ok(Math.abs((await centerOfView(page)).scale - fitted.scale) < 1e-6, `${width}px : Recentrer conserve l’échelle`);
 
         // Recherche fonctionnelle depuis la barre.
@@ -344,8 +372,15 @@ test("plein écran natif desktop : barre complète, menu réduit, recherche et �
         });
 
         // Menu réduit et actions restantes.
-        await page.locator("#treeMoreBtn").click();
-        await assertMenuInsideViewport(page, `${width}px desktop`, ["Réorganiser", "Exporter"]);
+         await page.locator("#treeMoreBtn").click();
+         await assertMenuInsideViewport(page, `${width}px desktop`, ["Recentrer", "Réorganiser", "Exporter"]);
+         assert.equal(await page.locator("#treeMoreBtn").evaluate(button => getComputedStyle(button).backgroundColor), "rgb(243, 238, 229)", `${width}px : fond actif pendant l’ouverture`);
+         await page.mouse.click(4, 4);
+         await page.waitForFunction(() => !document.getElementById("treeMenu").open);
+         assert.equal(await page.locator("#treeMoreBtn").getAttribute("aria-expanded"), "false", `${width}px : clic extérieur ferme le menu`);
+         assert.equal(await page.locator("#treeMoreBtn").evaluate(button => getComputedStyle(button).backgroundColor), "rgba(0, 0, 0, 0)", `${width}px : fond actif effacé immédiatement à la fermeture`);
+         await page.locator("#treeMoreBtn").click();
+         await assertMenuInsideViewport(page, `${width}px menu réouvert`, ["Recentrer", "Réorganiser", "Exporter"]);
         await page.locator("#menuExportTreeBtn").click();
         assert.equal(await page.locator("#treeExportDialog").evaluate(dialog => dialog.open), true, `${width}px : Exporter ouvre sa modale`);
         await page.keyboard.press("Escape");

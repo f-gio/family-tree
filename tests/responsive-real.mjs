@@ -184,6 +184,9 @@ async function resetState(page, baseURL) {
 
 async function runViewport(view, page, baseURL) {
   const cls = VIEW_CLASS[view.name] || "tactile";
+  const touchEmulation = await page.context().newCDPSession(page);
+  await touchEmulation.send("Emulation.setTouchEmulationEnabled", { enabled: cls === "tactile", maxTouchPoints: cls === "tactile" ? 5 : 1 });
+  await touchEmulation.detach();
   const before = { checks: checkCount, failures: failCount };
   const line = `${view.name} (${view.width}×${view.height})`;
   console.log(`\n=== Viewport ${line} — catégorie « ${cls} » ===`);
@@ -515,6 +518,7 @@ async function runViewport(view, page, baseURL) {
       .map(el => (el.querySelector("span")?.textContent || el.getAttribute("aria-label")).trim());
     return {
       hidden: document.getElementById("treeMenu").hidden,
+      bottomSheet: document.getElementById("treeMenu").classList.contains("is-bottom-sheet"),
       expanded: document.getElementById("treeMoreBtn").getAttribute("aria-expanded"),
       items: visible,
       count: visible.length
@@ -522,7 +526,7 @@ async function runViewport(view, page, baseURL) {
   });
   const expectedItems = ["Ajuster", "Recentrer", "Réorganiser", "Exporter"];
   check(`${line} · clic sur ⋯ : menu ouvert (aria-expanded="true")`, !menuOpened.hidden && menuOpened.expanded === "true", JSON.stringify(menuOpened));
-  check(`${line} · menu ${mobileLayout ? "mobile (≤760)" : "desktop/paysage"} : items « ${expectedItems.join(" / ")} » (${menuOpened.count})`, JSON.stringify(menuOpened.items) === JSON.stringify(expectedItems), JSON.stringify(menuOpened.items));
+  check(`${line} · menu ${mobileLayout ? "mobile/tactile" : "desktop"} : items « ${expectedItems.join(" / ")} » (${menuOpened.count})`, JSON.stringify(menuOpened.items) === JSON.stringify(expectedItems), JSON.stringify(menuOpened.items));
   const menuBoxes = await page.evaluate(() => {
     const out = {};
     for (const id of ["treeMenu", "menuFitBtn", "centerTreeBtn", "autoLayoutBtn"]) {
@@ -532,13 +536,22 @@ async function runViewport(view, page, baseURL) {
     return out;
   });
   const menuBox = menuBoxes["treeMenu"];
-  const menuDirectionFits = Boolean(menuBox && moreBtnBox) && (menuBox.y >= moreBtnBox.bottom - 1 || menuBox.bottom <= moreBtnBox.y + 1);
-  check(`${line} · menu aligné à droite sous ⋯ ou retourné au-dessus si l'espace inférieur manque`, menuDirectionFits && Math.abs(menuBox.right - moreBtnBox.right) <= 90, menuBox && moreBtnBox ? `menu ${menuBox.y.toFixed(0)}–${menuBox.bottom.toFixed(0)}px / ancre ${moreBtnBox.y.toFixed(0)}–${moreBtnBox.bottom.toFixed(0)}px` : "boîtes indisponibles");
-  check(`${line} · menu entièrement dans le canvas`, Boolean(menuBox) && menuBox.x >= shellRect.x - 1 && menuBox.y >= shellRect.y - 1 && menuBox.right <= shellRect.right + 1 && menuBox.bottom <= shellRect.bottom + 1, JSON.stringify({ menuBox, shellRect }));
+  if (menuOpened.bottomSheet) {
+    check(`${line} · vue tactile : menu ⋯ présenté en bottom sheet`, true);
+    check(`${line} · bottom sheet compact, entièrement dans le viewport`, Boolean(menuBox) && menuBox.x >= -1 && menuBox.y >= -1 && menuBox.right <= view.width + 1 && menuBox.bottom <= view.height + 1, JSON.stringify({ menuBox, viewport: view }));
+  } else {
+    const menuDirectionFits = Boolean(menuBox && moreBtnBox) && (menuBox.y >= moreBtnBox.bottom - 1 || menuBox.bottom <= moreBtnBox.y + 1);
+    check(`${line} · menu contextuel sous ⋯ ou retourné au-dessus`, menuDirectionFits && Math.abs(menuBox.right - moreBtnBox.right) <= 90, menuBox && moreBtnBox ? `menu ${menuBox.y.toFixed(0)}–${menuBox.bottom.toFixed(0)}px / ancre ${moreBtnBox.y.toFixed(0)}–${moreBtnBox.bottom.toFixed(0)}px` : "boîtes indisponibles");
+    if (shellWithinViewport) {
+      check(`${line} · menu entièrement dans le canvas`, Boolean(menuBox) && menuBox.x >= shellRect.x - 1 && menuBox.y >= shellRect.y - 1 && menuBox.right <= shellRect.right + 1 && menuBox.bottom <= shellRect.bottom + 1, JSON.stringify({ menuBox, shellRect }));
+    } else {
+      check(`${line} · menu au viewport lorsque le canvas dépasse le pli`, Boolean(menuBox) && menuBox.x >= -1 && menuBox.y >= -1 && menuBox.right <= view.width + 1 && menuBox.bottom <= view.height + 1, JSON.stringify({ menuBox, viewport: view }));
+    }
+  }
   if (shellWithinViewport) {
     check(`${line} · menu entièrement dans le viewport`, Boolean(menuBox) && menuBox.x >= -1 && menuBox.y >= -1 && menuBox.right <= view.width + 1 && menuBox.bottom <= view.height + 1, menuBox ? `${menuBox.x.toFixed(0)},${menuBox.y.toFixed(0)} → ${menuBox.right.toFixed(0)},${menuBox.bottom.toFixed(0)}` : "menu absent");
   } else {
-    check(`${line} · menu entièrement dans le viewport (canvas plus haut que le viewport)`, true, "menu ancré au canvas, atteignable au défilement");
+    check(`${line} · menu entièrement dans le viewport (canvas plus haut que le viewport)`, Boolean(menuBox) && menuBox.x >= -1 && menuBox.y >= -1 && menuBox.right <= view.width + 1 && menuBox.bottom <= view.height + 1, JSON.stringify({ menuBox, viewport: view }));
   }
   check(`${line} · menu ouvert n'intersecte pas le zoom`, !boxesOverlap(menuBox, (await page.evaluate(() => window.__treeProbe.controls()))[".zoom-control"]));
   if (mobileLayout) {
@@ -546,7 +559,7 @@ async function runViewport(view, page, baseURL) {
   }
   assessTouch({ viewport: line, label: "« Recentrer » (menu)", box: menuBoxes["centerTreeBtn"], cls, essential: true });
   assessTouch({ viewport: line, label: "« Réorganiser » (menu)", box: menuBoxes["autoLayoutBtn"], cls, essential: true });
-  await page.evaluate(() => document.body.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  await page.mouse.click(4, 4);
   await page.waitForTimeout(60);
   const menuOutside = await page.evaluate(() => ({
     hidden: document.getElementById("treeMenu").hidden,

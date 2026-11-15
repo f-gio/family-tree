@@ -704,7 +704,7 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 .tree-row-actions-trigger:hover { background: var(--color-surface-soft); color: var(--color-text); }
 .tree-row-actions-trigger[aria-expanded="true"],
 .tree-row-actions-trigger[aria-expanded="true"]:hover { background: var(--color-surface-muted); color: var(--color-text); }
-.tree-row-actions-menu { position: static; display: grid; gap: 2px; min-width: 0; margin: var(--space-1) var(--space-2) var(--space-2) 2.75rem; padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface-soft); }
+.tree-row-actions-menu { position: static; display: grid; gap: 2px; min-width: 0; margin: 0 var(--space-2) var(--space-2) 2.75rem; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .tree-row-actions-menu[hidden] { display: none; }
 .tree-row-actions-menu button { display: flex; align-items: center; width: 100%; min-width: 0; min-height: var(--control-touch); padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text); font: inherit; text-align: left; }
 .tree-row-actions-menu button:hover:not(:disabled) { background: var(--color-surface-soft); }
@@ -743,23 +743,53 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   font-size: var(--text-sm);
 }
 
-/* Le groupe d'actions reste le bloc conteneur du menu ⋯ : le positionnement
-   (coin haut droit en vue normale) est défini par la couche de mise en page. */
+/* Commandes ancrées aux coins du canvas en vue normale. */
+.tree-controls {
+  position: absolute;
+  inset: max(var(--space-2), env(safe-area-inset-top)) max(var(--space-2), env(safe-area-inset-right)) max(var(--space-2), env(safe-area-inset-bottom)) max(var(--space-2), env(safe-area-inset-left));
+  display: block;
+  pointer-events: none;
+}
+.tree-toolbar { position: absolute; inset: 0; display: block; pointer-events: none; }
+.tree-toolbar > * { pointer-events: auto; }
+.zoom-control { position: absolute; top: auto; right: auto; bottom: 0; left: 0; }
+.view-control { position: absolute; top: 0; right: 0; bottom: auto; left: auto; }
+.fullscreen-control { position: absolute; top: auto; right: 0; bottom: 0; left: auto; display: inline-flex; align-items: center; padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface-raised); box-shadow: var(--shadow-low); pointer-events: auto; }
+.fullscreen-control button[aria-pressed="true"] { background: transparent; }
+.fullscreen-control button[aria-pressed="true"]:hover { background: var(--color-surface-soft); }
+.view-control:has(#treeMoreBtn[aria-expanded="true"]) #treeMoreBtn { background: var(--color-surface-muted); }
+.view-control #treeMoreBtn:focus-visible { outline: 3px solid rgb(40 75 63 / 28%); outline-offset: 2px; }
 .tree-menu {
-  left: auto;
-  right: 0;
+  position: fixed;
+  z-index: 200;
+  inset: auto;
+  left: 0;
+  top: 0;
+  right: auto;
+  bottom: auto;
+  margin: 0;
   max-width: calc(100vw - var(--space-4));
   width: max-content;
   min-width: 0;
+  max-height: min(70dvh, 34rem);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--space-1);
   gap: var(--space-1);
+  border: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
 }
 .tree-menu button {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1.125rem minmax(0, 1fr);
   align-items: center;
+  justify-content: start;
   gap: var(--space-2);
   min-width: 0;
-  min-height: var(--control-md);
+  min-height: 40px;
   padding: var(--space-1) var(--space-2);
   border: 0;
   border-radius: var(--radius-sm);
@@ -771,7 +801,14 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 }
 .tree-menu button:hover:not(:disabled) { background: var(--color-surface-soft); }
 .tree-menu button span { min-width: 0; text-align: left; }
-.tree-menu.is-open-up { top: auto; bottom: calc(100% + 6px); }
+.tree-menu button .ui-icon { justify-self: center; width: 1.125rem; height: 1.125rem; }
+.tree-menu button:focus-visible { outline: 3px solid rgb(40 75 63 / 28%); outline-offset: -2px; }
+.tree-menu[hidden] { display: none !important; }
+.tree-menu[open] { display: grid; grid-auto-rows: max-content; align-content: start; animation: none; }
+.tree-menu::backdrop { background: transparent; animation: none; }
+.tree-menu.is-bottom-sheet { position: fixed; inset: auto 0 0; box-sizing: border-box; width: 100vw; height: max-content; max-width: none; max-height: min(72dvh, calc(100dvh - env(safe-area-inset-top) - 1rem)); margin: 0; padding: var(--space-2) var(--space-3) max(var(--space-3), env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; border: var(--border-default); border-bottom: 0; border-radius: var(--radius-xl) var(--radius-xl) 0 0; background: var(--color-surface); box-shadow: var(--shadow-lg); }
+.tree-menu.is-bottom-sheet::backdrop { background: rgb(27 38 33 / 42%); }
+.tree-menu.is-bottom-sheet button { min-height: var(--control-touch); padding-inline: var(--space-3); }
 .tree-canvas-clip {
   position: absolute;
   inset: 0;
@@ -825,57 +862,53 @@ html.tree-fullscreen-active #appMain .tree-controls {
   z-index: 40;
   inset: max(var(--space-2), env(safe-area-inset-top)) max(var(--space-2), env(safe-area-inset-right)) auto max(var(--space-2), env(safe-area-inset-left));
   display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: flex-end;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: var(--space-2);
   pointer-events: none;
 }
 .tree-shell.tree-fullscreen-active { overflow: visible; }
 .tree-shell.tree-fullscreen-active .canvas-help { display: none; }
-.tree-shell.tree-fullscreen-active .tree-controls > * { pointer-events: auto; }
+.tree-shell.tree-fullscreen-active .tree-toolbar { position: static; inset: auto; display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; pointer-events: none; }
+.tree-shell.tree-fullscreen-active .tree-toolbar > * { pointer-events: auto; }
 .tree-shell.tree-fullscreen-active .tree-controls button {
   min-width: var(--control-touch);
   min-height: var(--control-touch);
 }
 .tree-shell.tree-fullscreen-active .zoom-control {
   position: static;
-  order: 0;
   flex-direction: row;
   gap: var(--space-1);
+  flex: 0 0 auto;
 }
-.tree-shell.tree-fullscreen-active .zoom-control #zoomOutBtn { order: -1; }
 .tree-shell.tree-fullscreen-active .zoom-level {
   top: calc(100% + var(--space-2));
   bottom: auto;
 }
 .tree-shell.tree-fullscreen-active .view-control {
   position: static;
-  order: 1;
+  display: flex;
+  align-items: center;
   flex-wrap: nowrap;
   gap: var(--space-1);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
-.tree-shell.tree-fullscreen-active .view-control #fullscreenFitBtn { order: 1; }
-.tree-shell.tree-fullscreen-active .view-control #fullscreenCenterBtn { order: 2; }
-.tree-shell.tree-fullscreen-active .view-control #treeSearchToggleBtn { order: 3; }
-.tree-shell.tree-fullscreen-active .view-control #treeMoreBtn { order: 4; }
 .tree-shell.tree-fullscreen-active .fullscreen-control {
-  position: static;
-  order: 5;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: auto;
+  left: auto;
   display: inline-flex;
   align-items: center;
 }
-/* Barre large : Ajuster/Recentrer sont des icônes directes, le menu ne les répète pas. */
-.tree-shell.tree-fullscreen-active .tree-menu #menuFitBtn,
-.tree-shell.tree-fullscreen-active .tree-menu #centerTreeBtn { display: none; }
-.tree-shell.tree-fullscreen-active .tree-menu {
-  position: absolute;
-  z-index: 50;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
+/* Ajuster est dans la barre ; Recentrer reste disponible dans ⋯ et distinct. */
+.tree-shell.tree-fullscreen-active .tree-menu #menuFitBtn { display: none; }
+.tree-shell.tree-fullscreen-active .tree-menu { z-index: 210; }
 /* Panneau de recherche plein écran : réutilise la barre de recherche existante. */
 .tree-shell.tree-fullscreen-active .tree-fullscreen-search {
   position: absolute;
@@ -895,14 +928,13 @@ html.tree-fullscreen-active #appMain .tree-controls {
   min-height: var(--control-touch);
   font-size: 16px;
 }
-/* Portrait étroit : la barre garde Zoom±, Recherche, ⋯ et Quitter ;
-   Ajuster/Recentrer basculent dans le menu… pour rester atteignables à 44 px.
-   La barre complète (7 icônes ≈ 356 px + marges) tient à partir de 372 px. */
-@media (max-width: 371px) {
-  .tree-shell.tree-fullscreen-active .view-control #fullscreenFitBtn,
-  .tree-shell.tree-fullscreen-active .view-control #fullscreenCenterBtn { display: none; }
-  .tree-shell.tree-fullscreen-active .tree-menu #menuFitBtn,
-  .tree-shell.tree-fullscreen-active .tree-menu #centerTreeBtn { display: grid; }
+@media (max-width: 390px) {
+  .tree-shell.tree-fullscreen-active .tree-controls { gap: var(--space-1); }
+  .tree-shell.tree-fullscreen-active .tree-toolbar { gap: var(--space-1); }
+  .tree-shell.tree-fullscreen-active .zoom-control { gap: 0; padding: 2px; }
+  .tree-shell.tree-fullscreen-active .view-control { gap: 0; }
+  .tree-shell.tree-fullscreen-active .tree-toolbar button,
+  .tree-shell.tree-fullscreen-active .fullscreen-control button { width: var(--control-touch); min-width: var(--control-touch); }
 }
 
 @media (max-width: 760px) {
@@ -924,8 +956,8 @@ html.tree-fullscreen-active #appMain .tree-controls .zoom-control { display: fle
 
   /* Quand le menu est ouvert, le canvas déborde temporairement de son shell;
      la scène reste rognée par .tree-canvas-clip, mais le menu peut remonter. */
-  #treeViewport:has(#treeMenu:not([hidden])) { overflow: visible; }
-  #treeMenu { max-height: calc(100dvh - max(1rem, env(safe-area-inset-top)) - max(1rem, env(safe-area-inset-bottom))); }
+  #treeViewport:has(#treeMenu[open]:not(.is-bottom-sheet)) { overflow: visible; }
+  #treeMenu:not(.is-bottom-sheet) { max-height: calc(100dvh - max(1rem, env(safe-area-inset-top)) - max(1rem, env(safe-area-inset-bottom))); }
 
   #treeExportDialog .modal-actions .right {
     display: flex;

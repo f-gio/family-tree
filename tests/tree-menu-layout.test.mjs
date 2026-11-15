@@ -3,7 +3,7 @@ import test from "node:test";
 import { chromium } from "playwright";
 import { ROOT, startStaticServer } from "./helpers.mjs";
 
-test("le menu des contrôles de l’arbre affiche des lignes simples sans pictogramme", async t => {
+test("le menu des commandes de l’arbre aligne les icônes et s’adapte au contexte", async t => {
   let browser;
   try {
     browser = await chromium.launch({ headless: true });
@@ -15,8 +15,10 @@ test("le menu des contrôles de l’arbre affiche des lignes simples sans pictog
   try {
     for (const viewport of [
       { label: "mobile 320×844", width: 320, height: 844, isMobile: true, hasTouch: true },
+      { label: "mobile 375 px", width: 375, height: 812, isMobile: true, hasTouch: true },
       { label: "mobile 390 px", width: 390, height: 844, isMobile: true, hasTouch: true },
       { label: "mobile 760×900", width: 760, height: 900, isMobile: true, hasTouch: true },
+      { label: "iPhone paysage large 844×390", width: 844, height: 390, isMobile: true, hasTouch: true },
       { label: "mobile paysage court 390×430", width: 390, height: 430, isMobile: true, hasTouch: true },
       { label: "desktop 1024 px", width: 1024, height: 768, isMobile: false, hasTouch: false }
     ]) {
@@ -47,6 +49,8 @@ test("le menu des contrôles de l’arbre affiche des lignes simples sans pictog
             return {
               expanded: document.getElementById("treeMoreBtn").getAttribute("aria-expanded"),
               hidden: document.getElementById("treeMenu").hidden,
+              open: document.getElementById("treeMenu").open,
+              bottomSheet: document.getElementById("treeMenu").classList.contains("is-bottom-sheet"),
               viewport: { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth },
               menuBox: (() => { const r = document.getElementById("treeMenu").getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; })(),
               menuScroll: { scrollHeight: document.getElementById("treeMenu").scrollHeight, clientHeight: document.getElementById("treeMenu").clientHeight, overflowY: getComputedStyle(document.getElementById("treeMenu")).overflowY, maxHeight: getComputedStyle(document.getElementById("treeMenu")).maxHeight, inlineMaxHeight: document.getElementById("treeMenu").style.maxHeight },
@@ -78,37 +82,35 @@ test("le menu des contrôles de l’arbre affiche des lignes simples sans pictog
           assert.ok(menu.rows.length >= 3, "actions usuelles présentes");
           if (viewport.isMobile) {
             assert.deepEqual(menu.rows.map(row => row.label), ["Ajuster", "Recentrer", "Réorganiser", "Exporter"], "toutes les entrées du menu sont rendues");
-            const limitBottom = Math.max(menu.viewport.height, menu.shellBox.bottom);
-            assert.ok(menu.menuBox.y >= -0.5 && menu.menuBox.bottom <= limitBottom + 0.5, "menu visible sans sortir du viewport ni du canvas");
-            assert.ok(menu.menuBox.x >= -0.5 && menu.menuBox.right <= menu.viewport.width + 0.5 && menu.menuBox.right >= menu.anchorBox.right - 6, "menu ouvert depuis le bouton ⋯, aligné à droite puis ajusté pour rester dans le viewport");
-            if (menu.menuScroll.scrollHeight > menu.menuScroll.clientHeight) {
-              /* Place insuffisante sous ⋯ (paysage court) : le menu est borné et
-                 défile en interne ; les rect des lignes masquées ne sont plus
-                 significatifs, seule l'atteinte par défilement compte. */
-              assert.ok(menu.menuScroll.clientHeight > 0 && menu.menuScroll.clientHeight <= Math.round(parseFloat(menu.menuScroll.maxHeight)), "la hauteur calculée limite le menu avec défilement interne");
-              assert.ok(menu.menuScroll.scrollHeight >= menu.rows.at(-1).bottom - menu.menuBox.y, "toutes les entrées restent atteignables par le défilement interne");
-              assert.ok(menu.rows[0].y >= menu.menuBox.y - 0.5 && menu.rows[0].bottom <= menu.menuBox.bottom + 0.5, "la première entrée reste visible");
-            } else {
-              assert.ok(menu.rows.every(row => row.visible && row.y >= -0.5 && row.bottom <= menu.viewport.height + 0.5), "première et dernière entrées entièrement dans le viewport");
-              assert.ok(menu.rows.every(row => row.y >= menu.menuBox.y - 0.5 && row.bottom <= menu.menuBox.bottom + 0.5), "aucune entrée coupée par le conteneur du menu");
-            }
-            assert.equal(menu.shellOverflow, "visible", "le shell laisse le menu sortir du clip du canvas quand il est ouvert");
-            assert.equal(menu.sceneClipOverflow, "hidden", "le contenu graphique garde son clipping d’origine");
+            assert.equal(menu.open, true, "le bottom sheet modal est ouvert en vue normale mobile");
+            assert.equal(menu.bottomSheet, true, "le menu mobile utilise le bottom sheet normalisé");
+            assert.ok(menu.menuBox.y >= -0.5 && menu.menuBox.bottom <= menu.viewport.height + 0.5, "bottom sheet entièrement dans le viewport");
+            assert.ok(menu.menuBox.x >= -0.5 && menu.menuBox.right <= menu.viewport.width + 0.5, "bottom sheet sans débordement horizontal");
+            assert.ok(menu.menuBox.height < 240, `bottom sheet compact, adapté aux quatre actions (${menu.menuBox.height}px)`);
+            assert.ok(menu.rows.every(row => row.visible && row.y >= menu.menuBox.y - 0.5 && row.bottom <= menu.menuBox.bottom + 0.5), "les quatre actions sont visibles dans le bottom sheet");
+            assert.ok(menu.rows.every(row => row.height >= 43.5), "cibles tactiles ≥44 px");
             assert.equal(menu.viewport.scrollWidth, menu.viewport.clientWidth, "aucun overflow horizontal de page");
+          } else {
+            assert.equal(menu.open, true, "dialogue contextuel ouvert sur desktop");
+            assert.equal(menu.bottomSheet, false, "desktop conserve le menu contextuel");
+            assert.ok(menu.menuBox.y >= menu.anchorBox.bottom - 1, "menu desktop sous le bouton ⋯");
+            assert.ok(Math.abs(menu.menuBox.right - menu.anchorBox.right) < 2, "menu desktop aligné à droite du bouton ⋯");
+            assert.ok(menu.menuBox.x >= 0 && menu.menuBox.right <= menu.viewport.width && menu.menuBox.bottom <= menu.viewport.height, "menu desktop dans le viewport");
           }
           const iconAxis = menu.rows.map(row => row.iconCount);
           const textAxis = menu.rows.map(row => row.textLeft);
           const heights = menu.rows.map(row => row.height);
           const textCenter = menu.rows.map(row => row.textCenterY);
-          assert.ok(iconAxis.every(value => value === 0), "aucun pictogramme devant les actions");
+          assert.ok(iconAxis.every(value => value === 1), "une icône par action");
           assert.ok(textAxis.every(value => Math.abs(value - textAxis[0]) < 0.5), "libellés commencent sur le même axe");
           assert.ok(menu.rows.every(row => row.textAlign === "left"), "libellés alignés à gauche");
           assert.ok(menu.rows.every(row => row.gridColumns === menu.rows[0].gridColumns), "même présentation pour chaque ligne");
           assert.ok(heights.every(value => Math.abs(value - heights[0]) < 0.5), "hauteurs de ligne homogènes");
-          assert.ok(menu.rows.every(row => row.display === "flex" || row.display === "block"), "lignes simples, sans gros boutons en pilule");
+          assert.ok(menu.rows.every(row => row.display === "grid"), "icônes alignées dans une colonne régulière");
           assert.ok(textCenter.every(value => value > 0), "libellés rendus");
           await page.keyboard.press("Escape");
           assert.equal(await page.locator("#treeMenu").evaluate(element => element.hidden), true, "Échap ferme le menu");
+          assert.equal(await page.locator("#treeMoreBtn").getAttribute("aria-expanded"), "false", "la fermeture efface l’état actif du déclencheur");
           if (viewport.isMobile) {
             for (const id of ["menuFitBtn", "centerTreeBtn", "autoLayoutBtn", "menuExportTreeBtn"]) {
               await page.locator("#treeMoreBtn").tap();
