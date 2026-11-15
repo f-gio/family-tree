@@ -1668,6 +1668,10 @@ dialog[open] {
 
 .person-dialog[open] { width: min(var(--modal-xl), calc(100% - 3rem)); }
 .settings-dialog[open] { width: min(var(--modal-lg), calc(100% - 1.75rem)); }
+.person-attestation-modal-body { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.person-attestation-modal-body > .life-journey-form { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.person-attestation-dialog > .modal-head { z-index: 2; }
+.person-attestation-dialog > .modal-actions { flex: 0 0 auto; }
 
 .person-dialog[open],
 .settings-dialog[open] {
@@ -5006,6 +5010,14 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     overflow: hidden;
   }
+  dialog#personAttestationDialog.modal-mobile-sheet {
+    width: 100vw;
+    height: 92dvh;
+    min-height: 0;
+    max-width: none;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    overflow: hidden;
+  }
   dialog#personDialog.modal-mobile-sheet--long { max-height: 92dvh; }
   /* Fiche Source/Preuve : même dialog pour les deux, avec la même hauteur
      exploitable que la fiche Personne. Sans hauteur imposée, la feuille reste
@@ -5034,6 +5046,22 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
     height: 0;
   }
   #personDialog > .person-modal-form > .person-actions {
+    position: relative;
+    bottom: auto;
+    flex: 0 0 auto;
+    padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+  }
+  #personAttestationDialog > .person-attestation-modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #personAttestationDialog > .person-attestation-modal-body::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  #personAttestationDialog > .modal-actions {
     position: relative;
     bottom: auto;
     flex: 0 0 auto;

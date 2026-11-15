@@ -175,7 +175,6 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       const entry = document.querySelector('#directoryList [data-directory-person="person-page-a"]');
       return Boolean(entry) && entry.getBoundingClientRect().height > 0;
     });
-
     await page.locator('#directoryList [data-directory-person="person-page-a"]').click();
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
     assert.equal((await page.locator("#personPageTitle").textContent()).trim(), "Ada Maria Rossi");
@@ -833,14 +832,19 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.notEqual(mobileAttestationButtonStyle.borderColor, "rgba(0, 0, 0, 0)", "bordure non transparente sur mobile");
     assert.notEqual(mobileAttestationButtonStyle.background, "rgba(0, 0, 0, 0)", "fond clair visible sur mobile");
     assert.ok(mobileAttestationButtonStyle.width < mobileAttestationButtonStyle.parentWidth, "CTA d’attestation compact, non pleine largeur sur mobile");
+    await addAttestation.scrollIntoViewIfNeeded();
+    const scrollBeforeAttestation = await page.evaluate(() => window.scrollY);
     await addAttestation.click();
-    const justificationGroups = page.locator("[data-journey-form] .life-journey-justification-group");
+    assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), true, "ajout d’attestation ouvert dans une modale");
+    assert.equal(await page.evaluate(() => window.scrollY), scrollBeforeAttestation, "l’ouverture de la modale conserve le défilement de la fiche");
+    assert.equal(await page.locator("#personPageDetailedJourney [data-journey-form]").count(), 0, "le formulaire n’est pas déployé dans la page sous-jacente");
+    const justificationGroups = page.locator("#personAttestationDialog [data-journey-form] .life-journey-justification-group");
     assert.deepEqual(await justificationGroups.locator(":scope > strong").allTextContents(), ["Documents associés", "Sources", "Preuves"], "sélecteurs séparés par type d'élément");
     assert.equal(await page.locator("[data-journey-document-check]").count(), 4, "documents rattachés à la personne proposés");
     assert.equal(await page.locator('[data-journey-document-check="person-page-unlinked"]').count(), 0, "document non associé exclu du sélecteur");
     assert.equal(await page.locator("[data-journey-source-check]").count(), 1, "sources officielles liées à la personne proposées");
     assert.equal(await page.locator("[data-journey-proof-check]").count(), 1, "preuves liées à la personne proposées");
-    const mobileAttestationDates = await page.locator("#personPageDetailedJourney [data-journey-date]").evaluate(container => {
+    const mobileAttestationDates = await page.locator("#personAttestationDialog [data-journey-date]").evaluate(container => {
       const buttons = [...container.querySelectorAll("[data-journey-date-type]")];
       const switcher = container.querySelector(".date-type-switch");
       return {
@@ -860,8 +864,19 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(mobileAttestationDates.overflowX, "auto", "défilement horizontal limité au sélecteur");
     assert.ok(mobileAttestationDates.scrollsInside, "le sélecteur peut défiler sans élargir la page");
     assert.ok(mobileAttestationDates.pageOverflow <= 1, "sélecteur mobile sans débordement horizontal de page");
+    const mobileAttestationDialog = await page.locator("#personAttestationDialog").evaluate(dialog => {
+      const box = dialog.getBoundingClientRect();
+      const head = dialog.querySelector(":scope > .modal-head").getBoundingClientRect();
+      const body = dialog.querySelector(":scope > .person-attestation-modal-body").getBoundingClientRect();
+      const actions = dialog.querySelector(":scope > .modal-actions").getBoundingClientRect();
+      return { box: box.toJSON(), head: head.toJSON(), body: body.toJSON(), actions: actions.toJSON(), viewportWidth: innerWidth, viewportHeight: innerHeight, documentWidth: document.documentElement.scrollWidth };
+    });
+    assert.ok(mobileAttestationDialog.box.width >= mobileAttestationDialog.viewportWidth - 3 && mobileAttestationDialog.box.left <= 1, `modale attestation quasi pleine largeur sur mobile (${JSON.stringify(mobileAttestationDialog)})`);
+    assert.ok(mobileAttestationDialog.head.height > 0 && mobileAttestationDialog.body.height > 0 && mobileAttestationDialog.actions.height > 0, "en-tête, corps défilant et pied de page fixes visibles sur mobile");
+    assert.ok(Math.abs(mobileAttestationDialog.box.bottom - mobileAttestationDialog.viewportHeight) < 2, "modale mobile ancrée au bas de la surface disponible");
+    assert.ok(mobileAttestationDialog.documentWidth <= 391, "modale mobile sans débordement horizontal");
     await page.setViewportSize({ width: 850, height: 850 });
-    const narrowDesktopDates = await page.locator("#personPageDetailedJourney [data-journey-date]").evaluate(container => ({
+    const narrowDesktopDates = await page.locator("#personAttestationDialog [data-journey-date]").evaluate(container => ({
       labels: [...container.querySelectorAll("[data-journey-date-type]")].map(button => button.innerText.trim()),
       widths: [...container.querySelectorAll("[data-journey-date-type]")].map(button => Math.round(button.getBoundingClientRect().width)),
       pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
@@ -869,17 +884,30 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.deepEqual(narrowDesktopDates.labels, ["Date précise", "Année", "Vers", "Entre", "Inconnue"], "les cinq formats visibles dans une colonne desktop étroite");
     assert.ok(narrowDesktopDates.widths.every(width => width > 0), "les cinq contrôles restent affichés");
     assert.ok(narrowDesktopDates.pageOverflow <= 1, "formulaire desktop étroit sans débordement horizontal");
+    const desktopAttestationDialog = await page.locator("#personAttestationDialog").evaluate(dialog => ({
+      width: Math.round(dialog.getBoundingClientRect().width),
+      personWidth: Math.min(920, innerWidth - 48),
+      personDialogStyle: document.getElementById("personDialog").className,
+      bodyHeight: dialog.querySelector(":scope > .person-attestation-modal-body").getBoundingClientRect().height,
+      actionsHeight: dialog.querySelector(":scope > .modal-actions").getBoundingClientRect().height,
+      bodyOverflow: getComputedStyle(dialog.querySelector(":scope > .person-attestation-modal-body")).overflowY
+    }));
+    assert.equal(desktopAttestationDialog.width, desktopAttestationDialog.personWidth, "largeur desktop identique à la modale Nouvelle personne");
+    assert.match(desktopAttestationDialog.personDialogStyle, /person-dialog modal-xl/, "même variante de modale que Nouvelle personne");
+    assert.ok(desktopAttestationDialog.bodyHeight > 0 && desktopAttestationDialog.actionsHeight > 0, "corps et pied de page présents sur desktop");
+    assert.equal(desktopAttestationDialog.bodyOverflow, "auto", "défilement interne disponible si le contenu dépasse sur desktop");
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.locator('[data-journey-attestation-save]').click();
+    await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
     assert.match(await page.locator("#journeyError-attDate").innerText(), /date de l'attestation/, "attestation sans date refusée");
-    await page.locator('[data-journey-date-type="year"]').click();
+    assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), true, "la validation échouée conserve la modale ouverte");
+    await page.locator('#personAttestationDialog [data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1895");
     await page.locator('[data-journey-document-check="person-page-document"]').check();
     await page.locator('[data-journey-document-check="person-page-pdf"]').check();
     await page.locator('[data-journey-source-check="person-page-source"]').check();
     await page.locator('[data-journey-proof-check="person-page-proof"]').check();
-    await page.locator('[data-journey-attestation-save]').click();
-    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
+    await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.residences[0].attestations.length, 1, "attestation enregistrée");
     assert.deepEqual(journey.residences[0].attestations[0].documentIds, ["person-page-document", "person-page-pdf"], "sélection de plusieurs documents enregistrée sans fusionner leurs références");
@@ -903,7 +931,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.locator('[data-journey-source-check="person-page-source"]').isChecked(), true, "source préchargée après réouverture");
     assert.equal(await page.locator('[data-journey-proof-check="person-page-proof"]').isChecked(), true, "preuve préchargée après réouverture");
     await page.locator('[data-journey-document-check="person-page-pdf"]').uncheck();
-    await page.locator('[data-journey-attestation-save]').click();
+    await page.locator('#personPageDetailedJourney [data-journey-attestation-save]').click();
     await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.deepEqual(journey.residences[0].attestations[0].documentIds, ["person-page-document"], "désassociation de document répercutée uniquement sur l'attestation");
@@ -911,13 +939,34 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
 
     /* Seconde attestation datée distincte : jamais bloquée. */
     await page.locator('#personPageDetailedJourney [data-journey-attestation-add]').click();
-    await page.locator('[data-journey-date-type="year"]').click();
+    assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), true, "résidence : bouton Ajouter ouvre la modale");
+    await page.locator('#personAttestationDialog [data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1901");
-    await page.locator('[data-journey-attestation-save]').click();
-    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
+    await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.residences[0].attestations.length, 2, "deux attestations distinctes coexistent");
     assert.match(await page.locator("#personPageDetailedJourney").innerText(), /2 attestations/);
+
+    await page.locator('#personPageDetailedJourney [data-journey-attestation-add]').click();
+    await page.fill("#journeyAttComment", "Brouillon à annuler");
+    const attestationCancelIndex = dialogMessages.length;
+    await page.locator("#closePersonAttestationDialogBtn").click();
+    for (let i = 0; i < 60 && dialogMessages.length === attestationCancelIndex; i++) await page.waitForTimeout(50);
+    assert.match(dialogMessages[attestationCancelIndex] || "", /Abandonner les modifications/, "la croix confirme l’abandon d’une saisie");
+    await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);
+    assert.equal(await page.evaluate(() => document.activeElement.matches("[data-journey-attestation-add]")), true, "le focus revient au bouton d’ajout après fermeture");
+    journey = await page.evaluate(() => window.__personPageTest.journeyState());
+    assert.equal(journey.residences[0].attestations.length, 2, "annulation sans écriture de l’attestation en cours");
+    await page.locator('#personPageDetailedJourney [data-journey-attestation-add]').click();
+    const cleanCancelIndex = dialogMessages.length;
+    await page.locator("#personAttestationDialog [data-journey-attestation-cancel]").click();
+    await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);
+    assert.equal(dialogMessages.length, cleanCancelIndex, "Annuler ferme sans confirmation quand le formulaire est intact");
+    await page.locator('#personPageDetailedJourney [data-journey-attestation-add]').click();
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);
+    assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), false, "Échap ferme la modale d’attestation");
 
     await page.locator('[data-journey-edit^="residence:"]').click();
     await page.fill("#journeyAddress", "Brouillon à abandonner");
@@ -1207,18 +1256,19 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await eventRow.evaluate(details => details.open), false, "panneau événement replié sans retirer son pied d’actions");
     assert.equal(await eventCard.locator("[data-journey-attestation-add]").count(), 1, "ajout d’attestation reste accessible carte fermée");
     await eventCard.locator('[data-journey-attestation-add]').click();
-    await page.locator('[data-journey-date-type="year"]').click();
+    assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), true, "Événement de vie : l’ajout ouvre la modale");
+    await page.locator('#personAttestationDialog [data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1902");
     await page.fill("#journeyAttComment", "Mention au recensement");
-    await page.locator('[data-journey-attestation-save]').click();
-    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
+    await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.lifeEvents[0].attestations.length, 1, "attestation événementielle enregistrée indépendamment");
     assert.equal(await eventRow.locator(".life-entry-chevron").count(), 1, "chevron affiché dès qu’une attestation apporte des détails");
     assert.equal(await eventRow.locator(".life-attestation").count(), 1, "détails de l’attestation consultables");
     await eventRow.locator('[data-journey-attestation-edit^="event:"]').click();
     await page.fill("#journeyAttComment", "Commentaire modifié");
-    await page.locator('[data-journey-attestation-save]').click();
+    await page.locator('#personPageDetailedJourney [data-journey-attestation-save]').click();
     await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
     assert.match(await eventRow.innerText(), /Commentaire modifié/, "attestation d’événement modifiable");
     const eventAttestationDeleteIndex = dialogMessages.length;
@@ -2275,18 +2325,22 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     });
     assert.ok(desktopBirthLayout.buttonLeft >= desktopBirthLayout.placeRight - 2, "desktop : CTA aligné à droite des champs Naissance");
     await birthAdd.click();
-    await page.locator('[data-journey-attestation-save]').click();
+    assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), true, "Naissance : le formulaire s’ouvre dans la modale");
+    assert.equal(await page.locator("#birthAttestationList [data-journey-form]").count(), 0, "Naissance : formulaire absent de la fiche sous-jacente");
+    await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
     assert.ok(await page.locator("#journeyError-attDate").isVisible(), "date de l’attestation obligatoire");
-    assert.deepEqual(await page.locator("#personForm .life-journey-justification-group > strong").allTextContents(), ["Documents associés", "Sources", "Preuves"], "sélecteurs de justification conservés dans le formulaire");
+    assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), true, "Naissance : erreur conserve la modale ouverte");
+    assert.deepEqual(await page.locator("#personAttestationDialog .life-journey-justification-group > strong").allTextContents(), ["Documents associés", "Sources", "Preuves"], "sélecteurs de justification conservés dans le formulaire");
     assert.equal(await page.locator("[data-journey-document-check]").count(), 4);
     assert.equal(await page.locator("[data-journey-source-check]").count(), 1);
     assert.equal(await page.locator("[data-journey-proof-check]").count(), 1);
-    await page.locator('[data-journey-date-type="year"]').click();
+    await page.locator('#personAttestationDialog [data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1892");
     await page.locator('[data-journey-document-check="person-page-document"]').check();
     await page.locator('[data-journey-source-check="person-page-source"]').check();
     await page.locator('[data-journey-proof-check="person-page-proof"]').check();
-    await page.locator('[data-journey-attestation-save]').click();
+    await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
+    await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });
     await page.waitForFunction(() => window.__personPageTest.journeyState().birthAttestations.length === 1, undefined, { timeout: 5000 });
     let lifeState = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.deepEqual(lifeState.birthAttestations[0].documentIds, ["person-page-document"]);
@@ -2304,6 +2358,21 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       });
       assert.ok(narrow.overflow <= 1, `${narrowWidth}px : aucun débordement horizontal`);
       assert.ok(narrow.controlRight <= narrow.groupRight + 1, `${narrowWidth}px : CTA contenu dans le groupe Naissance`);
+      await page.locator("#birthAttestationControl [data-journey-attestation-add]").click();
+      await page.waitForFunction(() => document.getElementById("personAttestationDialog").open);
+      await page.waitForTimeout(180);
+      const modal = await page.locator("#personAttestationDialog").evaluate(dialog => {
+        const box = dialog.getBoundingClientRect();
+        const body = dialog.querySelector(":scope > .person-attestation-modal-body");
+        const footer = dialog.querySelector(":scope > .modal-actions");
+        return { width: box.width, left: box.left, bottom: box.bottom, viewport: innerWidth, viewportHeight: innerHeight, bodyHeight: body.getBoundingClientRect().height, bodyOverflow: getComputedStyle(body).overflowY, bodyScrollable: body.scrollHeight >= body.clientHeight, footerHeight: footer.getBoundingClientRect().height, pageWidth: document.documentElement.scrollWidth };
+      });
+      assert.ok(modal.width >= narrowWidth - 3 && modal.left <= 2, `${narrowWidth}px : modale d’attestation quasi pleine largeur (${JSON.stringify(modal)})`);
+      assert.ok(Math.abs(modal.bottom - modal.viewportHeight) < 2, `${narrowWidth}px : modale ancrée à la surface visible`);
+      assert.ok(modal.bodyHeight > 0 && modal.bodyOverflow === "auto" && modal.bodyScrollable, `${narrowWidth}px : corps défilant disponible`);
+      assert.ok(modal.footerHeight > 0 && modal.pageWidth <= narrowWidth + 1, `${narrowWidth}px : pied d’actions visible sans débordement`);
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);
     }
     await page.setViewportSize({ width: 1280, height: 850 });
 
@@ -2316,7 +2385,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     await page.locator('#birthAttestationList [data-journey-attestation-edit^="birth:"]').click();
     await page.fill("#journeyAttComment", "Acte de naissance retrouvé");
-    await page.locator('[data-journey-attestation-save]').click();
+    await page.locator('#birthAttestationList [data-journey-attestation-save]').click();
     await page.waitForFunction(() => window.__personPageTest.journeyState().birthAttestations[0]?.comment === "Acte de naissance retrouvé", undefined, { timeout: 5000 });
     const deleteAttestationIndex = dialogMessages.length;
     await page.locator('#birthAttestationList [data-journey-attestation-delete^="birth:"]').click();
@@ -2327,11 +2396,13 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
 
     // Décès : même intégration, avec stockage indépendant sur la fiche personne.
     await page.locator("#deathAttestationControl [data-journey-attestation-add]").click();
-    await page.locator('[data-journey-date-type="year"]').click();
+    assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), true, "Décès : le formulaire s’ouvre dans la même modale");
+    await page.locator('#personAttestationDialog [data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1932");
     await page.fill("#journeyAttComment", "Acte de décès consulté");
-    await page.locator('[data-journey-attestation-save]').click();
+    await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
     await page.waitForFunction(() => window.__personPageTest.journeyState().deathAttestations.length === 1, undefined, { timeout: 5000 });
+    await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });
     assert.equal(await page.evaluate(() => (window.__personPageLifeEventWrites || []).at(-1)?.kind), "death", "décès enregistré dans son champ propre");
     await page.locator("#savePersonBtn").click();
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden, undefined, { timeout: 10000 });
@@ -2385,7 +2456,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.fill("#journeyDateYear", "1888");
     await page.fill("#journeyAttComment", "Acte de mariage partagé");
     await page.locator('[data-journey-document-check="person-page-document"]').check();
-    await page.locator('[data-journey-attestation-save]').click();
+    await page.locator('#familyDetailsDialog [data-journey-attestation-save]').click();
     await page.waitForFunction(() => (window.__personPageTest.journeyState().families.find(f => f.id === "person-page-family")?.marriageAttestations || []).length === 1, undefined, { timeout: 5000 });
     assert.equal(await page.evaluate(() => (window.__personPageLifeEventWrites || []).at(-1)?.kind), "marriage", "mariage enregistré sur la famille partagée");
     await page.locator("#unionPlace").fill("Palermo modifié");
@@ -3108,8 +3179,8 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
   page.on("dialog", async dialog => { webkitDialogs.push(dialog.message()); await dialog.accept(); });
   const stageAttestation = async (year, comment, documentId = "") => {
     await page.locator("#personPageDetailedJourney [data-journey-entry-attestation-add]").evaluate(button => button.click());
-    await page.waitForSelector("#personPageDetailedJourney [data-journey-attestation-save]");
-    await page.locator('#personPageDetailedJourney [data-journey-date-type="year"]').evaluate(button => button.click());
+    await page.waitForSelector("#personAttestationDialog[open]");
+    await page.locator('#personAttestationDialog [data-journey-date-type="year"]').evaluate(button => button.click());
     await page.fill("#journeyDateYear", String(year));
     await page.fill("#journeyAttComment", comment);
     if (documentId) {
@@ -3118,7 +3189,8 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
         input.dispatchEvent(new Event("change", { bubbles: true }));
       });
     }
-    await page.locator("#personPageDetailedJourney [data-journey-attestation-save]").evaluate(button => button.click());
+    await page.locator("#personAttestationDialog [data-journey-attestation-save]").evaluate(button => button.click());
+    await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);
     await page.waitForSelector("#personPageDetailedJourney [data-journey-entry-attestation-add]");
   };
   try {
@@ -3315,11 +3387,11 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     await tap('#personPageDetailedJourney [data-journey-add="profession"]');
     await page.fill("#journeyLabel", "Brouillon d’activité");
     await tap("#personPageDetailedJourney [data-journey-entry-attestation-add]");
-    await page.waitForSelector("#personPageDetailedJourney [data-journey-attestation-save]");
-    await page.locator('#personPageDetailedJourney [data-journey-date-type="year"]').evaluate(button => button.click());
+    await page.waitForSelector("#personAttestationDialog[open]");
+    await page.locator('#personAttestationDialog [data-journey-date-type="year"]').evaluate(button => button.click());
     await page.fill("#journeyDateYear", "1891");
     await page.fill("#journeyAttComment", "Attestation abandonnée");
-    await tap("#personPageDetailedJourney [data-journey-attestation-cancel]");
+    await tap("#personAttestationDialog [data-journey-attestation-cancel]");
     await page.waitForFunction(() => Boolean(document.querySelector('#personPageDetailedJourney [data-journey-save="profession"]')));
     await tap("#personPageDetailedJourney [data-journey-cancel]");
     await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"));

@@ -271,6 +271,9 @@ let journeyEditor = null;
 let journeyEditorBaseline = null;
 let journeyPendingEntryAttestations = [];
 let journeyPendingEntryAttestationParent = null;
+let journeyAttestationDialogReturnFocus = null;
+let journeyAttestationDialogReturnSelector = "";
+let journeyAttestationDialogScrollSnapshot = null;
 const journeyExpanded = new Set();
 let journeyLocationControl = null;
 let journeyLocationInput = null;
@@ -2853,6 +2856,91 @@ function journeyAttestationFormMarkup(item, entry, attestation, { pendingEntry =
   </div>`;
 }
 
+function personPageScrollSnapshot() {
+  const nodes = [document.scrollingElement, $("personDetailView"), $("personPageContent"), $("personPageEditHost")]
+    .filter((node, index, list) => node && list.indexOf(node) === index);
+  return { x: window.scrollX || 0, y: window.scrollY || 0, nodes: nodes.map(node => ({ node, top: node.scrollTop, left: node.scrollLeft })) };
+}
+
+function restorePersonPageScroll(snapshot) {
+  if (!snapshot) return;
+  for (const entry of snapshot.nodes || []) {
+    if (entry.node?.isConnected) { entry.node.scrollTop = entry.top; entry.node.scrollLeft = entry.left; }
+  }
+  window.scrollTo({ left: snapshot.x || 0, top: snapshot.y || 0, behavior: "instant" });
+}
+
+function journeyAttestationDialogContext() {
+  const editor = journeyEditor;
+  if (!editor) return "";
+  const labels = { birth: "Naissance", death: "Décès", marriage: "Union", residence: "Résidence", profession: "Profession", event: "Événement de vie" };
+  const category = labels[editor.entryKind] || "Parcours de vie";
+  if (editor.pendingEntry) {
+    const pending = journeyPendingEntryAttestationParent;
+    const value = pending?.values || {};
+    const summary = editor.entryKind === "residence" ? value.place : editor.entryKind === "profession" ? value.label : [lifeEventKindLabel(value.kind), value.label].filter(Boolean).join(" · ");
+    return summary ? `${category} · ${summary}` : category;
+  }
+  if (["birth", "death", "marriage"].includes(editor.entryKind)) return category;
+  const item = activePersonPageItem;
+  const entry = item && personLifeList(item, journeyFieldFor(editor.entryKind)).find(value => value.id === editor.entryId);
+  return entry ? journeyEntrySummary(editor.entryKind, entry) : category;
+}
+
+function journeyAttestationDialogFocusSelector() {
+  const editor = journeyEditor;
+  if (!editor) return "";
+  if (editor.pendingEntry) return "#personPageDetailedJourney [data-journey-entry-attestation-add]";
+  const majorControl = { birth: "birthAttestationControl", death: "deathAttestationControl" }[editor.entryKind];
+  if (majorControl) return `#${majorControl} [data-journey-attestation-add]`;
+  if (!editor.entryId) return "";
+  return `#personPageDetailedJourney [data-journey-attestation-add="${CSS.escape(String(editor.entryId))}"]`;
+}
+
+function openJourneyAttestationDialog(returnFocus = null, scrollSnapshot = null) {
+  if (!personPageInlineEditing || journeyEditor?.type !== "attestation" || journeyEditor.mode !== "add") return false;
+  const majorListId = { birth: "birthAttestationList", death: "deathAttestationList" }[journeyEditor.entryKind];
+  const formRoot = journeyEditor.pendingEntry || !majorListId
+    ? $("personPageDetailedJourney")
+    : $(majorListId);
+  const form = formRoot?.querySelector(".life-journey-form[data-journey-form]");
+  if (!form) {
+    toast("Le formulaire d’attestation est indisponible. Réessayez depuis la fiche Personne.", "error");
+    return false;
+  }
+  form.querySelector(".life-journey-form-actions")?.remove();
+  const dialog = $("personAttestationDialog");
+  $("personAttestationDialogContext").textContent = journeyAttestationDialogContext();
+  $("personAttestationDialogBody").replaceChildren(form);
+  journeyAttestationDialogReturnFocus = returnFocus;
+  journeyAttestationDialogReturnSelector = journeyAttestationDialogFocusSelector();
+  journeyAttestationDialogScrollSnapshot = scrollSnapshot;
+  dialog.showModal();
+  journeyEditorBaseline = journeyFormSnapshot();
+  $("closePersonAttestationDialogBtn").focus({ preventScroll: true });
+  restorePersonPageScroll(scrollSnapshot);
+  requestAnimationFrame(() => restorePersonPageScroll(scrollSnapshot));
+  return true;
+}
+
+function closeJourneyAttestationDialog() {
+  const dialog = $("personAttestationDialog");
+  if (!dialog.open) return;
+  dialog.close();
+  $("personAttestationDialogBody").replaceChildren();
+  const returnFocus = journeyAttestationDialogReturnFocus;
+  const returnSelector = journeyAttestationDialogReturnSelector;
+  const scrollSnapshot = journeyAttestationDialogScrollSnapshot;
+  journeyAttestationDialogReturnFocus = null;
+  journeyAttestationDialogReturnSelector = "";
+  journeyAttestationDialogScrollSnapshot = null;
+  requestAnimationFrame(() => {
+    restorePersonPageScroll(scrollSnapshot);
+    const target = returnFocus?.isConnected ? returnFocus : returnSelector ? document.querySelector(returnSelector) : null;
+    target?.focus({ preventScroll: true });
+  });
+}
+
 function personPageDetailedJourneyMarkup(item, { editable = personPageInlineEditing } = {}) {
   const residences = personLifeList(item, "residences").slice().sort(compareLifeEntries);
   const professions = personLifeList(item, "professions").slice().sort(compareLifeEntries);
@@ -3525,6 +3613,15 @@ function handlePersonPageContentClick(event) {
 }
 $("personPageContent").addEventListener("click", handlePersonPageContentClick);
 $("personPageEditHost").addEventListener("click", handlePersonPageContentClick);
+$("personAttestationDialog").addEventListener("click", event => {
+  if (event.target === $("personAttestationDialog")) return journeyCancelEditor();
+  handlePersonPageContentClick(event);
+});
+$("personAttestationDialog").addEventListener("cancel", event => {
+  event.preventDefault();
+  journeyCancelEditor();
+});
+$("closePersonAttestationDialogBtn").addEventListener("click", journeyCancelEditor);
 $("personPageContent").addEventListener("keydown", event => {
   if (event.key !== "Enter" && event.key !== " ") return;
   if (event.target.closest("button")) return;
@@ -14629,6 +14726,8 @@ function renderJourneySection({ preserveForm = true } = {}) {
 
 function journeyOpenPendingEntryAttestation() {
   if (!journeyEditor || journeyEditor.type === "attestation" || !["residence", "profession", "event"].includes(journeyEditor.type)) return;
+  const returnFocus = document.activeElement;
+  const scrollSnapshot = personPageInlineEditing ? personPageScrollSnapshot() : null;
   const values = journeyFormValues();
   if (!values) return;
   journeyPendingEntryAttestationParent = {
@@ -14639,6 +14738,7 @@ function journeyOpenPendingEntryAttestation() {
   journeyEditor = { type: "attestation", entryKind: journeyPendingEntryAttestationParent.editor.type, mode: "add", pendingEntry: true };
   journeyEditorBaseline = null;
   renderJourneySection({ preserveForm: false });
+  if (personPageInlineEditing) openJourneyAttestationDialog(returnFocus, scrollSnapshot);
 }
 
 /* Ouvrir un formulaire de résidence, de profession ou d'événement de vie en
@@ -14658,6 +14758,12 @@ function journeyScrollEntryFormIntoView() {
 
 function journeyOpenEditor(next) {
   if (journeyEditor && !journeyConfirmDiscard()) return;
+  const opensAttestationModal = personPageInlineEditing
+    && next?.type === "attestation"
+    && next.mode === "add"
+    && next.entryKind !== "marriage";
+  const returnFocus = opensAttestationModal ? document.activeElement : null;
+  const scrollSnapshot = opensAttestationModal ? personPageScrollSnapshot() : null;
   const previousEditor = journeyEditor;
   if (previousEditor) {
     journeyEditor = null;
@@ -14672,7 +14778,8 @@ function journeyOpenEditor(next) {
   journeyEditorBaseline = null;
   if (next.entryId && !isMajorEventAttestationKind(next.entryKind)) journeyExpanded.add(next.entryId);
   renderJourneyEditorSurface(next.entryKind || next.type);
-  if (["residence", "profession", "event"].includes(next.type)) journeyScrollEntryFormIntoView();
+  if (opensAttestationModal) openJourneyAttestationDialog(returnFocus, scrollSnapshot);
+  else if (["residence", "profession", "event"].includes(next.type)) journeyScrollEntryFormIntoView();
 }
 
 function journeyCancelEditor() {
@@ -14687,6 +14794,7 @@ function journeyCancelEditor() {
     journeyEditorBaseline = parent.baseline;
     renderJourneyEditorSurface(parent.editor.type);
     restoreJourneyFormValues(parent.values);
+    closeJourneyAttestationDialog();
     return;
   }
   if (!journeyConfirmDiscard()) return;
@@ -14697,6 +14805,7 @@ function journeyCancelEditor() {
     journeyPendingEntryAttestationParent = null;
   }
   renderJourneyEditorSurface(previousEditor.entryKind || previousEditor.type);
+  closeJourneyAttestationDialog();
 }
 
 function syncJourneyEventVisibilityButtons() {
@@ -14867,6 +14976,7 @@ async function journeySaveAttestation() {
     renderJourneyEditorSurface(parent.editor.type);
     restoreJourneyFormValues(parent.values);
     toast("Attestation ajoutée au formulaire.");
+    closeJourneyAttestationDialog();
     return;
   }
   const field = majorTarget?.field || journeyFieldFor(entryKind);
@@ -14909,6 +15019,7 @@ async function journeySaveAttestation() {
     if (personPageInlineEditing) renderJourneySection({ preserveForm: false });
     else refreshOpenPersonPage();
   }
+  closeJourneyAttestationDialog();
 }
 
 async function journeyDeleteEntry(type, entryId) {
@@ -15768,7 +15879,7 @@ $("treeFullscreenBtn").onclick = () => toggleTreeFullscreen();
 function resetTreeMenuPosition() {
   const menu = $("treeMenu");
   menu.classList.remove("is-open-up");
-  ["position", "left", "right", "top", "bottom", "width", "maxWidth", "maxHeight", "overflowY", "transform"].forEach(property => menu.style.removeProperty(property.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)));
+  ["position", "left", "right", "top", "bottom", "width", "height", "maxWidth", "maxHeight", "overflowY", "transform"].forEach(property => menu.style.removeProperty(property.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)));
 }
 // En plein écran, le menu est déplacé hors de .tree-controls : le guard de la
 // caméra ne le couvre plus et setPointerCapture détournerait le click des
@@ -15789,11 +15900,30 @@ window.addEventListener("scroll", resetTreeFullscreenScroll, { passive: true });
 function setTreeMenuScrollMode(menu, contentHeight, availableHeight) {
   menu.style.overflowY = contentHeight > availableHeight + 1 ? "auto" : "hidden";
 }
+function treeCommandMenuNaturalHeight(menu) {
+  const menuStyle = getComputedStyle(menu);
+  const items = [...menu.querySelectorAll('[role="menuitem"]')].filter(item => {
+    const style = getComputedStyle(item);
+    return !item.hidden && style.display !== "none" && style.visibility !== "hidden";
+  });
+  const rowsHeight = items.reduce((height, item) => {
+    const style = getComputedStyle(item);
+    return height + item.getBoundingClientRect().height
+      + (Number.parseFloat(style.marginTop) || 0)
+      + (Number.parseFloat(style.marginBottom) || 0);
+  }, 0);
+  const rowGap = Number.parseFloat(menuStyle.rowGap || menuStyle.gap) || 0;
+  const padding = (Number.parseFloat(menuStyle.paddingTop) || 0) + (Number.parseFloat(menuStyle.paddingBottom) || 0);
+  const border = (Number.parseFloat(menuStyle.borderTopWidth) || 0) + (Number.parseFloat(menuStyle.borderBottomWidth) || 0);
+  return Math.ceil(rowsHeight + Math.max(0, items.length - 1) * rowGap + padding + border);
+}
 function positionFullscreenTreeMenu() {
   const menu = $("treeMenu");
   if (!treeFullscreenActive || menu.hidden) return;
   menu.classList.remove("is-open-up");
   resetTreeFullscreenScroll();
+  menu.style.removeProperty("height");
+  menu.style.removeProperty("max-height");
   const visual = window.visualViewport;
   const bounds = visual && Number.isFinite(visual.width) && Number.isFinite(visual.offsetTop)
     ? { left: visual.offsetLeft || 0, top: visual.offsetTop, right: (visual.offsetLeft || 0) + visual.width, bottom: visual.offsetTop + visual.height }
@@ -15811,7 +15941,7 @@ function positionFullscreenTreeMenu() {
   /* Mesurer d'abord, appliquer ensuite : aucun état intermédiaire n'est observable. */
   const width = Math.min(menu.getBoundingClientRect().width, maxWidth);
   const left = Math.max(leftLimit, Math.min(anchor.right - width, rightLimit - width));
-  const naturalHeight = menu.scrollHeight;
+  const naturalHeight = treeCommandMenuNaturalHeight(menu);
   const roomBelow = Math.max(0, bounds.bottom - margin - anchor.bottom - 4);
   const roomAbove = Math.max(0, anchor.top - bounds.top - margin - 4);
   const placeBelow = roomBelow >= Math.min(naturalHeight, 140) || roomBelow >= roomAbove;
@@ -15826,6 +15956,7 @@ function positionFullscreenTreeMenu() {
   menu.style.top = `${top}px`;
   menu.style.right = "auto";
   menu.style.bottom = "auto";
+  menu.style.height = `${availableHeight}px`;
   menu.style.maxWidth = `${maxWidth}px`;
   menu.style.maxHeight = `${availableHeight}px`;
   setTreeMenuScrollMode(menu, naturalHeight, availableHeight);

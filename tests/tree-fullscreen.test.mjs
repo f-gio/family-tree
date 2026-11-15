@@ -98,10 +98,12 @@ async function assertMenuInsideViewport(page, label, expectedItems) {
       hidden: menu.hidden,
       open: menu.open,
       bottomSheet: menu.classList.contains("is-bottom-sheet"),
+      fullscreen: document.documentElement.classList.contains("tree-fullscreen-active"),
       expanded: document.getElementById("treeMoreBtn").getAttribute("aria-expanded"),
       text: [...menu.querySelectorAll('[role="menuitem"]')].filter(item => getComputedStyle(item).display !== "none").map(item => item.textContent.trim()),
       box: { x: box.x, y: box.y, right: box.right, bottom: box.bottom },
       viewport: { width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth },
+      menuMetrics: { clientHeight: menu.clientHeight, scrollHeight: menu.scrollHeight, style: menu.getAttribute("style"), cssHeight: getComputedStyle(menu).height, maxHeight: getComputedStyle(menu).maxHeight, display: getComputedStyle(menu).display, grid: getComputedStyle(menu).gridTemplateRows, rows: [...menu.querySelectorAll('[role="menuitem"]')].map(item => ({id:item.id,hidden:item.hidden,display:getComputedStyle(item).display,rect:item.getBoundingClientRect().toJSON(),margin:getComputedStyle(item).margin,minHeight:getComputedStyle(item).minHeight})) },
       clientHeight: menu.clientHeight,
       scrollHeight: menu.scrollHeight,
       backdrop: { background: getComputedStyle(menu, "::backdrop").backgroundColor, filter: getComputedStyle(menu, "::backdrop").backdropFilter },
@@ -115,6 +117,10 @@ async function assertMenuInsideViewport(page, label, expectedItems) {
   assert.ok(info.box.x >= -1 && info.box.y >= -1 && info.box.right <= info.viewport.width + 1 && info.box.bottom <= info.viewport.height + 1,
     `${label} : menu entièrement dans le viewport (${JSON.stringify(info)})`);
   assert.ok(info.clientHeight > 0 && info.scrollHeight >= info.clientHeight, `${label} : menu défilable si nécessaire`);
+  if (info.fullscreen && expectedItems.length === 3) {
+    assert.ok(info.box.bottom - info.box.y <= 180, `${label} : menu plein écran compact, sans espace vide (${JSON.stringify({ box: info.box, menuMetrics: info.menuMetrics })})`);
+    assert.ok(info.scrollHeight <= info.clientHeight + 2, `${label} : les trois actions tiennent sans ascenseur inutile`);
+  }
   if (info.scrollHeight <= info.clientHeight + 2) assert.notEqual(info.style.overflowY, "scroll", `${label} : aucun ascenseur vertical sans débordement`);
   if (info.bottomSheet) assert.match(info.backdrop.filter, /blur\(/, `${label} : flou réservé au bottom sheet normal mobile`);
   else {

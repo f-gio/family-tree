@@ -396,10 +396,10 @@ test("union et parcours détaillé : même rangée de boutons ; attestations inc
 
     // Attestation : sélecteur inchangé
     await page.locator("#personPageDetailedJourney [data-journey-attestation-add]").first().click();
+    await page.waitForSelector("#personAttestationDialog[open]");
     await page.waitForSelector("[data-journey-attestation-save]");
     const attestation = await page.evaluate(() => {
-      const save = document.querySelector("[data-journey-attestation-save]");
-      const form = save?.closest("[data-journey-form]");
+      const form = document.querySelector("#personAttestationDialog [data-journey-form]");
       const container = form?.querySelector("[data-journey-date]");
       if (!container) return null;
       return { hasSelect: Boolean(container.querySelector(".date-type-select")), switchDisplay: getComputedStyle(container.querySelector(".date-type-switch")).display, buttons: container.querySelectorAll("[data-journey-date-type]").length };
