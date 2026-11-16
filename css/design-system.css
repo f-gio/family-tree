@@ -756,7 +756,9 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 .view-control { position: absolute; top: 0; right: 0; bottom: auto; left: auto; }
 .fullscreen-control { position: absolute; top: auto; right: 0; bottom: 0; left: auto; display: inline-flex; align-items: center; padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface-raised); box-shadow: var(--shadow-low); pointer-events: auto; }
 .fullscreen-control button[aria-pressed="true"] { background: transparent; }
-.fullscreen-control button[aria-pressed="true"]:hover { background: var(--color-surface-soft); }
+@media (hover: hover) and (pointer: fine) {
+  .fullscreen-control button[aria-pressed="true"]:hover { background: var(--color-surface-soft); }
+}
 .view-control:has(#treeMoreBtn[aria-expanded="true"]) #treeMoreBtn { background: var(--color-surface-muted); }
 .view-control #treeMoreBtn:focus-visible { outline: 3px solid rgb(40 75 63 / 28%); outline-offset: 2px; }
 .tree-menu {
@@ -5076,7 +5078,7 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
 /* Paysage court : le chrome se compacte, sans masquer l'en-tête ni le statut. */
 @media (max-height: 620px) and (min-width: 761px) {
   body:has(main#appMain:not([hidden])) main#appMain > .toolbar { margin-bottom: 8px; }
-  body:has(main#appMain:not([hidden])) .topbar { padding-top: 10px; padding-bottom: 8px; }
+  body:has(main#appMain:not([hidden])) .topbar { padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: 8px; }
 }
 
 /* Sur petit smartphone, les modales importantes deviennent de vrais écrans. */
