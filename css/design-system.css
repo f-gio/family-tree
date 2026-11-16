@@ -1676,6 +1676,13 @@ dialog[open] {
 .person-attestation-modal-body > .life-journey-form { padding: 0; border: 0; border-radius: 0; background: transparent; }
 .person-attestation-dialog > .modal-head { z-index: 2; }
 .person-attestation-dialog > .modal-actions { flex: 0 0 auto; }
+/* Parcours détaillé : résidence, profession et événement de vie ouverts en modale
+   partagée. Même neutralisation de la carte que pour l'attestation, avec le
+   padding du corps de modale pour que les champs simples restent alignés. */
+dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-height: 0; max-height: min(92dvh, var(--modal-max-height)); }
+.person-journey-entry-body { padding: var(--space-5) var(--space-6); }
+.person-journey-entry-body > .life-journey-form { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.person-journey-entry-note { margin: var(--space-5) 0 0; color: var(--color-text-muted); font-size: var(--text-sm); }
 .person-attestation-dialog .attestation-form { gap: var(--space-4); min-width: 0; }
 .person-attestation-dialog .attestation-form-section { display: grid; gap: var(--space-2); min-width: 0; }
 .person-attestation-dialog .attestation-form-section > h4 {

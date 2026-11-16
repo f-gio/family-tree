@@ -26,7 +26,7 @@ export function configureGenealogyContributionDialog(elements, { official = fals
       }
     : officialMode && type === "proof"
       ? {
-          title: "Créer une preuve",
+          title: "Ajouter une preuve",
           subtitle: "La preuve sera enregistrée officiellement avec son événement d’historique.",
           actionLabel: "Créer la preuve",
           targetHelp: "Un identifiant est généré automatiquement si ce champ reste vide.",

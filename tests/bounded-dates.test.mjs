@@ -428,7 +428,7 @@ test("union et parcours détaillé : même rangée de boutons ; attestations inc
     await page.locator('#personPageDetailedJourney [data-journey-add="residence"]').click();
     await page.waitForSelector("#journeyPlace");
     const journey = await page.evaluate(() => {
-      const container = document.querySelector("#personPageDetailedJourney [data-journey-form] [data-journey-date]");
+      const container = document.querySelector("#personJourneyEntryDialog [data-journey-form] [data-journey-date]");
       const switcher = container?.querySelector(".date-type-switch");
       const buttons = switcher ? [...switcher.querySelectorAll("[data-journey-date-type]")] : [];
       const strip = value => String(value || "").replace(/^"|"$/g, "");
@@ -445,6 +445,8 @@ test("union et parcours détaillé : même rangée de boutons ; attestations inc
     assert.equal(journey.hasSelect, false, "résidence : aucun sélecteur natif");
 
     // Attestation : sélecteur inchangé
+    await page.locator("#personJourneyEntryDialog [data-journey-cancel]").click();
+    await page.waitForFunction(() => !document.getElementById("personJourneyEntryDialog").open);
     await page.locator("#personPageDetailedJourney [data-journey-attestation-add]").first().click();
     await page.waitForSelector("#personAttestationDialog[open]");
     await page.waitForSelector("[data-journey-attestation-save]");

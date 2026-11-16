@@ -141,7 +141,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const label = await openProofDialogFromPerson();
       assert.equal(label, "Ajouter une preuve", "libellé administrateur");
       const title = await page.locator("#genealogyContributionTitle").textContent();
-      assert.equal(title, "Créer une preuve", "titre officiel");
+      assert.equal(title, "Ajouter une preuve", "titre officiel");
       assert.ok(await page.locator("#genealogyOfficialProofFields").isVisible(), "formulaire guidé visible");
       assert.ok(!(await page.locator("#genealogyContributionPayload").isVisible()), "aucun champ JSON visible");
       const personChip = await page.locator("#genealogySourcePersonSelection").textContent();

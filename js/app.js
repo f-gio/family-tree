@@ -2720,26 +2720,20 @@ function journeyEntrySummary(kind, entry) {
 
 function journeyEntryMarkup(kind, entry, item, { editable = false } = {}) {
   const attestations = lifeAttestations(entry);
-  const isEditing = editable && journeyEditor && (journeyEditor.type === kind) && journeyEditor.entryId === entry.id && journeyEditor.type !== "attestation";
-  const editingAttestation = editable && journeyEditor?.type === "attestation" && journeyEditor.entryId === entry.id;
+  const editingAttestation = Boolean(editable && journeyEditor?.type === "attestation" && journeyEditor.entryId === entry.id);
   const countLabel = attestationCountMarkup(attestations.length, "life-entry-meta life-entry-attestation-count");
   const eventPlaceText = kind === "event" ? compactJourneyEventPlace(entry) : "";
-  const editableForm = isEditing ? journeyEntryFormMarkup(kind, entry) : "";
   const attestationContent = journeyAttestationsMarkup(kind, entry, item, { editable });
   const extraFacts = journeyEntryFactsMarkup(kind, entry);
   const eventLinks = kind === "event"
     ? `${journeySourceLinks(item, entry.sourceIds, "source")}${journeySourceLinks(item, entry.proofIds, "proof")}`
     : "";
   const detailsBody = `${extraFacts}${attestationContent}${eventLinks ? `<div class="life-attestation-links">${eventLinks}</div>` : ""}`;
-  const actions = editable && !isEditing ? `<div class="life-entry-actions"><button class="btn small" type="button" data-journey-edit="${kind}:${esc(entry.id)}">Modifier</button><button class="btn icon-btn life-delete-icon" type="button" aria-label="Supprimer ${kind === "residence" ? "la résidence" : kind === "profession" ? "la profession" : "l’événement"} ${esc(journeyEntrySummary(kind, entry))}" title="Supprimer" data-journey-delete="${kind}:${esc(entry.id)}">${icon("trash")}</button>${!editingAttestation ? `<button class="btn small tertiary life-attestation-add" type="button" data-journey-attestation-add="${esc(entry.id)}">${icon("plus")}<span>Ajouter une attestation</span></button>` : ""}</div>` : "";
-  const hasExtra = Boolean(isEditing || editingAttestation || extraFacts || eventPlaceText || attestations.length || eventLinks);
-  const editorOpen = Boolean(isEditing || editingAttestation);
-  const body = isEditing ? editableForm : detailsBody;
-  const summary = `<span class="life-entry-summary-copy"><span class="life-entry-title">${esc(journeyEntrySummary(kind, entry))}</span></span>${countLabel}${hasExtra && !editorOpen ? `<svg class="ui-icon life-entry-chevron" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>` : ""}`;
-  const content = editorOpen
-    ? `<div class="life-entry-editing"><div class="life-entry-summary">${summary}</div><div class="life-entry-body">${body}</div></div>`
-    : hasExtra
-      ? `<details class="life-entry" data-journey-kind="${kind}" data-journey-id="${esc(entry.id)}"${journeyExpanded.has(entry.id) ? " open" : ""}><summary class="life-entry-summary">${summary}</summary><div class="life-entry-body">${body}</div></details>`
+  const actions = editable ? `<div class="life-entry-actions"><button class="btn small" type="button" data-journey-edit="${kind}:${esc(entry.id)}">Modifier</button><button class="btn icon-btn life-delete-icon" type="button" aria-label="Supprimer ${kind === "residence" ? "la résidence" : kind === "profession" ? "la profession" : "l’événement"} ${esc(journeyEntrySummary(kind, entry))}" title="Supprimer" data-journey-delete="${kind}:${esc(entry.id)}">${icon("trash")}</button><button class="btn small tertiary life-attestation-add" type="button" data-journey-attestation-add="${esc(entry.id)}">${icon("plus")}<span>Ajouter une attestation</span></button></div>` : "";
+  const hasExtra = Boolean(editingAttestation || extraFacts || eventPlaceText || attestations.length || eventLinks);
+  const summary = `<span class="life-entry-summary-copy"><span class="life-entry-title">${esc(journeyEntrySummary(kind, entry))}</span></span>${countLabel}${hasExtra && !editingAttestation ? `<svg class="ui-icon life-entry-chevron" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>` : ""}`;
+  const content = hasExtra
+    ? `<details class="life-entry" data-journey-kind="${kind}" data-journey-id="${esc(entry.id)}"${journeyExpanded.has(entry.id) || editingAttestation ? " open" : ""}><summary class="life-entry-summary">${summary}</summary><div class="life-entry-body">${detailsBody}</div></details>`
     : `<div class="life-entry-static" data-journey-kind="${kind}" data-journey-id="${esc(entry.id)}"><div class="life-entry-summary">${summary}</div></div>`;
   return `<article class="life-entry-card" data-journey-entry-kind="${kind}" data-journey-id="${esc(entry.id)}">${content}${actions}</article>`;
 }
@@ -2820,15 +2814,9 @@ function journeyEntryFormMarkup(kind, entry) {
       <div class="life-journey-visibility-toggle"><span id="journeyEventShowInLifeTimelineLabel">Afficher dans le parcours de vie</span><button class="life-journey-switch" type="button" role="switch" aria-checked="${editing && entry.showInLifeTimeline === true ? "true" : "false"}" aria-labelledby="journeyEventShowInLifeTimelineLabel" data-journey-event-show-in-life-timeline><span class="life-journey-switch-track" aria-hidden="true"><span class="life-journey-switch-knob"></span></span></button><input type="hidden" id="journeyEventShowInLifeTimeline" value="${editing && entry.showInLifeTimeline === true ? "true" : "false"}"></div>`;
   }
   const legend = kind === "residence" ? "Période connue" : kind === "profession" ? "Période connue" : "Date de l’événement";
-  const pendingAttestationButton = `<div class="life-entry-actions"><button class="btn small tertiary life-attestation-add" type="button" data-journey-entry-attestation-add>${icon("plus")}<span>Ajouter une attestation</span></button></div>`;
   return `<div class="life-journey-form" data-journey-form>
     ${fields}
     <fieldset class="life-fields"><legend>${legend}</legend>${journeyDateFormMarkup(dateInfo)}${journeyErrorMarkup("date")}</fieldset>
-    ${journeyPendingEntryAttestationsMarkup()}${pendingAttestationButton}
-    <div class="life-journey-form-actions">
-      <button class="btn small" type="button" data-journey-cancel>Annuler</button>
-      <button class="btn small primary" type="button" data-journey-save="${kind}">Enregistrer</button>
-    </div>
   </div>`;
 }
 
@@ -3021,29 +3009,19 @@ function personPageDetailedJourneyMarkup(item, { editable = personPageInlineEdit
   };
   const addLabel = kind => editable ? `<button class="btn small life-journey-add" type="button" data-journey-add="${kind}" aria-label="${esc(`Ajouter ${kind === "residence" ? "une résidence" : kind === "profession" ? "une activité" : "un événement"}`)}">${icon("plus")}<span>Ajouter</span></button>` : "";
   const categoryHead = (kind, title, iconName) => `<div class="life-journey-column-head"><h4>${icon(iconName, "life-journey-category-icon")}<span class="source-detail-fact"><strong>${title}</strong></span></h4>${addLabel(kind)}</div>`;
-  const pendingAttestationForm = editable && journeyEditor?.type === "attestation" && journeyEditor.pendingEntry
-    ? journeyAttestationFormMarkup(item, null, null, { pendingEntry: true })
-    : "";
-  const pendingAttestationKind = pendingAttestationForm ? journeyEditor.entryKind : "";
-  const residencesEditor = editable && journeyEditor?.type === "residence" && !journeyEditor.entryId ? journeyEntryFormMarkup("residence", null) : "";
-  const professionEditor = editable && journeyEditor?.type === "profession" && !journeyEditor.entryId ? journeyEntryFormMarkup("profession", null) : "";
-  const eventEditor = editable && journeyEditor?.type === "event" && !journeyEditor.entryId ? journeyEntryFormMarkup("event", null) : "";
   return `<section id="personPageDetailedJourney" class="person-detail-journey" aria-labelledby="personPageDetailedJourneyTitle">
     <h3 id="personPageDetailedJourneyTitle">Parcours détaillé</h3>
     <div class="person-detail-journey-columns">
       <div class="life-journey-column">
         ${categoryHead("residence", "Résidences", "home")}
-        ${pendingAttestationKind === "residence" ? pendingAttestationForm : residencesEditor}
         ${residences.length ? residences.map(entry => journeyEntryMarkup("residence", entry, item, { editable })).join("") : `<p class="life-journey-empty"><span class="person-detail-empty-value">Aucune résidence renseignée</span></p>`}
       </div>
       <div class="life-journey-column">
         ${categoryHead("profession", "Professions et activités", "procedures")}
-        ${pendingAttestationKind === "profession" ? pendingAttestationForm : professionEditor}
         ${professions.length ? professions.map(entry => journeyEntryMarkup("profession", entry, item, { editable })).join("") : `<p class="life-journey-empty"><span class="person-detail-empty-value">Aucune activité renseignée</span></p>`}
       </div>
       <div class="life-journey-column">
         ${categoryHead("event", "Événements de vie", "calendar")}
-        ${pendingAttestationKind === "event" ? pendingAttestationForm : eventEditor}
         ${events.length ? events.map(entry => journeyEntryMarkup("event", entry, item, { editable })).join("") : `<p class="life-journey-empty"><span class="person-detail-empty-value">Aucun événement renseigné</span></p>`}
       </div>
     </div>
@@ -3702,6 +3680,18 @@ $("personAttestationDialog").addEventListener("cancel", event => {
   journeyCancelEditor();
 });
 $("closePersonAttestationDialogBtn").addEventListener("click", journeyCancelEditor);
+$("personJourneyEntryDialog").addEventListener("click", event => {
+  if (event.target === $("personJourneyEntryDialog")) return journeyCancelEditor();
+  handlePersonPageContentClick(event);
+});
+$("personJourneyEntryDialog").addEventListener("cancel", event => {
+  event.preventDefault();
+  journeyCancelEditor();
+});
+$("closePersonJourneyEntryDialogBtn").addEventListener("click", journeyCancelEditor);
+$("personJourneyEntryDialog").addEventListener("change", event => {
+  if (event.target?.id === "journeyEventKind") syncJourneyEventLabelRequirement();
+});
 $("personPageContent").addEventListener("keydown", event => {
   if (event.key !== "Enter" && event.key !== " ") return;
   if (event.target.closest("button")) return;
@@ -12021,6 +12011,15 @@ function updateGenealogyContributionPresentation() {
   const guidedSource = officialMode && contributionType === "source";
   const guidedProof = officialMode && contributionType === "proof";
   const guidedAny = guidedSource || guidedProof;
+  /* Ajouter une preuve : même gabarit de grande modale que la création d'une
+     personne et l'ajout d'une attestation, sans toucher aux autres types de
+     contribution. */
+  const proofPresentation = contributionType === "proof";
+  dialog.classList.toggle("person-dialog", proofPresentation);
+  dialog.classList.toggle("modal-xl", proofPresentation);
+  dialog.classList.toggle("modal-lg", !proofPresentation);
+  dialog.classList.toggle("modal-mobile-sheet--long", proofPresentation);
+  dialog.classList.toggle("modal-mobile-sheet--form", !proofPresentation);
   const guidedFields = ensureOfficialSourceGuidedFields();
   if (guidedFields) guidedFields.hidden = !guidedSource;
   const proofFields = ensureOfficialProofGuidedFields();
@@ -15087,9 +15086,15 @@ function journeyConfirmDiscard() {
 }
 
 function renderJourneySection({ preserveForm = true } = {}) {
-  if (!activePersonPageItem || $("personDetailView").hidden) return;
+  if (!activePersonPageItem || $("personDetailView").hidden) {
+    syncJourneyEntryDialog();
+    return;
+  }
   const current = $("personPageDetailedJourney");
-  if (!current) return;
+  if (!current) {
+    syncJourneyEntryDialog();
+    return;
+  }
   const values = preserveForm ? journeyFormValues() : null;
   const focusedId = current.contains(document.activeElement) ? document.activeElement.id : "";
   const template = document.createElement("template");
@@ -15102,6 +15107,101 @@ function renderJourneySection({ preserveForm = true } = {}) {
   syncJourneyEventLabelRequirement();
   if (journeyEditor && journeyEditorBaseline === null) journeyEditorBaseline = journeyFormSnapshot();
   if (focusedId) replacement.querySelector(`#${CSS.escape(focusedId)}`)?.focus({ preventScroll: true });
+  syncJourneyEntryDialog();
+}
+
+/* Le Parcours détaillé ouvre désormais une modale partagée pour la résidence,
+   la profession et l'événement de vie : mêmes champs, mêmes règles de
+   sauvegarde, seul le conteneur change. Les colonnes restent réservées à la
+   consultation. */
+const JOURNEY_ENTRY_TITLES = {
+  residence: ["Ajouter une résidence", "Modifier une résidence"],
+  profession: ["Ajouter une profession", "Modifier une profession"],
+  event: ["Ajouter un événement de vie", "Modifier un événement de vie"]
+};
+const JOURNEY_ENTRY_NOTES = {
+  residence: "Vous pourrez ajouter des attestations une fois la résidence enregistrée.",
+  profession: "Vous pourrez ajouter des attestations une fois la profession ou l’activité enregistrée.",
+  event: "Vous pourrez ajouter des attestations une fois l’événement enregistré."
+};
+let journeyEntryDialogSignature = "";
+let journeyEntryDialogReturnFocus = null;
+let journeyEntryDialogReturnSelector = "";
+let journeyEntryDialogScrollSnapshot = null;
+
+function journeyEntryPersonLabel() {
+  const item = activePersonPageItem;
+  if (!item) return "";
+  return [item.firstName, item.middleName, item.lastName].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+}
+
+function closeJourneyEntryDialog() {
+  const dialog = $("personJourneyEntryDialog");
+  const returnFocus = journeyEntryDialogReturnFocus;
+  const returnSelector = journeyEntryDialogReturnSelector;
+  const scrollSnapshot = journeyEntryDialogScrollSnapshot;
+  journeyEntryDialogSignature = "";
+  journeyEntryDialogReturnFocus = null;
+  journeyEntryDialogReturnSelector = "";
+  journeyEntryDialogScrollSnapshot = null;
+  destroyJourneyLocationAutocomplete();
+  $("personJourneyEntryBody").replaceChildren();
+  if (dialog?.open) dialog.close();
+  requestAnimationFrame(() => {
+    restorePersonPageScroll(scrollSnapshot);
+    const target = returnFocus?.isConnected ? returnFocus : returnSelector ? document.querySelector(returnSelector) : null;
+    target?.focus({ preventScroll: true });
+  });
+}
+
+function syncJourneyEntryDialog() {
+  const dialog = $("personJourneyEntryDialog");
+  if (!dialog) return;
+  const kind = journeyEditor && JOURNEY_ENTRY_TITLES[journeyEditor.type] ? journeyEditor.type : null;
+  const visible = Boolean(kind && activePersonPageItem && personPageInlineEditing && !$("personDetailView").hidden);
+  if (!visible) {
+    if (dialog.open || journeyEntryDialogSignature) closeJourneyEntryDialog();
+    return;
+  }
+  const editing = journeyEditor.mode === "edit";
+  const entryId = journeyEditor.entryId || "";
+  $("personJourneyEntryTitle").textContent = JOURNEY_ENTRY_TITLES[kind][editing ? 1 : 0];
+  $("personJourneyEntryContext").textContent = `Parcours détaillé · ${journeyEntryPersonLabel()}`;
+  const saveButton = document.querySelector('#personJourneyEntryDialog [data-journey-save]');
+  if (saveButton) saveButton.dataset.journeySave = kind;
+  const signature = `${kind}:${editing ? "edit" : "add"}:${entryId}`;
+  if (dialog.open && signature === journeyEntryDialogSignature) return;
+  const entry = editing
+    ? personLifeList(activePersonPageItem, journeyFieldFor(kind)).find(value => value.id === entryId)
+    : null;
+  const template = document.createElement("template");
+  template.innerHTML = journeyEntryFormMarkup(kind, entry);
+  const form = template.content.firstElementChild;
+  const body = $("personJourneyEntryBody");
+  destroyJourneyLocationAutocomplete();
+  body.replaceChildren(form);
+  if (!editing) {
+    const note = document.createElement("p");
+    note.className = "person-journey-entry-note";
+    note.textContent = JOURNEY_ENTRY_NOTES[kind];
+    body.append(note);
+  }
+  journeyEntryDialogSignature = signature;
+  if (!dialog.open) {
+    journeyEntryDialogReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    journeyEntryDialogReturnSelector = editing
+      ? `#personPageDetailedJourney [data-journey-edit="${kind}:${CSS.escape(entryId)}"]`
+      : `#personPageDetailedJourney [data-journey-add="${kind}"]`;
+    journeyEntryDialogScrollSnapshot = personPageScrollSnapshot();
+    dialog.showModal();
+    $("closePersonJourneyEntryDialogBtn").focus({ preventScroll: true });
+    restorePersonPageScroll(journeyEntryDialogScrollSnapshot);
+    requestAnimationFrame(() => restorePersonPageScroll(journeyEntryDialogScrollSnapshot));
+  }
+  initializeJourneyLocationAutocomplete(null);
+  syncJourneyEventLabelRequirement();
+  syncJourneyEventVisibilityButtons();
+  if (journeyEditor && journeyEditorBaseline === null) journeyEditorBaseline = journeyFormSnapshot();
 }
 
 function journeyOpenPendingEntryAttestation() {
@@ -15318,6 +15418,7 @@ async function journeySaveEntry() {
   journeyExpanded.add(entryId);
   if (personPageInlineEditing) renderJourneySection({ preserveForm: false });
   else refreshOpenPersonPage();
+  syncJourneyEntryDialog();
 }
 
 async function journeySaveAttestation() {

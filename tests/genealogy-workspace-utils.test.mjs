@@ -79,7 +79,7 @@ test("formulaire contribution : les trois modes réinitialisent tous les textes 
   assert.equal(elements.payloadHelp.textContent, "Texte libre accepté pour les sources et corrections.");
 
   configureGenealogyContributionDialog(elements, { official: true, type: "proof" });
-  assert.equal(elements.title.textContent, "Créer une preuve");
+  assert.equal(elements.title.textContent, "Ajouter une preuve");
   assert.equal(elements.subtitle.textContent, "La preuve sera enregistrée officiellement avec son événement d’historique.");
   assert.equal(elements.primaryAction.textContent, "Créer la preuve");
   assert.equal(elements.target.readOnly, false);

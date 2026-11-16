@@ -791,13 +791,28 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     const editOrder = await page.locator("#personForm").evaluate(form => [...form.children].map(element => element.id));
     assert.ok(editOrder.indexOf("personIdentityPanel") < editOrder.indexOf("personPageDetailedJourney") && editOrder.indexOf("personPageDetailedJourney") < editOrder.indexOf("personRelationsPanel"), "Parcours détaillé reste entre Identité et Famille en modification");
     await page.locator('#personPageDetailedJourney [data-journey-add="profession"]').click();
+    await page.waitForSelector("#personJourneyEntryDialog[open]");
+    assert.equal(await page.locator("#personJourneyEntryTitle").innerText(), "Ajouter une profession", "titre de la modale de profession");
+    assert.match(await page.locator("#personJourneyEntryDialog .person-journey-entry-note").innerText(), /la profession ou l.activité enregistrée/, "message contextuel de la profession");
+    await page.locator("#personJourneyEntryDialog [data-journey-cancel]").click();
+    await page.waitForFunction(() => !document.getElementById("personJourneyEntryDialog").open);
     await page.locator('#personPageDetailedJourney [data-journey-add="event"]').click();
-    assert.equal(await page.locator("#personPageDetailedJourney [data-journey-form]").count(), 1, "un seul formulaire du parcours ouvert à la fois");
-    assert.equal(await page.locator('#personPageDetailedJourney [data-journey-save="event"]').count(), 1, "le formulaire actif correspond à la dernière catégorie choisie");
-    await page.locator("#personPageDetailedJourney [data-journey-cancel]").click();
+    await page.waitForSelector("#personJourneyEntryDialog[open]");
+    assert.equal(await page.locator("#personJourneyEntryDialog [data-journey-form]").count(), 1, "un seul formulaire du parcours ouvert à la fois");
+    assert.equal(await page.locator("#personJourneyEntryTitle").innerText(), "Ajouter un événement de vie", "le formulaire actif correspond à la dernière catégorie choisie");
+    assert.match(await page.locator("#personJourneyEntryDialog .person-journey-entry-note").innerText(), /une fois l.événement enregistré/, "message contextuel de l’événement");
+    assert.equal(await page.locator("#personPageDetailedJourney [data-journey-form]").count(), 0, "aucun formulaire déployé dans les colonnes");
+    await page.locator("#personJourneyEntryDialog [data-journey-cancel]").click();
+    await page.waitForFunction(() => !document.getElementById("personJourneyEntryDialog").open);
 
     /* Ajout d'une résidence : autocomplétion clavier, erreur inline sans perte, puis enregistrement. */
     await page.locator('#personPageDetailedJourney [data-journey-add="residence"]').click();
+    await page.waitForSelector("#personJourneyEntryDialog[open]");
+    assert.equal(await page.locator("#personJourneyEntryTitle").innerText(), "Ajouter une résidence", "titre de la modale de résidence");
+    assert.match(await page.locator("#personJourneyEntryContext").innerText(), /^Parcours détaillé · .+/, "sous-titre portant le nom de la personne");
+    assert.match(await page.locator("#personJourneyEntryDialog .person-journey-entry-note").innerText(), /une fois la résidence enregistrée/, "message contextuel de la résidence");
+    assert.equal(await page.locator("#personJourneyEntryDialog [data-journey-cancel]").count(), 1, "pied de modale Annuler");
+    assert.equal(await page.locator("#personJourneyEntryDialog [data-journey-save]").count(), 1, "pied de modale Enregistrer");
     /* Harmonisation Lot 1 : le formulaire du Parcours détaillé reprend
        exactement le traitement visuel des sections Naissance/Décès. */
     const journeyHarmony = await page.evaluate(() => {
@@ -808,21 +823,22 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         return { background: style.backgroundColor, border: `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}`, radius: style.borderTopLeftRadius };
       };
       return {
-        panel: read("#personPageDetailedJourney .life-journey-form"),
+        panel: read("#personJourneyEntryDialog .life-journey-form"),
         referencePanel: read("#personForm .event-information-group"),
-        field: read("#personPageDetailedJourney #journeyPlace"),
+        field: read("#personJourneyEntryDialog #journeyPlace"),
         referenceField: read("#personForm #place"),
-        dateBlock: read("#personPageDetailedJourney .life-journey-form .life-fields"),
+        dateBlock: read("#personJourneyEntryDialog .life-journey-form .life-fields"),
         referenceDateBlock: read("#personForm .identity-life-section")
       };
     });
-    assert.deepEqual(journeyHarmony.panel, journeyHarmony.referencePanel, "panneau du formulaire de parcours identique aux panneaux Naissance/Décès");
+    assert.equal(journeyHarmony.panel?.background, "rgba(0, 0, 0, 0)", "le formulaire s'insère sans carte dans le corps de la modale");
+    assert.equal(journeyHarmony.panel?.border?.startsWith("0px"), true, "le formulaire du parcours n'arbore plus de cadre en modale");
     assert.deepEqual(journeyHarmony.field, journeyHarmony.referenceField, "champ du formulaire de parcours identique au champ Naissance/Décès");
     assert.deepEqual(journeyHarmony.dateBlock, journeyHarmony.referenceDateBlock, "bloc date du parcours traité comme les sections Naissance/Décès");
     assert.match(journeyHarmony.field?.border || "", /1px solid rgb\(214, 204, 187\)/, "bordure de champ beige clair, plus de contour foncé");
     await page.locator('[data-journey-save="residence"]').click();
     assert.match(await page.locator("#journeyError-place").innerText(), /commune ou le lieu/, "erreur de validation inline");
-    assert.ok(await page.locator("#personPageDetailedJourney [data-journey-form]").isVisible(), "formulaire conservé après erreur");
+    assert.ok(await page.locator("#personJourneyEntryDialog [data-journey-form]").isVisible(), "formulaire conservé après erreur");
     await page.fill("#journeyPlace", "Ori");
     await page.waitForSelector(".location-suggestion:visible");
     await page.keyboard.press("ArrowDown");
@@ -836,7 +852,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.inputValue("#journeyCountry"), "Italie", "pays préservé après re-render");
     assert.equal(await page.inputValue("#journeyDateYear"), "1892", "date préservée après re-render");
     await page.locator('[data-journey-save="residence"]').click();
-    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    await page.waitForFunction(() => !document.querySelector("#personJourneyEntryDialog [data-journey-form]"), undefined, { timeout: 5000 });
     let journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.residences.length, 1, "résidence enregistrée dans le document people");
     assert.equal(journey.residences[0].place, "Orino");
@@ -898,7 +914,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await addAttestation.click();
     assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), true, "ajout d’attestation ouvert dans une modale");
     assert.equal(await page.evaluate(() => window.scrollY), scrollBeforeAttestation, "l’ouverture de la modale conserve le défilement de la fiche");
-    assert.equal(await page.locator("#personPageDetailedJourney [data-journey-form]").count(), 0, "le formulaire n’est pas déployé dans la page sous-jacente");
+    assert.equal(await page.locator("#personJourneyEntryDialog [data-journey-form]").count(), 0, "le formulaire n’est pas déployé dans la page sous-jacente");
     assert.equal(await page.locator("#personAttestationDialogTitle").innerText(), "Ajouter une attestation");
     assert.deepEqual(await page.locator("#personAttestationDialog [data-journey-form] .attestation-form-section > h4").allTextContents(), ["Date de l’attestation", "Commentaire", "Documents associés", "Sources", "Preuves"], "cinq rubriques hiérarchisées dans le formulaire d’attestation");
     assert.equal(await page.locator("#personAttestationDialog .attestation-form-panel").count(), 5, "chaque rubrique dispose de son conteneur cohérent");
@@ -1109,11 +1125,18 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), false, "Échap ferme la modale d’attestation");
 
     await page.locator('[data-journey-edit^="residence:"]').click();
+    await page.waitForSelector("#personJourneyEntryDialog[open]");
+    assert.equal(await page.locator("#personJourneyEntryTitle").innerText(), "Modifier une résidence", "titre de la modale en édition");
+    assert.equal(await page.locator("#personJourneyEntryDialog .person-journey-entry-note").count(), 0, "aucun message contextuel en modification");
+    assert.equal(await page.inputValue("#journeyPlace"), "Orino", "champs préremplis depuis l’enregistrement existant");
     await page.fill("#journeyAddress", "Brouillon à abandonner");
     const journeyExitIndex = dialogMessages.length;
+    await page.locator('#personJourneyEntryDialog [data-journey-cancel]').click();
+    for (let i = 0; i < 60 && dialogMessages.length === journeyExitIndex; i++) await page.waitForTimeout(50);
+    assert.match(dialogMessages[journeyExitIndex] || "", /Abandonner les modifications/, "la fermeture confirme l’abandon du formulaire détaillé");
+    await page.waitForFunction(() => !document.getElementById("personJourneyEntryDialog").open);
     await page.locator('#personPageEditHost [data-close="personDialog"]').click();
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
-    assert.match(dialogMessages[journeyExitIndex] || "", /modifications ne sont pas enregistrées/, "sortie du mode modification confirme l’abandon du formulaire détaillé");
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.residences[0].address || "", "", "la saisie détaillée non enregistrée n’est pas sauvegardée implicitement");
     assert.equal(await page.locator('#personPageDetailedJourney [data-journey-add], #personPageDetailedJourney [data-journey-edit], #personPageDetailedJourney [data-journey-delete], #personPageDetailedJourney [data-journey-attestation-add], #personPageDetailedJourney [data-journey-attestation-edit], #personPageDetailedJourney [data-journey-attestation-delete]').count(), 0, "actions et attestations en lecture seule masquées");
@@ -1330,7 +1353,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator('[data-journey-date-type="about"]').click();
     await page.fill("#journeyDateAbout", "1895");
     await page.locator('[data-journey-save="profession"]').click();
-    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    await page.waitForFunction(() => !document.querySelector("#personJourneyEntryDialog [data-journey-form]"), undefined, { timeout: 5000 });
     await page.locator('#personPageDetailedJourney [data-journey-add="event"]').click();
     await page.selectOption("#journeyEventKind", "census");
     assert.equal(await page.locator("#journeyLabel").evaluate(input => input.closest("label").innerText.trim()), "Intitulé", "intitulé facultatif sans astérisque");
@@ -1339,7 +1362,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator('[data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1901");
     await page.locator('[data-journey-save="event"]').click();
-    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    await page.waitForFunction(() => !document.querySelector("#personJourneyEntryDialog [data-journey-form]"), undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.professions.length, 1, "profession enregistrée");
     assert.equal(journey.professions[0].label, "Agriculteur");
@@ -1367,7 +1390,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.inputValue("#journeyRegion"), "Province de Varese, Lombardie", "régions GeoNames disponibles dans le formulaire événement");
     assert.equal(await page.inputValue("#journeyCountry"), "Italie", "pays GeoNames conservé dans les données événement");
     await page.locator('[data-journey-save="event"]').click();
-    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    await page.waitForFunction(() => !document.querySelector("#personJourneyEntryDialog [data-journey-form]"), undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.lifeEvents[0].place, "Varese");
     assert.equal(journey.lifeEvents[0].countryCode, "ITA", "code ISO alpha-3 stocké à la suite d'une sélection GeoNames fiable");
@@ -1437,7 +1460,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await eventCard.locator('[data-journey-edit^="event:"]').click();
     await page.fill("#journeyLabel", "  RECENSEMENT  ");
     await page.locator('[data-journey-save="event"]').click();
-    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    await page.waitForFunction(() => !document.querySelector("#personJourneyEntryDialog [data-journey-form]"), undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.lifeEvents[0].label, "  RECENSEMENT  ", "valeur historique conservée sans normalisation en écriture");
     assert.match(await eventRow.locator(".life-entry-summary").innerText(), /^Recensement · 1901/, "intitulé identique au type omis du rendu");
@@ -1447,7 +1470,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.fill("#journeyRegion", "");
     await page.fill("#journeyCountry", "");
     await page.locator('[data-journey-save="event"]').click();
-    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    await page.waitForFunction(() => !document.querySelector("#personJourneyEntryDialog [data-journey-form]"), undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.lifeEvents[0].label, "", "intitulé vide enregistré sans valeur automatique");
     assert.match(await eventRow.locator(".life-entry-summary").innerText(), /^Recensement · 1901/, "titre de l’événement sans intitulé");
@@ -1474,13 +1497,13 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.match(dialogMessages[cancelIndex] || "", /Abandonner les modifications/, "confirmation avant abandon");
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.residences[0].address || "", "", "annulation : aucune modification enregistrée");
-    assert.ok(!(await page.locator("#personPageDetailedJourney [data-journey-form]").isVisible()), "formulaire fermé après annulation");
+    assert.ok(!(await page.locator("#personJourneyEntryDialog [data-journey-form]").isVisible()), "formulaire fermé après annulation");
 
     /* Édition effective d'une entrée. */
     await page.locator('[data-journey-edit^="residence:"]').click();
     await page.fill("#journeyRegion", "Varese (VA)");
     await page.locator('[data-journey-save="residence"]').click();
-    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"), undefined, { timeout: 5000 });
+    await page.waitForFunction(() => !document.querySelector("#personJourneyEntryDialog [data-journey-form]"), undefined, { timeout: 5000 });
     journey = await page.evaluate(() => window.__personPageTest.journeyState());
     assert.equal(journey.residences[0].region, "Varese (VA)", "modification enregistrée");
 
@@ -3323,21 +3346,20 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
   const page = await context.newPage();
   const webkitDialogs = [];
   page.on("dialog", async dialog => { webkitDialogs.push(dialog.message()); await dialog.accept(); });
-  const stageAttestation = async (year, comment, documentId = "") => {
-    await page.locator("#personPageDetailedJourney [data-journey-entry-attestation-add]").evaluate(button => button.click());
+  const stageSavedAttestation = async (kind, year, comment, documentId = "") => {
+    await page.locator(`#personPageDetailedJourney [data-journey-entry-kind="${kind}"] [data-journey-attestation-add]`).first().click();
     await page.waitForSelector("#personAttestationDialog[open]");
     await page.locator('#personAttestationDialog [data-journey-date-type="year"]').evaluate(button => button.click());
     await page.fill("#journeyDateYear", String(year));
     await page.fill("#journeyAttComment", comment);
     if (documentId) {
-      await page.locator(`[data-journey-document-check="${documentId}"]`).evaluate(input => {
+      await page.locator(`#personAttestationDialog [data-journey-document-check="${documentId}"]`).evaluate(input => {
         input.checked = true;
         input.dispatchEvent(new Event("change", { bubbles: true }));
       });
     }
     await page.locator("#personAttestationDialog [data-journey-attestation-save]").evaluate(button => button.click());
     await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);
-    await page.waitForSelector("#personPageDetailedJourney [data-journey-entry-attestation-add]");
   };
   try {
     await page.goto(server.baseURL, { waitUntil: "load" });
@@ -3522,44 +3544,39 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     const entryWrites = await page.evaluate(() => window.__personPageWebkitHarness.writeCount());
     await tap('#personPageDetailedJourney [data-journey-add="residence"]');
     await page.fill("#journeyPlace", "Orino");
-    await stageAttestation(1886, "Acte de résidence", "person-page-document");
-    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), entryWrites, "une attestation en attente ne crée aucune écriture séparée");
-    assert.equal((await page.evaluate(() => window.__personPageWebkitHarness.journeyLists())).residences.length, 0, "pas d'association orpheline avant l'enregistrement de la résidence");
-    await tap('#personPageDetailedJourney [data-journey-save="residence"]');
+    await tap('#personJourneyEntryDialog [data-journey-save="residence"]');
     await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().residences.length === 1);
     let journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
-    assert.equal(journeyLists.residences[0].attestations.length, 1, "résidence et attestation enregistrées ensemble");
-    assert.deepEqual(journeyLists.residences[0].attestations[0].documentIds, ["person-page-document"], "justificatif inclus dans l'écriture unique");
-    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), entryWrites + 1, "un seul point d'écriture pour résidence et attestation");
+    assert.equal(journeyLists.residences[0].attestations.length, 0, "résidence enregistrée avant toute attestation");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), entryWrites + 1, "un seul point d'écriture pour la résidence");
+    await stageSavedAttestation("residence", 1886, "Acte de résidence", "person-page-document");
+    journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
+    assert.equal(journeyLists.residences[0].attestations.length, 1, "attestation ajoutée depuis la carte après enregistrement");
+    assert.deepEqual(journeyLists.residences[0].attestations[0].documentIds, ["person-page-document"], "justificatif associé à l'attestation");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), entryWrites + 2, "l'attestation devient une écriture distincte postérieure");
 
     const beforeCancelledProfession = await page.evaluate(() => window.__personPageWebkitHarness.writeCount());
     await tap('#personPageDetailedJourney [data-journey-add="profession"]');
     await page.fill("#journeyLabel", "Brouillon d’activité");
-    await tap("#personPageDetailedJourney [data-journey-entry-attestation-add]");
-    await page.waitForSelector("#personAttestationDialog[open]");
-    await page.locator('#personAttestationDialog [data-journey-date-type="year"]').evaluate(button => button.click());
-    await page.fill("#journeyDateYear", "1891");
-    await page.fill("#journeyAttComment", "Attestation abandonnée");
-    await tap("#personAttestationDialog [data-journey-attestation-cancel]");
-    await page.waitForFunction(() => Boolean(document.querySelector('#personPageDetailedJourney [data-journey-save="profession"]')));
-    await tap("#personPageDetailedJourney [data-journey-cancel]");
-    await page.waitForFunction(() => !document.querySelector("#personPageDetailedJourney [data-journey-form]"));
+    await tap("#personJourneyEntryDialog [data-journey-cancel]");
+    await page.waitForFunction(() => !document.getElementById("personJourneyEntryDialog").open);
     journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
-    assert.equal(journeyLists.professions.length, 0, "annulation avant l'enregistrement ne crée pas la profession ni son attestation");
+    assert.equal(journeyLists.professions.length, 0, "annulation avant l'enregistrement ne crée pas la profession");
     assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeCancelledProfession, "aucune écriture lors de l'annulation");
     assert.ok(webkitDialogs.some(message => /Abandonner/.test(message)), "l'abandon du brouillon est confirmé");
 
     const beforeProfession = await page.evaluate(() => window.__personPageWebkitHarness.writeCount());
     await tap('#personPageDetailedJourney [data-journey-add="profession"]');
     await page.fill("#journeyLabel", "Agricultrice");
-    await stageAttestation(1895, "Registre professionnel");
-    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeProfession, "attestation de profession en attente sans écriture séparée");
-    await tap('#personPageDetailedJourney [data-journey-save="profession"]');
+    await tap('#personJourneyEntryDialog [data-journey-save="profession"]');
     await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().professions.length === 1);
     journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
-    assert.equal(journeyLists.professions[0].attestations.length, 1, "profession et attestation enregistrées ensemble");
-    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeProfession + 1, "profession et attestation dans une seule écriture");
-    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeProfession + 1, "un seul point d'écriture pour profession et attestation");
+    assert.equal(journeyLists.professions[0].attestations.length, 0, "profession enregistrée avant toute attestation");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeProfession + 1, "profession dans une seule écriture");
+    await stageSavedAttestation("profession", 1895, "Registre professionnel");
+    journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
+    assert.equal(journeyLists.professions[0].attestations.length, 1, "attestation ajoutée depuis la carte après enregistrement");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeProfession + 2, "attestation écrite après la profession");
 
     const beforeEvent = await page.evaluate(() => window.__personPageWebkitHarness.writeCount());
     await tap('#personPageDetailedJourney [data-journey-add="event"]');
@@ -3570,28 +3587,29 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
       assert.equal(await page.locator("#journeyEventKind").inputValue(), kind, `${kind} sélectionnable directement`);
     }
     assert.equal(await page.locator("#journeyLabel").getAttribute("required"), "", "intitulé obligatoire pour Autre événement à la création");
-    await tap('#personPageDetailedJourney [data-journey-save="event"]');
+    await tap('#personJourneyEntryDialog [data-journey-save="event"]');
     assert.ok(await page.locator("#journeyError-label").isVisible(), "Autre événement refusé sans intitulé");
     assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeEvent, "validation sans écriture");
     await page.selectOption("#journeyEventKind", "baptism");
     assert.equal(await page.locator("#journeyLabel").getAttribute("required"), null, "intitulé facultatif pour les types prédéfinis");
     await page.fill("#journeyLabel", "Baptême d’Ada");
     await page.fill("#journeyPlace", "Orino");
-    await page.locator('#personPageDetailedJourney [data-journey-date-type="year"]').evaluate(button => button.click());
+    await page.locator('#personJourneyEntryDialog [data-journey-date-type="year"]').evaluate(button => button.click());
     await page.fill("#journeyDateYear", "1910");
     assert.equal(await page.locator("#journeyEventShowInLifeTimeline").inputValue(), "false", "visibilité du Parcours de vie désactivée par défaut");
     assert.equal(await page.locator(".life-journey-switch").getAttribute("aria-checked"), "false", "interrupteur désactivé par défaut");
-    await stageAttestation(1911, "Acte de baptême", "person-page-document");
-    assert.equal(await page.inputValue("#journeyDateYear"), "1910", "les champs de l'événement sont conservés pendant l'ajout de l'attestation");
-    await stageAttestation(1912, "Mention marginale");
-    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeEvent, "attestations événementielles en attente sans écriture séparée");
-    await tap('#personPageDetailedJourney [data-journey-save="event"]');
+    await tap('#personJourneyEntryDialog [data-journey-save="event"]');
     await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents.length === 1);
     journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
     assert.equal(journeyLists.lifeEvents[0].showInLifeTimeline, false, "baptême conservé dans le Parcours détaillé sans affichage de frise");
-    assert.equal(journeyLists.lifeEvents[0].attestations.length, 2, "plusieurs attestations sauvegardées avec l'événement");
+    assert.equal(journeyLists.lifeEvents[0].attestations.length, 0, "événement enregistré avant ses attestations");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeEvent + 1, "événement enregistré en une seule écriture");
+    await stageSavedAttestation("event", 1911, "Acte de baptême", "person-page-document");
+    await stageSavedAttestation("event", 1912, "Mention marginale");
+    journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
+    assert.equal(journeyLists.lifeEvents[0].attestations.length, 2, "plusieurs attestations ajoutées depuis la carte");
     assert.deepEqual(journeyLists.lifeEvents[0].attestations[0].documentIds, ["person-page-document"]);
-    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeEvent + 1, "événement et attestations enregistrés en une seule écriture");
+    assert.equal(await page.evaluate(() => window.__personPageWebkitHarness.writeCount()), beforeEvent + 3, "événement puis deux attestations : trois écritures distinctes");
 
     await tap('#personPageEditHost [data-close="personDialog"]');
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
@@ -3620,7 +3638,7 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     assert.deepEqual(toggleTypography.span, toggleTypography.label, "typographie du switch alignée sur les libellés de champ");
     await page.fill("#journeyDateYear", "1908");
     await page.fill("#journeyPlace", "Palermo");
-    await tap('#personPageDetailedJourney [data-journey-save="event"]');
+    await tap('#personJourneyEntryDialog [data-journey-save="event"]');
     await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents[0]?.showInLifeTimeline === true);
     await tap('#personPageEditHost [data-close="personDialog"]');
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
@@ -3813,25 +3831,25 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     });
     assert.ok(beforeFormOpen.cardTop < beforeFormOpen.offset, `début du formulaire sous l’en-tête fixe avant ouverture (${beforeFormOpen.cardTop}px / ${beforeFormOpen.offset}px)`);
     await page.locator('#personPageEditHost [data-journey-edit^="event:"]').evaluate(button => button.click());
-    await page.waitForSelector("#personPageEditHost .life-entry-editing");
+    await page.waitForSelector("#personJourneyEntryDialog[open]");
     const formOpenState = await page.evaluate(() => {
-      const editing = document.querySelector("#personPageEditHost .life-entry-editing");
-      const offset = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--person-page-anchor-offset")) || 0;
-      const rect = editing.getBoundingClientRect();
+      const dialog = document.getElementById("personJourneyEntryDialog");
+      const rect = dialog.getBoundingClientRect();
       return {
         top: Math.round(rect.top),
-        offset: Math.round(offset),
-        titleVisible: Boolean(editing.querySelector(".life-entry-title")?.getClientRects().length),
+        bottom: Math.round(rect.bottom),
+        viewportHeight: window.innerHeight,
+        titleVisible: Boolean(document.getElementById("personJourneyEntryTitle")?.getClientRects().length),
         activeTag: document.activeElement?.tagName || ""
       };
     });
     assert.equal(formOpenState.titleVisible, true, "titre du formulaire visible sans défilement manuel");
-    assert.ok(Math.abs(formOpenState.top - formOpenState.offset) <= 24, `formulaire aligné sous l’en-tête fixe (${formOpenState.top}px / ${formOpenState.offset}px)`);
+    assert.ok(formOpenState.top >= 0 && formOpenState.bottom <= formOpenState.viewportHeight + 2, `modale entièrement visible sans défilement manuel (${formOpenState.top}px → ${formOpenState.bottom}px / ${formOpenState.viewportHeight}px)`);
     assert.ok(!["INPUT", "TEXTAREA", "SELECT"].includes(formOpenState.activeTag), "aucun clavier ouvert automatiquement");
     await page.locator(".life-journey-switch").evaluate(button => button.click());
     assert.equal(await page.locator("#journeyEventShowInLifeTimeline").inputValue(), "false", "retour à désactivé");
     assert.equal(await page.locator(".life-journey-switch").getAttribute("aria-checked"), "false", "état désactivé annoncé");
-    await tap('#personPageDetailedJourney [data-journey-save="event"]');
+    await tap('#personJourneyEntryDialog [data-journey-save="event"]');
     await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents[0]?.showInLifeTimeline === false);
     journeyLists = await page.evaluate(() => window.__personPageWebkitHarness.journeyLists());
     assert.equal(journeyLists.lifeEvents.length, 1, "masquer de la frise ne supprime pas l'élément détaillé");
@@ -3897,9 +3915,9 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
     await page.locator('#personPageDetailedJourney [data-journey-edit="event:webkit-legacy-event"]').evaluate(button => button.click());
     assert.equal(await page.locator("#journeyEventKind").inputValue(), "studies", "ancien type conservé à la réouverture");
     assert.equal(await page.locator('#journeyEventKind optgroup[label="Type historique"] option[value="studies"]').evaluate(option => option.selected), true, "ancien type proposé comme option historique sélectionnée");
-    assert.equal(await page.locator('#personPageDetailedJourney [data-journey-date-type="before"]').count(), 1, "critère historique Avant affiché pour cet enregistrement");
-    assert.equal(await page.locator('#personPageDetailedJourney [data-journey-date-type="before"]').evaluate(button => button.classList.contains("active")), true, "critère historique restauré");
-    await tap('#personPageDetailedJourney [data-journey-save="event"]');
+    assert.equal(await page.locator('#personJourneyEntryDialog [data-journey-date-type="before"]').count(), 1, "critère historique Avant affiché pour cet enregistrement");
+    assert.equal(await page.locator('#personJourneyEntryDialog [data-journey-date-type="before"]').evaluate(button => button.classList.contains("active")), true, "critère historique restauré");
+    await tap('#personJourneyEntryDialog [data-journey-save="event"]');
     await page.waitForFunction(() => window.__personPageWebkitHarness.journeyLists().lifeEvents.some(event => event.id === "webkit-legacy-event" && event.kind === "studies" && event.dateInfo?.type === "before" && event.dateInfo?.value === "1912-05-01"));
 
   } finally {
