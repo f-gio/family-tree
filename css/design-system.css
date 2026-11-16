@@ -746,7 +746,7 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
 /* Commandes ancrées aux coins du canvas en vue normale. */
 .tree-controls {
   position: absolute;
-  inset: max(var(--space-2), env(safe-area-inset-top)) max(var(--space-2), env(safe-area-inset-right)) max(var(--space-2), env(safe-area-inset-bottom)) max(var(--space-2), env(safe-area-inset-left));
+  inset: var(--space-2) max(var(--space-2), env(safe-area-inset-right)) max(var(--space-2), env(safe-area-inset-bottom)) max(var(--space-2), env(safe-area-inset-left));
   display: block;
   pointer-events: none;
 }
@@ -1106,9 +1106,10 @@ html.tree-fullscreen-active #appMain .tree-controls {
 /* Navigation et menus : état actif stable, menus alignés et actions prévisibles. */
 .main-nav .nav-btn.active { color: var(--color-brand); }
 .main-nav .nav-btn[aria-current="page"]::after { background: var(--color-brand); }
-/* Masquage temporaire Démarches (production) : la nav mobile repasse à 4 colonnes. */
+/* Masquage temporaire Démarches (production) : la nav mobile repasse à 5 colonnes
+   (Arbre, Annuaire, Documents, Archives, Actions) pour rester sur une seule ligne. */
 @media (max-width: 760px) {
-  html.procedures-hidden .main-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  html.procedures-hidden .main-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 .account-dropdown { padding: var(--space-2); border: var(--border-subtle); border-radius: var(--radius-md); }
 .account-action {
@@ -6798,7 +6799,7 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   .person-detail-header-actions { grid-column: 1 / -1; grid-row: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); max-width: none; gap: var(--space-2); margin-top: var(--space-2); }
   .person-detail-header-actions > .btn { min-height: var(--control-touch); }
   .person-detail-header-actions .person-page-actions { display: none; }
-  .person-detail-section-nav { top: calc(var(--control-touch) + env(safe-area-inset-top) + var(--space-2)); gap: 2px; padding-inline: var(--space-2); }
+  .person-detail-section-nav { top: calc(max(var(--space-1), env(safe-area-inset-top)) + var(--control-touch) + var(--space-1)); gap: 2px; padding-inline: var(--space-2); }
   .person-detail-section-nav .person-section-tab { flex: 0 0 auto; width: auto; min-width: max-content; min-height: 44px; padding-inline: var(--space-3); font-size: 14px; white-space: nowrap; overflow-wrap: normal; }
   .person-detail-content section[id] { scroll-margin-top: calc(var(--control-touch) + env(safe-area-inset-top) + 5rem); }
   .person-detail-content .relation-group-list { grid-template-columns: minmax(0, 1fr); }

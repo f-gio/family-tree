@@ -45,8 +45,8 @@ test("setView redirige dossiers vers tree quand showProcedures est désactivé",
   assert.match(appSource, /function setView\([^)]*\) \{\s*\n\s*if \(view === "dossiers" && !featureFlags\.showProcedures\) view = "tree";/);
 });
 
-test("CSS : nav mobile 4 colonnes quand procedures-hidden", () => {
-  assert.match(cssSource, /@media \(max-width: 760px\) \{\s*\n\s*html\.procedures-hidden \.main-nav \{ grid-template-columns: repeat\(4, minmax\(0, 1fr\)\); \}/);
+test("CSS : nav mobile 5 colonnes quand procedures-hidden", () => {
+  assert.match(cssSource, /@media \(max-width: 760px\) \{\s*\n\s*html\.procedures-hidden \.main-nav \{ grid-template-columns: repeat\(5, minmax\(0, 1fr\)\); \}/);
 });
 
 test("firebase-environment.js ne touche pas aux identifiants Firebase", () => {
@@ -157,11 +157,11 @@ test("Production simulée : onglet Démarches masqué, accès bloqué, autres vu
             }, view);
             assert.ok(ok, `vue ${view} accessible`);
           }
-          /* navigation mobile : 4 colonnes */
+          /* navigation mobile : 5 colonnes sur une seule ligne */
           if (width <= 760) {
             const cols = await page.evaluate(() => getComputedStyle(document.querySelector(".main-nav")).gridTemplateColumns);
             const colCount = cols.split(" ").filter(Boolean).length;
-            assert.equal(colCount, 4, `nav mobile à 4 colonnes (${cols})`);
+            assert.equal(colCount, 5, `nav mobile à 5 colonnes (${cols})`);
           }
         } finally { await context.close(); }
       });
