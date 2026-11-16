@@ -20,6 +20,7 @@ import { filterAndSortProcedures, sortProcedureActions, procedureTypeLabel, proc
 import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText, genealogyDateYears } from "./genealogy-date.js";
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
 import { planParentDissociation, dissociationConfirmationMessage } from "./family-dissociation.js";
+import { planSecondParentAddition } from "./family-parent-addition.js";
 import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
 import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
 import { createNavigationContextStore, GENEALOGY_VIEW_CONTEXT_KEY } from "./navigation-context.js";
@@ -275,6 +276,8 @@ let journeyPendingEntryAttestationParent = null;
 let journeyAttestationDialogReturnFocus = null;
 let journeyAttestationDialogReturnSelector = "";
 let journeyAttestationDialogScrollSnapshot = null;
+const pendingRelationAttestations = { parent: [], partner: [], addParent: [] };
+let pendingRelationAttestationContext = null;
 const journeyExpanded = new Set();
 let journeyLocationControl = null;
 let journeyLocationInput = null;
@@ -288,11 +291,13 @@ const locationFieldDefinitions = {
   endPlace: { textKey: "endPlace", infoKey: "endPlaceInfo" },
   parentUnionPlace: { textKey: "unionPlace", infoKey: "unionPlaceInfo" },
   parentEndPlace: { textKey: "endPlace", infoKey: "endPlaceInfo" },
+  partnerUnionPlace: { textKey: "unionPlace", infoKey: "unionPlaceInfo" },
+  partnerEndPlace: { textKey: "endPlace", infoKey: "endPlaceInfo" },
   documentPlace: { textKey: "place", infoKey: "placeInfo" }
 };
 
 function configureResponsiveFormSemantics() {
-  ["birthYear", "birthYearFrom", "birthYearTo", "deathYear", "deathYearFrom", "deathYearTo", "unionYear", "unionYearFrom", "unionYearTo", "endYear", "endYearFrom", "endYearTo", "parentUnionYear", "parentUnionYearFrom", "parentUnionYearTo", "parentEndYear", "parentEndYearFrom", "parentEndYearTo"].forEach(id => {
+  ["birthYear", "birthYearFrom", "birthYearTo", "deathYear", "deathYearFrom", "deathYearTo", "unionYear", "unionYearFrom", "unionYearTo", "endYear", "endYearFrom", "endYearTo", "parentUnionYear", "parentUnionYearFrom", "parentUnionYearTo", "parentEndYear", "parentEndYearFrom", "parentEndYearTo", "partnerUnionYear", "partnerUnionYearFrom", "partnerUnionYearTo", "partnerEndYear", "partnerEndYearFrom", "partnerEndYearTo"].forEach(id => {
     const field = $(id);
     if (!field) return;
     field.inputMode = "numeric";
@@ -2827,7 +2832,7 @@ function journeyEntryFormMarkup(kind, entry) {
   </div>`;
 }
 
-function journeyAttestationFormMarkup(item, entry, attestation, { pendingEntry = false } = {}) {
+function journeyAttestationFormMarkup(item, entry, attestation, { pendingEntry = false, pendingRelation = false } = {}) {
   const linkedDocuments = documents.filter(record => (record.personIds || []).includes(item.id));
   const sources = genealogyRecords.sourceDocuments.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id));
   const proofs = genealogyRecords.genealogyProofs.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id));
@@ -2852,7 +2857,7 @@ function journeyAttestationFormMarkup(item, entry, attestation, { pendingEntry =
       <div class="attestation-form-panel"><div class="attestation-association-list">${options || `<p class="card-meta">${emptyMessage}</p>`}</div></div>
     </section>`;
   return `<div class="life-journey-form attestation-form" data-journey-form>
-    ${pendingEntry ? `<p class="hint">Cette attestation sera enregistrée avec l’élément du Parcours détaillé.</p>` : ""}
+    ${pendingEntry ? `<p class="hint">${pendingRelation ? "Cette attestation sera enregistrée avec l’union familiale." : "Cette attestation sera enregistrée avec l’élément du Parcours détaillé."}</p>` : ""}
     <section class="attestation-form-section" aria-labelledby="journeyAttestationDateTitle">
       <h4 id="journeyAttestationDateTitle">Date de l’attestation</h4>
       <div class="attestation-form-panel attestation-date-panel">${journeyDateFormMarkup(attestation?.date)}${journeyErrorMarkup("attDate")}</div>
@@ -2892,6 +2897,7 @@ function journeyAttestationDialogContext() {
   if (!editor) return "";
   const labels = { birth: "Naissance", death: "Décès", marriage: "Union", residence: "Résidence", profession: "Profession", event: "Événement de vie" };
   const category = labels[editor.entryKind] || "Parcours de vie";
+  if (editor.pendingRelation) return "Union familiale · création de relation";
   if (editor.pendingEntry) {
     const pending = journeyPendingEntryAttestationParent;
     const value = pending?.values || {};
@@ -2945,6 +2951,45 @@ function openJourneyAttestationDialog(returnFocus = null, scrollSnapshot = null)
   restorePersonPageScroll(scrollSnapshot);
   requestAnimationFrame(() => restorePersonPageScroll(scrollSnapshot));
   return true;
+}
+
+function renderPendingRelationAttestations(kind) {
+  const control = $(`${kind}UnionAttestationControl`);
+  const list = $(`${kind}UnionAttestationList`);
+  if (!control || !list) return;
+  const attestations = pendingRelationAttestations[kind] || [];
+  control.innerHTML = `<button class="btn small tertiary life-attestation-add" type="button" data-pending-relation-attestation-add="${kind}">${icon("plus")}<span>Ajouter une attestation</span></button>`;
+  list.innerHTML = attestations.map(attestation => {
+    const associationCount = (attestation.documentIds || []).length + (attestation.sourceIds || []).length + (attestation.proofIds || []).length;
+    const associations = associationCount ? `<span class="life-entry-meta">${associationCount} association${associationCount > 1 ? "s" : ""}</span>` : "";
+    return `<div class="life-attestation" data-pending-relation-attestation="${esc(attestation.id)}"><div class="life-attestation-head"><strong>${esc(formatLifeDate(attestation.date))}</strong>${attestation.comment ? `<span class="life-entry-meta">${esc(attestation.comment)}</span>` : ""}${associations}</div><div class="life-attestation-links"><button class="btn small" type="button" data-pending-relation-attestation-edit="${esc(attestation.id)}">Modifier</button><button class="btn icon-btn life-delete-icon" type="button" aria-label="Retirer l’attestation préparée du ${esc(formatLifeDate(attestation.date))}" title="Retirer cette attestation préparée" data-pending-relation-attestation-remove="${esc(attestation.id)}">${icon("trash")}</button></div></div>`;
+  }).join("");
+  list.hidden = !attestations.length;
+}
+
+function openPendingRelationAttestation(kind, attestationId = "") {
+  if (!Object.hasOwn(pendingRelationAttestations, kind)) return;
+  const item = person(activeId || $("personId")?.value || "");
+  if (!item) return toast("Enregistrez d’abord cette personne avant d’ajouter une attestation.", "error");
+  const existing = pendingRelationAttestations[kind].find(value => value.id === attestationId) || null;
+  pendingRelationAttestationContext = { kind, attestationId: existing?.id || "" };
+  journeyEditor = { type: "attestation", entryKind: "marriage", mode: existing ? "edit" : "add", attId: existing?.id || "", pendingRelation: true };
+  journeyEditorBaseline = null;
+  const entry = { id: `pending-${kind}`, attestations: pendingRelationAttestations[kind] };
+  const form = journeyAttestationFormMarkup(item, entry, existing, { pendingEntry: true, pendingRelation: true });
+  const formRoot = document.createElement("div");
+  formRoot.innerHTML = form;
+  const formElement = formRoot.firstElementChild;
+  formElement?.querySelector(".life-journey-form-actions")?.remove();
+  $("personAttestationDialogTitle").textContent = existing ? "Modifier une attestation" : "Ajouter une attestation";
+  $("personAttestationDialogContext").textContent = "Union familiale · création de relation";
+  $("personAttestationDialogBody").replaceChildren(formElement);
+  journeyAttestationDialogReturnFocus = document.activeElement;
+  journeyAttestationDialogReturnSelector = `#${kind}UnionAttestationControl [data-pending-relation-attestation-add]`;
+  journeyAttestationDialogScrollSnapshot = personPageScrollSnapshot();
+  $("personAttestationDialog").showModal();
+  journeyEditorBaseline = journeyFormSnapshot();
+  $("closePersonAttestationDialogBtn").focus({ preventScroll: true });
 }
 
 function closeJourneyAttestationDialog() {
@@ -4185,6 +4230,7 @@ function openPerson(item = null, source = "tree", { showDialog = true } = {}) {
   if (item) renderPersonDocuments(item.id);
   $("relationBuilder").hidden = true;
   resetParentBuilderRelationship();
+  resetPartnerBuilderRelationship();
   $("toggleRelationBuilderBtn").setAttribute("aria-expanded", "false");
   setRelationBuilderKind("parent");
   setPersonSection("identity");
@@ -4259,7 +4305,10 @@ function setRelationBuilderKind(kind = "parent") {
 }
 
 function setRelationBuilderOpen(open, kind = "parent") {
-  if (!open) resetParentBuilderRelationship();
+  if (!open) {
+    resetParentBuilderRelationship();
+    resetPartnerBuilderRelationship();
+  }
   $("relationBuilder").hidden = !open;
   $("toggleRelationBuilderBtn").setAttribute("aria-expanded", String(open));
   if (open) {
@@ -4267,6 +4316,7 @@ function setRelationBuilderOpen(open, kind = "parent") {
     /* Le second parent peut encore être choisi après une fermeture : les
        sections d'union doivent suivre sa sélection effective. */
     updateParentUnionSectionsVisibility();
+    updatePartnerUnionSectionsVisibility();
     const mobile = window.matchMedia("(max-width: 760px)").matches;
     setTimeout(() => {
       const select = document.querySelector(`[data-relation-add-panel="${kind}"] select`);
@@ -4375,6 +4425,7 @@ function renderRelations() {
   $("parentSelect").innerHTML = options;
   $("parent2Select").innerHTML = options;
   updateParentUnionSectionsVisibility();
+  updatePartnerUnionSectionsVisibility();
   const hasSingleParentFamily = ownFamilies.some(family => (family.partnerIds || []).length === 1);
   $("childFamilySelect").innerHTML = (hasSingleParentFamily ? "" : '<option value="new">Cette personne uniquement</option>') + ownFamilies.map(family => {
     const others = (family.partnerIds || []).filter(id => id !== item.id);
@@ -4391,12 +4442,28 @@ async function addPartner() {
     const ids = new Set(family.partnerIds || []);
     return ids.has(activeId) && ids.has(other);
   })) return toast("Cette union existe déjà", "info");
-  await ensurePeopleInTree([activeId, other]);
   const single = families.find(family => (family.partnerIds || []).length === 1 && (family.partnerIds || []).includes(activeId));
+  const fields = readPartnerBuilderRelationship(single || null) || {};
+  await ensurePeopleInTree([activeId, other]);
+  const batch = writeBatch(db);
   if (single) {
     const nextFamily = { ...single, partnerIds: [activeId, other] };
-    await updateDoc(doc(db, "families", single.id), { partnerIds: nextFamily.partnerIds, parentChildLinks: normalizedParentChildLinks(nextFamily), updatedAt: serverTimestamp() });
-  } else await addDoc(refs.families, { partnerIds: [activeId, other], childIds: [], relationType: "unknown", unionDateInfo: { type: "unknown" }, unionPlace: "", endType: "none", endDateInfo: { type: "unknown" }, endPlace: "", parentChildLinks: [], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    batch.update(doc(db, "families", single.id), {
+      partnerIds: nextFamily.partnerIds,
+      parentChildLinks: normalizedParentChildLinks(nextFamily),
+      ...fields,
+      updatedAt: serverTimestamp()
+    });
+  } else {
+    const familyRef = doc(refs.families);
+    batch.set(familyRef, {
+      partnerIds: [activeId, other], childIds: [], relationType: "unknown",
+      unionDateInfo: { type: "unknown" }, unionPlace: "", endType: "none",
+      endDateInfo: { type: "unknown" }, endPlace: "", parentChildLinks: [],
+      ...fields, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+    });
+  }
+  await batch.commit();
   setRelationBuilderOpen(false);
   toast("Partenaire ajouté");
 }
@@ -4424,8 +4491,10 @@ async function addParent() {
     const parentIds = [firstParentId, secondParentId].filter(Boolean);
     const linkTypes = { [firstParentId]: $("parentFiliationType").value };
     if (secondParentId) linkTypes[secondParentId] = $("parent2FiliationType").value;
-    const familyId = await linkChildToParents(activeId, parentIds, "", linkTypes);
-    await applyParentBuilderRelationship(familyId);
+    const familyForUpdate = families.find(family => (family.childIds || []).includes(activeId))
+      || families.find(family => sameIds(family.partnerIds || [], parentIds));
+    const relationData = readParentBuilderRelationship(familyForUpdate || null);
+    await linkChildToParents(activeId, parentIds, "", linkTypes, relationData || {});
     setRelationBuilderOpen(false);
     toast(parentIds.length > 1 ? "Parents rattachés" : "Parent rattaché");
   } catch (error) { toast(error.message || "Lien impossible", "error"); }
@@ -4473,6 +4542,68 @@ async function dissociateParentFromChild(familyId, parentId, childId) {
   } catch (error) { toast(error.message || "Dissociation impossible", "error"); }
 }
 
+async function addSecondParentToCurrentFamily() {
+  const familyId = $("familyDetailsId").value;
+  const family = families.find(item => item.id === familyId);
+  const addedParentId = $("addSecondParentSelect").value;
+  const childId = activeId;
+  if (!family || !childId) return toast("Cette relation est introuvable", "error");
+  if (!addedParentId) return toast("Choisissez le second parent", "error");
+  const existingParentId = (family.partnerIds || [])[0];
+  if (!existingParentId || addedParentId === childId || addedParentId === existingParentId) {
+    return toast("Choisissez une personne différente de l’enfant et du parent existant", "error");
+  }
+  if (ancestorsOf(addedParentId).has(childId)) return toast("Ce lien créerait une boucle dans l’arbre", "error");
+
+  const targetFamily = families.find(candidate => candidate.id !== family.id
+    && sameIds(candidate.partnerIds || [], [existingParentId, addedParentId]));
+  const familyFields = readFamilyDetailsChangedFields(family, { allowDeleteLocationInfo: Boolean(targetFamily) });
+  const stagedAttestations = pendingRelationAttestations.addParent || [];
+  if (stagedAttestations.length) {
+    const alreadyAttached = lifeAttestations({ attestations: targetFamily?.marriageAttestations });
+    const existingIds = new Set(alreadyAttached.map(value => value.id));
+    familyFields.marriageAttestations = [...alreadyAttached, ...stagedAttestations.filter(value => !existingIds.has(value.id))];
+  }
+  const existingParentFiliation = document.querySelector(`[data-filiation-index][data-parent-id="${CSS.escape(existingParentId)}"][data-child-id="${CSS.escape(childId)}"]`)?.value
+    || parentChildLinkType(family, existingParentId, childId);
+  const plan = planSecondParentAddition({
+    families,
+    sourceFamilyId: family.id,
+    childId,
+    addedParentId,
+    existingParentFiliation,
+    addedParentFiliation: $("addSecondParentFiliationType").value,
+    familyFields
+  });
+  if (!plan.ok) return toast(plan.error, "error");
+
+  try {
+    await ensurePeopleInTree([childId, existingParentId, addedParentId]);
+    const batch = writeBatch(db);
+    const createdTargetRef = plan.targetFamilyId ? null : doc(refs.families);
+    batch.update(doc(db, "families", plan.sourceFamilyId), { ...plan.sourceUpdate, updatedAt: serverTimestamp() });
+    if (plan.targetFamilyId) {
+      batch.update(doc(db, "families", plan.targetFamilyId), { ...plan.familyUpdate, updatedAt: serverTimestamp() });
+    } else {
+      batch.set(createdTargetRef, { ...plan.createFamily, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    }
+    await batch.commit();
+
+    families = families.map(value => value.id === plan.sourceFamilyId
+      ? { ...value, ...plan.sourceUpdate }
+      : plan.targetFamilyId && value.id === plan.targetFamilyId
+        ? { ...value, ...plan.familyUpdate }
+        : value);
+    if (!plan.targetFamilyId && plan.createFamily) families.push({ id: createdTargetRef.id, ...plan.createFamily });
+    pendingRelationAttestations.addParent = [];
+    renderPendingRelationAttestations("addParent");
+    $("familyDetailsDialog").close();
+    toast("Second parent ajouté");
+  } catch (error) {
+    toast(error.message || "Ajout du second parent impossible", "error");
+  }
+}
+
 function ancestorsOf(personId, seen = new Set()) {
   if (seen.has(personId)) return seen;
   for (const family of families.filter(item => (item.childIds || []).includes(personId))) {
@@ -4491,7 +4622,7 @@ function sameIds(left = [], right = []) {
   return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
-async function linkChildToParents(childId, requestedParentIds, preferredFamilyId = "", linkTypes = {}) {
+async function linkChildToParents(childId, requestedParentIds, preferredFamilyId = "", linkTypes = {}, familyFields = {}) {
   const parentIds = [...new Set(requestedParentIds.filter(Boolean))];
   if (!childId || !parentIds.length) throw new Error("Choisissez l’enfant et au moins un parent");
   if (parentIds.length > 2) throw new Error("Un foyer ne peut pas contenir plus de deux parents");
@@ -4517,11 +4648,12 @@ async function linkChildToParents(childId, requestedParentIds, preferredFamilyId
       partnerIds: mergedParents,
       childIds: nextFamily.childIds,
       parentChildLinks,
+      ...familyFields,
       updatedAt: serverTimestamp()
     });
     return family.id;
   }
-  const createdFamily = await addDoc(refs.families, { partnerIds: mergedParents, childIds: [childId], relationType: "unknown", unionDateInfo: { type: "unknown" }, unionPlace: "", endType: "none", endDateInfo: { type: "unknown" }, endPlace: "", parentChildLinks, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  const createdFamily = await addDoc(refs.families, { partnerIds: mergedParents, childIds: [childId], relationType: "unknown", unionDateInfo: { type: "unknown" }, unionPlace: "", endType: "none", endDateInfo: { type: "unknown" }, endPlace: "", parentChildLinks, ...familyFields, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   return createdFamily.id;
 }
 
@@ -4529,9 +4661,76 @@ function updateEndDetailsVisibility() {
   $("endDetailsFields").hidden = !["separation", "divorce", "other"].includes($("familyEndType").value);
 }
 
+function updateSecondParentAdditionVisibility() {
+  const selected = Boolean($("addSecondParentSelect")?.value);
+  if ($("addSecondParentBtn")) $("addSecondParentBtn").disabled = !selected;
+  if ($("addParentUnionAttestationControl")) $("addParentUnionAttestationControl").hidden = !selected;
+  if ($("addParentUnionAttestationList")) $("addParentUnionAttestationList").hidden = !selected || !pendingRelationAttestations.addParent.length;
+}
+
+function configureSecondParentAddition(family, currentIsChild) {
+  const section = $("addSecondParentSection");
+  if (!section) return;
+  const partners = [...new Set(family?.partnerIds || [])];
+  const eligible = Boolean(currentIsChild && partners.length === 1);
+  section.hidden = !eligible;
+  if (!eligible) {
+    $("addParentUnionAttestationControl").hidden = true;
+    $("addParentUnionAttestationList").hidden = true;
+    pendingRelationAttestations.addParent = [];
+    return;
+  }
+  pendingRelationAttestations.addParent = [];
+  $("addSecondParentSelect").innerHTML = availableOptions([activeId, ...partners]);
+  $("addSecondParentFiliationType").value = "unknown";
+  $("addParentUnionAttestationControl").hidden = true;
+  renderPendingRelationAttestations("addParent");
+  updateSecondParentAdditionVisibility();
+}
+
+function readFamilyDetailsChangedFields(family, { allowDeleteLocationInfo = true } = {}) {
+  const data = {};
+  const relationType = normalizeRelationType($("familyRelationType").value);
+  if (relationType !== normalizeRelationType(family.relationType)) data.relationType = relationType;
+
+  const currentUnionPlace = readLocationField("unionPlace");
+  const previousUnionPlace = String(family.unionPlace || family.marriagePlace || "").trim();
+  if (currentUnionPlace.text.trim() !== previousUnionPlace) {
+    data.unionPlace = currentUnionPlace.text.trim();
+    if (currentUnionPlace.placeInfo) data.unionPlaceInfo = currentUnionPlace.placeInfo;
+    else if (allowDeleteLocationInfo && family.unionPlaceInfo) data.unionPlaceInfo = deleteField();
+  }
+  const currentUnionDate = readGenealogyDateForm("union");
+  const previousUnionDate = normalizeGenealogyDate(family.unionDateInfo, family.marriageDate || family.unionDate);
+  if (JSON.stringify(currentUnionDate) !== JSON.stringify(previousUnionDate)) data.unionDateInfo = currentUnionDate;
+
+  const endType = normalizeEndType($("familyEndType").value);
+  if (endType !== normalizeEndType(family.endType)) data.endType = endType;
+  const currentEndPlace = readLocationField("endPlace");
+  if (currentEndPlace.text.trim() !== String(family.endPlace || "").trim()) {
+    data.endPlace = currentEndPlace.text.trim();
+    if (currentEndPlace.placeInfo) data.endPlaceInfo = currentEndPlace.placeInfo;
+    else if (allowDeleteLocationInfo && family.endPlaceInfo) data.endPlaceInfo = deleteField();
+  }
+  const currentEndDate = readGenealogyDateForm("end");
+  const previousEndDate = normalizeGenealogyDate(family.endDateInfo, family.separationDate || family.divorceDate);
+  if (JSON.stringify(currentEndDate) !== JSON.stringify(previousEndDate)) data.endDateInfo = currentEndDate;
+  return data;
+}
+
+const relationCreationFields = Object.freeze({
+  parent: { sections: "parentUnionSections", relationType: "parentUnionRelationType", unionPlace: "parentUnionPlace", unionPrefix: "parentUnion", endType: "parentEndType", endPlace: "parentEndPlace", endPrefix: "parentEnd", attestations: "parent" },
+  partner: { sections: "partnerUnionSections", relationType: "partnerUnionRelationType", unionPlace: "partnerUnionPlace", unionPrefix: "partnerUnion", endType: "partnerEndType", endPlace: "partnerEndPlace", endPrefix: "partnerEnd", attestations: "partner" }
+});
+
 function updateParentUnionSectionsVisibility() {
   const sections = $("parentUnionSections");
   if (sections) sections.hidden = !$("parent2Select")?.value;
+}
+
+function updatePartnerUnionSectionsVisibility() {
+  const sections = $("partnerUnionSections");
+  if (sections) sections.hidden = !$("partnerSelect")?.value;
 }
 
 function updateParentEndDetailsVisibility() {
@@ -4548,34 +4747,63 @@ function resetParentBuilderRelationship() {
   setLocationField("parentEndPlace", "");
   setGenealogyDateForm("parentEnd", null);
   updateParentEndDetailsVisibility();
+  pendingRelationAttestations.parent = [];
+  renderPendingRelationAttestations("parent");
+  pendingRelationAttestations.addParent = [];
+  renderPendingRelationAttestations("addParent");
+}
+
+function resetPartnerBuilderRelationship() {
+  if ($("partnerUnionSections")) $("partnerUnionSections").hidden = true;
+  if ($("partnerUnionRelationType")) $("partnerUnionRelationType").value = "unknown";
+  setLocationField("partnerUnionPlace", "");
+  setGenealogyDateForm("partnerUnion", null);
+  if ($("partnerEndType")) $("partnerEndType").value = "none";
+  setLocationField("partnerEndPlace", "");
+  setGenealogyDateForm("partnerEnd", null);
+  if ($("partnerEndDetailsFields")) $("partnerEndDetailsFields").hidden = true;
+  pendingRelationAttestations.partner = [];
+  renderPendingRelationAttestations("partner");
 }
 
 /* Union et fin de relation facultatives saisies dans « Ajouter un lien →
    Parent » : seules les valeurs explicitement renseignées sont écrites, afin
    de ne jamais écraser les données d'un foyer déjà existant. */
-function readParentBuilderRelationship() {
-  if ($("parentUnionSections")?.hidden) return null;
+function readRelationCreationFields(kind, { existingFamily = null } = {}) {
+  const definition = relationCreationFields[kind];
+  if (!definition || $(definition.sections)?.hidden) return null;
   const data = {};
-  const relationType = normalizeRelationType($("parentUnionRelationType")?.value);
+  const relationType = normalizeRelationType($(definition.relationType)?.value);
   if (relationType !== "unknown") data.relationType = relationType;
-  if (readLocationField("parentUnionPlace").text.trim()) applyLocationField(data, "parentUnionPlace", null, true);
-  const unionDateInfo = readGenealogyDateForm("parentUnion");
+  const unionPlace = readLocationField(definition.unionPlace);
+  if (unionPlace.text.trim()) {
+    data.unionPlace = unionPlace.text.trim();
+    if (unionPlace.placeInfo) data.unionPlaceInfo = unionPlace.placeInfo;
+    else if (existingFamily?.unionPlaceInfo) data.unionPlaceInfo = deleteField();
+  }
+  const unionDateInfo = readGenealogyDateForm(definition.unionPrefix);
   if (unionDateInfo?.type && unionDateInfo.type !== "unknown") data.unionDateInfo = unionDateInfo;
-  const endType = normalizeEndType($("parentEndType")?.value);
+  const endType = normalizeEndType($(definition.endType)?.value);
   if (endType !== "none") data.endType = endType;
-  if (readLocationField("parentEndPlace").text.trim()) applyLocationField(data, "parentEndPlace", null, true);
-  const endDateInfo = readGenealogyDateForm("parentEnd");
+  const endPlace = readLocationField(definition.endPlace);
+  if (endPlace.text.trim()) {
+    data.endPlace = endPlace.text.trim();
+    if (endPlace.placeInfo) data.endPlaceInfo = endPlace.placeInfo;
+    else if (existingFamily?.endPlaceInfo) data.endPlaceInfo = deleteField();
+  }
+  const endDateInfo = readGenealogyDateForm(definition.endPrefix);
   if (endDateInfo?.type && endDateInfo.type !== "unknown") data.endDateInfo = endDateInfo;
+  const pendingAttestations = pendingRelationAttestations[definition.attestations] || [];
+  if (pendingAttestations.length) {
+    const existingAttestations = lifeAttestations({ attestations: existingFamily?.marriageAttestations });
+    const existingIds = new Set(existingAttestations.map(value => value.id));
+    data.marriageAttestations = [...existingAttestations, ...pendingAttestations.filter(value => !existingIds.has(value.id))];
+  }
   return Object.keys(data).length ? data : null;
 }
 
-async function applyParentBuilderRelationship(familyId) {
-  if (!familyId) return;
-  const data = readParentBuilderRelationship();
-  if (!data) return;
-  data.updatedAt = serverTimestamp();
-  await updateDoc(doc(db, "families", familyId), data);
-}
+function readParentBuilderRelationship(existingFamily = null) { return readRelationCreationFields("parent", { existingFamily }); }
+function readPartnerBuilderRelationship(existingFamily = null) { return readRelationCreationFields("partner", { existingFamily }); }
 
 const FILIATION_OPTION_ORDER = ["unknown", "biological", "adoptive", "uncertain"];
 
@@ -4632,6 +4860,7 @@ function openFamilyDetails(familyId) {
   const relevantLinks = normalizedParentChildLinks(family).filter(link => currentIsPartner ? link.parentId === activeId : currentIsChild ? link.childId === activeId : true);
   $("filiationDetailsTitle").textContent = currentIsChild ? "Liens avec les parents" : "Liens avec les enfants";
   $("filiationEditors").innerHTML = filiationEditorsMarkup(relevantLinks, currentIsChild);
+  configureSecondParentAddition(family, currentIsChild);
   renderMajorEventAttestations("marriage");
   if ($("personDialog").open) $("personDialog").close();
   $("familyDetailsDialog").showModal();
@@ -14933,6 +15162,14 @@ function journeyOpenEditor(next) {
 
 function journeyCancelEditor() {
   if (!journeyEditor) return;
+  if (journeyEditor.pendingRelation) {
+    if (!journeyConfirmDiscard()) return;
+    journeyEditor = null;
+    journeyEditorBaseline = null;
+    pendingRelationAttestationContext = null;
+    closeJourneyAttestationDialog();
+    return;
+  }
   const previousEditor = journeyEditor;
   if (previousEditor.pendingEntry && journeyPendingEntryAttestationParent) {
     const draftChanged = journeyEditorHasUnsavedChanges({ includePendingParent: false });
@@ -15091,7 +15328,7 @@ async function journeySaveAttestation() {
   const entryId = journeyEditor.entryId;
   const majorTarget = isMajorEventAttestationKind(entryKind) ? majorEventAttestationTarget(entryKind, entryId) : null;
   if (!item) return;
-  if (isMajorEventAttestationKind(entryKind) && !majorTarget) return;
+  if (isMajorEventAttestationKind(entryKind) && !majorTarget && !journeyEditor.pendingRelation) return;
   const dateResult = buildLifeDate(readJourneyDateRaw());
   if (!dateResult.ok || !dateResult.date) {
     showJourneyError("attDate", "Choisissez la date de l'attestation, ou indiquez qu’elle est inconnue.");
@@ -15102,6 +15339,37 @@ async function journeySaveAttestation() {
   const selectedSourceIds = [...document.querySelectorAll("[data-journey-source-check]:checked")].map(input => input.dataset.journeySourceCheck);
   const selectedProofIds = [...document.querySelectorAll("[data-journey-proof-check]:checked")].map(input => input.dataset.journeyProofCheck);
   const selectedDocumentIds = [...document.querySelectorAll("[data-journey-document-check]:checked")].map(input => input.dataset.journeyDocumentCheck);
+  if (journeyEditor.pendingRelation) {
+    const context = pendingRelationAttestationContext;
+    if (!context || !pendingRelationAttestations[context.kind]) return;
+    const current = pendingRelationAttestations[context.kind];
+    const existing = current.find(value => value.id === context.attestationId) || null;
+    const candidate = { id: existing?.id || doc(refs.people).id, date: dateResult.date };
+    if (hasSimilarLifeAttestation(current, candidate)
+      && !window.confirm("Attestation potentiellement identique : une attestation à cette date existe déjà. Enregistrer quand même ?")) return;
+    const availableDocumentIds = new Set(documents.filter(record => (record.personIds || []).includes(item.id)).map(record => record.id));
+    const availableSourceIds = new Set(genealogyRecords.sourceDocuments.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id)).map(record => record.id));
+    const availableProofIds = new Set(genealogyRecords.genealogyProofs.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id)).map(record => record.id));
+    const next = {
+      id: candidate.id,
+      date: dateResult.date,
+      comment,
+      documentIds: [...new Set(selectedDocumentIds.filter(id => availableDocumentIds.has(id)))],
+      sourceIds: [...new Set(selectedSourceIds.filter(id => availableSourceIds.has(id)))],
+      proofIds: [...new Set(selectedProofIds.filter(id => availableProofIds.has(id)))]
+    };
+    pendingRelationAttestations[context.kind] = existing
+      ? current.map(value => value.id === existing.id ? next : value)
+      : [...current, next];
+    const kind = context.kind;
+    journeyEditor = null;
+    journeyEditorBaseline = null;
+    pendingRelationAttestationContext = null;
+    renderPendingRelationAttestations(kind);
+    toast(existing ? "Attestation modifiée dans le formulaire." : "Attestation ajoutée au formulaire.");
+    closeJourneyAttestationDialog();
+    return;
+  }
   if (journeyEditor.pendingEntry) {
     const parent = journeyPendingEntryAttestationParent;
     if (!parent) return;
@@ -15367,6 +15635,11 @@ $("addChildBtn").onclick = event => withButtonPending(event.currentTarget, () =>
 $("addParentBtn").onclick = event => withButtonPending(event.currentTarget, () => runSafely(addParent, "Ajout du parent impossible"), "Ajout…");
 $("parent2Select").addEventListener("change", updateParentUnionSectionsVisibility);
 $("parentEndType").addEventListener("change", updateParentEndDetailsVisibility);
+$("partnerSelect").addEventListener("change", updatePartnerUnionSectionsVisibility);
+$("partnerEndType").addEventListener("change", () => {
+  $("partnerEndDetailsFields").hidden = !["separation", "divorce", "other"].includes($("partnerEndType").value);
+});
+$("addSecondParentSelect").addEventListener("change", updateSecondParentAdditionVisibility);
 $("relationsList").onclick = event => {
   const detailsButton = event.target.closest("[data-edit-family]");
   if (detailsButton) return openFamilyDetails(detailsButton.dataset.editFamily);
@@ -15375,11 +15648,32 @@ $("relationsList").onclick = event => {
   withButtonPending(button, () => runSafely(() => removeRelation(button.dataset.removePartner || button.dataset.removeChild, button.dataset.person, button.dataset.removePartner ? "partner" : "child"), "Dissociation du lien impossible"), "Dissociation…");
 };
 document.addEventListener("click", event => {
+  const pendingAdd = event.target.closest?.("[data-pending-relation-attestation-add]");
+  if (pendingAdd) return openPendingRelationAttestation(pendingAdd.dataset.pendingRelationAttestationAdd);
+  const pendingEdit = event.target.closest?.("[data-pending-relation-attestation-edit]");
+  if (pendingEdit) {
+    const kind = pendingEdit.closest("#parentUnionAttestationList") ? "parent"
+      : pendingEdit.closest("#partnerUnionAttestationList") ? "partner" : "addParent";
+    return openPendingRelationAttestation(kind, pendingEdit.dataset.pendingRelationAttestationEdit);
+  }
+  const pendingRemove = event.target.closest?.("[data-pending-relation-attestation-remove]");
+  if (pendingRemove) {
+    const kind = pendingRemove.closest("#parentUnionAttestationList") ? "parent"
+      : pendingRemove.closest("#partnerUnionAttestationList") ? "partner" : "addParent";
+    const list = pendingRelationAttestations[kind] || [];
+    const attestation = list.find(value => value.id === pendingRemove.dataset.pendingRelationAttestationRemove);
+    if (!attestation || !confirm("Retirer cette attestation préparée ? Aucun document, source ou preuve ne sera supprimé.")) return;
+    pendingRelationAttestations[kind] = list.filter(value => value.id !== attestation.id);
+    renderPendingRelationAttestations(kind);
+    return;
+  }
   const button = event.target.closest?.("[data-date-prefix][data-date-type]");
   if (button) setGenealogyDateType(button.dataset.datePrefix, button.dataset.dateType);
 });
 $("familyEndType").onchange = updateEndDetailsVisibility;
 $("familyDetailsForm").addEventListener("click", event => {
+  const addParentButton = event.target.closest("#addSecondParentBtn");
+  if (addParentButton) return withButtonPending(addParentButton, () => runSafely(addSecondParentToCurrentFamily, "Ajout du second parent impossible"), "Ajout…");
   const button = event.target.closest("[data-dissociate-parent]");
   if (!button) return;
   const parentId = button.dataset.parentId;
@@ -15412,7 +15706,11 @@ $("familyDetailsDialog").addEventListener("cancel", event => {
   journeyEditorBaseline = null;
   renderMajorEventAttestations("marriage");
 });
-$("familyDetailsDialog").addEventListener("close", () => { if (familyDetailsReturnContext) returnFromFamilyDetails(); });
+$("familyDetailsDialog").addEventListener("close", () => {
+  pendingRelationAttestations.addParent = [];
+  renderPendingRelationAttestations("addParent");
+  if (familyDetailsReturnContext) returnFromFamilyDetails();
+});
 
 document.addEventListener("click", event => {
   const closeButton = event.target.closest("[data-close]");

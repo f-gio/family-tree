@@ -40,7 +40,7 @@ test("le parcours d’ajout révèle uniquement le formulaire choisi", () => {
 test("deux parents peuvent être reliés en une seule opération sans changer le modèle", () => {
   assert.match(html, /id="parent2Select"/);
   assert.match(app, /const parentIds = \[firstParentId, secondParentId\]\.filter\(Boolean\)/);
-  assert.match(app, /await linkChildToParents\(activeId, parentIds, "", linkTypes\)/);
+  assert.match(app, /await linkChildToParents\(activeId, parentIds, "", linkTypes, relationData \|\| \{\}\)/);
   assert.match(relations, /parentChildLinks/);
   assert.match(rules, /match \/families\/\{familyId\}/);
 });

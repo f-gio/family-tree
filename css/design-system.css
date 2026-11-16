@@ -2078,6 +2078,21 @@ label .field { margin-top: var(--space-2); }
 .family-union-fields { display: grid; min-width: 0; }
 .family-union-attestation-control { justify-self: end; align-self: end; }
 .family-union-attestation-list { min-width: 0; margin-top: var(--space-3); }
+.relation-union-date-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-top: var(--space-3);
+}
+.relation-union-date-row .genealogy-date { min-width: 0; }
+.relation-union-date-row:has(> .major-event-attestation-control) { grid-template-columns: minmax(0, 1fr) auto; }
+.relation-union-date-row:has(> .major-event-attestation-control) > .major-event-attestation-control { grid-column: 2; justify-self: end; align-self: end; }
+.relation-union-date-row:has(> .major-event-attestation-control) > .major-event-attestation-list { grid-column: 1 / -1; }
+.family-union-attestation-layout > .relation-creation-attestation-control { grid-column: 2; grid-row: 1; }
+.relation-creation-attestation-control { justify-self: end; align-self: end; }
+.relation-union-date-row .family-union-attestation-list { grid-column: 1 / -1; }
 .family-union-attestation-control[hidden],
 .family-union-attestation-list[hidden] { display: none !important; }
 
@@ -2831,6 +2846,22 @@ label .field { margin-top: var(--space-2); }
 .filiation-type { display: grid; gap: var(--space-2); min-width: 0; }
 .filiation-type .field { width: 100%; min-width: 0; }
 .filiation-dissociate { justify-self: end; white-space: nowrap; }
+.family-add-parent {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.family-add-parent[hidden] { display: none; }
+.family-add-parent > h5 { margin: 0; color: var(--color-text); font: var(--weight-semibold) var(--text-md)/1.25 var(--font-display); }
+.family-add-parent > .hint { margin: 0; }
+.family-add-parent-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); min-width: 0; }
+.family-add-parent-fields > label { min-width: 0; }
+.family-add-parent-fields .field { box-sizing: border-box; width: 100%; min-width: 0; }
 
 /* Liens familiaux : lecture centrée sur les personnes, puis ajout progressif. */
 .relations-overview {
@@ -4857,6 +4888,9 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   #personForm .event-information-group:has(> .major-event-attestation-control) > .major-event-attestation-list { grid-column: 1; }
   .family-union-attestation-layout { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
   .family-union-attestation-control { justify-self: end; }
+  .family-union-attestation-layout > .relation-creation-attestation-control { grid-column: 1; grid-row: auto; justify-self: center; }
+  .relation-union-date-row:has(> .major-event-attestation-control) { grid-template-columns: minmax(0, 1fr); }
+  .relation-union-date-row:has(> .major-event-attestation-control) > .major-event-attestation-control { grid-column: 1; justify-self: center; }
 
   /* Modales familiales et parcours d'ajout : le sélecteur de dates
      s'adapte à la largeur utile sans débordement, et les options restent
@@ -4870,15 +4904,18 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
     max-width: 100%;
   }
   .family-detail-panel .date-type-switch {
-    flex-wrap: wrap;
-    overflow-x: visible;
-    padding: var(--space-1);
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+    padding: 0 var(--space-1);
   }
   .family-detail-panel .date-type-button {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     min-width: max-content;
     min-height: var(--control-touch);
   }
+  .family-detail-panel .date-type-switch::-webkit-scrollbar { display: none; width: 0; height: 0; }
   .family-detail-panel .date-value-panel .field {
     display: block;
     box-sizing: border-box;
@@ -4910,6 +4947,8 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
     min-height: var(--control-touch);
     white-space: normal;
   }
+  .family-add-parent-fields { grid-template-columns: minmax(0, 1fr); }
+  .family-add-parent .relation-add-actions .btn { width: 100%; min-height: var(--control-touch); }
 
   .identity-life-section .date-type-button {
     flex: 1 1 calc(33.333% - var(--space-1));
@@ -5193,6 +5232,12 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     overflow: hidden;
   }
+  dialog#familyDetailsDialog.modal-mobile-sheet {
+    height: 92dvh;
+    min-height: 0;
+    max-height: 92dvh;
+    overflow: hidden;
+  }
   dialog#personDialog.modal-mobile-sheet--long { max-height: 92dvh; }
   /* Fiche Source/Preuve : même dialog pour les deux, avec la même hauteur
      exploitable que la fiche Personne. Sans hauteur imposée, la feuille reste
@@ -5273,10 +5318,15 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
     max-width: 100%;
     max-inline-size: 100%;
   }
+  .family-detail-panel input[type="date"].field { -webkit-appearance: none; appearance: none; }
   /* Safari iOS peut imposer au champ date une largeur intrinsèque supérieure
      à sa piste. L'apparence native est neutralisée sans changer input[type=date]
      ni désactiver son sélecteur de calendrier. */
   #personAttestationDialog .attestation-date-panel input[type="date"].field {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  #familyDetailsDialog .family-detail-panel input[type="date"].field {
     -webkit-appearance: none;
     appearance: none;
   }
@@ -5297,6 +5347,13 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   }
   dialog#taskDialog.modal-mobile-sheet--form,
   dialog#familyDetailsDialog.modal-mobile-sheet--form { max-height: 86dvh; }
+  /* Même feuille stable 92dvh que « Nouvelle personne » ; le formulaire
+     interne reste seul défilable, avec actions fixes sous le contenu. */
+  dialog#familyDetailsDialog.modal-mobile-sheet--form {
+    height: 92dvh;
+    max-height: 92dvh;
+    min-height: 0;
+  }
   dialog#taskDialog.modal-mobile-sheet--form {
     height: 92dvh;
     max-height: 92dvh;

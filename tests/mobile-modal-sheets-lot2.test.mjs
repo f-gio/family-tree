@@ -5,7 +5,7 @@ import { chromium } from "playwright";
 import { blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 const appSource = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
-const mobileViewports = [[320, 700], [390, 844], [760, 900]];
+const mobileViewports = [[320, 700], [375, 812], [390, 844], [760, 900]];
 const profileViewports = [[320, 844], [390, 844], [760, 900]];
 const desktopViewports = [[761, 760], [1024, 768]];
 
@@ -120,12 +120,13 @@ async function checkFormSheet(browser, server, id, width, height, mode, t, compa
     await showDialog(page, id, mode);
     if (compact) await compactFormFixture(page, id);
     const before = await measureFormDialog(page, id);
-    const plafond = id === "taskDialog" ? height * 0.92 : height * 0.86;
+    const plafond = ["taskDialog", "familyDetailsDialog"].includes(id) ? height * 0.92 : height * 0.86;
     t.diagnostic(`${id} ${mode} short ${width}×${height}: dialog=${before.dialog.height}, max=${before.maxHeight}, scroll=${before.scroll.scrollHeight}/${before.scroll.clientHeight}`);
     assert.equal(await page.locator(`#${id}`).evaluate(dialog => dialog.open), true);
     assert.ok(Math.abs(before.dialog.bottom - height) < 1, `${id} est ancrée au bas du viewport`);
-    assert.ok(before.dialog.height <= plafond + 1, `${id} respecte son plafond ${id === "taskDialog" ? "92dvh" : "86dvh"}`);
-    assert.ok(parseFloat(before.maxHeight) <= plafond + 1, `${id} expose un max-height adaptatif de ${id === "taskDialog" ? "92dvh" : "86dvh"}`);
+    assert.ok(before.dialog.height <= plafond + 1, `${id} respecte son plafond de ${["taskDialog", "familyDetailsDialog"].includes(id) ? "92dvh" : "86dvh"}`);
+    assert.ok(parseFloat(before.maxHeight) <= plafond + 1, `${id} expose un max-height adaptatif`);
+    if (id === "familyDetailsDialog") assert.ok(Math.abs(before.dialog.height - height * 0.92) < 1, "Détails de la relation reprend la hauteur stable de Nouvelle personne");
     assert.ok(before.dialog.y > 0, `${id} laisse la page visible derrière`);
     assert.ok(before.header.bottom <= before.scroller.y + 1, `${id} conserve son header fixe`);
     assert.ok(Math.abs(before.scroller.bottom - before.footer.y) < 1, `${id} réserve le footer après la zone scrollable`);
@@ -135,7 +136,7 @@ async function checkFormSheet(browser, server, id, width, height, mode, t, compa
     assert.equal(before.scroll.scrollbarWidth, "none", `${id} masque la scrollbar Firefox`);
     assert.equal(before.scroll.webkitScrollbar, "none", `${id} masque la scrollbar WebKit`);
     assert.equal(before.pageOverflow, 0, `${id} ne crée aucun overflow horizontal`);
-    if (compact && id !== "taskDialog") assert.ok(before.dialog.height < plafond - 1, `${id} reste naturelle quand le contenu est court`);
+    if (compact && !["taskDialog", "familyDetailsDialog"].includes(id)) assert.ok(before.dialog.height < plafond - 1, `${id} reste naturelle quand le contenu est court`);
 
     if (mode === "edit" && id === "taskDialog") {
       assert.equal(await page.locator("#taskMenuBtn").isVisible(), true, "le menu ⋯ reste présent en édition");
@@ -219,7 +220,7 @@ async function checkProfile(browser, server, width, height, t) {
       await switchSettingsPanel(page, key);
       await addSettingsFiller(page, panelId);
       const before = await measureProfile(page);
-      const expected = height * 0.92;
+    const expected = height * 0.92;
       t.diagnostic(`${width}×${height} profil-${key}: dialog=${before.dialog.height}, max=${before.maxHeight}, rect=${JSON.stringify(before.dialog)}`);
       assert.equal(before.open, true, "Paramètres reste ouvert pendant la vérification");
       assert.ok(Math.abs(before.dialog.height - expected) < 1, `${key} conserve une hauteur de 92dvh`);
@@ -316,7 +317,8 @@ async function testPersonRelationReturn(browser, server, t) {
     await showDialog(page, "familyDetailsDialog", "edit");
     const relation = await measureFormDialog(page, "familyDetailsDialog");
     assert.ok(relation.open, "Détails de la relation s’ouvre après Personne");
-    assert.ok(relation.dialog.y > 0 && relation.dialog.height <= 844 * 0.86 + 1, "Relation conserve sa géométrie de sheet adaptative");
+    assert.ok(relation.dialog.y > 0 && relation.dialog.height <= 844 * 0.92 + 1, "Relation conserve sa géométrie de sheet stable");
+    assert.ok(Math.abs(relation.dialog.height - personBefore.height) < 1, "Relation reprend la hauteur stable de Nouvelle personne");
     await page.keyboard.press("Escape");
     assert.equal(await page.locator("#familyDetailsDialog").evaluate(dialog => dialog.open), false);
 
@@ -375,7 +377,7 @@ test("Lot 2 : Action, Relation et Paramètres en sheets mobiles", async t => {
 test("Lot 2 : le retour Relation conserve le brouillon et l’onglet Personne existants", () => {
   assert.match(appSource, /familyDetailsReturnContext = \{ personId: activeId, source: personDialogSource, draft: capturePersonDraft\(\), personPageInline: personPageInlineEditing \}[\s\S]*?if \(\$\("personDialog"\)\.open\) \$\("personDialog"\)\.close\(\);\s*\$\("familyDetailsDialog"\)\.showModal\(\)/);
   assert.match(appSource, /function returnFromFamilyDetails\(\) \{[\s\S]*?openPerson\(item, context\.source\);\s*restorePersonDraft\(context\.draft\);\s*setPersonSection\("relations"\)/);
-  assert.match(appSource, /\$\("familyDetailsDialog"\)\.addEventListener\("close", \(\) => \{ if \(familyDetailsReturnContext\) returnFromFamilyDetails\(\); \}\)/);
+  assert.match(appSource, /\$\("familyDetailsDialog"\)\.addEventListener\("close", \(\) => \{[\s\S]*?if \(familyDetailsReturnContext\) returnFromFamilyDetails\(\);\s*\}\)/);
   assert.match(appSource, /async function saveFamilyDetails\(event\) \{[\s\S]*?\$\("familyDetailsDialog"\)\.close\(\);[\s\S]*?returnFromFamilyDetails\(\)/);
   assert.match(appSource, /document\.querySelectorAll\("\[data-settings-tab\]"\)\.forEach\(button => \{\s*button\.onclick = \(\) => selectSettingsTab\(button\.dataset\.settingsTab\)/);
 });

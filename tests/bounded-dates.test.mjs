@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
 import { isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 /*
@@ -42,7 +42,8 @@ window.__bounded = {
     activePersonPageItem = null;
     openPersonPage(people.find(p => p.id === id), { kind: "view", view: "directory" });
   },
-  openFamilyForm() { openFamilyDetails("bounded-family"); },
+  openFamilyForm() { activeId = "bounded-1"; openFamilyDetails("bounded-family"); },
+  familyState() { return { activeId, personId: $("personId").value, familyIds: families.map(family => family.id), journeyEditor, dialogOpen: $("familyDetailsDialog").open, title: $("familyDetailsTitle").textContent }; },
   precision(kind) {
     const control = document.querySelector('#personForm [data-date-control="' + kind + '"]');
     if (!control) return null;
@@ -412,5 +413,149 @@ test("union et parcours détaillé : même rangée de boutons ; attestations inc
     assert.deepEqual(session.errors, [], `aucune erreur JS : ${session.errors.join(" || ")}`);
   } finally {
     await session.close();
+  }
+});
+
+test("sélecteurs familiaux mobiles : sept options sur une seule rangée défilable", async t => {
+  for (const width of [320, 375, 390]) {
+    const session = await launch({ width, height: 844 });
+    if (!session) return;
+    try {
+      const { page } = session;
+      await page.evaluate(() => window.__bounded.openFamilyForm());
+      await page.waitForFunction(() => document.getElementById("familyDetailsDialog").open);
+      const initial = await page.evaluate(() => {
+        const switcher = document.querySelector('#familyDetailsDialog [data-date-control="union"] .date-type-switch');
+        const buttons = [...(switcher?.querySelectorAll(".date-type-button") || [])];
+        const rects = buttons.map(button => button.getBoundingClientRect());
+        return {
+          pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          flexWrap: switcher && getComputedStyle(switcher).flexWrap,
+          overflowX: switcher && getComputedStyle(switcher).overflowX,
+          types: buttons.map(button => button.dataset.dateType),
+          sameRow: rects.every(rect => Math.abs(rect.top - rects[0]?.top) < 1),
+          scrollWidth: switcher?.scrollWidth || 0,
+          clientWidth: switcher?.clientWidth || 0,
+          buttons: rects.map(rect => ({ left: rect.left, right: rect.right, height: rect.height })),
+          dateInputType: document.querySelector('#familyDetailsDialog [data-date-panel="union-exact"] input')?.type
+        };
+      });
+      assert.deepEqual(initial.types, ["exact", "year", "about", "before", "after", "between", "unknown"], `${width}px : sept options présentes`);
+      assert.equal(initial.flexWrap, "nowrap", `${width}px : aucun retour à la ligne`);
+      assert.equal(initial.overflowX, "auto", `${width}px : défilement tactile horizontal`);
+      assert.equal(initial.sameRow, true, `${width}px : toutes les options sur une seule rangée`);
+      assert.equal(initial.pageOverflow, 0, `${width}px : la page ne déborde pas horizontalement`);
+      assert.ok(initial.buttons.every(button => button.height >= 44), `${width}px : cibles tactiles suffisantes`);
+      assert.equal(initial.dateInputType, "date", `${width}px : calendrier natif conservé`);
+
+      const last = await page.evaluate(() => {
+        const switcher = document.querySelector('#familyDetailsDialog [data-date-control="union"] .date-type-switch');
+        switcher.scrollLeft = switcher.scrollWidth;
+        const option = switcher.querySelector('[data-date-type="unknown"]');
+        const box = option.getBoundingClientRect();
+        const container = switcher.getBoundingClientRect();
+        return { visible: box.left >= container.left - 1 && box.right <= container.right + 1, scroll: switcher.scrollLeft };
+      });
+      assert.ok(last.scroll > 0 || initial.scrollWidth <= initial.clientWidth, `${width}px : geste horizontal possible si la rangée dépasse`);
+      assert.equal(last.visible, true, `${width}px : l’option Inconnue est accessible après défilement`);
+
+      await page.locator('#familyDetailsDialog [data-date-prefix="union"][data-date-type="between"]').evaluate(button => button.click());
+      assert.equal(await page.locator('#familyDetailsDialog [data-date-panel="union-between"]').isVisible(), true, `${width}px : la sélection affiche le bon panneau`);
+      await page.selectOption("#familyEndType", "divorce");
+      const end = await page.evaluate(() => {
+        const control = document.querySelector('#familyDetailsDialog [data-date-control="end"]');
+        const switcher = control?.querySelector(".date-type-switch");
+        const buttons = [...(switcher?.querySelectorAll(".date-type-button") || [])];
+        const tops = buttons.map(button => button.getBoundingClientRect().top);
+        return {
+          count: buttons.length,
+          types: buttons.map(button => button.dataset.dateType),
+          oneRow: tops.every(top => Math.abs(top - tops[0]) < 1),
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          scrollable: getComputedStyle(switcher).overflowX
+        };
+      });
+      assert.deepEqual(end.types, ["exact", "year", "about", "before", "after", "between", "unknown"], `${width}px : sept précisions de fin`);
+      assert.equal(end.oneRow, true, `${width}px : options de fin sur une ligne`);
+      assert.equal(end.scrollable, "auto", `${width}px : défilement horizontal de fin`);
+      assert.equal(end.overflow, 0, `${width}px : le sélecteur de fin ne déborde pas la page`);
+      await page.locator('#familyDetailsDialog [data-date-prefix="end"][data-date-type="between"]').evaluate(button => button.click());
+      assert.equal(await page.locator('#familyDetailsDialog [data-date-panel="end-between"]').isVisible(), true, `${width}px : précision Entre de fin sélectionnable`);
+      assert.deepEqual(session.errors, [], `${width}px : aucune erreur JS`);
+    } finally { await session.close(); }
+  }
+});
+
+test("Safari WebKit mobile : modale familiale à la hauteur Personne et options défilables sans retour", async t => {
+  let browser;
+  try { browser = await webkit.launch({ headless: true }); }
+  catch (error) { t.skip(`WebKit Playwright indisponible : ${error.message}`); return; }
+  const server = await startStaticServer(ROOT);
+  const context = await browser.newContext({ locale: "fr-FR", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, reducedMotion: "reduce" });
+  await context.route("**/*", route => {
+    const url = route.request().url();
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
+      return route.fetch().then(async response => {
+        let source = await response.text();
+        const update = 'await updateDoc(doc(db, "people", id), data);';
+        const familyUpdate = "await withButtonPending(submitButton, () => updateDoc(doc(db, \"families\", familyId), data));";
+        source = source.split(update).join("await window.__bounded.record(id, data);");
+        source = source.split(familyUpdate).join("await window.__bounded.recordFamily(familyId, data);");
+        return route.fulfill({ response, body: `${source}\n${hooks}\nwindow.__bounded.record = () => {}; window.__bounded.recordFamily = () => {};` });
+      }).catch(() => {});
+    }
+    return isAllowedRequest(url, server.baseURL) ? route.continue().catch(() => {}) : route.abort("blockedbyclient").catch(() => {});
+  });
+  const page = await context.newPage();
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("dialog", dialog => dialog.accept());
+  try {
+    await page.goto(server.baseURL, { waitUntil: "load" });
+    await page.waitForFunction(() => typeof window.__bounded === "object");
+    await page.evaluate(() => window.__bounded.seed());
+    await page.evaluate(() => window.__bounded.openPersonForm("bounded-1"));
+    await page.waitForFunction(() => document.getElementById("personDialog").open);
+    const personHeight = await page.locator("#personDialog").evaluate(dialog => dialog.getBoundingClientRect().height);
+    await page.locator('#personDialog [data-close="personDialog"]').first().click();
+    await page.waitForFunction(() => !document.getElementById("personDialog").open);
+
+    await page.evaluate(() => window.__bounded.seed());
+    await page.evaluate(() => window.__bounded.openFamilyForm());
+    await page.waitForTimeout(300);
+    const familyState = await page.evaluate(() => window.__bounded.familyState());
+    assert.equal(familyState.dialogOpen, true, `la modale familiale s'ouvre sur WebKit (${JSON.stringify(familyState)}; ${errors.join(" | ")})`);
+    const state = await page.evaluate(() => {
+      const dialog = document.getElementById("familyDetailsDialog");
+      const strip = dialog.querySelector('[data-date-control="union"] .date-type-switch');
+      const buttons = [...strip.querySelectorAll(".date-type-button")];
+      return {
+        dialog: dialog.getBoundingClientRect().height,
+        viewport: innerHeight,
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        stripWidth: strip.clientWidth,
+        stripScrollWidth: strip.scrollWidth,
+        wrap: getComputedStyle(strip).flexWrap,
+        overflowX: getComputedStyle(strip).overflowX,
+        types: buttons.map(button => button.dataset.dateType),
+        tops: buttons.map(button => Math.round(button.getBoundingClientRect().top)),
+          inputTypeAttribute: dialog.querySelector('[data-date-panel="union-exact"] input')?.getAttribute("type")
+      };
+    });
+    assert.ok(Math.abs(state.dialog - personHeight) < 1, "Safari : feuille familiale et Nouvelle personne ont la même hauteur");
+    assert.ok(Math.abs(state.dialog - state.viewport * 0.92) < 1, "Safari : feuille familiale stable à 92dvh");
+    assert.equal(state.pageOverflow, 0, "Safari : aucun débordement horizontal de la modale");
+    assert.equal(state.wrap, "nowrap", "Safari : aucune seconde ligne d'options");
+    assert.equal(state.overflowX, "auto", "Safari : rangée tactile horizontalement défilable");
+    assert.deepEqual(state.types, ["exact", "year", "about", "before", "after", "between", "unknown"]);
+    assert.equal(new Set(state.tops).size, 1, "Safari : les sept options restent sur une seule ligne");
+    assert.equal(state.inputTypeAttribute, "date", "le contrôle calendrier natif reste déclaré");
+    await page.locator('#familyDetailsDialog [data-date-prefix="union"][data-date-type="between"]').evaluate(button => button.click());
+    assert.equal(await page.locator('#familyDetailsDialog [data-date-panel="union-between"]').isVisible(), true, "Safari : sélection des dates fonctionnelle");
+    assert.deepEqual(errors, [], "Safari : aucune erreur JavaScript");
+  } finally {
+    await context.close();
+    await browser.close();
+    await server.close();
   }
 });
