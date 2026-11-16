@@ -44,6 +44,55 @@ window.__bounded = {
   },
   openFamilyForm() { activeId = "bounded-1"; openFamilyDetails("bounded-family"); },
   familyState() { return { activeId, personId: $("personId").value, familyIds: families.map(family => family.id), journeyEditor, dialogOpen: $("familyDetailsDialog").open, title: $("familyDetailsTitle").textContent }; },
+  openRelationBuilder(kind) {
+    if ($("familyDetailsDialog").open) {
+      /* Neutralise le retour « Relation → Personne » : sinon le handler de
+         fermeture réouvrirait la fiche et refermerait le constructeur. */
+      familyDetailsReturnContext = null;
+      $("familyDetailsDialog").close();
+    }
+    if ($("personDialog").open) $("personDialog").close();
+    personFormSaving = false;
+    setButtonPending($("savePersonBtn"), false);
+    activeId = "bounded-1";
+    openPerson(people.find(p => p.id === "bounded-1"), "directory");
+    setPersonSection("relations");
+    setRelationBuilderOpen(true, kind);
+    const select = kind === "parent" ? $("parent2Select") : $("partnerSelect");
+    select.value = "bounded-2";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  },
+  closeRelationBuilder() { setRelationBuilderOpen(false); },
+  pendingCount(kind) { return (pendingRelationAttestations[kind] || []).length; },
+  builderState(kind) {
+    const root = kind === "parent" ? "#parentUnionSections" : "#partnerUnionSections";
+    const sections = document.querySelector(root);
+    const sw = sections?.querySelector(".date-type-switch");
+    const buttons = sw ? [...sw.querySelectorAll(".date-type-button")] : [];
+    const tops = buttons.map(button => Math.round(button.getBoundingClientRect().top));
+    const cta = sections?.querySelector(".major-event-attestation-control .life-attestation-add");
+    const date = sections?.querySelector(".genealogy-date");
+    const dateRect = date ? date.getBoundingClientRect() : null;
+    const ctaRect = cta ? cta.getBoundingClientRect() : null;
+    if (sw) { sw.scrollLeft = sw.scrollWidth; }
+    const last = buttons.at(-1);
+    const lastRect = last ? last.getBoundingClientRect() : null;
+    const swRect = sw ? sw.getBoundingClientRect() : null;
+    return {
+      rootHidden: sections ? sections.hidden : null,
+      oldHintPresent: Boolean(document.querySelector('[data-relation-add-panel="partner"] p.hint')),
+      types: buttons.map(button => button.dataset.dateType),
+      oneRow: tops.length > 1 && tops.every(top => Math.abs(top - tops[0]) < 1),
+      wrap: sw ? getComputedStyle(sw).flexWrap : null,
+      overflowX: sw ? getComputedStyle(sw).overflowX : null,
+      switchScroll: sw ? sw.scrollWidth : 0,
+      switchClient: sw ? sw.clientWidth : 0,
+      lastOptionReachable: Boolean(lastRect && swRect && lastRect.left >= swRect.left - 1 && lastRect.right <= swRect.right + 1),
+      pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      ctaBelowDate: Boolean(ctaRect && dateRect) ? ctaRect.top >= dateRect.bottom - 1 : null,
+      ctaVisible: Boolean(ctaRect && ctaRect.width > 0 && ctaRect.height > 0)
+    };
+  },
   precision(kind) {
     const control = document.querySelector('#personForm [data-date-control="' + kind + '"]');
     if (!control) return null;
@@ -552,10 +601,77 @@ test("Safari WebKit mobile : modale familiale à la hauteur Personne et options 
     assert.equal(state.inputTypeAttribute, "date", "le contrôle calendrier natif reste déclaré");
     await page.locator('#familyDetailsDialog [data-date-prefix="union"][data-date-type="between"]').evaluate(button => button.click());
     assert.equal(await page.locator('#familyDetailsDialog [data-date-panel="union-between"]').isVisible(), true, "Safari : sélection des dates fonctionnelle");
+
+    /* Formulaires de création (Parent puis Partenaire) : mêmes règles. */
+    for (const kind of ["parent", "partner"]) {
+      await page.evaluate(k => window.__bounded.openRelationBuilder(k), kind);
+      await page.waitForFunction(() => !document.getElementById("relationBuilder").hidden);
+      await page.waitForTimeout(150);
+      const builder = await page.evaluate(k => window.__bounded.builderState(k), kind);
+      assert.equal(builder.rootHidden, false, `Safari ${kind} : sections d'union visibles`);
+      assert.equal(builder.oldHintPresent, false, `Safari ${kind} : texte obsolète absent`);
+      assert.deepEqual(builder.types, ["exact", "year", "about", "before", "after", "between", "unknown"], `Safari ${kind} : sept précisions`);
+      assert.equal(builder.oneRow, true, `Safari ${kind} : une seule ligne d'options`);
+      assert.equal(builder.wrap, "nowrap", `Safari ${kind} : aucun retour à la ligne`);
+      assert.equal(builder.overflowX, "auto", `Safari ${kind} : défilement tactile horizontal`);
+      assert.equal(builder.pageOverflow, 0, `Safari ${kind} : aucun débordement de la page`);
+      assert.equal(builder.ctaVisible, true, `Safari ${kind} : CTA d'attestation présent`);
+      assert.equal(builder.ctaBelowDate, true, `Safari ${kind} : CTA sous le champ Date`);
+      await page.locator(`${kind === "parent" ? "#parentUnionSections" : "#partnerUnionSections"} [data-pending-relation-attestation-add]`).click();
+      await page.waitForSelector("#personAttestationDialog[open]", { timeout: 5000 });
+      await page.locator('#personAttestationDialog [data-journey-date-type="unknown"]').click();
+      await page.fill("#journeyAttComment", `Préparée ${kind}`);
+      await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
+      await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });
+      assert.equal(await page.evaluate(k => window.__bounded.pendingCount(k), kind), 1, `Safari ${kind} : attestation préparée sans écriture Firestore`);
+      await page.evaluate(() => window.__bounded.closeRelationBuilder());
+      assert.equal(await page.evaluate(k => window.__bounded.pendingCount(k), kind), 0, `Safari ${kind} : fermeture sans attestation orpheline`);
+    }
     assert.deepEqual(errors, [], "Safari : aucune erreur JavaScript");
   } finally {
     await context.close();
     await browser.close();
     await server.close();
+  }
+});
+
+test("formulaires de création : sept précisions sur une ligne et CTA d'attestation sous la date", async t => {
+  for (const [width, height] of [[320, 700], [375, 812], [390, 844]]) {
+    const session = await launch({ width, height });
+    if (!session) return;
+    try {
+      const { page } = session;
+      for (const kind of ["parent", "partner"]) {
+        await page.evaluate(k => window.__bounded.openRelationBuilder(k), kind);
+        await page.waitForFunction(() => !document.getElementById("relationBuilder").hidden);
+        await page.waitForTimeout(150);
+        const builder = await page.evaluate(k => window.__bounded.builderState(k), kind);
+        assert.equal(builder.rootHidden, false, `${width}px ${kind} : sections d'union visibles`);
+        assert.equal(builder.oldHintPresent, false, `${width}px ${kind} : texte obsolète absent`);
+        assert.deepEqual(builder.types, ["exact", "year", "about", "before", "after", "between", "unknown"], `${width}px ${kind} : sept précisions`);
+        assert.equal(builder.oneRow, true, `${width}px ${kind} : toutes les options sur une seule ligne`);
+        assert.equal(builder.wrap, "nowrap", `${width}px ${kind} : aucun retour à la ligne`);
+        assert.equal(builder.overflowX, "auto", `${width}px ${kind} : défilement tactile horizontal`);
+        assert.ok(builder.switchScroll >= builder.switchClient, `${width}px ${kind} : la rangée ne tronque aucune option`);
+        assert.equal(builder.lastOptionReachable, true, `${width}px ${kind} : dernière option atteignable après défilement`);
+        assert.equal(builder.pageOverflow, 0, `${width}px ${kind} : aucun débordement de la page`);
+        assert.equal(builder.ctaVisible, true, `${width}px ${kind} : CTA d'attestation présent`);
+        assert.equal(builder.ctaBelowDate, true, `${width}px ${kind} : CTA sous le champ Date`);
+
+        const root = kind === "parent" ? "#parentUnionSections" : "#partnerUnionSections";
+        await page.locator(`${root} [data-pending-relation-attestation-add]`).click();
+        await page.waitForSelector("#personAttestationDialog[open]", { timeout: 5000 });
+        assert.equal(await page.locator("#personAttestationDialog").evaluate(d => d.open), true, `${width}px ${kind} : modale d'attestation ouverte`);
+        await page.locator('#personAttestationDialog [data-journey-date-type="unknown"]').click();
+        await page.fill("#journeyAttComment", `Préparée ${kind}`);
+        await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
+        await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });
+        assert.equal(await page.evaluate(k => window.__bounded.pendingCount(k), kind), 1, `${width}px ${kind} : attestation préparée sans écriture Firestore`);
+        assert.equal(await page.locator(`${root} .major-event-attestation-list`).isVisible(), true, `${width}px ${kind} : attestation listée`);
+        await page.evaluate(() => window.__bounded.closeRelationBuilder());
+        assert.equal(await page.evaluate(k => window.__bounded.pendingCount(k), kind), 0, `${width}px ${kind} : fermeture sans attestation orpheline`);
+      }
+      assert.deepEqual(session.errors, [], `${width}px : aucune erreur JS (${session.errors.join(" || ")})`);
+    } finally { await session.close(); }
   }
 });
