@@ -38,8 +38,9 @@ window.__documentPageTest = {
     setView("directory");
     openStoredDocument(documents[0], "directory");
   },
-  async openHeaderDocument(type = "Registre") {
+  async openHeaderDocument(type = "Registre", title = undefined) {
     documents[0].type = type;
+    if (title !== undefined) documents[0].title = title;
     await openStoredDocument(documents[0], "directory");
   },
   openHeaderSource() {
@@ -64,6 +65,7 @@ window.__documentPageTest = {
     /* Chemin exact de l'action « Consulter » d'une fiche historique. */
     const item = genealogyWorkspaceItems().find(value => value.kind === "legacy-source" && value.record.id === "doc-page-fixture");
     if (item) openGenealogyItem(item.kind, item.record.id);
+    else openStoredDocument(documents[0], "archives");
   },
   openSourceFromPage() { openUnifiedSource("doc-page-fixture", "doc-source-fixture"); },
   openProofFromPage() { openUnifiedProof("doc-page-fixture", "doc-proof-fixture"); },
@@ -89,6 +91,7 @@ window.__documentPageTest = {
       archiveVisible: !$("genealogyView").hidden,
       directoryVisible: !$("directoryView").hidden,
       title: $("viewerTitle").textContent,
+      titleLabel: $("viewerTitle").getAttribute("aria-label"),
       documentPageCount: documents[0]?.pages?.length || 0,
       sourceCount: genealogyRecords.sourceDocuments.length,
       proofCount: genealogyRecords.genealogyProofs.length,
@@ -128,7 +131,6 @@ window.__documentPageTest = {
       pageWidth: $("documentDetailView").getBoundingClientRect().width,
       pageMaxHeight: getComputedStyle($("documentDetailView")).maxHeight,
       pageBorderRadius: getComputedStyle($("documentDetailView")).borderRadius,
-      titleLabel: $("viewerTitle").getAttribute("aria-label"),
       titleWhiteSpace: getComputedStyle($("viewerTitle")).whiteSpace,
       titleOverflow: getComputedStyle($("viewerTitle")).textOverflow,
       tabsAbsent: !document.querySelector(".document-detail-tabs"),
@@ -214,7 +216,35 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.subtitleAbsent, true, "aucun sous-titre sous le titre Document (lot G)");
     assert.ok(state.headerClass.includes("dedicated-page-header"), "en-tête Document partagé");
     assert.equal(state.imageVisible, true, "aperçu du document chargé");
-    assert.equal(await page.locator("#viewerBreadcrumb [aria-current='page']").count(), 1, "document courant non cliquable");
+    assert.equal(await page.locator("#viewerBreadcrumb").count(), 0, "fil d’Ariane supprimé de la fiche Document");
+    assert.equal(await page.locator("#viewerTitle").textContent(), "Registre de consultation paroissial de la commune de Palermo — année 1891", "titre personnalisé prioritaire");
+    assert.equal(await page.locator("#viewerEditBtn").textContent(), "Modifier", "CTA Modifier dans l’en-tête");
+    assert.equal(await page.locator("#viewerDetailsExpandBtn").getAttribute("aria-label"), "Masquer les informations", "action annoncée lorsque le panneau desktop est ouvert");
+    assert.equal(await page.locator("#viewerDetailsExpandBtn use").getAttribute("href"), "#icon-chevron-right", "chevron vers la droite lorsque le panneau est ouvert");
+    await page.click("#viewerDetailsExpandBtn");
+    await page.waitForFunction(() => document.getElementById("documentUnifiedLayout").classList.contains("is-details-collapsed"));
+    assert.equal(await page.locator("#viewerDetailsExpandBtn").getAttribute("aria-label"), "Afficher les informations", "action annoncée lorsque le panneau desktop est fermé");
+    assert.equal(await page.locator("#viewerDetailsExpandBtn use").getAttribute("href"), "#icon-chevron-left", "chevron vers la gauche lorsque le panneau est fermé");
+    await page.click("#viewerDetailsExpandBtn");
+    await page.waitForFunction(() => !document.getElementById("documentUnifiedLayout").classList.contains("is-details-collapsed"));
+    await page.click("#documentPageActionsBtn");
+    assert.equal(await page.locator("#documentPageActionsBtn").getAttribute("aria-expanded"), "true", "état accessible du menu synchronisé");
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.activeElement?.id === "documentPageActionsBtn");
+    assert.equal(await page.locator("#documentPageActions").evaluate(menu => menu.open), false, "Échap ferme le menu d’actions");
+    assert.equal(await page.locator("#documentPageActionsBtn").evaluate(button => document.activeElement === button), true, "le focus revient au déclencheur du menu");
+    await page.click("#documentPageActionsBtn");
+    await page.waitForFunction(() => document.getElementById("documentPageActionsBtn").getAttribute("aria-expanded") === "true");
+    assert.equal(await page.locator("#downloadDocumentBtn").isVisible(), true, "téléchargement présent uniquement dans le menu ouvert");
+    const documentDownloadPromise = page.waitForEvent("download");
+    await page.click("#downloadDocumentBtn");
+    assert.equal((await documentDownloadPromise).suggestedFilename(), "registre.jpg", "téléchargement du fichier original avec son nom");
+    assert.equal(await page.locator("#documentPageActions").evaluate(menu => menu.open), false, "menu refermé après le téléchargement");
+    await page.click("#viewerEditBtn");
+    await page.waitForSelector("#documentDialog[open]");
+    assert.equal(await page.locator("#documentDialogTitle").textContent(), "Modifier le document", "CTA Modifier ouvre la modale existante");
+    await page.click('[data-close="documentDialog"]');
+    await page.waitForFunction(() => !document.getElementById("documentDialog").open);
     await page.click("#documentPageBackBtn");
     await page.waitForFunction(() => document.getElementById("documentDetailView").hidden);
     /* Le scroll se restaure dans un rAF : on attend sa stabilisation. */
@@ -235,8 +265,10 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.ok(Math.abs(restoredScroll - archiveScroll) <= 2, `défilement restauré (${restoredScroll}/${archiveScroll})`);
     await page.evaluate(() => window.__documentPageTest.openFromArchives());
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
-    await page.click("#viewerBreadcrumb [data-consultation-breadcrumb-action='view']");
-    await page.waitForFunction(() => document.getElementById("documentDetailView").hidden && !document.getElementById("documentsView").hidden);
+    await page.click("#documentPageBackBtn");
+    await page.waitForFunction(() => document.getElementById("documentDetailView").hidden);
+    await page.evaluate(() => window.__documentPageTest.show("documents"));
+    await page.waitForFunction(() => !document.getElementById("documentsView").hidden);
 
     /* Personne → Document → retour Personne : section et brouillon restaurés. */
     await page.evaluate(() => window.__documentPageTest.openFromPerson());
@@ -376,83 +408,10 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(longPersonChip.textAlign, "center", "nom centré dans sa capsule mobile");
     assert.notEqual(longPersonChip.gap, "0px", "espacement constant entre icône et nom");
     assert.equal(longPersonChip.background, "rgb(255, 253, 248)", "fond ivoire du design system");
-    /* Carte « Informations fichier » : positions réelles — chaque métadonnée
-       est un groupe vertical (libellé au-dessus de sa valeur, alignés à
-       gauche) sur deux colonnes, la date n'est jamais tronquée, « Fichier »
-       occupe toute la largeur ; la carte Transcription est distincte. */
-    const measureFileCard = () => page.evaluate(() => {
-      const section = [...document.querySelectorAll("#viewerDocumentDetailsContent .document-unified-section")].find(item => item.querySelector("h4")?.textContent === "Informations fichier");
-      const facts = section.querySelector(".document-unified-facts--file");
-      const rect = element => element.getBoundingClientRect();
-      const metadata = [...facts.querySelectorAll(".document-unified-fact")].filter(item => !item.classList.contains("document-unified-fact--file-name"));
-      const groups = metadata.map(item => {
-        const label = item.querySelector("strong");
-        const value = item.querySelector("span");
-        const labelRect = rect(label);
-        const valueRect = rect(value);
-        return {
-          label: label.textContent.trim(),
-          labelValueGap: Math.round(valueRect.top - labelRect.bottom),
-          alignedLeft: Math.abs(labelRect.left - valueRect.left) <= 1,
-          textAlign: getComputedStyle(value).textAlign,
-          truncated: value.scrollWidth > value.clientWidth + 1,
-          top: Math.round(valueRect.top),
-          bottom: Math.round(valueRect.bottom)
-        };
-      });
-      const nameItem = facts.querySelector(".document-unified-fact--file-name");
-      const transcribe = document.querySelector(".document-transcription-card [data-transcribe-document]");
-      const transcriptionCard = document.querySelector(".document-transcription-card");
-      const factsRect = rect(facts);
-      const nameItemRect = rect(nameItem);
-      const metadataBottom = Math.max(...groups.map(group => group.bottom));
-      return {
-        cols: getComputedStyle(facts).gridTemplateColumns.split(" ").filter(Boolean).length,
-        columnGap: Math.round(parseFloat(getComputedStyle(facts).columnGap)),
-        groups,
-        metaToNameGap: Math.round(rect(nameItem.querySelector("strong")).top - metadataBottom),
-        nameFullWidth: Math.abs(nameItemRect.width - factsRect.width) <= 2,
-        cardHeight: Math.round(rect(section).height),
-        headHeight: Math.round(rect(section.querySelector(".document-unified-section-head")).height),
-        transcriptionCardHeight: Math.round(rect(transcriptionCard).height),
-        trWidth: Math.round(rect(transcribe).width),
-        trHeight: Math.round(rect(transcribe).height),
-        transcriptionCardTitle: transcriptionCard.querySelector("h4").textContent.trim(),
-        overflow: document.documentElement.scrollWidth > innerWidth
-      };
-    });
-    const assertFileCardLayout = (fileCard, width) => {
-      assert.equal(fileCard.cols, 2, `${width}px : métadonnées sur deux colonnes (Type/Format, Taille/Date d’ajout)`);
-      assert.ok(fileCard.columnGap >= 8 && fileCard.columnGap <= 16, `${width}px : colonnes équilibrées (${fileCard.columnGap}px)`);
-      for (const group of fileCard.groups) {
-        assert.ok(group.labelValueGap >= 0 && group.labelValueGap <= 4, `${width}px : « ${group.label} » directement au-dessus de sa valeur (${group.labelValueGap}px)`);
-        assert.equal(group.alignedLeft, true, `${width}px : « ${group.label} » aligné à gauche avec sa valeur`);
-        assert.equal(group.textAlign, "left", `${width}px : valeur de « ${group.label} » alignée à gauche`);
-        assert.equal(group.truncated, false, `${width}px : valeur de « ${group.label} » entière, sans troncature`);
-      }
-      const [typeTop, formatTop, tailleTop, dateTop] = fileCard.groups.map(group => group.top);
-      assert.equal(typeTop, formatTop, `${width}px : Type et Format sur la même ligne`);
-      assert.equal(tailleTop, dateTop, `${width}px : Taille et Date d’ajout sur la même ligne`);
-      assert.ok(tailleTop > typeTop, `${width}px : deux lignes de métadonnées distinctes`);
-      assert.ok(fileCard.metaToNameGap >= 0 && fileCard.metaToNameGap <= 8, `${width}px : « Fichier » rapproché des métadonnées (${fileCard.metaToNameGap}px)`);
-      assert.equal(fileCard.nameFullWidth, true, `${width}px : nom du fichier sur toute la largeur`);
-      assert.ok(fileCard.cardHeight <= 280, `${width}px : carte « Informations fichier » compacte (${fileCard.cardHeight}px)`);
-      assert.ok(fileCard.headHeight <= 44, `${width}px : en-tête Informations compact sans bouton d’action (${fileCard.headHeight}px)`);
-      assert.ok(fileCard.trHeight >= 44, `${width}px : bouton Transcrire ≥ 44 px (${fileCard.trHeight}px)`);
-      assert.match(fileCard.transcriptionCardTitle, /Transcription/, `${width}px : carte Transcription dédiée`);
-      assert.ok(fileCard.transcriptionCardHeight > 80, `${width}px : carte Transcription distincte visible`);
-      assert.equal(fileCard.overflow, false, `${width}px : aucun débordement horizontal avec la carte`);
-    };
-    assertFileCardLayout(await measureFileCard(), 320);
-    /* Dépliage accessible du nom complet : clic = aria-expanded + dépliement,
-       second clic = repli ellipsé — sans débordement horizontal. */
-    await page.click(".document-unified-filename");
-    const expanded = await page.locator(".document-unified-filename").first().evaluate(button => ({ expanded: button.getAttribute("aria-expanded"), cls: button.classList.contains("is-expanded") }));
-    assert.equal(expanded.expanded, "true", "nom déplié au clic (aria-expanded)");
-    assert.equal(expanded.cls, true, "classe de dépliage appliquée");
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "aucun débordement en déplié");
-    await page.click(".document-unified-filename");
-    assert.equal(await page.locator(".document-unified-filename").first().getAttribute("aria-expanded"), "false", "nom replié au second clic");
+    assert.equal(await page.locator("#viewerDocumentDetailsContent .document-file-details-mobile").count(), 1, "carte de détails fichier dédiée au mobile");
+    assert.equal(await page.locator("#viewerDocumentDetailsContent .document-unified-facts--file").count(), 0, "ancienne carte fichier retirée du panneau");
+    assert.deepEqual(await page.locator("#viewerFileMetadata > span").allTextContents(), ["JPEG", "registre.jpg"], "bandeau desktop limité aux métadonnées demandées");
+    assert.equal(await page.locator(".document-transcription-card .document-transcription-progress-track").count(), 2, "progressions italienne et française visibles");
     /* Fermeture : aucun saut superflu — seul le recalage natif du défilement
        (si le volet occupait le bas de la page) reste admis. */
     const scrollBeforeDetailsClose = await page.evaluate(() => window.scrollY);
@@ -465,8 +424,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.ok(Math.abs(detailsCloseState.scrollY - Math.min(scrollBeforeDetailsClose, detailsCloseState.maxScroll)) <= 1,
       `fermeture sans saut de défilement (${scrollBeforeDetailsClose} → ${detailsCloseState.scrollY}, max ${detailsCloseState.maxScroll})`);
     assert.equal(state.subtitleAbsent, true, "aucun sous-titre résiduel à 320px");
-    assert.equal(state.titleWhiteSpace, "nowrap", "titre Document sur une ligne à 320px");
-    assert.equal(state.titleOverflow, "ellipsis", "titre long tronqué sans couper les mots à 320px");
+    assert.equal(state.titleWhiteSpace, "normal", "titre Document long renvoyé à la ligne à 320px");
     assert.equal(state.titleLabel, state.title, "titre complet accessible à 320px");
     await page.setViewportSize({ width: 390, height: 844 });
     state = await page.evaluate(() => window.__documentPageTest.state());
@@ -476,16 +434,16 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.tabsAbsent, true, "aucun onglet Original/Informations à 390px");
     assert.equal(state.infoToggleVisible, true, "bascule Informations visible à 390px");
     assert.equal(state.infoHidden, true, "informations fermées par défaut à 390px");
-    /* Carte « Informations fichier » revérifiée à 390 px (mêmes positions). */
+    /* Détails du fichier dans le panneau Informations mobile. */
     await page.click("#viewerDetailsBtn");
     assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true, "la bascule ouvre le volet Informations à 390px");
-    assertFileCardLayout(await measureFileCard(), 390);
+    assert.equal(await page.locator("#viewerDocumentDetailsContent .document-file-details-mobile").last().isVisible(), true, "Détails du fichier en dernière carte mobile");
+    assert.equal(await page.locator("#viewerFileMetadata").isVisible(), false, "aucun bandeau de métadonnées sous la visionneuse mobile");
     await page.click("#viewerDetailsBtn");
     assert.equal(await page.locator("#viewerDocumentDetails").isHidden(), true, "la bascule referme le volet à 390px");
     assert.equal(await page.locator("#viewerImage").isVisible(), true, "le lecteur reste affiché à 390px");
     assert.equal(await page.locator("#viewerOriginalHeading").isVisible(), false, "libellé « Original » masqué jusqu'à 760px");
-    assert.equal(state.titleWhiteSpace, "nowrap", "titre Document sur une ligne à 390px");
-    assert.equal(state.titleOverflow, "ellipsis", "titre long tronqué sans couper les mots à 390px");
+    assert.equal(state.titleWhiteSpace, "normal", "titre long renvoyé à la ligne à 390px");
     assert.equal(state.titleLabel, state.title, "titre complet accessible à 390px");
     for (const [width, height] of [[320, 844], [390, 844], [1440, 900]]) {
       await page.setViewportSize({ width, height });
@@ -541,7 +499,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       const actions = header.querySelector(".dedicated-page-actions-row")?.getBoundingClientRect() || null;
       const backElement = header.querySelector(".dedicated-page-back");
       const back = backElement.getBoundingClientRect();
-      const crumb = header.querySelector(".consultation-breadcrumb").getBoundingClientRect();
+      const crumb = (id === "documentDetailView" ? header.querySelector(".document-detail-title-group") : header.querySelector(".consultation-breadcrumb")).getBoundingClientRect();
       const rect = header.getBoundingClientRect();
       const mobileHeaderId = { sourceDetailView: "sourceMobileHeader", proofDetailView: "proofMobileHeader", documentDetailView: "documentMobileHeader" }[id];
       const mobileHeader = document.getElementById(mobileHeaderId);
@@ -577,25 +535,33 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
           assert.ok(Math.abs(geometry.mobileTitleCenterDelta) <= 1, `${width}px : titre centré pour ${name} (${geometry.mobileTitleCenterDelta}px)`);
         } else {
           assert.ok(geometry.rightInset >= -1 && geometry.rightInset <= 3, `${width}px : Retour de ${name} aligné à droite (${geometry.rightInset}px)`);
-          assert.ok(geometry.returnCenterDelta <= 1, `${width}px : Retour de ${name} centré sur le fil (${geometry.returnCenterDelta}px)`);
+          if (name !== "Document") assert.ok(geometry.returnCenterDelta <= 1, `${width}px : Retour de ${name} centré sur le fil (${geometry.returnCenterDelta}px)`);
           assert.equal(geometry.returnFontSize, "14px", `${width}px : Retour de ${name} en 14 px`);
         }
       }
-      assert.equal(await page.locator("#documentPageActions").count(), 0, `${width}px : aucun menu ⋯ dans l’en-tête Document`);
-      assert.equal(await page.locator("#viewerEditBtn").count(), 1, `${width}px : action Modifier unique dans les informations`);
+      assert.equal(await page.locator("#documentPageActions").count(), 1, `${width}px : menu ⋯ présent dans l’en-tête Document`);
+      assert.equal(await page.locator("#viewerEditBtn").count(), 1, `${width}px : CTA Modifier unique dans l’en-tête`);
+      assert.equal(await page.locator("#documentPageActions").evaluate(menu => menu.open), false, `${width}px : menu fermé par défaut`);
+      assert.equal(await page.locator("#downloadDocumentBtn").isVisible(), false, `${width}px : téléchargement absent tant que le menu est fermé`);
       const categoryState = await page.evaluate(() => ({
-        kicker: document.querySelector("#documentDetailView .document-detail-breadcrumb .consultation-breadcrumb-root").textContent.trim(),
+        breadcrumb: document.querySelector("#documentDetailView .consultation-breadcrumb"),
         title: document.getElementById("viewerTitle").getBoundingClientRect(),
         badge: document.getElementById("viewerCategoryBadge").getBoundingClientRect(),
         header: document.querySelector("#documentDetailView .document-detail-header").getBoundingClientRect()
       }));
-      assert.equal(categoryState.kicker, "Documents", `${width}px : fil d’Ariane compact de la fiche Document`);
+      assert.equal(categoryState.breadcrumb, null, `${width}px : fil d’Ariane supprimé de la fiche Document`);
       assert.ok(categoryState.badge.y >= categoryState.title.bottom, `${width}px : « Autre » sous le titre`);
       assert.ok(categoryState.badge.bottom <= categoryState.header.bottom, `${width}px : badge contenu dans l'en-tête`);
-      assert.ok(documentGeometry.height <= (width <= 390 ? 175 : 180), `${width}px : en-tête Document reste compact (${documentGeometry.height}px)`);
+      assert.ok(documentGeometry.height <= (width <= 390 ? 175 : 220), `${width}px : en-tête Document reste compact (${documentGeometry.height}px)`);
       const returnLabels = await page.evaluate(() => ({ visible: document.querySelector("#documentPageBackBtn .dedicated-page-back-label").textContent, aria: document.getElementById("documentPageBackBtn").getAttribute("aria-label") }));
       assert.equal(returnLabels.visible, width <= 760 ? "Retour" : returnLabels.aria, `${width}px : texte visible contextualisé uniquement sur desktop`);
       assert.notEqual(returnLabels.aria, "Retour", `${width}px : nom accessible contextualisé conservé`);
+
+      if (width === 320) {
+        await page.evaluate(() => window.__documentPageTest.openHeaderDocument("Autre", ""));
+        assert.equal(await page.locator("#viewerTitle").textContent(), "registre.jpg", "nom de fichier utilisé quand le titre personnalisé est absent");
+        await page.evaluate(() => window.__documentPageTest.openHeaderDocument("Autre", "Registre de consultation paroissial de la commune de Palermo — année 1891"));
+      }
 
       await page.evaluate(() => window.__documentPageTest.openHeaderDocument(""));
       await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);

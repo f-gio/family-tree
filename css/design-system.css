@@ -623,6 +623,7 @@ textarea.field { min-height: 5.5rem; padding-block: 0.625rem; resize: vertical; 
   cursor: pointer;
   list-style: none;
 }
+
 .tree-picker > summary::-webkit-details-marker { display: none; }
 .tree-picker > summary:hover,
 .tree-picker[open] > summary { border-color: var(--color-border-strong); background: var(--color-surface-raised); }
@@ -3307,7 +3308,7 @@ html.viewer-fullscreen-active body { overflow: hidden !important; }
 .document-unified-details-content { display: grid; align-content: start; gap: var(--space-4); min-width: 0; }
 .document-unified-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
 .document-unified-layout.is-details-collapsed .document-original-panel { grid-column: 1; }
-.document-unified-section { display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-4); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface-muted); }
+.document-unified-section { display: grid; gap: var(--space-3); min-width: 0; padding: var(--space-4); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); }
 .document-unified-section > h4,
 .document-unified-section-head h4 { font-size: var(--text-md); margin: 0; }
 .document-unified-section-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
@@ -3361,6 +3362,20 @@ html.viewer-fullscreen-active body { overflow: hidden !important; }
 .document-unified-source-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .document-unified-source-actions .btn { min-height: var(--control-touch); }
 .document-unified-notice { margin: 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+.document-transcription-card { gap: var(--space-3); }
+.document-transcription-count { flex: 0 0 auto; color: var(--color-text-muted); font-size: var(--text-xs); }
+.document-transcription-status { padding-bottom: var(--space-2); border-bottom: var(--border-subtle); }
+.document-transcription-progress { display: grid; gap: var(--space-2); }
+.document-transcription-progress-label { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--text-sm); }
+.document-transcription-progress-label strong { font-weight: var(--weight-semibold); }
+.document-transcription-progress-track { height: .4rem; overflow: hidden; border-radius: var(--radius-pill); background: var(--color-surface-muted); }
+.document-transcription-progress-fill { display: block; height: 100%; border-radius: inherit; }
+.document-transcription-progress-fill--italian { background: var(--color-brand); }
+.document-transcription-progress-fill--french { background: var(--color-accent); }
+.document-transcription-action { width: 100%; min-height: var(--control-touch); justify-content: center; }
+.document-file-details-facts, .document-file-details-name { margin: 0; font-size: var(--text-sm); }
+.document-file-details-facts { color: var(--color-text-muted); }
+.document-file-details-name { overflow-wrap: anywhere; word-break: break-word; }
 @media (min-width: 761px) {
   #documentDetailView .modal-body { padding: var(--space-4); }
   #documentDetailView .document-unified-layout { grid-template-columns: minmax(0, 1.15fr) minmax(21rem, .85fr); }
@@ -5001,7 +5016,7 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   .document-detail-view .document-unified-layout.is-details-collapsed .document-original-panel .viewer-body { height: min(68dvh, calc(100dvh - 13rem)); min-height: 12rem; }
   .document-detail-view .document-original-panel .viewer-body { overflow: hidden; }
   .document-detail-view .document-original-panel .viewer-body[data-viewer-fit-mode="width"] { overflow-x: hidden; overflow-y: auto; }
-  .document-detail-view .document-original-panel:has(.viewer-body.viewer-pdf-active) { display: flex; flex-direction: column; gap: var(--space-2); }
+   .document-detail-view .document-original-panel:has(.viewer-body.viewer-pdf-active) { display: flex; flex-direction: column; gap: 0; }
   .document-detail-view .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar { grid-row: auto; flex-wrap: nowrap; }
   .document-detail-view .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #pdfFitModeBtn { margin-left: 0; }
   .document-detail-view .document-original-panel:has(.viewer-body.viewer-pdf-active) .pdf-viewer-toolbar #viewerExternalBtn { margin-left: auto; }
@@ -6902,6 +6917,15 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 .document-detail-header { margin-bottom: 0; }
 .document-detail-heading { min-width: 0; }
 .document-detail-header { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); padding-bottom: var(--space-2); }
+.document-detail-heading-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); min-width: 0; }
+.document-detail-title-group { flex: 1 1 auto; min-width: 0; }
+.document-detail-title-group .page-title { margin: 0; overflow-wrap: anywhere; }
+.document-detail-actions { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-2); }
+.document-detail-actions > .btn { min-height: var(--control-touch); }
+.document-page-menu { position: relative; }
+.document-page-menu > summary { min-height: var(--control-touch); }
+.document-page-menu .source-detail-actions-menu { right: 0; left: auto; }
+.document-detail-back { align-self: flex-end; }
 .document-detail-category-row { align-self: flex-start; }
 /* Badge de catégorie sous le titre Document : valeur métier existante du document. */
 .document-detail-category-row { margin-top: var(--space-1); }
@@ -6910,7 +6934,17 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 /* Lot G : les onglets Original/Informations ont disparu — panneaux en flux. */
 #documentDetailView .document-detail-layout { grid-template-columns: minmax(0, 1.45fr) minmax(21rem, .85fr); height: auto; align-items: start; }
 #documentDetailView .document-detail-layout.is-details-collapsed { grid-template-columns: minmax(0, 1fr); }
-#documentDetailView .document-original-panel { height: min(74dvh, 58rem); min-height: 22rem; overflow: visible; padding-inline-end: var(--space-1); }
+#documentDetailView .document-original-panel { height: min(74dvh, 58rem); min-height: 22rem; overflow: hidden; padding: 0; gap: 0; border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); }
+#documentDetailView .document-original-panel:has(#viewerImage:not([hidden])),
+#documentDetailView .document-original-panel:has(.viewer-body.viewer-pdf-active) { gap: 0; }
+#documentDetailView .viewer-image-controls, #documentDetailView .pdf-viewer-toolbar { box-sizing: border-box; padding: var(--space-2); background: var(--color-surface); }
+#documentDetailView .viewer-image-controls { border-bottom: var(--border-subtle); }
+#documentDetailView .pdf-viewer-toolbar { border-bottom: var(--border-subtle); }
+#documentDetailView .document-file-metadata { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding: var(--space-2) var(--space-3); border-top: var(--border-subtle); background: var(--color-surface); color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; }
+#documentDetailView .document-original-panel:has(.viewer-body.viewer-pdf-active) > .document-file-metadata { grid-column: 2; grid-row: 4; }
+#documentDetailView .document-original-panel:has(.viewer-body.viewer-pdf-active):has(> .pdf-thumbnail-rail[hidden]) > .document-file-metadata { grid-column: 1; }
+#documentDetailView .document-file-metadata-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#documentDetailView .document-file-details-mobile { display: none; }
 #documentDetailView .document-unified-details { min-height: 0; overflow: visible; }
 #documentDetailView .document-original-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 #documentDetailView.is-viewer-fullscreen .document-detail-header { display: none; }
@@ -6950,6 +6984,16 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
      flux vertical (Ordre : visionneuse, puis [miniatures], puis Informations). */
   #documentDetailView .document-detail-layout { grid-template-columns: minmax(0, 1fr); height: auto; gap: var(--space-3); }
   #documentDetailView .document-original-panel { height: auto; min-height: 0; overflow: visible; padding-inline-end: 0; }
+  #documentDetailView .document-original-panel { overflow: hidden; padding: 0; border-radius: var(--radius-md); }
+  #documentDetailView .document-file-metadata--desktop { display: none; }
+  #documentDetailView .document-file-details-mobile { display: grid; }
+  #documentDetailView .document-detail-heading-row { flex-wrap: wrap; gap: var(--space-2); }
+  #documentDetailView .document-detail-title-group { flex-basis: 100%; }
+  #documentDetailView .document-detail-title-group .page-title { font-size: clamp(1.35rem, 6vw, 1.9rem); line-height: var(--leading-tight); white-space: normal; }
+  #documentDetailView .document-detail-actions { align-self: flex-start; }
+  #documentDetailView .document-detail-back { display: none; }
+  #documentDetailView .document-page-menu .source-detail-actions-menu { position: absolute; z-index: 50; right: 0; left: auto; }
+  #documentDetailView .document-file-details-name { overflow-wrap: anywhere; word-break: break-all; }
   #documentDetailView .document-original-panel .viewer-body { height: min(48dvh, 26rem); min-height: 14rem; }
   #documentDetailView .document-original-panel .viewer-body[data-viewer-fit-mode="width"] { height: auto; min-height: 14rem; }
   #documentDetailView .document-unified-details { overflow: visible; }

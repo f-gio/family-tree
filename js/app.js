@@ -39,6 +39,7 @@ import { createSourceDocument, mergeSourceDocumentGuidedData, resolveSourceDocum
 import {
   createPageTextRevision,
   hasTranscriptionContent,
+  transcriptionPassageProgress,
   orderTranscriptionRevisionHistory,
   comparePageTextRevisions
 } from "./document-transcription.js";
@@ -6084,6 +6085,40 @@ const taskActionMenu = bindModalActionMenu("taskDialog", "taskMenuBtn", "taskAct
 const documentActionMenu = bindModalActionMenu("documentDialog", "documentMenuBtn", "documentActionMenu");
 const procedureActionMenu = bindModalActionMenu("procedureActionDialog", "procedureActionMenuBtn", "procedureActionMenu");
 const genealogyItemActionMenu = bindModalActionMenu("genealogyItemDialog", "genealogyItemMenuBtn", "genealogyItemActionsMenu");
+$("documentPageActions").addEventListener("toggle", () => $("documentPageActionsBtn").setAttribute("aria-expanded", String($("documentPageActions").open)));
+document.addEventListener("click", event => {
+  const menu = $("documentPageActions");
+  if (menu.open && !menu.contains(event.target)) menu.open = false;
+}, true);
+$("documentPageActions").addEventListener("keydown", event => {
+  if (event.key !== "Escape" || !$("documentPageActions").open) return;
+  event.preventDefault();
+  event.stopPropagation();
+  $("documentPageActions").open = false;
+  requestAnimationFrame(() => $("documentPageActionsBtn").focus({ preventScroll: true }));
+});
+$("downloadDocumentBtn").addEventListener("click", async () => {
+  const item = documents.find(documentItem => documentItem.id === activeViewerDocumentId);
+  $("documentPageActions").open = false;
+  if (!item || !(item.chunkVersion && item.chunkCount || item.fileData || item.fileUrl)) return toast("Aucun fichier téléchargeable n’est disponible.", "error");
+  try {
+    const blob = item.chunkVersion && item.chunkCount
+      ? await readChunkedFile(item)
+      : await (await fetch(item.fileData || item.fileUrl)).blob();
+    if (!blob.size) throw new Error("Le fichier téléchargé est vide.");
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = item.fileName || "Document";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    console.error(error);
+    toast("Le téléchargement du document est impossible.", "error");
+  }
+});
 $("genealogyItemActionsMenu").addEventListener("click", event => {
   const itemButton = event.target.closest('[role="menuitem"]');
   if (!itemButton || !activeGenealogyItem) return;
@@ -6095,6 +6130,7 @@ window.addEventListener("resize", () => {
   viewerImageState?.fit();
 });
 
+$("viewerEditBtn").addEventListener("click", () => openUnifiedDocumentEditor(activeViewerDocumentId));
 $("printPersonBtn").onclick = () => openPersonPrint();
 $("personPrintGoBtn").onclick = () => {
   const sheet = $("personPrintSheet");
@@ -12834,16 +12870,17 @@ function documentTranscriptionCardMarkup(item, linkedSources, sourceState) {
     || states[0]
     || null;
   const passages = selected?.passages || [];
-  const italian = passages.length && passages.some(passage => String(passage.textIt || "").trim() || passage.unreadable)
-    ? "Présente" : "À compléter";
-  const frenchCount = passages.filter(passage => String(passage.translationFr || "").trim()).length;
-  const french = frenchCount === passages.length && frenchCount > 0 ? "Complète" : frenchCount ? "Partielle" : "Absente";
+  const italian = transcriptionPassageProgress(passages, "textIt");
+  const french = transcriptionPassageProgress(passages, "translationFr");
   const pagePosition = selected ? selected.pages.findIndex(page => page.id === selected.page.id) : -1;
   const pageLabel = selected && selected.pages.length > 1 ? ` · Page ${pagePosition + 1}` : "";
+  const actionLabel = selected?.action === "Reprendre" ? "Reprendre la transcription"
+    : selected?.action === "Consulter" ? "Consulter la transcription officielle"
+      : "Commencer une transcription";
   const actionMarkup = selected || isDocumentConsultable(item)
-    ? `<button class="btn small" type="button" data-transcribe-document="${esc(item.id)}"${selected ? ` data-transcription-page-id="${esc(selected.page.id)}"` : ""}>${esc(selected?.action || "Ajouter")}</button>`
+    ? `<button class="btn document-transcription-action" type="button" data-transcribe-document="${esc(item.id)}"${selected ? ` data-transcription-page-id="${esc(selected.page.id)}"` : ""}>${esc(actionLabel)}</button>`
     : `<p class="document-unified-notice">Aucune transcription ni page de transcription n’est associée à ce document.</p>`;
-  return `<section class="document-unified-section document-transcription-card"><div class="document-unified-section-head"><h4>Transcription${esc(pageLabel)}</h4>${actionMarkup}</div><div class="document-transcription-summary"><div><strong>État</strong><span>${esc(selected?.status || "Aucune transcription")}</span></div><div><strong>Passages</strong><span>${passages.length}</span></div><div><strong>Italien</strong><span>${italian}</span></div><div><strong>Français</strong><span>${french}</span></div></div></section>`;
+  return `<section class="document-unified-section document-transcription-card"><div class="document-unified-section-head"><h4>Transcription${esc(pageLabel)}</h4><span class="document-transcription-count">${passages.length} passage${passages.length === 1 ? "" : "s"}</span></div><p class="document-unified-notice document-transcription-status">${esc(selected?.status || "Aucune transcription")}</p><div class="document-transcription-progress"><div class="document-transcription-progress-label"><span>Italien</span><strong>${italian} %</strong></div><div class="document-transcription-progress-track" role="progressbar" aria-label="Progression de la transcription italienne" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${italian}"><span class="document-transcription-progress-fill document-transcription-progress-fill--italian" style="width:${italian}%"></span></div><div class="document-transcription-progress-label"><span>Français</span><strong>${french} %</strong></div><div class="document-transcription-progress-track" role="progressbar" aria-label="Progression de la traduction française" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${french}"><span class="document-transcription-progress-fill document-transcription-progress-fill--french" style="width:${french}%"></span></div></div>${actionMarkup}</section>`;
 }
 
 function documentSourcePresentation(item) {
@@ -12903,18 +12940,14 @@ function applyTranscriptionCardRemoteDrafts(item, ownerUid) {
 }
 
 function renderUnifiedDocumentDetails(item) {
-  const fileFacts = [];
-  fileFacts.push(["Type", item.type || "Non renseigné"]);
   const fileExtension = String(item.fileName || "").match(/\.([^.\/\\]+)$/)?.[1]?.toUpperCase();
   const mimeFormat = item.mimeType === "application/pdf" ? "PDF" : item.mimeType?.startsWith("image/") ? item.mimeType.slice(6).replace(/^x-/, "").toUpperCase() : "";
-  const fileFormat = mimeFormat || fileExtension;
-  fileFacts.push(["Format", fileFormat || "Non renseigné"]);
-  const fileSize = item.fileSize ?? item.storedSize;
-  fileFacts.push(["Taille", fileSize ? formatBytes(fileSize) : "Non renseigné"]);
+  const fileFormat = (fileExtension === "JPG" ? "JPEG" : fileExtension) || mimeFormat || "Format inconnu";
   const addedAt = item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString("fr-FR") : "";
-  fileFacts.push(["Date d'ajout", addedAt || "Non renseigné"]);
-  const fileName = item.fileName || "Non renseigné";
-  const fileGrid = `<div class="document-unified-facts document-unified-facts--file">${fileFacts.map(([label, value]) => `<div class="document-unified-fact"><strong>${esc(label)}</strong><span>${esc(value)}</span></div>`).join("")}<div class="document-unified-fact document-unified-fact--file-name"><strong>Fichier</strong><button type="button" class="document-unified-filename" title="${esc(fileName)}" aria-label="Nom du fichier : ${esc(fileName)}. Activer pour afficher ou masquer le nom complet." aria-expanded="false" data-unified-filename="${esc(fileName)}">${esc(fileName)}</button></div></div>`;
+  const fileName = String(item.fileName || "Nom de fichier indisponible");
+  const fileMetadata = `${fileFormat} · ${fileName}${addedAt ? ` · Ajouté le ${addedAt}` : ""}`;
+  const desktopMetadata = `<span>${esc(fileFormat)}</span><span class="document-file-metadata-name" title="${esc(fileName)}">${esc(fileName)}</span>${addedAt ? `<span>Ajouté le ${esc(addedAt)}</span>` : ""}`;
+  const mobileFileDetails = `<section class="document-unified-section document-file-details-mobile"><h4>Détails du fichier</h4><p class="document-file-details-facts">${esc(fileFormat)}${addedAt ? ` · Ajouté le ${esc(addedAt)}` : ""}</p><p class="document-file-details-name" title="${esc(fileName)}">${esc(fileName)}</p></section>`;
   const historicalFacts = [];
   if (item.date) historicalFacts.push(["Date du document", formatGenealogyDate(null, item.date)]);
   const place = formatCompactPlace(item.place, item.placeInfo);
@@ -12923,7 +12956,6 @@ function renderUnifiedDocumentDetails(item) {
   const historicalGrid = historicalFacts.length
     ? `<div class="document-unified-facts">${historicalFacts.map(([label, value]) => `<div class="document-unified-fact${label === "Notes" ? " document-unified-fact--wide" : ""}"><strong>${esc(label)}</strong><span>${esc(value)}</span></div>`).join("")}</div>`
     : "";
-  const documentFacts = fileGrid + historicalGrid;
   const personIds = Array.isArray(item.personIds) ? item.personIds : [];
   const relatedPeople = loadedPeople ? personIds.map(id => people.find(personItem => personItem.id === id)).filter(Boolean) : [];
   const peopleMarkup = !loadedPeople
@@ -12971,7 +13003,10 @@ function renderUnifiedDocumentDetails(item) {
     : `<div class="document-unified-section-head"><h4>Preuves</h4></div>`;
   const associationsLoading = !loadedPeople || sourceState === "loading" || proofState === "loading";
   const loadingNotice = associationsLoading ? `<p class="document-unified-notice document-associations-loading" role="status" aria-live="polite">Chargement des associations…</p>` : "";
-  $("viewerDocumentDetailsContent").innerHTML = `<section class="document-unified-section"><div class="document-unified-section-head"><h4>Informations fichier</h4></div>${documentFacts}</section>${transcriptionCard}${loadingNotice}<section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section">${sourceHead}${sourceMarkup}</section><section class="document-unified-section">${proofActions}${proofMarkup}</section>`;
+  $("viewerDocumentDetailsContent").innerHTML = `${transcriptionCard}${loadingNotice}<section class="document-unified-section"><h4>Personnes concernées</h4>${peopleMarkup}</section><section class="document-unified-section">${proofActions}${proofMarkup}</section><section class="document-unified-section">${sourceHead}${sourceMarkup}</section>${historicalGrid ? `<section class="document-unified-section document-historical-details"><h4>Informations historiques</h4>${historicalGrid}</section>` : ""}${mobileFileDetails}`;
+  $("viewerFileMetadata").innerHTML = desktopMetadata;
+  $("viewerFileMetadata").title = fileMetadata;
+  $("viewerFileMetadata").setAttribute("aria-label", fileMetadata);
   refreshTranscriptionCardRemoteDrafts(item).catch(() => {});
 }
 
@@ -13246,7 +13281,8 @@ function setUnifiedDetailsCollapsed(collapsed) {
   const detailsActionLabel = collapsed ? "Afficher les informations" : "Masquer les informations";
   $("viewerDetailsExpandBtn").setAttribute("aria-label", detailsActionLabel);
   $("viewerDetailsExpandBtn").title = detailsActionLabel;
-  $("viewerDetailsExpandBtn").querySelector("use")?.setAttribute("href", collapsed ? "#icon-panel-expand" : "#icon-panel-collapse");
+  $("viewerDetailsExpandBtn").querySelector("use")?.setAttribute("href", collapsed ? "#icon-chevron-left" : "#icon-chevron-right");
+  $("viewerDetailsCollapseBtn").querySelector("use")?.setAttribute("href", collapsed ? "#icon-chevron-left" : "#icon-chevron-right");
 }
 
 /* Volet « Informations » de la fiche Document sur mobile : après le dépliage
@@ -13434,11 +13470,12 @@ async function openStoredDocument(item, returnContext = "previous") {
   /* Lot G : volets mobiles fermés par défaut (Miniatures et Informations),
      Informations dépliées sur ordinateur. */
   setUnifiedDetailsCollapsed(window.matchMedia("(max-width: 760px)").matches);
-  renderConsultationBreadcrumb("viewerBreadcrumb", "viewerTitle", {
-    title: documentDisplayLabel(item),
-    root: "Documents",
-    rootView: "documents"
-  });
+  const pageTitle = String(item.title || "").trim() || String(item.fileName || "").trim() || "Document";
+  $("viewerTitle").textContent = pageTitle;
+  $("viewerTitle").setAttribute("aria-label", pageTitle);
+  $("viewerTitle").title = pageTitle;
+  $("documentPageActions").open = false;
+  $("downloadDocumentBtn").hidden = !(item.chunkVersion && item.chunkCount || item.fileData || item.fileUrl);
   /* Badge catégorie sous le titre : la valeur métier du document
      (dont « Autre ») quand elle existe, aucun libellé fabriqué sinon.
      Lot G : aucun sous-titre sous le titre — les métadonnées vivent dans le

@@ -68,6 +68,7 @@ test("Viewer : règles statiques mobile, commandes compactes, plein écran et sa
   assert.match(html, /id="viewerZoomIndicator" aria-hidden="true"/);
   assert.match(html, /id="viewerImageModeBtn"[^>]*aria-label="Ajuster à la largeur"[^>]*title="Ajuster à la largeur"[^>]*><svg class="ui-icon"[^>]*><use href="#icon-fit-width"><\/use><\/svg><\/button>/);
   assert.match(html, /id="viewerFullscreenBtn"[^>]*aria-label="Afficher en plein écran"[^>]*title="Afficher en plein écran"/);
+  assert.match(html, /id="viewerFullscreenBtn"[^>]*><svg class="ui-icon"[^>]*><use href="#icon-expand"><\/use><\/svg><\/button>/, "icône Plein écran identique à la vue Arbre");
   assert.match(css, /\.viewer-fullscreen-control \{ position: absolute;/);
   assert.match(css, /\.viewer-zoom-indicator \{[\s\S]*?pointer-events: none/);
   assert.match(css, /#documentDetailView\.is-viewer-fullscreen \{/);
@@ -111,9 +112,11 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
       if (view) view.hidden = true;
     }
     documentPage.hidden = false;
+    document.getElementById("documentMobileHeader").hidden = !matchMedia("(max-width: 760px)").matches;
     const pageActions = document.getElementById("documentPageActions");
     pageActions.hidden = false;
     pageActions.open = false;
+    document.getElementById("downloadDocumentBtn").hidden = false;
     document.getElementById("viewerTitle").textContent = title;
     document.getElementById("viewerTitle").setAttribute("aria-label", title);
     document.getElementById("viewerTitle").title = title;
@@ -230,7 +233,7 @@ async function measureViewer(page) {
     const zoomOut = document.querySelector('[data-viewer-image-zoom="out"]');
     const zoomIn = document.querySelector('[data-viewer-image-zoom="in"]');
     const detailContent = document.getElementById("viewerDocumentDetailsContent");
-    const actionsButton = document.getElementById("viewerActionsBtn");
+    const actionsButton = document.getElementById("documentPageActionsBtn");
     const externalIcon = external.querySelector("use");
     const closeBtn = (() => {
       const contentClose = document.getElementById("documentPageBackBtn");
@@ -345,7 +348,7 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
               const headers = {};
               for (const [key, title] of Object.entries(TITLES)) {
                 await openViewer(page, { title, fileName: "acte-1891.pdf", src: portraitSvg });
-                await page.locator("#viewerActionsBtn").click();
+                await page.locator("#documentPageActionsBtn").click();
                 const m = await measureViewer(page);
                 headers[key] = m;
                 assert.ok(m.open, `${key} : page ouverte`);
@@ -397,8 +400,8 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 assert.equal(m.modeButtonTitle, m.modeButtonAriaLabel, `${key} : action de mode dans l’info-bulle et le nom accessible`);
                 assert.equal(m.modeIconHref, "#icon-fit", `${key} : icône fenêtre quand l’action permet l’ajustement fenêtre`);
                 assert.ok(m.zoomGroup && Math.abs(m.zoomIn.x - m.zoomOut.right) <= 1, `${key} : zoom − et + côte à côte`);
-                assert.equal(await page.locator("#viewerActionsMenu").isVisible(), true, `${key} : menu d’actions ouvrable`);
-                assert.equal(await page.locator('#viewerActionsMenu [role="menuitem"]').count(), 1, `${key} : Modifier seule reste dans le menu`);
+                assert.equal(await page.locator("#documentPageActionsMenu").isVisible(), true, `${key} : menu d’actions ouvrable`);
+                assert.equal(await page.locator('#documentPageActionsMenu [role="menuitem"]:visible').count(), 1, `${key} : téléchargement seul reste dans le menu`);
                 assert.equal(m.externalText, "", `${key} : l’action externe est représentée par l’icône seule`);
                 assert.equal(m.externalIconHref, "#icon-external-link", `${key} : icône externe dédiée`);
                 assert.ok(m.externalBtn && m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, `${key} : cible externe ≥44px`);
@@ -409,8 +412,8 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                  assert.equal(m.subtitleAbsent, true, `${key} : aucun sous-titre résiduel sous le titre`);
                  /* clamp : le header ne doit plus exploser avec un titre long */
                 if (key === "long") {
-                  assert.ok(m.titleH <= 2 * 40 + 2, `${key} : titre borné à 2 lignes (h=${m.titleH})`);
-                  assert.ok(m.head.h <= 160, `${key} : header long borné sur deux lignes (${m.head.h}px)`);
+                  assert.ok(m.titleH > 0, `${key} : titre long visible sur plusieurs lignes (${m.titleH}px)`);
+                  assert.ok(m.head.h <= 300, `${key} : header long sans débordement (${m.head.h}px)`);
                 }
                 if (key === "short") {
                   /* Le Retour vit désormais dans l'en-tête : la rangée supplémentaire
@@ -428,7 +431,7 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
               for (const vw of [320, 390, 480, 481, 560, 760]) {
                 await page.setViewportSize({ width: vw, height: 844 });
                 await openViewer(page, { title: TITLES.short, fileName: "acte.pdf", src: portraitSvg });
-                await page.locator("#viewerActionsBtn").click();
+                await page.locator("#documentPageActionsBtn").click();
                 const m = await measureViewer(page);
                 assert.equal(m.externalText, "", `${vw}px : icône seule, sans texte visible`);
                 assert.ok(m.externalBtn && m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, `${vw}px : cible ≥44px (${JSON.stringify(m.externalBtn)})`);
@@ -696,8 +699,8 @@ test("Desktop : panneau d'informations repliable sans recharger ni réinitialise
       assert.ok(Math.abs(imageToolbar.zoomIn.x - imageToolbar.zoomOut.right + 1) <= 1, "le groupe Zoom JPEG/PNG reste accolé sur desktop");
       assert.ok(imageToolbar.zoom.x < imageToolbar.fit.x && imageToolbar.fit.right < imageToolbar.fullscreen.x && imageToolbar.fullscreen.right < imageToolbar.external.x, "zoom, ajustement, plein écran et nouvel onglet sont groupés à gauche");
       assert.ok(imageToolbar.external.right < imageToolbar.info.x, "Informations est séparé des commandes de lecture");
-      assert.ok(imageToolbar.info.right >= imageToolbar.controls.right - 2, "Informations est aligné tout à droite de la barre");
-      assert.ok(Math.abs(imageToolbar.reader.y - imageToolbar.controls.bottom - 12) <= 1, "l’image est séparée de la barre par l’espacement desktop standard de 12px");
+      assert.ok(imageToolbar.info.right >= imageToolbar.controls.right - 10, "Informations reste aligné à droite dans la barre intégrée");
+      assert.ok(Math.abs(imageToolbar.reader.y - imageToolbar.controls.bottom) <= 1, `l’image est accolée à la barre intégrée (${JSON.stringify({ controls: imageToolbar.controls, reader: imageToolbar.reader })})`);
       assert.equal(imageToolbar.documentWidth, imageToolbar.viewportWidth, "aucun débordement horizontal desktop");
       const initial = await page.locator(".document-original-panel").boundingBox();
       const src = await page.locator("#viewerImage").getAttribute("src");
@@ -707,7 +710,7 @@ test("Desktop : panneau d'informations repliable sans recharger ni réinitialise
       assert.equal(await infoButton.getAttribute("aria-label"), "Masquer les informations");
       const openInfoBox = await infoButton.boundingBox();
       const openControlsBox = await page.locator("#viewerImageControls").boundingBox();
-      assert.ok(openInfoBox.x + openInfoBox.width >= openControlsBox.x + openControlsBox.width - 2, `le bouton Informations reste à droite panneau ouvert (${JSON.stringify({ openInfoBox, openControlsBox })})`);
+      assert.ok(openInfoBox.x + openInfoBox.width >= openControlsBox.x + openControlsBox.width - 10, `le bouton Informations reste à droite panneau ouvert (${JSON.stringify({ openInfoBox, openControlsBox })})`);
       await infoButton.click();
       await page.waitForFunction(() => document.getElementById("documentUnifiedLayout").classList.contains("is-details-collapsed"));
       const collapsed = await page.locator(".document-original-panel").boundingBox();
@@ -716,7 +719,7 @@ test("Desktop : panneau d'informations repliable sans recharger ni réinitialise
       assert.equal(await infoButton.getAttribute("aria-expanded"), "false");
       const closedInfoBox = await infoButton.boundingBox();
       const closedControlsBox = await page.locator("#viewerImageControls").boundingBox();
-      assert.ok(closedInfoBox.x + closedInfoBox.width >= closedControlsBox.x + closedControlsBox.width - 2, "le bouton Informations reste à droite panneau fermé");
+      assert.ok(closedInfoBox.x + closedInfoBox.width >= closedControlsBox.x + closedControlsBox.width - 10, "le bouton Informations reste à droite panneau fermé");
       assert.ok(collapsed.width > initial.width + 100, "le panneau original gagne la largeur du panneau droit");
       assert.equal(await page.locator("#viewerImage").getAttribute("src"), src, "le fichier n’est pas rechargé pendant le repli");
       await infoButton.click();
@@ -726,7 +729,7 @@ test("Desktop : panneau d'informations repliable sans recharger ni réinitialise
       assert.equal(await infoButton.getAttribute("aria-expanded"), "true");
       const reopenedInfoBox = await infoButton.boundingBox();
       const reopenedControlsBox = await page.locator("#viewerImageControls").boundingBox();
-      assert.ok(reopenedInfoBox.x + reopenedInfoBox.width >= reopenedControlsBox.x + reopenedControlsBox.width - 2, "le bouton Informations reste à droite après réouverture");
+      assert.ok(reopenedInfoBox.x + reopenedInfoBox.width >= reopenedControlsBox.x + reopenedControlsBox.width - 10, "le bouton Informations reste à droite après réouverture");
       assert.equal(await page.locator("#viewerDocumentDetails").isVisible(), true);
       assert.ok(Math.abs(restored.width - initial.width) < 2, "la disposition initiale à deux panneaux est restaurée");
       assert.equal(await page.locator("#viewerImage").getAttribute("src"), src, "le document reste chargé après réouverture");
@@ -1012,7 +1015,7 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
             header: rect(documentPage.querySelector(".document-detail-header")),
             title: rect(title), titleStyle: { whiteSpace: getComputedStyle(title).whiteSpace, textOverflow: getComputedStyle(title).textOverflow, webkitLineClamp: getComputedStyle(title).webkitLineClamp },
             actions: rect(documentPage.querySelector(".document-detail-actions")),
-            menu: rect(document.getElementById("viewerActionsBtn")),
+            menu: rect(document.getElementById("documentPageActionsBtn")),
             close: rect((() => { const contentClose = document.getElementById("documentPageBackBtn"); const box = contentClose.getBoundingClientRect(); return box.height > 0 && getComputedStyle(contentClose).display !== "none" ? contentClose : document.getElementById("documentMobileBackBtn"); })()),
             contentBackDisplay: getComputedStyle(document.getElementById("documentPageBackBtn")).display,
             topbar: rect(document.getElementById("topbar")),
@@ -1027,10 +1030,11 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
             documentWidth: document.documentElement.scrollWidth, viewportWidth: innerWidth
           };
         });
-        assert.ok(state.header.height <= 145, `${width}px : en-tête compact avec titre limité à deux lignes (${state.header.height}px)`);
-        assert.equal(state.titleStyle.webkitLineClamp, "2");
-        assert.equal(await page.locator("#viewerTitle").getAttribute("aria-label"), title, "titre complet accessible malgré le clamp visuel");
-        assert.ok(state.title.right <= state.actions.x + 1, "le titre ne chevauche pas les actions");
+        assert.ok(state.header.height <= 220, `${width}px : en-tête compact avec titre long renvoyé à la ligne (${state.header.height}px)`);
+        assert.equal(state.titleStyle.webkitLineClamp, "none", "le titre complet peut revenir à la ligne sans clamp");
+        assert.equal(state.titleStyle.whiteSpace, "normal", "le titre autorise les retours à la ligne");
+        assert.equal(await page.locator("#viewerTitle").getAttribute("aria-label"), title, "titre complet accessible");
+        assert.ok(state.title.bottom <= state.actions.y + 1 || state.title.right <= state.actions.x + 1, "le titre ne chevauche pas les actions, qui peuvent passer sur la ligne suivante");
         /* Header mobile harmonisé : le Retour interne disparaît, le chevron
            prend sa place dans la barre supérieure (modèle fiche Personne). */
         assert.equal(state.contentBackDisplay, "none", "aucun Retour redondant dans le contenu");
@@ -1040,7 +1044,7 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
         for (const action of [state.menu, state.close]) assert.ok(action.width >= 43.5 && action.height >= 43.5, "actions d’en-tête de 44 × 44 px");
         if (width === 320) {
           const titleClamp = await page.locator("#viewerTitle").evaluate(element => getComputedStyle(element).webkitLineClamp);
-          assert.equal(titleClamp, "2", "le titre long est tronqué après deux lignes sans déplacer les actions");
+          assert.equal(titleClamp, "none", "le titre long reste complet et se renvoie à la ligne sans déplacer les actions");
         }
         const visibleToolbarButtons = await page.locator("#viewerImageControls .btn:visible").all();
         assert.equal(visibleToolbarButtons.length, 5, "deux commandes zoom, ajustement, plein écran et nouvel onglet, sans doublon");
@@ -1050,7 +1054,7 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
           const box = await button.boundingBox();
           assert.ok(box.width >= 43.5 && box.height >= 43.5, "commande d’image avec une cible de 44 × 44 px");
         }
-        assert.ok(state.controls.height <= 48, `${width}px : barre d’outils d’une ligne (${state.controls.height}px)`);
+        assert.ok(state.controls.height <= 64, `${width}px : barre d’outils intégrée d’une ligne (${state.controls.height}px)`);
         assert.ok(Math.abs(state.zoomIn.x - state.zoomOut.right + 1) <= 1, `${width}px : le groupe Zoom JPEG/PNG reste accolé`);
         assert.ok(state.fullscreen.y >= state.controls.y - 1 && state.fullscreen.bottom <= state.controls.bottom + 1, "Plein écran est dans la barre, non superposé à l’image");
         /* Lot G : un seul bouton Informations sous la visionneuse — volet
@@ -1080,7 +1084,7 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
           await page.waitForTimeout(80);
           assert.equal(await page.locator("#pdfPanelToggles").isHidden(), true, "après rotation paysage, le dépliant mobile disparaît de la barre desktop");
           assert.equal(await page.locator("#viewerDetailsExpandBtn").isVisible(), true, "après rotation paysage, Informations revient dans la barre desktop");
-          assert.equal(await page.locator("#viewerDetailsExpandBtn").evaluate(button => Math.abs(button.getBoundingClientRect().right - document.getElementById("viewerImageControls").getBoundingClientRect().right) <= 2), true, "Informations reste à droite après rotation");
+          assert.equal(await page.locator("#viewerDetailsExpandBtn").evaluate(button => Math.abs(button.getBoundingClientRect().right - document.getElementById("viewerImageControls").getBoundingClientRect().right) <= 10), true, "Informations reste aligné dans la barre intégrée après rotation");
           await page.setViewportSize({ width: 390, height: 844 });
           await page.waitForTimeout(80);
           assert.equal(await page.locator("#viewerDetailsBtn").isVisible(), true, "après rotation portrait, la bascule Informations reste accessible");

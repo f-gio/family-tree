@@ -548,7 +548,8 @@ test("la consultation depuis Documents compose une fiche unifiée sans remplacer
   assert.match(html, /class="document-detail-layout document-unified-layout"/);
   assert.match(html, /class="document-original-panel"/);
   assert.match(html, /id="viewerDocumentDetails"/);
-  assert.match(details, /Informations fichier/);
+  assert.match(details, /document-file-metadata/);
+  assert.match(details, /Détails du fichier/);
   assert.match(details, /Personnes concernées/);
   assert.match(details, /Sources et provenance/);
   assert.match(details, /linkedSources\.map\(source/);
@@ -574,17 +575,18 @@ test("l'export v5 est raccordé et une archive v5 restaure uniquement en prévis
   assert.match(app, /aucune écriture ne sera exécutée depuis cette interface/i);
 });
 
-test("la fiche unifiée du document réutilise le viewer et affiche métadonnées, personnes et toutes les sources liées", () => {
+test("la fiche unifiée du document réutilise le viewer et affiche détails fichier, personnes et toutes les sources liées", () => {
   const unified = app.match(/function renderUnifiedDocumentDetails\(item\)[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(unified.length > 500);
-  for (const field of ["item.type", "item.date", "item.place", "item.notes", "item.personIds"]) assert.ok(unified.includes(field), `champ documentaire absent : ${field}`);
+  for (const field of ["item.fileName", "item.mimeType", "item.createdAt", "item.date", "item.place", "item.notes", "item.personIds"]) assert.ok(unified.includes(field), `champ documentaire absent : ${field}`);
   assert.match(unified, /documentSourcePresentation\(item\)/, "résolution des sources liées factorisée pour la carte et le volet");
   assert.match(app, /function documentSourcePresentation\(item\) \{[\s\S]{0,300}documentLinkedSources\(item\.id\)/, "sources liées résolues à partir de l'identifiant du document");
   assert.match(unified, /linkedSources\.map\(source/);
   assert.match(unified, /data-unified-source-card=/, "carte Source cliquable");
-  assert.match(unified, /"Format", fileFormat/);
-  assert.match(unified, /Date d'ajout/);
-  assert.match(unified, /Taille/);
+  assert.match(unified, /document-file-metadata/);
+  assert.match(unified, /Ajouté le/);
+  assert.match(unified, /Détails du fichier/);
+  assert.doesNotMatch(unified, /fileSize|storedSize|Taille/);
   assert.match(unified, /Date du document/);
   assert.doesNotMatch(unified, /data-unified-document-edit=/, "le bouton Modifier a quitté le volet Informations");
   assert.match(unified, /<h4>Preuves<\/h4>/, "section Preuves dédiée présente");
@@ -674,8 +676,8 @@ test("le formulaire guidé de preuve remplace le JSON pour les créations offici
 });
 
 test("la fiche unifiée permet de modifier document, source et naviguer vers les personnes", () => {
-  assert.match(html, /id="viewerEditBtn"[^>]*type="button"[^>]*>[^<]*<svg class="ui-icon"[^>]*><use href="#icon-edit"><\/use><\/svg><span>Modifier les informations<\/span>/, "la modification reste dans le panneau Informations avec l'icône crayon commune");
-  assert.match(app, /closest\("\[data-unified-document-edit\], #viewerEditBtn"\)/, "action contextuelle déléguée depuis les informations");
+  assert.match(html, /class="btn primary" id="viewerEditBtn" type="button"[^>]*>[\s\S]*?<span>Modifier<\/span>/, "CTA Modifier principal déplacé dans l’en-tête");
+  assert.match(app, /\$\("viewerEditBtn"\)\.addEventListener\("click", \(\) => openUnifiedDocumentEditor\(activeViewerDocumentId\)\)/, "CTA d’en-tête branché sur la modale d’édition existante");
   assert.match(app, /data-unified-person=/);
   assert.match(app, /function openUnifiedDocumentEditor\(documentId\)/);
   assert.match(app, /function openUnifiedSource\(documentId, sourceId, revise = false\)/);

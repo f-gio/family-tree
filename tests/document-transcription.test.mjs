@@ -11,6 +11,7 @@ import {
   orderTranscriptionRevisionHistory,
   reconstructFrenchTranslation,
   reconstructItalianTranscription,
+  transcriptionPassageProgress,
   validateTranscriptionPassage
 } from "../js/document-transcription.js";
 
@@ -53,6 +54,21 @@ test("transcription partielle ou absente et traduction partielle ou absente rest
   assert.equal(partial.passages[1].translationState, "not-started");
   assert.equal(none.transcriptionIt, "");
   assert.equal(none.translationFr, null);
+});
+
+test("les progressions comptent uniquement les passages non vides et protègent le cas sans passage", () => {
+  assert.equal(transcriptionPassageProgress([], "textIt"), 0);
+  assert.equal(transcriptionPassageProgress([
+    { textIt: "Texte", translationFr: "" },
+    { textIt: "   ", translationFr: "Traduit" },
+    { textIt: "Lecture", translationFr: "   " }
+  ], "textIt"), 67);
+  assert.equal(transcriptionPassageProgress([
+    { translationFr: "" },
+    { translationFr: "Traduit" },
+    { translationFr: "Autre" }
+  ], "translationFr"), 67);
+  assert.equal(transcriptionPassageProgress([{ textIt: "   " }], "textIt"), 0);
 });
 
 test("la traduction française est distincte, peut être partielle et se reconstitue par ordre", () => {

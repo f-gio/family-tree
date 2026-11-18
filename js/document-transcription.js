@@ -172,6 +172,13 @@ export function hasTranscriptionContent(passages = []) {
   return passages.some(passage => typeof passage?.textIt === "string" && passage.textIt.trim().length > 0);
 }
 
+/** Part des passages renseignés dans une langue, arrondie à l'entier le plus proche. */
+export function transcriptionPassageProgress(passages = [], field = "") {
+  if (!Array.isArray(passages) || passages.length === 0 || !field) return 0;
+  const completed = passages.filter(passage => String(passage?.[field] || "").trim().length > 0).length;
+  return Math.round(completed / passages.length * 100);
+}
+
 /** Historique officiel ordonné de la plus récente (version du head) à la
     première version, en suivant la chaîne previousRevisionId. Les révisions
     orphelines (jamais liées à la chaîne active) sont ignorées : seule la ligne

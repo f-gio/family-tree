@@ -5,7 +5,7 @@ import { extname, join, resolve } from "node:path";
 import { after, test } from "node:test";
 import { chromium, webkit } from "playwright";
 
-const DIST = resolve("dist-production");
+const DIST = resolve(process.env.DOCUMENT_VIEWER_PDF_TEST_DIST || "dist-production");
 
 function createPdf(pageCount = 3) {
   const objects = [];
@@ -206,8 +206,8 @@ test("PDF production : disposition, pagination, miniatures et commandes sur desk
       } else {
         const toolbarBox = await page.locator("#viewerPdfToolbar").boundingBox();
         const toolbarItems = await page.locator("#viewerPdfToolbar > *").evaluateAll(elements => elements.map(element => ({ id: element.id, hidden: element.hidden, rect: element.getBoundingClientRect().toJSON() })));
-        assert.ok(toolbarBox.height <= 60, `barre PDF desktop reste sur une seule ligne (${toolbarBox.height}px)`);
-        assert.ok(initial.info.x >= initial.external.right && initial.info.x + initial.info.width >= toolbarBox.x + toolbarBox.width - 6, `Informations reste en bout de barre desktop (${JSON.stringify({ info: initial.info, external: initial.external, toolbarBox, toolbarItems })})`);
+        assert.ok(toolbarBox.height <= 64, `barre PDF desktop reste sur une seule ligne malgré ses marges intégrées (${toolbarBox.height}px)`);
+        assert.ok(initial.info.x >= initial.external.right && initial.info.x + initial.info.width >= toolbarBox.x + toolbarBox.width - 10, `Informations reste en bout de barre intégrée desktop (${JSON.stringify({ info: initial.info, external: initial.external, toolbarBox, toolbarItems })})`);
         assert.ok(initial.fit.x > initial.zoomIn.x && initial.fullscreen.x > initial.fit.x && initial.external.x > initial.fullscreen.x, "les autres commandes restent distinctes et accessibles");
         for (const thumbnailsOpen of [false, true]) {
           const railOpen = !await page.locator("#viewerPdfThumbnails").evaluate(element => element.hidden);
@@ -218,7 +218,7 @@ test("PDF production : disposition, pagination, miniatures et commandes sur desk
           await page.locator("#viewerDetailsExpandBtn").click();
           await page.waitForFunction(() => !document.getElementById("viewerDocumentDetails").hidden);
           const infoOpen = await measure();
-          assert.ok(infoOpen.info.x + infoOpen.info.width >= infoOpen.toolbar.x + infoOpen.toolbar.width - 2, `Informations reste à droite; miniatures=${thumbnailsOpen}`);
+          assert.ok(infoOpen.info.x + infoOpen.info.width >= infoOpen.toolbar.x + infoOpen.toolbar.width - 10, `Informations reste à droite dans la barre intégrée; miniatures=${thumbnailsOpen}`);
           assert.ok(infoOpen.info.y >= infoOpen.toolbar.y - 1 && infoOpen.info.bottom <= infoOpen.toolbar.bottom + 1, `Informations reste à l’intérieur de la barre; miniatures=${thumbnailsOpen} (${JSON.stringify({ info: infoOpen.info, toolbar: infoOpen.toolbar, surface: infoOpen.surface })})`);
           assert.ok(infoOpen.toolbar.bottom <= infoOpen.surface.y + 1, `la barre reste au-dessus de la page; miniatures=${thumbnailsOpen}`);
           assert.equal(await page.locator("#viewerDetailsExpandBtn").isVisible(), true, "le même bouton reste visible ouvert");

@@ -274,7 +274,7 @@ export function createDocumentImageViewer({ viewport, image, controls, zoomLabel
     if (fullscreenButton) {
       fullscreenButton.setAttribute("aria-label", active ? "Quitter le plein écran" : "Afficher en plein écran");
       fullscreenButton.title = active ? "Quitter le plein écran" : "Afficher en plein écran";
-      fullscreenButton.querySelector("use")?.setAttribute("href", active && mobileImmersive ? "#icon-close" : active ? "#icon-minimize" : "#icon-maximize");
+      fullscreenButton.querySelector("use")?.setAttribute("href", active ? "#icon-close" : "#icon-expand");
     }
     if (mobileImmersive || restoreMobileView) updateModeButton();
     /* La surface change de dimensions à l'entrée/sortie du repli. Recalcule

@@ -90,7 +90,7 @@ export async function createDocumentPdfViewer({
     const label = active ? "Quitter le plein écran" : "Afficher en plein écran";
     fullscreenButton.setAttribute("aria-label", label);
     fullscreenButton.title = label;
-    fullscreenButton.querySelector("use")?.setAttribute("href", active ? "#icon-minimize" : "#icon-maximize");
+    fullscreenButton.querySelector("use")?.setAttribute("href", active ? "#icon-close" : "#icon-expand");
   }
 
   function setFullscreen(active, fallback = false) {
@@ -130,7 +130,7 @@ export async function createDocumentPdfViewer({
       }
     }
     updateFullscreenButton(active);
-    if (fullscreenButton) fullscreenButton.querySelector("use")?.setAttribute("href", active && mobileImmersive ? "#icon-close" : active ? "#icon-minimize" : "#icon-maximize");
+    if (fullscreenButton) fullscreenButton.querySelector("use")?.setAttribute("href", active ? "#icon-close" : "#icon-expand");
     if (mobileImmersive || restoreMobileView) {
       setFitModeButton();
       startRender();
@@ -556,6 +556,9 @@ export async function createDocumentPdfViewer({
     delegatedRoot.addEventListener("keydown", onDelegatedKeydown);
     if (keyZone && keyZone !== delegatedRoot) keyZone.addEventListener("keydown", onDelegatedKeydown);
     fullscreenElement?.addEventListener("keydown", onKeydown);
+    /* En repli plein viewport, le focus peut être rendu à body par le navigateur
+       avant Échap ; la capture window garantit la fermeture dans cet état aussi. */
+    win.addEventListener("keydown", onKeydown, true);
     fullscreenDocument.addEventListener("fullscreenchange", onFullscreenChange);
     fullscreenDocument.addEventListener("webkitfullscreenchange", onFullscreenChange);
     pageViewport.addEventListener("touchstart", onTouchStart, { passive: false });
@@ -588,6 +591,7 @@ export async function createDocumentPdfViewer({
     delegatedRoot.removeEventListener("keydown", onDelegatedKeydown);
     if (keyZone && keyZone !== delegatedRoot) keyZone.removeEventListener("keydown", onDelegatedKeydown);
     fullscreenElement?.removeEventListener("keydown", onKeydown);
+    win.removeEventListener("keydown", onKeydown, true);
     fullscreenDocument.removeEventListener("fullscreenchange", onFullscreenChange);
     fullscreenDocument.removeEventListener("webkitfullscreenchange", onFullscreenChange);
     pageViewport.removeEventListener("touchstart", onTouchStart);
