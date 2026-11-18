@@ -4300,7 +4300,7 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   #appMain .tree-filter-toolbar .toolbar-branch .field { width: 100%; min-width: 0; padding-inline: 5px; font-size: 16px; }
 }
 @media (min-width: 761px) {
-  #genealogyContributionDialog { width: min(68rem, calc(100vw - 2rem)); max-width: 68rem; max-height: min(90dvh, 52rem); }
+  #genealogyContributionDialog:not(.genealogy-proof-dialog) { width: min(68rem, calc(100vw - 2rem)); max-width: 68rem; max-height: min(90dvh, 52rem); }
 }
 @media (max-width: 390px) {
   .main-nav .nav-btn { font-size: 0.53rem; line-height: 1.05; }
@@ -5249,6 +5249,18 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
     overflow: hidden;
   }
   dialog#personDialog.modal-mobile-sheet--long { max-height: 92dvh; }
+  /* Ajouter une preuve : reprend le gabarit mobile de la création d'une personne
+     (hauteur 92 dvh ancrée en bas, corps défilant) sans hériter du plein écran
+     imposé par la règle générale des .person-dialog[open] en petit écran. */
+  dialog#genealogyContributionDialog.genealogy-proof-dialog {
+    width: 100vw;
+    height: 92dvh;
+    min-height: 0;
+    max-width: none;
+    max-height: 92dvh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    overflow: hidden;
+  }
   /* Fiche Source/Preuve : même dialog pour les deux, avec la même hauteur
      exploitable que la fiche Personne. Sans hauteur imposée, la feuille reste
      ancrée en bas et le contenu court (Preuve) laisse un grand vide au-dessus. */

@@ -178,12 +178,22 @@ test("le sélecteur de personnes réutilise le composant partagé et reste disti
 });
 
 test("la modale source est élargie seulement sur desktop et la liste Documents reste compacte", () => {
-  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?#genealogyContributionDialog \{ width: min\(68rem/);
+  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?#genealogyContributionDialog:not\(\.genealogy-proof-dialog\) \{ width: min\(68rem/);
   assert.match(css, /#documentsList\.list-mode \.content-card \{[\s\S]*?grid-template-areas: "main meta people source actions"/);
   assert.match(css, /#documentsList\.list-mode \.document-card-details/);
   assert.match(css, /\.document-source-associations \{[\s\S]*?flex-wrap: wrap/);
   assert.match(app, /const linkedSourcesMarkup = linkedSources\.length/);
   assert.doesNotMatch(app, /data-document-source-revise/);
+});
+
+test("la modale Ajouter une preuve reprend le gabarit de la création d'une personne", () => {
+  /* Desktop : la règle 68 rem des autres contributions est exclue du mode preuve,
+     donc largeur, plafonds et centrage viennent des règles .person-dialog. */
+  assert.match(css, /@media \(min-width: 761px\)[\s\S]*?#genealogyContributionDialog:not\(\.genealogy-proof-dialog\) \{ width: min\(68rem/);
+  /* Mobile : hauteur 92 dvh ancrée en bas, comme dialog#personDialog.modal-mobile-sheet. */
+  assert.match(css, /dialog#genealogyContributionDialog\.genealogy-proof-dialog \{\s*width: 100vw;\s*height: 92dvh;\s*min-height: 0;\s*max-width: none;\s*max-height: 92dvh;/);
+  assert.match(css, /border-radius: var\(--radius-xl\) var\(--radius-xl\) 0 0;\s*overflow: hidden;/);
+  assert.match(app, /classList\.toggle\("genealogy-proof-dialog", proofPresentation\)/);
 });
 
 test("les documents ont leur type après le titre, une liaison réelle et un menu secondaire", () => {

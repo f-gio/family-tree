@@ -12015,6 +12015,7 @@ function updateGenealogyContributionPresentation() {
      personne et l'ajout d'une attestation, sans toucher aux autres types de
      contribution. */
   const proofPresentation = contributionType === "proof";
+  dialog.classList.toggle("genealogy-proof-dialog", proofPresentation);
   dialog.classList.toggle("person-dialog", proofPresentation);
   dialog.classList.toggle("modal-xl", proofPresentation);
   dialog.classList.toggle("modal-lg", !proofPresentation);
