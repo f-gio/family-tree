@@ -1845,8 +1845,27 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   padding: var(--space-6);
 }
 
-.person-section-panel[hidden] { display: none; }
+/* Desktop : le corps du formulaire (.modal-body) et son conteneur de défilement
+   cumulaient chacun 24 px de retrait horizontal (48 px au total) alors que la
+   référence « Ajouter une résidence » n'a qu'une seule couche et commence à 24 px,
+   au même niveau que le titre de la modale. On ne touche qu'au retrait horizontal
+   du conteneur imbriqué : paddings verticaux, pied de modale, onglets et sous-blocs
+   sont conservés.
+   Le corps réserve en outre une gouttière de barre de défilement alors que son
+   contenu est en overflow : hidden ; `auto` la supprime au profit de la seule
+   gouttière réellement nécessaire, celle du conteneur qui défile — comme la
+   référence (marge droite de 24 px + 15 px de gouttière). */
+@media (min-width: 761px) {
+  #personDialog .person-section-panel,
+  #documentDialog .modal-scroll,
+  #genealogyContributionDialog.genealogy-proof-dialog .modal-scroll { padding-inline: 0; }
 
+  #personDialog > .person-modal-form,
+  #documentDialog > .modal-body,
+  #genealogyContributionDialog.genealogy-proof-dialog > .modal-body { scrollbar-gutter: auto; }
+}
+
+.person-section-panel[hidden] { display: none; }
 .modal-actions {
   flex: 0 0 auto;
   align-items: center;
