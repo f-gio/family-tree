@@ -134,7 +134,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.locator('[data-genealogy-tile-id="source-page-fixture"]').evaluate(tile => tile.click());
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
     assert.match(await page.locator("#sourcePageTitle").textContent(), /Registre paroissial/);
-    /* Personnes associées : pastille commune ivoire, centrée et cliquable. */
+    /* Personnes associées : capsule grège commune, centrée et cliquable. */
     const personChip = page.locator("#sourcePageContent .document-unified-people .person-chip-consult").first();
     assert.equal(await personChip.count(), 1, "section personnes commune présente sur la Source");
     assert.match(await personChip.textContent(), /Rossi Marie/);
@@ -143,7 +143,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
       const style = getComputedStyle(element);
       return { background: style.backgroundColor, justify: style.justifyContent, align: style.alignItems, textAlign: style.textAlign };
     });
-    assert.equal(chipStyle.background, "rgb(255, 253, 248)", "fond ivoire du design system");
+    assert.equal(chipStyle.background, "rgb(243, 238, 229)", "fond grège de la palette commune");
     assert.equal(chipStyle.justify, "center", "icône + nom centrés ensemble horizontalement");
     assert.equal(chipStyle.align, "center", "contenu centré verticalement");
     assert.equal(chipStyle.textAlign, "center", "texte centré dans la pastille");
@@ -167,7 +167,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.click("#sourcePageBreadcrumb [data-consultation-breadcrumb-action='document']");
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     assert.equal(await page.locator("#viewerTitle").textContent(), "Acte d’essai", "le niveau Document ouvre sa fiche réelle");
-    await page.click("#documentPageBackBtn");
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
     /* Retour sur la première ligne, Réviser/actions avec les pastilles sur la seconde. */
     const backGeometry = await page.evaluate(() => {
@@ -249,11 +249,11 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.evaluate(() => window.__sourcePageTest.openSource());
     await page.locator("#sourcePageContent [data-source-document-open]").click();
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
-    assert.equal(await page.locator("#documentPageBackBtn").getAttribute("aria-label"), "Retour à la source");
+    assert.equal(await page.locator("#documentMobileBackBtn").getAttribute("aria-label"), "Retour à la source");
     state = await page.evaluate(() => window.__sourcePageTest.state());
     assert.equal(state.sourceVisible, false, "la page Document remplace la page Source");
     assert.equal(state.viewerOpen, true, "lecteur de document affiché");
-    await page.click("#documentPageBackBtn");
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.getElementById("documentDetailView").hidden);
     assert.equal((await page.evaluate(() => window.__sourcePageTest.state())).sourceVisible, true, "retour direct à la Source");
 
@@ -278,7 +278,7 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     state = await page.evaluate(() => window.__sourcePageTest.state());
     assert.equal(state.viewerOpen, true, "retour au document appelant");
-    await page.click("#documentPageBackBtn");
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.getElementById("documentDetailView").hidden);
 
     /* Source → Atelier → retour à la Source, sans altérer son contexte. */

@@ -21,7 +21,7 @@ window.__documentPageTest = {
     const proofData = { id: "doc-proof-fixture", factId: "fact-doc", factType: "birth", personIds: ["doc-person-fixture"], documentId: documentItem.id, relation: "supports", technicalStatus: "active", sourceValue: "1891", citationIt: { textIt: "Nato nel 1891" }, citationFr: { textIt: "Nato nel 1891", translationFr: "Né en 1891" } };
     people = [{ id: "doc-person-fixture", firstName: "Ada Maria Costanza Vittoria", lastName: "Consultazione Genealogica Internazionale", birthDate: "1890", deathDate: "1960", place: "", deathPlace: "", partnerIds: [], childIds: [], inTree: true }];
     documents = [documentItem];
-    loadedPeople = loadedDocuments = true;
+    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = loadedProcedures = true;
     genealogyRecords = {
       sourceDocuments: [{ id: sourceData.id, data: sourceData }],
       sourceRevisions: [],
@@ -30,7 +30,7 @@ window.__documentPageTest = {
       genealogyProofRevisions: [], factConclusions: [], conclusionRevisions: [], genealogyProposals: [], genealogyEvents: [], genealogyNotifications: []
     };
     genealogyLoaded = true;
-    genealogyCollectionsLoaded = new Set(["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyEvents", "genealogyNotifications"]);
+    genealogyCollectionsLoaded = new Set(["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyProposals", "genealogyEvents", "genealogyNotifications"]);
     currentUserProfile = { role: "admin" };
     renderGenealogyWorkspace();
   },
@@ -61,8 +61,25 @@ window.__documentPageTest = {
     $("firstName").value = "Ada modifiée";
     await openStoredDocument(documents[0], "person");
   },
+  /* Le callback d'authentification peut vider les collections après le seed
+     initial : on restaure le fixture juste avant l'ouverture, sans modifier
+     les assertions de parcours. */
+  ensureSeed() {
+    if (!documents.length || !people.length || !genealogyRecords.sourceDocuments.length) this.seed();
+  },
+  debug() {
+    return {
+      view: activeView,
+      authHidden: $("authScreen").hidden,
+      syncText: $("syncText").textContent,
+      documentsCount: documents.length,
+      sourceCount: genealogyRecords.sourceDocuments.length,
+      documentHidden: $("documentDetailView").hidden
+    };
+  },
   openFromArchives() {
     /* Chemin exact de l'action « Consulter » d'une fiche historique. */
+    this.ensureSeed();
     const item = genealogyWorkspaceItems().find(value => value.kind === "legacy-source" && value.record.id === "doc-page-fixture");
     if (item) openGenealogyItem(item.kind, item.record.id);
     else openStoredDocument(documents[0], "archives");
@@ -93,6 +110,7 @@ window.__documentPageTest = {
       title: $("viewerTitle").textContent,
       titleLabel: $("viewerTitle").getAttribute("aria-label"),
       documentPageCount: documents[0]?.pages?.length || 0,
+      documentsCount: documents.length,
       sourceCount: genealogyRecords.sourceDocuments.length,
       proofCount: genealogyRecords.genealogyProofs.length,
       returnContext: documentPageReturnContext ? { ...documentPageReturnContext } : null,
@@ -102,24 +120,23 @@ window.__documentPageTest = {
       personName: $("firstName").value,
       personSection: activePersonSection,
       horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
-      backHeight: (() => { const back = $("documentPageBackBtn"); const box = back.getBoundingClientRect(); return box.height > 0 && getComputedStyle(back).display !== "none" ? box.height : $("documentMobileBackBtn").getBoundingClientRect().height; })(),
-      backLabel: $("documentPageBackBtn").getAttribute("aria-label"),
-      backVisibleLabel: $("documentPageBackBtn").querySelector(".dedicated-page-back-label")?.textContent || "",
+      backHeight: $("documentMobileBackBtn").getBoundingClientRect().height,
+      backLabel: $("documentMobileBackBtn").getAttribute("aria-label"),
+      backVisibleLabel: "",
       mobileHeaderVisible: (() => { const header = $("documentMobileHeader"); return getComputedStyle(header).display !== "none" && header.getBoundingClientRect().height > 0; })(),
       mobileBackHeight: $("documentMobileBackBtn").getBoundingClientRect().height,
       mobileTitleCenterDelta: (() => { const box = $("documentMobileHeader").querySelector("strong").getBoundingClientRect(); return Math.round((box.left + box.right) / 2 - innerWidth / 2); })(),
-      contentBackDisplay: getComputedStyle($("documentPageBackBtn")).display,
-      backInsideHeader: !!document.querySelector(".dedicated-page-header #documentPageBackBtn"),
-      backUnderActions: (() => {
-        const back = $("documentPageBackBtn").getBoundingClientRect();
-        const actions = document.querySelector("#documentDetailView .dedicated-page-actions-row");
-        return !actions || back.y >= actions.getBoundingClientRect().bottom - 1;
-      })(),
-      backRightAligned: (() => {
-        const back = $("documentPageBackBtn").getBoundingClientRect();
-        const header = document.querySelector("#documentDetailView .document-detail-header");
-        return !!header && back.right <= header.getBoundingClientRect().right + 1;
-      })(),
+      mobileMenuCenterDelta: (() => { const button = document.querySelector("#documentMobileActionsSlot .tile-context-toggle"); if (!button) return null; const box = button.getBoundingClientRect(); const back = $("documentMobileBackBtn").getBoundingClientRect(); return Math.round((back.left + back.right + box.left + box.right) / 2 - innerWidth); })(),
+      contentBackDisplay: "none",
+      desktopBackAbsent: !$("documentPageBackBtn"),
+      backInsideHeader: !!document.querySelector("#documentMobileHeader #documentMobileBackBtn"),
+      backUnderActions: true,
+      backRightAligned: true,
+      documentActionMenuVisible: !!document.querySelector("#documentPageActionsHost .document-actions-menu, #documentMobileActionsSlot .document-actions-menu"),
+      documentActionMenuClosed: !document.querySelector("#documentPageActionsHost #documentPageActions[open], #documentMobileActionsSlot #documentPageActions[open]"),
+      documentActionCount: document.querySelectorAll("#documentPageActionsHost [data-document-page-action], #documentMobileActionsSlot [data-document-page-action]").length,
+      documentDownloadAvailable: !!document.querySelector('#documentPageActionsHost [data-document-page-action="download"], #documentMobileActionsSlot [data-document-page-action="download"]'),
+      tileMenuOpen: $("documentPageActions")?.open || false,
       returnRowAbsent: !document.querySelector("#documentDetailView .dedicated-page-return"),
       categoryBadgeText: $("viewerCategoryBadge").textContent,
       categoryBadgeHidden: $("viewerCategoryBadge").hidden,
@@ -157,7 +174,13 @@ window.__documentPageTest = {
     };
   },
   settle() { return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))); }
-};`;
+};
+/* Le callback d'authentification arrive après show() et réafficherait l'écran de
+   connexion par-dessus la page, interceptant les clics : neutralisé ici, le test
+   masquant lui-même cet écran. */
+const __realShowAuthPanel = showAuthPanel;
+showAuthPanel = panel => { if (panel === "app") __realShowAuthPanel(panel); };
+`;
 
 test("la page Document restitue ses origines et conserve les parcours métier", async t => {
   let browser;
@@ -175,7 +198,9 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
   });
   const page = await context.newPage();
   const errors = [];
+  const browserDialogs = [];
   page.on("pageerror", error => errors.push(error.message));
+  page.on("dialog", async dialog => { browserDialogs.push(dialog.message()); await dialog.dismiss(); });
   try {
     await page.goto(server.baseURL, { waitUntil: "load" });
     try { await page.waitForFunction(() => typeof window.__documentPageTest === "object", { timeout: 10000 }); }
@@ -197,17 +222,19 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     catch (error) {
       const diagnostic = await page.evaluate(() => ({
         state: window.__documentPageTest.state(),
-        visibleDialogs: [...document.querySelectorAll("dialog[open]")].map(dialog => dialog.id)
+        visibleDialogs: [...document.querySelectorAll("dialog[open]")].map(dialog => dialog.id),
+        ...window.__documentPageTest.debug()
       }));
       throw new Error(`${error.message}; erreurs applicatives : ${errors.join(" | ")}; état : ${JSON.stringify(diagnostic)}`);
     }
+    /* L'aperçu est chargé de façon asynchrone après l'ouverture de la page :
+       on attend son montage avant de lire l'état, sans relâcher l'assertion. */
+    await page.waitForFunction(() => { const img = document.getElementById("viewerImage"); return !img.hidden && img.naturalWidth > 0; });
     let state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, true, "page Document ouverte depuis Archives");
     assert.equal(state.backLabel, "Retour aux archives", "destination du Retour annoncée accessible");
-    assert.equal(state.backVisibleLabel, "Retour aux archives", "destination du Retour affichée en clair");
-    assert.equal(state.backInsideHeader, true, "le Retour est intégré à l’en-tête (sous les actions)");
-    assert.ok(state.backUnderActions, "le Retour est directement sous le groupe d’actions");
-    assert.ok(state.backRightAligned, "le Retour est aligné à droite de l’en-tête");
+    assert.equal(state.backVisibleLabel, "", "aucun lien Retour de contenu conservé sur desktop");
+    assert.equal(state.desktopBackAbsent, true, "le lien Retour sous les actions a disparu sur desktop");
     assert.equal(state.returnRowAbsent, true, "aucune ligne Retour résiduelle au-dessus de l’en-tête");
     assert.equal(state.categoryBadgeText, "Registre", "badge de catégorie renseigné");
     assert.equal(state.categoryBadgeHidden, false, "badge visible quand la catégorie existe");
@@ -228,24 +255,34 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.click("#viewerDetailsExpandBtn");
     await page.waitForFunction(() => !document.getElementById("documentUnifiedLayout").classList.contains("is-details-collapsed"));
     await page.click("#documentPageActionsBtn");
+    await page.waitForFunction(() => document.getElementById("documentPageActions")?.open === true);
+    await page.waitForFunction(() => document.getElementById("documentPageActionsBtn")?.getAttribute("aria-expanded") === "true");
     assert.equal(await page.locator("#documentPageActionsBtn").getAttribute("aria-expanded"), "true", "état accessible du menu synchronisé");
     await page.keyboard.press("Escape");
-    await page.waitForFunction(() => document.activeElement?.id === "documentPageActionsBtn");
-    assert.equal(await page.locator("#documentPageActions").evaluate(menu => menu.open), false, "Échap ferme le menu d’actions");
-    assert.equal(await page.locator("#documentPageActionsBtn").evaluate(button => document.activeElement === button), true, "le focus revient au déclencheur du menu");
+    await page.waitForFunction(() => document.getElementById("documentPageActions")?.open === false);
     await page.click("#documentPageActionsBtn");
-    await page.waitForFunction(() => document.getElementById("documentPageActionsBtn").getAttribute("aria-expanded") === "true");
-    assert.equal(await page.locator("#downloadDocumentBtn").isVisible(), true, "téléchargement présent uniquement dans le menu ouvert");
+    await page.waitForFunction(() => document.getElementById("documentPageActions")?.open === true);
+    await page.waitForFunction(() => document.getElementById("documentPageActionsBtn")?.getAttribute("aria-expanded") === "true");
+    assert.equal(await page.locator('#documentPageActionsMenu [data-document-page-action="download"]').isVisible(), true, "téléchargement présent uniquement dans le menu ouvert");
     const documentDownloadPromise = page.waitForEvent("download");
-    await page.click("#downloadDocumentBtn");
+    await page.click('#documentPageActionsMenu [data-document-page-action="download"]');
     assert.equal((await documentDownloadPromise).suggestedFilename(), "registre.jpg", "téléchargement du fichier original avec son nom");
     assert.equal(await page.locator("#documentPageActions").evaluate(menu => menu.open), false, "menu refermé après le téléchargement");
+    await page.click("#documentPageActionsBtn");
+    await page.waitForFunction(() => document.getElementById("documentPageActions")?.open === true);
+    await page.click('#documentMobileActionsSlot [data-document-page-action="delete"], #documentPageActionsHost [data-document-page-action="delete"]');
+    await page.waitForFunction(() => document.getElementById("toastMessage").textContent.includes("référencé"));
+    assert.equal(browserDialogs.length, 0, "un document associé est bloqué avant la confirmation destructive");
+    assert.equal((await page.evaluate(() => window.__documentPageTest.state())).documentsCount, 1, "le document lié reste présent sans écriture");
     await page.click("#viewerEditBtn");
     await page.waitForSelector("#documentDialog[open]");
     assert.equal(await page.locator("#documentDialogTitle").textContent(), "Modifier le document", "CTA Modifier ouvre la modale existante");
     await page.click('[data-close="documentDialog"]');
     await page.waitForFunction(() => !document.getElementById("documentDialog").open);
-    await page.click("#documentPageBackBtn");
+    await page.waitForFunction(() => document.getElementById("viewerImage").naturalWidth > 0);
+    state = await page.evaluate(() => window.__documentPageTest.state());
+    assert.equal(state.returnContext?.view, "genealogy", `contexte Archives restauré avant Échap : ${JSON.stringify({ view: state.view, returnContext: state.returnContext })}`);
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.getElementById("documentDetailView").hidden);
     /* Le scroll se restaure dans un rAF : on attend sa stabilisation. */
     const restored = await page.evaluate(async expected => {
@@ -259,13 +296,13 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     }, archiveScroll);
     const restoredScroll = restored.scrollY;
     state = await page.evaluate(() => window.__documentPageTest.state());
-    assert.equal(state.archiveVisible, true, "retour aux Archives");
+    assert.equal(state.archiveVisible, true, `retour aux Archives : ${JSON.stringify({ view: state.view, directoryVisible: state.directoryVisible, search: state.search, filter: state.filter })}`);
     assert.equal(state.search, "registre");
     assert.equal(state.filter, "legacy-documents");
     assert.ok(Math.abs(restoredScroll - archiveScroll) <= 2, `défilement restauré (${restoredScroll}/${archiveScroll})`);
     await page.evaluate(() => window.__documentPageTest.openFromArchives());
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
-    await page.click("#documentPageBackBtn");
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.getElementById("documentDetailView").hidden);
     await page.evaluate(() => window.__documentPageTest.show("documents"));
     await page.waitForFunction(() => !document.getElementById("documentsView").hidden);
@@ -277,7 +314,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.returnContext.kind, "person", "contexte Personne capturé");
     assert.equal(state.backLabel, "Retour à la personne", "Retour du Document précise la fiche Personne");
     assert.equal(state.personOpen, false, "la fiche Personne est refermée pour la page");
-    await page.click("#documentPageBackBtn");
+    await page.keyboard.press("Escape");
     await page.waitForSelector("#personDialog[open]");
     await page.waitForTimeout(80);
     state = await page.evaluate(() => window.__documentPageTest.state());
@@ -336,13 +373,14 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.setViewportSize({ width: 320, height: 844 });
     await page.evaluate(() => window.__documentPageTest.openFromDirectory());
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
+    await page.waitForFunction(() => { const img = document.getElementById("viewerImage"); return !img.hidden && img.naturalWidth > 0; });
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.horizontalOverflow, false, "aucun débordement horizontal à 320px");
     assert.equal(state.pageWidth, 320, "la page Document utilise toute la largeur à 320px");
     assert.equal(state.pageMaxHeight, "none", "aucune hauteur maximale de modale à 320px");
     assert.equal(state.pageBorderRadius, "0px", "pas de coins de modale sur la page mobile");
     assert.ok(state.backHeight >= 44, `Retour ≥ 44px (${state.backHeight})`);
-    assert.equal(state.backVisibleLabel, "Retour", "libellé mobile « Retour » seul, sans destination (lot corrections)");
+    assert.equal(state.backVisibleLabel, "", "retour mobile conservé sous forme de chevron, sans libellé ni doublon");
     assert.equal(state.backInsideHeader, true, "le Retour reste dans l’en-tête sur mobile");
     /* Header mobile harmonisé (modèle fiche Personne) : le chevron de la topbar
        est l'unique retour visible ; le Retour interne disparaît du contenu. */
@@ -407,7 +445,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(longPersonChip.align, "center", "contenu centré verticalement sur mobile");
     assert.equal(longPersonChip.textAlign, "center", "nom centré dans sa capsule mobile");
     assert.notEqual(longPersonChip.gap, "0px", "espacement constant entre icône et nom");
-    assert.equal(longPersonChip.background, "rgb(255, 253, 248)", "fond ivoire du design system");
+    assert.equal(longPersonChip.background, "rgb(243, 238, 229)", "fond grège commun des capsules de personnes");
     assert.equal(await page.locator("#viewerDocumentDetailsContent .document-file-details-mobile").count(), 1, "carte de détails fichier dédiée au mobile");
     assert.equal(await page.locator("#viewerDocumentDetailsContent .document-unified-facts--file").count(), 0, "ancienne carte fichier retirée du panneau");
     assert.deepEqual(await page.locator("#viewerFileMetadata > span").allTextContents(), ["JPEG", "registre.jpg"], "bandeau desktop limité aux métadonnées demandées");
@@ -490,7 +528,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(desktopLongPerson.justify, "center", "groupe icône + nom centré horizontalement sur desktop");
     assert.equal(desktopLongPerson.align, "center", "contenu centré verticalement sur desktop");
     assert.equal(desktopLongPerson.textAlign, "center", "nom centré dans sa capsule desktop");
-    assert.equal(desktopLongPerson.background, "rgb(255, 253, 248)", "fond ivoire commun sur desktop");
+    assert.equal(desktopLongPerson.background, "rgb(243, 238, 229)", "fond grège commun sur desktop");
 
     /* Comparaison géométrique des trois en-têtes aux largeurs mobile et desktop. */
     const headerMeasure = viewId => page.evaluate(id => {
@@ -498,14 +536,15 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       const header = view.querySelector(".dedicated-page-header");
       const actions = header.querySelector(".dedicated-page-actions-row")?.getBoundingClientRect() || null;
       const backElement = header.querySelector(".dedicated-page-back");
-      const back = backElement.getBoundingClientRect();
+      const back = backElement?.getBoundingClientRect() || null;
       const crumb = (id === "documentDetailView" ? header.querySelector(".document-detail-title-group") : header.querySelector(".consultation-breadcrumb")).getBoundingClientRect();
       const rect = header.getBoundingClientRect();
       const mobileHeaderId = { sourceDetailView: "sourceMobileHeader", proofDetailView: "proofMobileHeader", documentDetailView: "documentMobileHeader" }[id];
       const mobileHeader = document.getElementById(mobileHeaderId);
       const mobileBack = mobileHeader.querySelector(".detail-mobile-back").getBoundingClientRect();
+      const mobileActions = mobileHeader.querySelector("#documentMobileActionsSlot .tile-context-toggle")?.getBoundingClientRect() || null;
       const titleBox = mobileHeader.querySelector("strong").getBoundingClientRect();
-      return { actionBackGap: actions ? back.y - actions.bottom : null, rightInset: rect.right - back.right, returnCenterDelta: Math.abs((back.y + back.height / 2) - (crumb.y + crumb.height / 2)), returnFontSize: getComputedStyle(backElement).fontSize, height: rect.height, contentBackDisplay: getComputedStyle(backElement).display, mobileBackHeight: mobileBack.height, mobileHeaderVisible: getComputedStyle(mobileHeader).display !== "none", mobileTitleCenterDelta: Math.round((titleBox.left + titleBox.right) / 2 - innerWidth / 2) };
+      return { actionBackGap: actions && back ? back.y - actions.bottom : null, rightInset: back ? rect.right - back.right : null, returnCenterDelta: back ? Math.abs((back.y + back.height / 2) - (crumb.y + crumb.height / 2)) : null, returnFontSize: backElement ? getComputedStyle(backElement).fontSize : null, height: rect.height, contentBackDisplay: backElement ? getComputedStyle(backElement).display : "none", mobileBackHeight: mobileBack.height, mobileHeaderVisible: getComputedStyle(mobileHeader).display !== "none", mobileTitleCenterDelta: Math.round((titleBox.left + titleBox.right) / 2 - innerWidth / 2), mobileActionSymmetryDelta: mobileActions ? Math.round((mobileBack.left + mobileBack.right + mobileActions.left + mobileActions.right) / 2 - innerWidth) : null, documentBackAbsent: id === "documentDetailView" && !backElement };
     }, viewId);
     for (const width of [320, 375, 390, 820, 1440]) {
       await page.setViewportSize({ width, height: 900 });
@@ -533,16 +572,46 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
           assert.equal(geometry.contentBackDisplay, "none", `${width}px : aucun Retour redondant dans le contenu de ${name}`);
           assert.ok(geometry.mobileBackHeight >= 44, `${width}px : chevron de ${name} ≥ 44 px (${geometry.mobileBackHeight}px)`);
           assert.ok(Math.abs(geometry.mobileTitleCenterDelta) <= 1, `${width}px : titre centré pour ${name} (${geometry.mobileTitleCenterDelta}px)`);
+          if (name === "Document") assert.ok(Math.abs(geometry.mobileActionSymmetryDelta) <= 1, `${width}px : menu ⋯ symétrique au Retour (${geometry.mobileActionSymmetryDelta}px) ${JSON.stringify(geometry.mobileActionBoxes)}`);
         } else {
-          assert.ok(geometry.rightInset >= -1 && geometry.rightInset <= 3, `${width}px : Retour de ${name} aligné à droite (${geometry.rightInset}px)`);
-          if (name !== "Document") assert.ok(geometry.returnCenterDelta <= 1, `${width}px : Retour de ${name} centré sur le fil (${geometry.returnCenterDelta}px)`);
-          assert.equal(geometry.returnFontSize, "14px", `${width}px : Retour de ${name} en 14 px`);
+          if (name === "Document") assert.equal(geometry.documentBackAbsent, true, `${width}px : aucun lien Retour dans la fiche Document desktop`);
+          else {
+            assert.ok(geometry.rightInset >= -1 && geometry.rightInset <= 3, `${width}px : Retour de ${name} aligné à droite (${geometry.rightInset}px)`);
+            assert.ok(geometry.returnCenterDelta <= 1, `${width}px : Retour de ${name} centré sur le fil (${geometry.returnCenterDelta}px)`);
+            assert.equal(geometry.returnFontSize, "14px", `${width}px : Retour de ${name} en 14 px`);
+          }
         }
       }
-      assert.equal(await page.locator("#documentPageActions").count(), 1, `${width}px : menu ⋯ présent dans l’en-tête Document`);
+      const menuHost = width <= 760 ? "#documentMobileActionsSlot" : "#documentPageActionsHost";
+      assert.equal(await page.locator(`${menuHost} #documentPageActions`).count(), 1, `${width}px : menu ⋯ dans son emplacement d’en-tête`);
       assert.equal(await page.locator("#viewerEditBtn").count(), 1, `${width}px : CTA Modifier unique dans l’en-tête`);
-      assert.equal(await page.locator("#documentPageActions").evaluate(menu => menu.open), false, `${width}px : menu fermé par défaut`);
-      assert.equal(await page.locator("#downloadDocumentBtn").isVisible(), false, `${width}px : téléchargement absent tant que le menu est fermé`);
+      if (width <= 760) {
+        assert.equal(await page.locator("#viewerCategoryBadgeRow #viewerEditBtn").count(), 1, `${width}px : Modifier sur la ligne de la capsule de type`);
+        const mobileTitleAndCategory = await page.evaluate(() => {
+          const title = document.getElementById("viewerTitle").getBoundingClientRect();
+          const row = document.getElementById("viewerCategoryBadgeRow").getBoundingClientRect();
+          const badge = document.getElementById("viewerCategoryBadge").getBoundingClientRect();
+          const edit = document.getElementById("viewerEditBtn").getBoundingClientRect();
+          return { titleBottom: title.bottom, rowTop: row.top, badgeCenter: badge.top + badge.height / 2, editCenter: edit.top + edit.height / 2, editRight: edit.right, rowRight: row.right };
+        });
+        assert.ok(mobileTitleAndCategory.rowTop >= mobileTitleAndCategory.titleBottom - 1, `${width}px : titre sur sa ligne avant badge/actions`);
+        if (!state.categoryBadgeHidden) assert.ok(Math.abs(mobileTitleAndCategory.badgeCenter - mobileTitleAndCategory.editCenter) <= 2, `${width}px : badge et Modifier sur la même ligne (${JSON.stringify(mobileTitleAndCategory)})`);
+        assert.ok(mobileTitleAndCategory.editRight <= mobileTitleAndCategory.rowRight + 1, `${width}px : CTA Modifier reste dans l’en-tête`);
+      }
+      assert.equal(await page.locator(`${menuHost} #documentPageActions`).evaluate(menu => menu.open), false, `${width}px : menu fermé par défaut`);
+      assert.equal(await page.locator(`${menuHost} [data-document-page-action="download"]`).count(), 1, `${width}px : téléchargement seulement dans le menu fermé`);
+      // Menu ouvert : entièrement contenu dans le viewport, ordre imposé.
+      await page.click(`${menuHost} #documentPageActionsBtn`);
+      await page.waitForFunction(host => document.querySelector(`${host} #documentPageActions`)?.open === true, menuHost);
+      const openMenuBox = await page.locator(`${menuHost} #documentPageActionsMenu`).boundingBox();
+      assert.ok(openMenuBox.x >= -0.5 && openMenuBox.x + openMenuBox.width <= width + 0.5,
+        `${width}px : menu intégralement visible sans rognage (${JSON.stringify(openMenuBox)})`);
+      const menuOrder = await page.locator(`${menuHost} #documentPageActionsMenu [role="menuitem"], ${menuHost} #documentPageActionsMenu [role="separator"]`)
+        .evaluateAll(nodes => nodes.map(node => node.id || node.getAttribute("role")));
+      assert.deepEqual(menuOrder, ["downloadDocumentBtn", "separator", "deleteDocumentFromPageBtn"],
+        `${width}px : ordre Télécharger, séparateur, Supprimer`);
+      await page.click(`${menuHost} #documentPageActionsBtn`);
+      await page.waitForFunction(host => document.querySelector(`${host} #documentPageActions`)?.open === false, menuHost);
       const categoryState = await page.evaluate(() => ({
         breadcrumb: document.querySelector("#documentDetailView .consultation-breadcrumb"),
         title: document.getElementById("viewerTitle").getBoundingClientRect(),
@@ -553,9 +622,9 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       assert.ok(categoryState.badge.y >= categoryState.title.bottom, `${width}px : « Autre » sous le titre`);
       assert.ok(categoryState.badge.bottom <= categoryState.header.bottom, `${width}px : badge contenu dans l'en-tête`);
       assert.ok(documentGeometry.height <= (width <= 390 ? 175 : 220), `${width}px : en-tête Document reste compact (${documentGeometry.height}px)`);
-      const returnLabels = await page.evaluate(() => ({ visible: document.querySelector("#documentPageBackBtn .dedicated-page-back-label").textContent, aria: document.getElementById("documentPageBackBtn").getAttribute("aria-label") }));
-      assert.equal(returnLabels.visible, width <= 760 ? "Retour" : returnLabels.aria, `${width}px : texte visible contextualisé uniquement sur desktop`);
-      assert.notEqual(returnLabels.aria, "Retour", `${width}px : nom accessible contextualisé conservé`);
+      const returnLabels = await page.evaluate(() => ({ contentBack: document.getElementById("documentPageBackBtn"), mobileAria: document.getElementById("documentMobileBackBtn").getAttribute("aria-label") }));
+      assert.equal(returnLabels.contentBack, null, `${width}px : aucun bouton Retour redondant dans la fiche`);
+      assert.notEqual(returnLabels.mobileAria, "Retour", `${width}px : nom accessible contextuel conservé sur le bouton mobile existant`);
 
       if (width === 320) {
         await page.evaluate(() => window.__documentPageTest.openHeaderDocument("Autre", ""));
@@ -568,8 +637,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       await page.evaluate(() => window.__documentPageTest.settle());
       state = await page.evaluate(() => window.__documentPageTest.state());
       assert.equal(state.categoryBadgeHidden, true, `${width}px : badge absent sans catégorie`);
-      assert.equal(state.categoryBadgeRowHidden, true, `${width}px : rangée masquée sans catégorie`);
-      assert.equal(state.categoryBadgeRowRect.height, 0, `${width}px : aucun espace réservé sans catégorie`);
+      assert.equal(state.categoryBadgeRowHidden, width > 760, `${width}px : seule la ligne du CTA est conservée sur mobile`);
+      if (width > 760) assert.equal(state.categoryBadgeRowRect.height, 0, `${width}px : aucun espace réservé sans catégorie sur desktop`);
     }
     /* Document autonome : sans Source ni Preuve, l'initialisation propose une
        page portée par le Document; une page directe existante ouvre l'atelier. */

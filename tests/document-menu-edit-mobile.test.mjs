@@ -189,13 +189,13 @@ test("Documents : … → Modifier/Supprimer fonctionne au clic et au tap", asyn
           assert.equal(await page.locator("#documentMenuBtn").evaluate(button => document.activeElement === button), true, "Échap rend le focus au bouton menu");
           if (scenario.hasTouch) await tapVisibleElement(page, "#documentMenuBtn", scenario);
           else await page.locator("#documentMenuBtn").click();
-          if (scenario.hasTouch) await tapVisibleElement(page, "#deleteDocumentBtn", scenario);
-          else await page.locator("#deleteDocumentBtn").click();
-          await page.waitForTimeout(30);
-          assert.equal(confirmationMessages.length, 1, "le menu appelle une seule fois la confirmation existante");
-          assert.match(confirmationMessages[0], /Supprimer définitivement ce document/);
-          assert.equal(await page.locator("#documentDialog").evaluate(dialog => dialog.open), true, "Annuler la confirmation conserve la modale");
-          assert.equal(await page.locator("#documentActionMenu").isVisible(), false, "le menu se ferme après sélection");
+           if (scenario.hasTouch) await tapVisibleElement(page, "#deleteDocumentBtn", scenario);
+           else await page.locator("#deleteDocumentBtn").click();
+           await page.waitForTimeout(30);
+           assert.equal(confirmationMessages.length, 0, "un document associé est bloqué avant la confirmation destructive");
+           assert.match(await page.locator("#toastMessage").textContent(), /associations|référencé/i, "le blocage explique la dépendance ou l’impossibilité de vérification");
+           assert.equal(await page.locator("#documentDialog").evaluate(dialog => dialog.open), true, "le blocage conserve la fiche et le formulaire");
+           assert.equal(await page.locator("#documentActionMenu").isVisible(), false, "le menu se ferme après sélection");
           assert.equal(await page.locator("#documentDialog .modal-actions #deleteDocumentBtn").count(), 0, "Supprimer ne figure plus dans le footer");
           confirmationMessages.length = 0;
           if (scenario.hasTouch) await tapVisibleElement(page, '#documentDialog .modal-actions [data-close="documentDialog"]', scenario);
@@ -358,9 +358,9 @@ test("Documents : … → Modifier/Supprimer fonctionne au clic et au tap", asyn
             const actionClick = documentDeleteEvents.findIndex((entry, index) => index > focusFallback && entry.type === "click" && entry.action === "delete");
             assert.ok(touchEnd >= 0 && focusFallback > touchEnd && actionClick > focusFallback, `WebKit garde la confirmation joignable après le focusout : ${JSON.stringify(documentDeleteEvents)}`);
           }
-          assert.equal(confirmationMessages.length, 1, "la confirmation de suppression existante est déclenchée une seule fois");
-          assert.match(confirmationMessages[0], /Supprimer définitivement ce document/);
-          assert.ok(await page.locator("#documentsList .document-card").count(), "le refus de confirmation ne supprime aucune donnée de test");
+          assert.equal(confirmationMessages.length, 0, "un document associé est bloqué avant la confirmation destructive");
+          assert.match(await page.locator("#toastMessage").textContent(), /associations|référencé/i, "le blocage annonce que des associations subsistent");
+          assert.ok(await page.locator("#documentsList .document-card").count(), "le blocage conserve le document et ses associations");
           assert.equal(await page.locator("#documentsList .tile-context-menu").evaluate(menu => menu.hidden), true, "le menu Supprimer est fermé");
           await page.evaluate(() => { window.__menuEventLog = []; });
 

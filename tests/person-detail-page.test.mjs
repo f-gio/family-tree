@@ -552,7 +552,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     const documentState = await page.evaluate(() => window.__personPageTest.state());
     assert.equal(documentState.returnKind, "personPage");
     assert.equal(documentState.returnSection, "documents");
-    await page.locator("#documentPageBackBtn").click();
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, { timeout: 10000 });
     assert.equal((await page.evaluate(() => window.__personPageTest.state())).section, "documents", "section d’origine restaurée après le Document");
 
@@ -2757,7 +2757,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await consultPartnerCard.locator('.family-card-panel [data-view-document="person-page-document"]').click();
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden, undefined, { timeout: 10000 });
     assert.match(await page.locator("#viewerTitle").innerText(), /Acte de naissance/, "visionneuse existante ouverte");
-    await page.locator("#documentPageBackBtn").click();
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, undefined, { timeout: 10000 });
     assert.match(await page.locator("#personPageTitle").textContent(), /Carlo/, "retour à la fiche d’origine");
     assert.equal((await page.evaluate(() => window.__personPageTest.state())).section, "family", "section Famille restaurée");
@@ -2794,7 +2794,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await consultChildCard.locator('.family-card-panel [data-view-document="person-page-pdf"]').click();
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden, undefined, { timeout: 10000 });
     assert.match(await page.locator("#viewerTitle").innerText(), /Registre PDF/, "document choisi ouvert dans la visionneuse");
-    await page.locator("#documentPageBackBtn").click();
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.getElementById("personDetailView").hidden, undefined, { timeout: 10000 });
     await page.evaluate(() => document.querySelector('[data-person-page-section="family"]').click());
     await page.evaluate(() => {

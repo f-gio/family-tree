@@ -93,7 +93,8 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       });
     };
 
-    const closeResidualDialogs = () => page.evaluate(() => {
+    const closeResidualDialogs = async () => {
+      await page.evaluate(() => {
       for (const id of ["genealogyContributionDialog", "personDialog", "genealogyItemDialog"]) {
         const dialog = document.getElementById(id);
         if (dialog?.open) dialog.close();
@@ -102,10 +103,9 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       if (editHost && !editHost.hidden) editHost.querySelector('[data-close="personDialog"]')?.click();
       const personPage = document.getElementById("personDetailView");
       if (personPage && !personPage.hidden) document.getElementById("personPageBackBtn").click();
-      /* Page Document dédiée (lot D) : sortie par le Retour de la page. */
-      const documentPage = document.getElementById("documentDetailView");
-      if (documentPage && !documentPage.hidden) document.getElementById("documentPageBackBtn").click();
-    });
+      });
+      if (await page.locator("#documentDetailView").isVisible()) await page.keyboard.press("Escape");
+    };
 
     const openPersonDocumentsForEditing = async (personName = "Probe") => {
       // Remise à zéro des résidus de test : aucun dialogue ne doit rester ouvert d'un sous-test à l'autre.

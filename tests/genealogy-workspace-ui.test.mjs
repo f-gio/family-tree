@@ -567,6 +567,34 @@ test("la consultation depuis Documents compose une fiche unifiée sans remplacer
   assert.doesNotMatch(details, /JSON\.stringify/);
 });
 
+test("les CTA contextuels secondaires partagent le gabarit « Ajouter une attestation »", () => {
+  const sharedBlock = css.match(/\.btn\.contextual-action,\s*\.contextual-action,[\s\S]*?color: var\(--color-brand\);\s*font-size: var\(--text-sm\);[\s\S]*?\}/)?.[0] || "";
+  assert.ok(sharedBlock, "bloc de style partagé déclaré");
+  assert.match(sharedBlock, /min-height: var\(--control-touch\);/, "cible tactile commune");
+  assert.match(sharedBlock, /border-radius: var\(--radius-md\);/, "arrondi commun");
+  assert.match(sharedBlock, /background: var\(--color-surface\);/, "fond commun");
+  assert.match(sharedBlock, /color: var\(--color-brand\);/, "texte commun");
+  assert.match(sharedBlock, /font-weight: var\(--weight-semibold\);/, "graisse commune");
+  assert.match(app, /class="btn small contextual-action" type="button" data-create-proof-from-document/);
+  assert.match(app, /class="btn small contextual-action" type="button" data-manage-sources-from-document/);
+  assert.match(app, /class="btn small contextual-action" type="button" data-create-source-from-document/);
+  assert.match(app, /class="btn small contextual-action life-journey-add"/);
+  assert.match(html, /class="btn small contextual-action" type="button" id="linkDocumentBtn"/);
+  assert.match(html, /class="btn small contextual-action" type="button" id="genealogyProposeProofForPersonBtn"/);
+});
+
+test("le CTA Transcription différencie ses trois états sans altérer la logique métier", () => {
+  assert.match(app, /const actionState = selected\?\.action === "Reprendre" \? "resume" : selected\?\.action === "Consulter" \? "official" : "start";/, "état dérivé du statut existant");
+  assert.match(app, /document-transcription-action--\$\{actionState\}/, "classe appliquée au bouton");
+  assert.match(app, /Commencer une transcription/, "libellé de démarrage conservé");
+  assert.match(app, /Reprendre la transcription/, "libellé de reprise conservé");
+  assert.match(app, /Consulter la transcription officielle/, "libellé de consultation conservé");
+  assert.match(css, /\.document-transcription-action--start \{ border-color: var\(--color-brand\); background: var\(--color-brand\); color: white; \}/, "Commencer en vert foncé");
+  assert.match(css, /\.document-transcription-action--resume \{ border-color: var\(--color-brand-soft\); background: var\(--color-brand-soft\); color: var\(--color-brand\); \}/, "Reprendre en vert clair");
+  assert.match(css, /\.document-transcription-action--official \{ border-color: var\(--color-border-subtle\); background: var\(--color-surface\); color: var\(--color-brand\); \}/, "Consulter en neutre");
+  assert.match(css, /\.document-transcription-action \{ width: 100%; min-height: var\(--control-touch\); justify-content: center; \}/, "pleine largeur et cible tactile commune");
+});
+
 test("l'export v5 est raccordé et une archive v5 restaure uniquement en prévisualisation", () => {
   assert.match(app, /createBackupArchiveManifest\(\{/);
   assert.match(app, /generateBackupZip\(archive, JSZip/);
@@ -637,8 +665,8 @@ test("la fiche de consultation d'une preuve affiche des informations métier san
   assert.match(proofPanel, /<section class="document-unified-section"><h4>Personnes concernées/, "capsules placées dans le panneau beige partagé");
   assert.match(proofPage, /<div class="detail-page-main">/, "colonne principale de la page Preuve");
   assert.match(proofPage, /<div class="detail-page-aside">/, "colonne secondaire de la page Preuve");
-  assert.match(css, /\.document-unified-section \.person-chip \{ background: var\(--color-surface\); border: var\(--border-default\); \}/, "pastilles personnes au fond ivoire commun");
-  assert.match(css, /\.person-chip \{[^}]*justify-content: center;[^}]*background: var\(--color-surface\);/, "contenu des pastilles centré comme un groupe icône + nom");
+  assert.match(css, /\.document-unified-section \.person-chip \{[^}]*background: var\(--color-surface-muted\);[^}]*border: 0;/, "capsules de personnes au fond grège sans bordure");
+  assert.match(css, /\.person-chip \{[^}]*border: 0;[^}]*background: var\(--color-surface-muted\);/, "contenu des capsules centré comme un groupe icône + nom");
   assert.match(css, /\.source-detail-content \.detail-page-main > section,/, "sections des deux zones partagées Source/Preuve");
   assert.match(html, /id="genealogyItemBackBtn"[^>]*aria-label="Revenir à la fiche précédente"/, "bouton de retour entre fiches");
   assert.match(app, /genealogyItemReturn = \{ kind: activeGenealogyItem\.kind/, "pile de retour mémorisée");

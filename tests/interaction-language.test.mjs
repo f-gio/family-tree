@@ -26,7 +26,9 @@ assert.match(css, /\.status\[data-state="loading"\]/);
 // 18 — actions destructives et distinction suppression/dissociation.
 assert.match(app, /Dissocier ce partenaire/);
 assert.match(app, /Dissocier ce lien parent-enfant/);
-assert.match(app, /Supprimer définitivement ce document/);
+// Le libellé Document cite l'objet concerné et son fichier, puis annonce
+// explicitement le caractère irréversible avant toute écriture.
+assert.match(app, /Supprimer définitivement « \$\{label\} » et son fichier \? Cette action est irréversible\./);
 assert.match(app, /Supprimer définitivement cette action/);
 assert.match(app, /Elle restera dans l’Annuaire avec ses informations, ses relations et ses documents/);
 assert.match(css, /\.modal-actions > \.btn\.danger/);

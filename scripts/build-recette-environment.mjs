@@ -25,9 +25,12 @@ export function buildRecetteOnlyEnvironment(source) {
   assert.ok(localConfigStart >= 0 && localConfigEnd > localConfigStart,
     "bloc de configuration locale attendu pour l’exclure de l’artefact Recette");
   output = output.slice(0, localConfigStart) + output.slice(localConfigEnd + "\n  })".length);
+  // Réglages locaux de développement (hôte LAN, émulateurs, détecteur RFC1918)
+  // : présents dans l'arbre de travail local, absents d'un clone propre. Leur
+  // retrait est donc conditionnel — l'invariant non négociable reste la liste
+  // `forbidden` appliquée en fin de transformation.
   const localHostSetting = '/* Hôte commun pour le PC et les appareils du LAN pendant les essais locaux. */\nconst localEmulatorHost = "192.168.1.14";\n\n';
-  assert.ok(output.includes(localHostSetting), "le réglage d’émulateur LAN doit être identifiable pour l’exclure de l’artefact Recette");
-  output = output.replace(localHostSetting, "");
+  if (output.includes(localHostSetting)) output = output.replace(localHostSetting, "");
 
   const emulatorBranch = `  if (environment === "local") {
     result.emulators = Object.freeze({
@@ -36,8 +39,18 @@ export function buildRecetteOnlyEnvironment(source) {
     });
   }
 `;
-  assert.ok(output.includes(emulatorBranch), "les points de connexion aux émulateurs doivent être identifiables pour l’artefact Recette");
-  output = output.replace(emulatorBranch, "");
+  if (output.includes(emulatorBranch)) output = output.replace(emulatorBranch, "");
+  // Variante historique du bloc d'émulateurs (adresses 127.0.0.1 en dur),
+  // présente sur un clone propre où le réglage LAN n'a pas été appliqué.
+  const legacyEmulatorBranch = `  if (environment === "local") {
+    result.emulators = Object.freeze({
+      auth: Object.freeze({ host: "127.0.0.1", port: 9099 }),
+      firestore: Object.freeze({ host: "127.0.0.1", port: 8080 })
+    });
+  }
+`;
+  if (output.includes(legacyEmulatorBranch)) output = output.replace(legacyEmulatorBranch, "");
+  assert.ok(!output.includes("localEmulatorHost"), "aucun hôte d’émulateur local ne doit subsister dans l’artefact Recette");
 
   const productionHostStart = output.indexOf('  if (hostname === "f-gio.github.io") {');
   const recetteHostStart = output.indexOf('  if (hostname === "la-nostra-storia-recette.web.app")', productionHostStart);
@@ -55,15 +68,19 @@ export function buildRecetteOnlyEnvironment(source) {
   output = output.replace(localOriginBranch, '  if (hostname === "localhost") return denied("local-unavailable-in-recette-build");\n');
 
   const privateHostStart = output.indexOf("/* IP privées RFC1918 uniquement");
-  const resolverStart = output.indexOf("export function resolveFirebaseEnvironment", privateHostStart);
-  assert.ok(privateHostStart >= 0 && resolverStart > privateHostStart,
-    "le détecteur des hôtes locaux doit être identifiable pour l’exclure de l’artefact Recette");
-  output = output.slice(0, privateHostStart) + output.slice(resolverStart);
+  if (privateHostStart >= 0) {
+    const resolverStart = output.indexOf("export function resolveFirebaseEnvironment", privateHostStart);
+    assert.ok(resolverStart > privateHostStart,
+      "le détecteur des hôtes locaux doit être identifiable pour l’exclure de l’artefact Recette");
+    output = output.slice(0, privateHostStart) + output.slice(resolverStart);
+  }
   const privateRouteStart = output.indexOf("  if (isPrivateIpv4Hostname(hostname)) {");
-  const fallbackStart = output.indexOf('  return denied("unrecognized-hostname");', privateRouteStart);
-  assert.ok(privateRouteStart >= 0 && fallbackStart > privateRouteStart,
-    "la route des IP privées doit être identifiable pour l’exclure de l’artefact Recette");
-  output = output.slice(0, privateRouteStart) + output.slice(fallbackStart);
+  if (privateRouteStart >= 0) {
+    const fallbackStart = output.indexOf('  return denied("unrecognized-hostname");', privateRouteStart);
+    assert.ok(fallbackStart > privateRouteStart,
+      "la route des IP privées doit être identifiable pour l’exclure de l’artefact Recette");
+    output = output.slice(0, privateRouteStart) + output.slice(fallbackStart);
+  }
   assert.ok(!output.includes("isPrivateIpv4Hostname"), "le détecteur RFC1918 ne doit pas rester dans l’artefact Recette");
 
   for (const forbidden of ["family-tree-c2fe2", "family-tree-c2fe2.firebaseapp.com", "1096091899254", "1:1096091899254:", "family-tree-emulator-test", "local-emulator-only", "192.168.1.14", "127.0.0.1", "9099", "8080"]) {

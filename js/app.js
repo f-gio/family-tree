@@ -12,6 +12,8 @@ import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree
 import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
 import { MAIN_TREE_ID, UNASSIGNED_TREE_STATE, UNASSIGNED_TREE_CHOICE, TREE_LIFECYCLE_ACTIVE, TREE_LIFECYCLE_DELETING, MAX_MULTI_TREE_TRANSFER_PEOPLE, MAX_MULTI_TREE_TRANSFER_READS, getTreeLifecycleState, getTreeDeletionMemberReport, getPersonTreeId, getPersonTreeMembership, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan, prepareMultipleTreeTransferPlan } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
+import { deleteDocumentAndChunks } from "./document-delete.js";
+import { documentDeletionBlockers } from "./document-deletion-guard.js";
 import { createDocumentImageViewer, selectInitialDocumentImageMode } from "./document-image-viewer.js";
 import { createDocumentPdfViewer } from "./document-pdf-viewer.js";
 import { directoryPersonName, formatDirectoryDate } from "./directory-utils.js";
@@ -651,8 +653,8 @@ function setActionLabel(button, label, iconName = "") {
 }
 
 function tileContextMenuMarkup(kind, id, label, actions) {
-  const items = actions.map(action => `<button class="tile-context-menu-item${action.danger ? " is-danger" : ""}" type="button" role="menuitem" data-tile-menu-action="${action.key}" data-tile-menu-kind="${kind}" data-tile-menu-id="${esc(id)}">${icon(action.icon)}<span>${esc(action.label)}</span></button>`).join("");
-  return `<div class="tile-context-actions"><button class="tile-context-toggle" type="button" data-tile-menu-toggle aria-haspopup="menu" aria-expanded="false" aria-label="Actions secondaires pour ${esc(label)}" title="Actions"><span class="tile-context-glyph" aria-hidden="true"><span class="tile-context-dot"></span><span class="tile-context-dot"></span><span class="tile-context-dot"></span></span></button><div class="tile-context-menu" role="menu" hidden>${items}</div></div>`;
+  const items = actions.map(action => `${action.separator ? '<div class="tile-context-menu-separator" role="separator"></div>' : ""}<button class="tile-context-menu-item${action.danger ? " is-danger" : ""}" type="button" role="menuitem" data-tile-menu-action="${action.key}" data-tile-menu-kind="${kind}" data-tile-menu-id="${esc(id)}">${icon(action.icon)}<span>${esc(action.label)}</span></button>`).join("");
+  return `<div class="tile-context-actions"><button class="tile-context-toggle" type="button" data-tile-menu-toggle aria-haspopup="menu" aria-expanded="false" aria-label="Actions secondaires pour ${esc(label)}" title="Actions"><span class="tile-context-glyph" aria-hidden="true"><span class="tile-context-dot"></span><span class="tile-context-dot"></span><span class="tile-context-dot"></span></span></button><div class="tile-context-menu${kind === "document" ? " tile-context-menu--document" : ""}" role="menu" hidden>${items}</div></div>`;
 }
 
 let openTileContextGroup = null;
@@ -854,6 +856,9 @@ async function performTileContextAction(button) {
   if (kind === "document" && action === "delete") {
     return runSafely(() => removeDocument(id), "Suppression du document impossible");
   }
+  if (kind === "document" && action === "download") {
+    return runSafely(() => downloadDocumentFile(documents.find(value => value.id === id)), "Téléchargement du document impossible");
+  }
   if (kind === "procedure" && action === "edit") {
     const item = procedures.find(value => value.id === id);
     if (!item) return false;
@@ -905,6 +910,7 @@ document.addEventListener("keydown", event => {
     event.preventDefault();
     event.stopPropagation();
     closeTileContextMenu(true);
+    requestAnimationFrame(() => toggle?.focus({ preventScroll: true }));
   } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && items.length) {
     event.preventDefault();
     if (event.key === "Home") items[0].focus();
@@ -2572,7 +2578,7 @@ function journeyAttestationRowsMarkup(kind, entry, item, { editable = false } = 
 }
 
 function journeyAttestationAddButtonMarkup(entryId) {
-  return `<button class="btn small tertiary life-attestation-add" type="button" data-journey-attestation-add="${esc(entryId)}">${icon("plus")}<span>Ajouter une attestation</span></button>`;
+  return `<button class="btn small tertiary contextual-action life-attestation-add" type="button" data-journey-attestation-add="${esc(entryId)}">${icon("plus")}<span>Ajouter une attestation</span></button>`;
 }
 
 function journeyAttestationsMarkup(kind, entry, item, { editable = false } = {}) {
@@ -2730,7 +2736,7 @@ function journeyEntryMarkup(kind, entry, item, { editable = false } = {}) {
     ? `${journeySourceLinks(item, entry.sourceIds, "source")}${journeySourceLinks(item, entry.proofIds, "proof")}`
     : "";
   const detailsBody = `${extraFacts}${attestationContent}${eventLinks ? `<div class="life-attestation-links">${eventLinks}</div>` : ""}`;
-  const actions = editable ? `<div class="life-entry-actions"><button class="btn small" type="button" data-journey-edit="${kind}:${esc(entry.id)}">Modifier</button><button class="btn icon-btn life-delete-icon" type="button" aria-label="Supprimer ${kind === "residence" ? "la résidence" : kind === "profession" ? "la profession" : "l’événement"} ${esc(journeyEntrySummary(kind, entry))}" title="Supprimer" data-journey-delete="${kind}:${esc(entry.id)}">${icon("trash")}</button><button class="btn small tertiary life-attestation-add" type="button" data-journey-attestation-add="${esc(entry.id)}">${icon("plus")}<span>Ajouter une attestation</span></button></div>` : "";
+  const actions = editable ? `<div class="life-entry-actions"><button class="btn small" type="button" data-journey-edit="${kind}:${esc(entry.id)}">Modifier</button><button class="btn icon-btn life-delete-icon" type="button" aria-label="Supprimer ${kind === "residence" ? "la résidence" : kind === "profession" ? "la profession" : "l’événement"} ${esc(journeyEntrySummary(kind, entry))}" title="Supprimer" data-journey-delete="${kind}:${esc(entry.id)}">${icon("trash")}</button><button class="btn small tertiary contextual-action life-attestation-add" type="button" data-journey-attestation-add="${esc(entry.id)}">${icon("plus")}<span>Ajouter une attestation</span></button></div>` : "";
   const hasExtra = Boolean(editingAttestation || extraFacts || eventPlaceText || attestations.length || eventLinks);
   const summary = `<span class="life-entry-summary-copy"><span class="life-entry-title">${esc(journeyEntrySummary(kind, entry))}</span></span>${countLabel}${hasExtra && !editingAttestation ? `<svg class="ui-icon life-entry-chevron" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>` : ""}`;
   const content = hasExtra
@@ -2947,7 +2953,7 @@ function renderPendingRelationAttestations(kind) {
   const list = $(`${kind}UnionAttestationList`);
   if (!control || !list) return;
   const attestations = pendingRelationAttestations[kind] || [];
-  control.innerHTML = `<button class="btn small tertiary life-attestation-add" type="button" data-pending-relation-attestation-add="${kind}">${icon("plus")}<span>Ajouter une attestation</span></button>`;
+  control.innerHTML = `<button class="btn small tertiary contextual-action life-attestation-add" type="button" data-pending-relation-attestation-add="${kind}">${icon("plus")}<span>Ajouter une attestation</span></button>`;
   list.innerHTML = attestations.map(attestation => {
     const associationCount = (attestation.documentIds || []).length + (attestation.sourceIds || []).length + (attestation.proofIds || []).length;
     const associations = associationCount ? `<span class="life-entry-meta">${associationCount} association${associationCount > 1 ? "s" : ""}</span>` : "";
@@ -3008,7 +3014,7 @@ function personPageDetailedJourneyMarkup(item, { editable = personPageInlineEdit
     profession: "Ajouter",
     event: "Ajouter"
   };
-  const addLabel = kind => editable ? `<button class="btn small life-journey-add" type="button" data-journey-add="${kind}" aria-label="${esc(`Ajouter ${kind === "residence" ? "une résidence" : kind === "profession" ? "une activité" : "un événement"}`)}">${icon("plus")}<span>Ajouter</span></button>` : "";
+  const addLabel = kind => editable ? `<button class="btn small contextual-action life-journey-add" type="button" data-journey-add="${kind}" aria-label="${esc(`Ajouter ${kind === "residence" ? "une résidence" : kind === "profession" ? "une activité" : "un événement"}`)}">${icon("plus")}<span>Ajouter</span></button>` : "";
   const categoryHead = (kind, title, iconName) => `<div class="life-journey-column-head"><h4>${icon(iconName, "life-journey-category-icon")}<span class="source-detail-fact"><strong>${title}</strong></span></h4>${addLabel(kind)}</div>`;
   return `<section id="personPageDetailedJourney" class="person-detail-journey" aria-labelledby="personPageDetailedJourneyTitle">
     <h3 id="personPageDetailedJourneyTitle">Parcours détaillé</h3>
@@ -6085,40 +6091,77 @@ const taskActionMenu = bindModalActionMenu("taskDialog", "taskMenuBtn", "taskAct
 const documentActionMenu = bindModalActionMenu("documentDialog", "documentMenuBtn", "documentActionMenu");
 const procedureActionMenu = bindModalActionMenu("procedureActionDialog", "procedureActionMenuBtn", "procedureActionMenu");
 const genealogyItemActionMenu = bindModalActionMenu("genealogyItemDialog", "genealogyItemMenuBtn", "genealogyItemActionsMenu");
-$("documentPageActions").addEventListener("toggle", () => $("documentPageActionsBtn").setAttribute("aria-expanded", String($("documentPageActions").open)));
 document.addEventListener("click", event => {
   const menu = $("documentPageActions");
-  if (menu.open && !menu.contains(event.target)) menu.open = false;
+  if (menu?.open && !menu.contains(event.target)) menu.open = false;
 }, true);
-$("documentPageActions").addEventListener("keydown", event => {
-  if (event.key !== "Escape" || !$("documentPageActions").open) return;
-  event.preventDefault();
-  event.stopPropagation();
-  $("documentPageActions").open = false;
-  requestAnimationFrame(() => $("documentPageActionsBtn").focus({ preventScroll: true }));
-});
-$("downloadDocumentBtn").addEventListener("click", async () => {
-  const item = documents.find(documentItem => documentItem.id === activeViewerDocumentId);
-  $("documentPageActions").open = false;
-  if (!item || !(item.chunkVersion && item.chunkCount || item.fileData || item.fileUrl)) return toast("Aucun fichier téléchargeable n’est disponible.", "error");
-  try {
-    const blob = item.chunkVersion && item.chunkCount
-      ? await readChunkedFile(item)
-      : await (await fetch(item.fileData || item.fileUrl)).blob();
-    if (!blob.size) throw new Error("Le fichier téléchargé est vide.");
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = item.fileName || "Document";
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  } catch (error) {
-    console.error(error);
-    toast("Le téléchargement du document est impossible.", "error");
+function arrangeDocumentPageActions() {
+  const narrow = window.matchMedia("(max-width: 760px)").matches;
+  const menu = $("documentPageActionsHost").querySelector(".document-page-menu");
+  const target = narrow ? $("documentMobileActionsSlot") : $("documentPageActionsHost");
+  if (menu && menu.parentElement !== target) target.append(menu);
+  const edit = $("viewerEditBtn");
+  const categoryRow = $("viewerCategoryBadgeRow");
+  if (narrow) {
+    categoryRow.hidden = false;
+    if (edit.parentElement !== categoryRow) categoryRow.append(edit);
+  } else {
+    if (edit.parentElement !== $("documentDetailActions")) $("documentDetailActions").prepend(edit);
+    categoryRow.hidden = !$("viewerCategoryBadge").textContent.trim();
   }
-});
+}
+
+function renderDocumentPageActions(item) {
+  const previousMenu = document.querySelector("#documentPageActionsHost .document-page-menu, #documentMobileActionsSlot .document-page-menu");
+  if (previousMenu) previousMenu.remove();
+  const canDownload = Boolean(item.chunkVersion && item.chunkCount || item.fileData || item.fileUrl);
+  const menuItems = `${canDownload ? `<button class="btn tile-context-menu-item" id="downloadDocumentBtn" type="button" role="menuitem" data-document-page-action="download">${icon("download")}<span>Télécharger le document</span></button><div class="tile-context-menu-separator" role="separator"></div>` : ""}<button class="btn tile-context-menu-item is-danger" id="deleteDocumentFromPageBtn" type="button" role="menuitem" data-document-page-action="delete">${icon("trash")}<span>Supprimer le document</span></button>`;
+  $("documentPageActionsHost").innerHTML = `<details class="dedicated-page-actions source-detail-actions document-page-menu" id="documentPageActions"><summary class="btn icon-btn tile-context-toggle" id="documentPageActionsBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Actions secondaires du document" title="Actions"><span class="tile-context-glyph" aria-hidden="true"><span class="tile-context-dot"></span><span class="tile-context-dot"></span><span class="tile-context-dot"></span></span></summary><div class="source-detail-actions-menu document-actions-menu" id="documentPageActionsMenu" role="menu" aria-label="Actions secondaires du document">${menuItems}</div></details>`;
+  const details = $("documentPageActions");
+  const summary = $("documentPageActionsBtn");
+  details.addEventListener("toggle", () => summary.setAttribute("aria-expanded", String(details.open)));
+  details.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || !details.open) return;
+    event.preventDefault();
+    event.stopPropagation();
+    details.open = false;
+    requestAnimationFrame(() => summary.focus({ preventScroll: true }));
+  });
+  details.addEventListener("click", async event => {
+    const action = event.target.closest("[data-document-page-action]");
+    if (!action) return;
+    details.open = false;
+    if (action.dataset.documentPageAction === "download") {
+      await runSafely(() => downloadDocumentFile(item), "Téléchargement du document impossible");
+      if (isDocumentPageVisible()) requestAnimationFrame(() => summary.focus({ preventScroll: true }));
+    } else if (action.dataset.documentPageAction === "delete") {
+      const removed = await runSafely(() => removeDocument(item.id), "Suppression du document impossible");
+      if (removed !== true && isDocumentPageVisible()) requestAnimationFrame(() => summary.focus({ preventScroll: true }));
+    }
+  });
+  arrangeDocumentPageActions();
+}
+
+async function downloadDocumentFile(item) {
+  if (!item || !(item.chunkVersion && item.chunkCount || item.fileData || item.fileUrl)) {
+    throw new Error("Aucun fichier téléchargeable n’est disponible.");
+  }
+  const response = item.chunkVersion && item.chunkCount
+    ? null
+    : await fetch(item.fileData || item.fileUrl);
+  if (response && !response.ok) throw new Error("Le fichier n’a pas pu être récupéré.");
+  const blob = item.chunkVersion && item.chunkCount ? await readChunkedFile(item) : await response.blob();
+  if (!blob.size) throw new Error("Le fichier téléchargé est vide.");
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = item.fileName || "Document";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return true;
+}
 $("genealogyItemActionsMenu").addEventListener("click", event => {
   const itemButton = event.target.closest('[role="menuitem"]');
   if (!itemButton || !activeGenealogyItem) return;
@@ -6441,7 +6484,6 @@ function refreshDedicatedPageBackLabels() {
   if (!$("proofDetailView").hidden) setDedicatedPageBackLabel("proofMobileBackBtn", proofPageReturnContext);
   if (!$("personDetailView").hidden) setDedicatedPageBackLabel("personPageBackBtn", personPageReturnContext);
   if (!$("personDetailView").hidden) setDedicatedPageBackLabel("personPageMobileBackBtn", personPageReturnContext);
-  if (isDocumentPageVisible()) setDedicatedPageBackLabel("documentPageBackBtn", documentPageReturnContext);
   if (isDocumentPageVisible()) setDedicatedPageBackLabel("documentMobileBackBtn", documentPageReturnContext);
   if (isTranscriptionWorkshopActive()) setTranscriptionWorkshopBackLabel();
 }
@@ -12877,8 +12919,9 @@ function documentTranscriptionCardMarkup(item, linkedSources, sourceState) {
   const actionLabel = selected?.action === "Reprendre" ? "Reprendre la transcription"
     : selected?.action === "Consulter" ? "Consulter la transcription officielle"
       : "Commencer une transcription";
+  const actionState = selected?.action === "Reprendre" ? "resume" : selected?.action === "Consulter" ? "official" : "start";
   const actionMarkup = selected || isDocumentConsultable(item)
-    ? `<button class="btn document-transcription-action" type="button" data-transcribe-document="${esc(item.id)}"${selected ? ` data-transcription-page-id="${esc(selected.page.id)}"` : ""}>${esc(actionLabel)}</button>`
+    ? `<button class="btn document-transcription-action document-transcription-action--${actionState}" type="button" data-transcribe-document="${esc(item.id)}"${selected ? ` data-transcription-page-id="${esc(selected.page.id)}"` : ""}>${esc(actionLabel)}</button>`
     : `<p class="document-unified-notice">Aucune transcription ni page de transcription n’est associée à ce document.</p>`;
   return `<section class="document-unified-section document-transcription-card"><div class="document-unified-section-head"><h4>Transcription${esc(pageLabel)}</h4><span class="document-transcription-count">${passages.length} passage${passages.length === 1 ? "" : "s"}</span></div><p class="document-unified-notice document-transcription-status">${esc(selected?.status || "Aucune transcription")}</p><div class="document-transcription-progress"><div class="document-transcription-progress-label"><span>Italien</span><strong>${italian} %</strong></div><div class="document-transcription-progress-track" role="progressbar" aria-label="Progression de la transcription italienne" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${italian}"><span class="document-transcription-progress-fill document-transcription-progress-fill--italian" style="width:${italian}%"></span></div><div class="document-transcription-progress-label"><span>Français</span><strong>${french} %</strong></div><div class="document-transcription-progress-track" role="progressbar" aria-label="Progression de la traduction française" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${french}"><span class="document-transcription-progress-fill document-transcription-progress-fill--french" style="width:${french}%"></span></div></div>${actionMarkup}</section>`;
 }
@@ -12977,8 +13020,8 @@ function renderUnifiedDocumentDetails(item) {
         : `<p class="document-unified-notice">Aucune source officielle n’est associée à cette fiche.</p>`;
   const sourceActions = isAdminUser()
     ? linkedSources.length
-      ? `<button class="btn small" type="button" data-manage-sources-from-document="${esc(item.id)}">Gérer les associations</button>`
-      : `<button class="btn small" type="button" data-create-source-from-document="${esc(item.id)}">+ Ajouter une source</button>`
+      ? `<button class="btn small contextual-action" type="button" data-manage-sources-from-document="${esc(item.id)}">Gérer les associations</button>`
+      : `<button class="btn small contextual-action" type="button" data-create-source-from-document="${esc(item.id)}">+ Ajouter une source</button>`
     : "";
   const sourceHead = `<div class="document-unified-section-head"><h4>Sources et provenance</h4>${sourceActions}</div>`;
   const proofState = genealogyCollectionsLoaded.has("genealogyProofs")
@@ -12999,7 +13042,7 @@ function renderUnifiedDocumentDetails(item) {
         }).join("")
         : `<p class="document-unified-notice">Aucune preuve n’est associée à cette fiche documentaire.</p>`;
   const proofActions = isAdminUser()
-    ? `<div class="document-unified-section-head"><h4>Preuves</h4><button class="btn small" type="button" data-create-proof-from-document="${esc(item.id)}">+ Créer une preuve</button></div>`
+    ? `<div class="document-unified-section-head"><h4>Preuves</h4><button class="btn small contextual-action" type="button" data-create-proof-from-document="${esc(item.id)}">+ Créer une preuve</button></div>`
     : `<div class="document-unified-section-head"><h4>Preuves</h4></div>`;
   const associationsLoading = !loadedPeople || sourceState === "loading" || proofState === "loading";
   const loadingNotice = associationsLoading ? `<p class="document-unified-notice document-associations-loading" role="status" aria-live="polite">Chargement des associations…</p>` : "";
@@ -13459,7 +13502,6 @@ async function openStoredDocument(item, returnContext = "previous") {
   documentPageReturnContext = structured
     ? (returnContext.pageContext ? { ...returnContext.pageContext } : documentPageFallbackContext(returnContext))
     : captureDocumentPageReturnContext();
-  setDedicatedPageBackLabel("documentPageBackBtn", documentPageReturnContext);
   setDedicatedPageBackLabel("documentMobileBackBtn", documentPageReturnContext);
   /* Les couches modales sont refermées : la page Document devient l'unique
      affichage, leur contexte étant déjà capturé pour le retour. */
@@ -13474,8 +13516,6 @@ async function openStoredDocument(item, returnContext = "previous") {
   $("viewerTitle").textContent = pageTitle;
   $("viewerTitle").setAttribute("aria-label", pageTitle);
   $("viewerTitle").title = pageTitle;
-  $("documentPageActions").open = false;
-  $("downloadDocumentBtn").hidden = !(item.chunkVersion && item.chunkCount || item.fileData || item.fileUrl);
   /* Badge catégorie sous le titre : la valeur métier du document
      (dont « Autre ») quand elle existe, aucun libellé fabriqué sinon.
      Lot G : aucun sous-titre sous le titre — les métadonnées vivent dans le
@@ -13483,7 +13523,8 @@ async function openStoredDocument(item, returnContext = "previous") {
   const categoryBadge = $("viewerCategoryBadge");
   categoryBadge.textContent = item.type || "";
   categoryBadge.hidden = !item.type;
-  $("viewerCategoryBadgeRow").hidden = !item.type;
+  $("viewerCategoryBadgeRow").hidden = !item.type && !window.matchMedia("(max-width: 760px)").matches;
+  renderDocumentPageActions(item);
   $("viewerImage").hidden = true;
   $("viewerImageControls").hidden = true;
   document.querySelectorAll("#documentDetailView .viewer-image-only").forEach(control => { control.hidden = true; });
@@ -13503,7 +13544,7 @@ async function openStoredDocument(item, returnContext = "previous") {
   $("viewerExternalBtn").hidden = true;
   $("viewerExternalBtn").removeAttribute("href");
   if (!setView("documentDetail")) return;
-  requestAnimationFrame(() => $("documentPageBackBtn").focus({ preventScroll: true }));
+  requestAnimationFrame(() => (window.matchMedia("(max-width: 760px)").matches ? $("documentMobileBackBtn") : $("viewerEditBtn")).focus({ preventScroll: true }));
   try {
     let source = item.fileUrl || item.externalUrl || "";
     let mimeType = item.mimeType || "";
@@ -13611,10 +13652,50 @@ async function saveDocument(event) {
 
 async function removeDocument(id = $("documentId").value) {
   const item = documents.find(documentItem => documentItem.id === id);
-  if (!item || !confirm("Supprimer définitivement ce document ? Le fichier et ses associations aux personnes seront supprimés.")) return false;
-  await deleteFileChunks(item);
-  await deleteDoc(doc(db, "documents", id));
+  if (!item) return toast("Ce document n’est plus disponible.", "error");
+  const requiredCollections = ["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyProposals", "genealogyEvents", "genealogyNotifications"];
+  const snapshotComplete = loadedPeople && loadedFamilies && loadedDocuments && loadedTasks && loadedProcedures
+    && requiredCollections.every(name => genealogyCollectionsLoaded.has(name) && !genealogyCollectionErrors.has(name));
+  const blockers = documentDeletionBlockers({
+    documentItem: item,
+    people,
+    records: genealogyRecords,
+    otherRecords: [...families, ...tasks, ...procedures],
+    snapshotComplete
+  });
+  if (blockers.length) {
+    const reason = blockers[0].startsWith("Les associations")
+      ? blockers[0]
+      : `Suppression impossible : ce document est encore référencé par ${blockers.join(", ")}. Retirez ou modifiez ces associations avant de le supprimer.`;
+    toast(reason, "error");
+    return false;
+  }
+  if (Boolean(item.chunkVersion) !== Boolean(item.chunkCount) || (item.chunkCount && (!Number.isInteger(item.chunkCount) || item.chunkCount < 1))) {
+    toast("Suppression bloquée : les références du fichier sont incomplètes. Demandez l’aide d’un administrateur.", "error");
+    return false;
+  }
+  if (item.chunkCount > 499) {
+    toast("Suppression bloquée : le fichier contient trop de blocs pour une opération atomique. Demandez l’aide d’un administrateur.", "error");
+    return false;
+  }
+  const label = documentDisplayLabel(item);
+  if (!confirm(`Supprimer définitivement « ${label} » et son fichier ? Cette action est irréversible.`)) return false;
+  await deleteDocumentAndChunks(item, {
+    createBatch: () => writeBatch(db),
+    documentReference: documentId => doc(db, "documents", documentId),
+    chunkReference
+  });
+
+  documents = documents.filter(documentItem => documentItem.id !== id);
+  documentReturnContext = null;
+  unifiedViewerReturnOnDialogClose = "";
+  unifiedViewerReturnDocumentId = "";
+  unifiedViewerReopenContext = "documents";
+  documentPageReopenContext = null;
   if ($("documentDialog").open && $("documentId").value === id) close("documentDialog");
+  if (activeViewerDocumentId === id) closeDocumentPage();
+  setView("documents");
+  renderDocuments();
   toast("Document supprimé");
   return true;
 }
@@ -17332,11 +17413,17 @@ $("clearTaskSearchBtn").onclick = () => {
 syncSearchClearBtn("directorySearch", "clearDirectorySearchBtn");
 syncSearchClearBtn("taskSearch", "clearTaskSearchBtn");
 const viewerImageMedia = window.matchMedia("(max-width: 760px)");
-const onViewerImageMediaChange = () => { if (viewerImageState && !$("viewerImage").hidden) arrangeViewerImageChrome(); };
+const onViewerImageMediaChange = () => {
+  if (viewerImageState && !$("viewerImage").hidden) arrangeViewerImageChrome();
+  if (isDocumentPageVisible()) arrangeDocumentPageActions();
+};
 if (typeof viewerImageMedia.addEventListener === "function") viewerImageMedia.addEventListener("change", onViewerImageMediaChange);
 else if (typeof viewerImageMedia.addListener === "function") viewerImageMedia.addListener(onViewerImageMediaChange);
 const viewerPdfMedia = window.matchMedia("(max-width: 760px)");
-const onViewerPdfMediaChange = () => { if (viewerPdfState) arrangePdfChrome(); };
+const onViewerPdfMediaChange = () => {
+  if (viewerPdfState) arrangePdfChrome();
+  if (isDocumentPageVisible()) arrangeDocumentPageActions();
+};
 if (typeof viewerPdfMedia.addEventListener === "function") viewerPdfMedia.addEventListener("change", onViewerPdfMediaChange);
 else if (typeof viewerPdfMedia.addListener === "function") viewerPdfMedia.addListener(onViewerPdfMediaChange);
 /* Page Document dédiée : Retour, bascules mobiles des volets (Miniatures /
@@ -17348,7 +17435,6 @@ document.addEventListener("click", event => {
   link.closest(".consultation-breadcrumb-overflow")?.removeAttribute("open");
   navigateConsultationBreadcrumb(link.dataset.consultationBreadcrumbAction, link.dataset.consultationBreadcrumbValue);
 });
-$("documentPageBackBtn").addEventListener("click", returnFromDocumentPage);
 /* Headers mobiles de consultation : retour identique au Retour interne. */
 $("documentMobileBackBtn").addEventListener("click", returnFromDocumentPage);
 $("sourceMobileBackBtn").addEventListener("click", returnFromSourcePage);

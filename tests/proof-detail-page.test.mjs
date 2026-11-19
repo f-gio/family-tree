@@ -163,7 +163,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.locator("#proofPageBreadcrumb .consultation-breadcrumb-intermediate[data-consultation-breadcrumb-action='document']").click();
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     assert.equal(await page.locator("#viewerTitle").textContent(), "Registre justificatif", "Document parent du fil ouvre sa fiche");
-    await page.click("#documentPageBackBtn");
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     assert.equal(await page.locator("#proofPageTitle").getAttribute("aria-label"), state.title, "titre complet accessible");
     assert.ok(await page.locator("#proofDetailView header.dedicated-page-header").count(), "en-tête partagé de page dédiée");
@@ -227,7 +227,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     assert.equal(await page.locator("#proofPageBackBtn").getAttribute("aria-label"), "Retour au document");
     await page.click("#proofPageBackBtn");
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
-    await page.click("#documentPageBackBtn");
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.getElementById("documentDetailView").hidden);
     await page.evaluate(() => window.__proofPageTest.openProof());
     await page.locator("#proofPageContent [data-source-document-open]").click();
@@ -235,7 +235,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     state = await page.evaluate(() => window.__proofPageTest.state());
     assert.equal(state.proofVisible, false, "la page Document remplace la page Preuve");
     assert.equal(state.viewerOpen, true, "lecteur de document affiché");
-    await page.click("#documentPageBackBtn");
+    await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.getElementById("proofDetailView").hidden);
     assert.equal((await page.evaluate(() => window.__proofPageTest.state())).proofVisible, true, "retour à la page Preuve");
 

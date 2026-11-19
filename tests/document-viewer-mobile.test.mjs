@@ -30,8 +30,8 @@ test("Le mode initial privilégie la largeur pour les photographies portrait tr�
 });
 
 test("Viewer : règles statiques mobile, commandes compactes, plein écran et safe-area", () => {
-  assert.match(css, /\.document-unified-section \.person-chip \{ background: var\(--color-surface\); border: var\(--border-default\); \}/);
-  assert.match(css, /\.person-chip \{[^}]*justify-content: center;[^}]*background: var\(--color-surface\);/);
+  assert.match(css, /\.document-unified-section \.person-chip \{[^}]*background: var\(--color-surface-muted\);[^}]*border: 0;/);
+  assert.match(css, /\.person-chip \{[^}]*border: 0;[^}]*background: var\(--color-surface-muted\);/);
   assert.match(css, /\.person-chip-consult \{[^}]*text-align: center; justify-content: center;/);
   /* Fullscreen conservé */
   assert.match(html, /\.viewer-dialog\{width:min\(calc\(100vw - 3rem\),94vw\);height:min\(calc\(100dvh - 3rem\),92dvh\)\}/);
@@ -73,6 +73,12 @@ test("Viewer : règles statiques mobile, commandes compactes, plein écran et sa
   assert.match(css, /\.viewer-zoom-indicator \{[\s\S]*?pointer-events: none/);
   assert.match(css, /#documentDetailView\.is-viewer-fullscreen \{/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.viewer-zoom-indicator/);
+  /* Angles droits : aucune surface de rendu ne doit rogner le document. */
+  assert.match(css, /#documentDetailView \.viewer-body,\s*#documentDetailView #viewerImage,\s*#documentDetailView #viewerFrame,\s*#documentDetailView #viewerPdfSurface,\s*#documentDetailView #viewerPdfPageViewport,\s*#documentDetailView #viewerPdfPageCanvas \{ border-radius: 0; \}/, "surfaces image/PDF sans arrondi");
+  assert.match(css, /#documentDetailView \.document-original-panel:has\(\.viewer-body\.viewer-pdf-active\) \.pdf-page-viewport,\s*#documentDetailView \.document-original-panel:has\(\.viewer-body\.viewer-pdf-active\) \.pdf-page-canvas \{ border-radius: 0; \}/, "viewport et canvas PDF sans arrondi");
+  /* Séparation du pied PDF mobile : pagination encadrée, panneaux espacés. */
+  assert.match(css, /#documentDetailView \.pdf-pagination \{[^}]*border: var\(--border-subtle\)/, "pagination PDF dédiée et encadrée");
+  assert.match(css, /#documentDetailView \.pdf-panel-toggles \{[^}]*margin-top: var\(--space-3\)/, "panneaux espacés de la pagination");
 });
 
 async function createViewerPage(browser, server, width, height) {
@@ -113,10 +119,25 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     }
     documentPage.hidden = false;
     document.getElementById("documentMobileHeader").hidden = !matchMedia("(max-width: 760px)").matches;
-    const pageActions = document.getElementById("documentPageActions");
-    pageActions.hidden = false;
-    pageActions.open = false;
-    document.getElementById("downloadDocumentBtn").hidden = false;
+    const pageActionsHost = document.getElementById("documentPageActionsHost");
+    pageActionsHost.innerHTML = `<details class="dedicated-page-actions source-detail-actions document-page-menu" id="documentPageActions"><summary class="btn icon-btn tile-context-toggle" id="documentPageActionsBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Actions secondaires du document">⋯</summary><div class="source-detail-actions-menu document-actions-menu" id="documentPageActionsMenu" role="menu"><button class="btn tile-context-menu-item" id="downloadDocumentBtn" type="button" role="menuitem"><svg class="ui-icon" aria-hidden="true"><use href="#icon-download"></use></svg><span>Télécharger le document</span></button></div></details>`;
+    const mobileHeaderLayout = matchMedia("(max-width: 760px)").matches;
+    document.getElementById("documentMobileActionsSlot").replaceChildren();
+    const actionGroup = pageActionsHost.querySelector("#documentPageActions");
+    (mobileHeaderLayout ? document.getElementById("documentMobileActionsSlot") : pageActionsHost).append(actionGroup);
+    actionGroup.addEventListener("toggle", () => document.getElementById("documentPageActionsBtn").setAttribute("aria-expanded", String(actionGroup.open)));
+    actionGroup.addEventListener("keydown", event => {
+      if (event.key !== "Escape" || !actionGroup.open) return;
+      event.preventDefault();
+      actionGroup.open = false;
+      document.getElementById("documentPageActionsBtn").focus();
+    });
+    const categoryRow = document.getElementById("viewerCategoryBadgeRow");
+    categoryRow.hidden = false;
+    document.getElementById("viewerCategoryBadge").hidden = false;
+    document.getElementById("viewerCategoryBadge").textContent = "Autre";
+    if (mobileHeaderLayout) categoryRow.append(document.getElementById("viewerEditBtn"));
+    else document.getElementById("documentDetailActions").prepend(document.getElementById("viewerEditBtn"));
     document.getElementById("viewerTitle").textContent = title;
     document.getElementById("viewerTitle").setAttribute("aria-label", title);
     document.getElementById("viewerTitle").title = title;
@@ -236,10 +257,7 @@ async function measureViewer(page) {
     const actionsButton = document.getElementById("documentPageActionsBtn");
     const externalIcon = external.querySelector("use");
     const closeBtn = (() => {
-      const contentClose = document.getElementById("documentPageBackBtn");
-      const box = contentClose.getBoundingClientRect();
-      return box.height > 0 && getComputedStyle(contentClose).display !== "none"
-        ? contentClose : document.getElementById("documentMobileBackBtn");
+      return document.getElementById("documentMobileBackBtn");
     })();
     const editBtn = document.getElementById("viewerEditBtn");
     const img = document.getElementById("viewerImage");
@@ -389,7 +407,7 @@ test("Viewer mobile : header borné, fullscreen, documents, responsive Nouvel on
                 assert.equal(m.docOverflowX, 0, `${key} : aucun overflow horizontal`);
                 assert.ok(m.closeBtn && m.closeBtn.w >= 43.5 && m.closeBtn.h >= 43.5, `${key} : fermeture ≥44px`);
                 assert.equal(m.backButtonCount, 0, `${key} : bouton Retour supprimé`);
-                assert.ok(m.closeBtn && m.actionsBtn, `${key} : fermeture X et menu d’actions accessibles`);
+                assert.ok(m.closeBtn && m.actionsBtn, `${key} : Retour mobile et menu d’actions accessibles`);
                 if (width <= 760) assert.ok(m.actionsBtn.h >= 43.5, `${key} : menu tactile`);
                 assert.ok(m.externalBtn && await page.locator("#viewerExternalBtn").getAttribute("href") === await page.locator("#viewerImage").getAttribute("src"), `${key} : nouvel onglet pointe sur la source exacte de l’image`);
                 assert.equal(m.imageCurrentSrc, m.externalHref, `${key} : source affichée et source du nouvel onglet identiques`);
@@ -500,7 +518,7 @@ test("Viewer desktop 1024×768 : inchangé (texte, titre, sous-titre, modale cen
       assert.equal(m.externalIconHref, "#icon-external-link");
       assert.ok(m.externalBtn.w >= 43.5 && m.externalBtn.h >= 43.5, "cible externe ≥44px sur desktop");
        assert.equal(m.subtitleAbsent, true, "aucun sous-titre sous le titre Document (lot G)");
-        assert.equal(m.titleClamp, "2", "titre limité à deux lignes sur desktop aussi");
+       assert.equal(m.titleClamp, "none", "titre desktop complet, sans troncature");
       /* Page dédiée : pleine largeur de contenu, deux panneaux, sans modal. */
       assert.ok(m.dialog.w >= 1024 - 60, `page pleine largeur de contenu (${m.dialog.w})`);
       assert.equal(m.radius, "0px", "page sans arrondi de modal");
@@ -813,7 +831,7 @@ test("La fermeture X du viewer conserve la vue Documents sous-jacente", async t 
         document.getElementById("genealogyView").hidden = true;
       });
       await openViewer(page, { title: "Acte consulté", fileName: "acte.jpg", src: landscapeSvg });
-      await page.locator("#documentPageBackBtn").click();
+      await page.keyboard.press("Escape");
       assert.equal(await page.locator("#documentDetailView").evaluate(view => view.hidden), true, "la page Document est refermée");
       assert.equal(await page.locator("#documentsView").evaluate(view => view.hidden), false, "la bibliothèque reste la vue sous-jacente");
       assert.equal(await page.locator("#genealogyView").evaluate(view => view.hidden), true, "la fermeture ne redirige pas vers Archives");
@@ -949,7 +967,7 @@ test("Plein écran image : API native ou repli viewport, sortie Échap sans rech
             nativeFullscreen: document.fullscreenElement === imagePanel,
             immersive: documentPage.classList.contains("is-viewer-fullscreen-mobile"),
             headerHidden: getComputedStyle(documentPage.querySelector(".document-detail-header")).display === "none",
-            returnHidden: getComputedStyle(documentPage.querySelector("#documentPageBackBtn")).display === "none" || documentPage.querySelector("#documentPageBackBtn").offsetParent === null,
+            returnHidden: getComputedStyle(document.getElementById("documentMobileHeader")).display === "none",
             detailsHidden: getComputedStyle(document.getElementById("viewerDocumentDetails")).display === "none",
             viewport: [innerWidth, innerHeight],
             page: [pageRect.x, pageRect.y, pageRect.width, pageRect.height],
@@ -1014,10 +1032,11 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
           return {
             header: rect(documentPage.querySelector(".document-detail-header")),
             title: rect(title), titleStyle: { whiteSpace: getComputedStyle(title).whiteSpace, textOverflow: getComputedStyle(title).textOverflow, webkitLineClamp: getComputedStyle(title).webkitLineClamp },
+            edit: rect(document.getElementById("viewerEditBtn")),
             actions: rect(documentPage.querySelector(".document-detail-actions")),
             menu: rect(document.getElementById("documentPageActionsBtn")),
-            close: rect((() => { const contentClose = document.getElementById("documentPageBackBtn"); const box = contentClose.getBoundingClientRect(); return box.height > 0 && getComputedStyle(contentClose).display !== "none" ? contentClose : document.getElementById("documentMobileBackBtn"); })()),
-            contentBackDisplay: getComputedStyle(document.getElementById("documentPageBackBtn")).display,
+            close: rect(document.getElementById("documentMobileBackBtn")),
+            contentBackDisplay: "none",
             topbar: rect(document.getElementById("topbar")),
             controls: rect(controls), reader: rect(reader), image: rect(document.getElementById("viewerImage")),
             fullscreen: rect(document.getElementById("viewerFullscreenBtn")), details: rect(details),
@@ -1034,7 +1053,7 @@ test("Visionneuse d’images : barre desktop et bouton Informations harmonisés 
         assert.equal(state.titleStyle.webkitLineClamp, "none", "le titre complet peut revenir à la ligne sans clamp");
         assert.equal(state.titleStyle.whiteSpace, "normal", "le titre autorise les retours à la ligne");
         assert.equal(await page.locator("#viewerTitle").getAttribute("aria-label"), title, "titre complet accessible");
-        assert.ok(state.title.bottom <= state.actions.y + 1 || state.title.right <= state.actions.x + 1, "le titre ne chevauche pas les actions, qui peuvent passer sur la ligne suivante");
+        assert.ok(state.title.bottom <= state.edit.y + 1 || state.title.right <= state.edit.x + 1, `le titre ne chevauche pas Modifier, qui peut passer sur la ligne suivante (${JSON.stringify({ title: state.title, edit: state.edit })})`);
         /* Header mobile harmonisé : le Retour interne disparaît, le chevron
            prend sa place dans la barre supérieure (modèle fiche Personne). */
         assert.equal(state.contentBackDisplay, "none", "aucun Retour redondant dans le contenu");

@@ -33,6 +33,20 @@ test("les formulaires partagent leurs footers et réservent … aux actions d’
         "async function loadTaskUsers() { if (window.__modalUiTest) return [];"
       );
       const testHooks = `
+window.__documentExistsForTest = id => documents.some(item => item.id === id);
+window.__setDocumentSnapshotForTest = complete => {
+  if (complete) {
+    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = loadedProcedures = true;
+    people = []; families = []; tasks = []; procedures = [];
+    genealogyCollectionErrors = new Map();
+    genealogyCollectionsLoaded = new Set(["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyProposals", "genealogyEvents", "genealogyNotifications"]);
+    genealogyRecords = { sourceDocuments: [], sourceRevisions: [], transcriptionHeads: [], transcriptionRevisions: [], genealogyProofs: [], genealogyProofRevisions: [], factConclusions: [], conclusionRevisions: [], genealogyProposals: [], genealogyEvents: [], genealogyNotifications: [] };
+  } else {
+    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = loadedProcedures = false;
+    genealogyCollectionErrors = new Map();
+    genealogyCollectionsLoaded = new Set();
+  }
+};
 window.__openModalForTest = async (kind, item = null) => {
   for (const id of ["personDialog", "documentDialog", "taskDialog", "dossierDialog", "procedureActionDialog", "familyDetailsDialog"]) {
     const dialog = document.getElementById(id);
@@ -42,6 +56,8 @@ window.__openModalForTest = async (kind, item = null) => {
   document.getElementById("authScreen").hidden = true;
   document.getElementById("topbar").hidden = false;
   if (kind === "document") {
+    // Instantané complet requis par le garde de suppression avant tout confirm().
+    window.__setDocumentSnapshotForTest(true);
     documents = item ? [item] : [];
     openDocument(item);
   } else if (kind === "task") {
@@ -198,9 +214,24 @@ window.__openModalForTest = async (kind, item = null) => {
             await tap(`#${modal.menu}`);
             await tap(`#${modal.dialog} .modal-head h3`);
             assert.equal(await page.locator(`#${modal.popup}`).isVisible(), false, `${modal.kind} clic extérieur ferme …`);
+            if (modal.kind === "document") {
+              // Le garde refuse toute suppression tant que l'instantané est
+              // incomplet : ni confirmation, ni écriture, message explicite.
+              await page.evaluate(() => window.__setDocumentSnapshotForTest(false));
+              await tap(`#${modal.menu}`);
+              await tap(`#${modal.delete}`);
+              await page.waitForTimeout(40);
+              assert.equal(confirmations.length, 0, "document : aucune confirmation si snapshot incomplet");
+              assert.equal(await page.locator(`#${modal.dialog}`).evaluate(element => element.open), true, "document : la modale reste ouverte après refus");
+              assert.match(await page.locator("#toastMessage").textContent(), /ne peuvent pas toutes être vérifiées/, "document : message de chargement invitant à réessayer");
+              assert.equal(await page.evaluate(() => window.__documentExistsForTest("document-ui-test")), true, "document : le document isolé reste présent après refus");
+              confirmations.length = 0;
+              await page.evaluate(() => window.__setDocumentSnapshotForTest(true));
+            }
             await tap(`#${modal.menu}`);
             await tap(`#${modal.delete}`);
             assert.equal(confirmations.length, 1, `${modal.kind} réutilise une seule confirmation existante`);
+            if (modal.kind === "document") assert.match(confirmations[0], /Supprimer définitivement « .* » et son fichier \? Cette action est irréversible\./, "document : confirmation explicite et irréversible");
             assert.equal(await page.locator(`#${modal.dialog}`).evaluate(element => element.open), true, `${modal.kind} reste ouvert après refus de confirmation`);
             assert.equal(await page.locator(`#${modal.popup}`).isVisible(), false, `${modal.kind} menu fermé après sélection`);
             confirmations.length = 0;

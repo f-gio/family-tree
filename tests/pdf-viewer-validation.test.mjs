@@ -355,7 +355,7 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     const hidden = element.hidden || (element.closest("[hidden]") !== null);
     const rect = element.getBoundingClientRect();
     return [id, { x: rect.x, right: rect.right, y: rect.y, bottom: rect.bottom, width: rect.width, height: rect.height, visible: !hidden && rect.width > 0 && rect.height > 0 }];
-  })), ["viewerPdfToolbar", "pdfPageNav", "pdfPanelToggles", "viewerPdfThumbnails", "viewerPdfSurface", "viewerPdfPageViewport", "viewerPdfPageCanvas", "pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "viewerDetailsExpandBtn", "pdfFullscreenBtn", "viewerExternalBtn", "viewerDetailsCollapseBtn", "viewerImageViewport", "viewerDocumentDetails", "documentUnifiedLayout"]);
+  })), ["viewerPdfToolbar", "pdfPageNav", "pdfPanelToggles", "viewerPdfThumbnails", "viewerPdfSurface", "viewerPdfPageViewport", "viewerPdfPageCanvas", "pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "viewerDetailsBtn", "viewerDetailsExpandBtn", "pdfFullscreenBtn", "viewerExternalBtn", "viewerDetailsCollapseBtn", "viewerImageViewport", "viewerDocumentDetails", "documentUnifiedLayout"]);
   const measureDesktopPlacement = page => page.evaluate(() => {
     const panel = document.querySelector(".document-original-panel");
     const toolbar = document.getElementById("viewerPdfToolbar");
@@ -405,11 +405,11 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     assert.ok(desktop.viewerPdfPageCanvas.y >= desktop.viewerPdfPageViewport.y - 1 && desktop.viewerPdfPageCanvas.bottom <= desktop.viewerPdfPageViewport.bottom + 1, "page entière visible, sans coupe");
     assert.ok(desktop.viewerPdfPageCanvas.height >= 200 && desktop.viewerPdfPageCanvas.width >= 200, "page principale lisible");
     assert.ok(desktop.viewerPdfToolbar.bottom <= desktop.viewerPdfPageViewport.y + 1, "barre d’outils au-dessus de la page");
-    assert.ok(desktop.viewerPdfToolbar.height <= 60, `barre d’outils desktop sur une seule ligne (${desktop.viewerPdfToolbar.height}px)`);
+    assert.ok(desktop.viewerPdfToolbar.height <= 64, `barre PDF desktop intégrée sur une seule ligne (${desktop.viewerPdfToolbar.height}px)`);
     const orderX = ["pdfThumbnailsBtn", "pdfPreviousPageBtn", "pdfPageStatus", "pdfNextPageBtn", "pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn", "viewerDetailsExpandBtn"].map(id => desktop[id].x);
     assert.deepEqual(orderX, [...orderX].sort((a, b) => a - b), "ordre desktop : miniatures, navigation, lecture puis Informations isolée à droite");
     assert.ok(desktop.pdfFitModeBtn.right < desktop.viewerDetailsExpandBtn.x, "les commandes de lecture restent groupées avant Informations");
-    assert.ok(desktop.viewerDetailsExpandBtn.right >= desktop.viewerPdfToolbar.right - 2, "Informations est placée complètement à droite de la barre");
+    assert.ok(desktop.viewerDetailsExpandBtn.right >= desktop.viewerPdfToolbar.right - 10, "Informations est placée à droite dans la barre intégrée");
     assert.ok(desktop.pdfFitModeBtn.x - desktop.pdfZoomInBtn.right >= 14, "espacement visuel entre le groupe zoom et les actions de lecture");
     const thumbnailsCenter = (desktop.pdfThumbnailsBtn.y + desktop.pdfThumbnailsBtn.bottom) / 2;
     const detailsCenter = (desktop.viewerDetailsExpandBtn.y + desktop.viewerDetailsExpandBtn.bottom) / 2;
@@ -430,7 +430,7 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     assert.ok(Math.abs(desktopNoRail.canvas.center - desktopNoRail.page.center) < 2, "la page reste centrée dans l'espace élargi");
     assert.equal(desktopNoRail.toolbar.justify, "flex-start", "les commandes restent groupées à gauche quand les miniatures sont masquées");
     const noRailInfoButton = await page.locator("#viewerDetailsExpandBtn").boundingBox();
-    assert.ok(noRailInfoButton.x >= desktopNoRail.toolbar.right - noRailInfoButton.width - 2, "Informations reste à droite sans miniatures");
+    assert.ok(noRailInfoButton.x >= desktopNoRail.toolbar.right - noRailInfoButton.width - 10, "Informations reste à droite dans la barre intégrée sans miniatures");
     assert.ok(Math.abs(desktopNoRail.controlsCenter - desktopNoRail.page.center) < 16, "le groupe de commandes suit le centre de la page");
     await page.locator("#viewerDetailsExpandBtn").click();
     await page.waitForFunction(() => !document.getElementById("viewerDocumentDetails").hidden);
@@ -440,7 +440,7 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     const noRailInfoOpenState = await measureAll(page);
     assert.equal(noRailInfoOpenState.viewerDetailsCollapseBtn.visible, false, "aucun bouton Masquer redondant ne s’affiche");
     assert.equal(noRailInfoOpenState.viewerDetailsExpandBtn.visible, true, "le bouton unique reste visible panneau ouvert");
-    assert.ok(noRailInfoOpenState.viewerDetailsExpandBtn.right >= noRailInfoOpen.toolbar.right - 2, "le même bouton reste à droite panneau ouvert sans miniatures");
+    assert.ok(noRailInfoOpenState.viewerDetailsExpandBtn.right >= noRailInfoOpen.toolbar.right - 10, "le même bouton reste à droite dans la barre intégrée, panneau ouvert sans miniatures");
     await page.locator("#viewerDetailsExpandBtn").click();
     await page.waitForFunction(() => document.getElementById("viewerDocumentDetails").hidden);
     assert.equal(await page.locator("#viewerDetailsExpandBtn").isVisible(), true, "le bouton unique reste accessible panneau fermé");
@@ -455,7 +455,7 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     assert.equal(restoredRail.toolbar.gridColumn, "2", "la disposition à deux colonnes est restaurée avec les miniatures");
     assert.ok(restoredRail.rail.right <= restoredRail.page.left + 1, "le rail réapparaît à gauche de la page");
     const restoredInfoButton = await page.locator("#viewerDetailsExpandBtn").boundingBox();
-    assert.ok(restoredInfoButton.x >= restoredRail.toolbar.right - restoredInfoButton.width - 2, "Informations reste à droite avec les miniatures rétablies");
+    assert.ok(restoredInfoButton.x >= restoredRail.toolbar.right - restoredInfoButton.width - 10, "Informations reste à droite dans la barre intégrée avec les miniatures rétablies");
 
     const thumbnailsBoxBefore = desktop.pdfThumbnailsBtn;
     await page.locator("#viewerDetailsExpandBtn").click();
@@ -463,7 +463,7 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
     const desktopExpanded = await measureAll(page);
     assert.equal(desktopExpanded.viewerDetailsCollapseBtn?.visible, false, "aucun bouton de repli redondant dans le panneau");
     assert.ok(desktopExpanded.viewerDetailsExpandBtn.visible, "le bouton unique reste visible avec miniatures et informations ouvertes");
-    assert.ok(desktopExpanded.viewerDetailsExpandBtn.right >= desktopExpanded.viewerPdfToolbar.right - 2, "le bouton unique reste à droite avec miniatures et informations ouvertes");
+    assert.ok(desktopExpanded.viewerDetailsExpandBtn.right >= desktopExpanded.viewerPdfToolbar.right - 10, "le bouton unique reste à droite de la barre intégrée avec miniatures et informations ouvertes");
     assert.ok(Math.abs(desktopExpanded.pdfThumbnailsBtn.x - thumbnailsBoxBefore.x) < 1 && Math.abs(desktopExpanded.pdfThumbnailsBtn.y - thumbnailsBoxBefore.y) < 1, "la commande miniatures reste en place à l’ouverture des informations");
     await page.locator("#viewerDetailsExpandBtn").click();
     await page.waitForFunction(() => document.getElementById("viewerDocumentDetails").hidden);
@@ -537,22 +537,21 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
           header: get(".document-detail-header"),
           title: get("#viewerTitle"),
           titleStyle: { whiteSpace: titleStyle.whiteSpace, textOverflow: titleStyle.textOverflow, overflow: titleStyle.overflow },
-          closeDisplay: getComputedStyle(document.getElementById("documentPageBackBtn")).display
+          closeDisplay: document.getElementById("documentPageBackBtn") ? getComputedStyle(document.getElementById("documentPageBackBtn")).display : "absent"
         };
       });
       if (viewport.width <= 390) {
         /* Le Retour vit désormais dans la topbar (header mobile harmonisé,
            modèle fiche Personne) : ce fragment statique n'a pas de topbar. */
-        assert.ok(mobileHeader.header.height <= 148, `en-tête mobile contenu avec métadonnées visibles (${mobileHeader.header.height}px)`);
-        assert.equal(mobileHeader.titleStyle.whiteSpace, "nowrap", "titre sur une ligne sans couper les mots");
-        assert.equal(mobileHeader.titleStyle.textOverflow, "ellipsis", "titre long tronqué par ellipse");
-        assert.equal(mobileHeader.closeDisplay, "none", "Retour interne masqué : le chevron du header mobile prend le relais");
+        assert.ok(mobileHeader.header.height <= 220, `en-tête mobile compact avec titre renvoyé à la ligne (${mobileHeader.header.height}px)`);
+        assert.equal(mobileHeader.titleStyle.whiteSpace, "normal", "titre long renvoyé à la ligne");
+        assert.equal(mobileHeader.closeDisplay, "absent", "lien Retour desktop retiré de l’en-tête de contenu");
         assert.ok(mobileHeader.title.right <= mobileHeader.header.right + 1, "titre contenu dans l'en-tête");
       }
       if (viewport.width === 320) {
         const truncation = await page.locator("#viewerTitle").evaluate(element => ({ whiteSpace: getComputedStyle(element).whiteSpace, textOverflow: getComputedStyle(element).textOverflow, label: element.getAttribute("aria-label") }));
-        assert.equal(truncation.whiteSpace, "nowrap", "titre long reste sur une ligne, sans couper les mots");
-        assert.equal(truncation.textOverflow, "ellipsis", "titre long tronqué par ellipse");
+        assert.equal(truncation.whiteSpace, "normal", "titre long autorise les retours à la ligne");
+        assert.equal(truncation.textOverflow, "clip", "titre long n’est pas ellipsé");
         assert.equal(truncation.label, await page.locator("#viewerTitle").textContent(), "titre complet reste accessible");
       }
       assert.ok(mobile.viewerPdfThumbnails != null && !mobile.viewerPdfThumbnails.visible, "miniatures fermées par défaut sur mobile");
@@ -561,14 +560,16 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
       assert.ok(mobile.viewerDocumentDetails != null && !mobile.viewerDocumentDetails.visible, "informations fermées par défaut sur mobile");
       assert.equal(await page.locator("#viewerDocumentDetails").evaluate(element => element.hidden), true, "volet Informations replié à l'ouverture");
       assert.ok(mobile.viewerPdfToolbar.bottom <= mobile.viewerPdfSurface.y + 1, `barre au-dessus du document (toolbar ${JSON.stringify(mobile.viewerPdfToolbar)} surface ${JSON.stringify(mobile.viewerPdfSurface)})`);
-      assert.ok(mobile.viewerPdfToolbar.height <= 60, `barre d’outils sur une seule ligne (${mobile.viewerPdfToolbar.height}px)`);
+       assert.ok(mobile.viewerPdfToolbar.height <= 64, `barre d’outils sur une seule ligne (${mobile.viewerPdfToolbar.height}px)`);
       const toolOrder = ["pdfZoomOutBtn", "pdfZoomInBtn", "pdfFitModeBtn", "pdfFullscreenBtn", "viewerExternalBtn"].map(id => mobile[id].x);
       assert.deepEqual(toolOrder, [...toolOrder].sort((a, b) => a - b), "outils drills : zoom, ajustement, plein écran, nouvel onglet");
       assert.ok(mobile.pdfFullscreenBtn.x >= mobile.pdfFitModeBtn.right - 1 && mobile.pdfFullscreenBtn.x - mobile.pdfFitModeBtn.right <= 4, `Plein écran reste groupé près d’Ajuster (${mobile.pdfFitModeBtn.right} → ${mobile.pdfFullscreenBtn.x})`);
-      assert.ok(Math.abs(mobile.viewerExternalBtn.right - mobile.viewerPdfToolbar.right) <= 2, "nouvel onglet aligné sur le bord droit de la barre");
+       assert.ok(Math.abs(mobile.viewerExternalBtn.right - mobile.viewerPdfToolbar.right) <= 10, "nouvel onglet aligné dans la barre intégrée");
       assert.ok(mobile.pdfThumbnailsBtn.width >= 44, "la commande Miniatures reste disponible sur mobile");
       assert.ok(mobile.pdfPageNav.y >= mobile.viewerPdfSurface.bottom - 1, "pagination sous le document");
-      assert.ok(mobile.pdfPanelToggles.y >= mobile.pdfPageNav.bottom - 1, "bascules sous la pagination");
+       assert.ok(mobile.pdfPanelToggles.y >= mobile.pdfPageNav.bottom + 11, "un espacement visuel sépare les panneaux de la pagination");
+       assert.ok(Math.abs(mobile.pdfThumbnailsBtn.width - mobile.viewerDetailsBtn.width) <= 1, "les bascules Miniatures et Informations sont de largeurs égales");
+       assert.equal(await page.locator("#pdfPageNav").evaluate(element => getComputedStyle(element).borderTopWidth), "1px", "bloc de pagination distinctement encadré");
     assert.ok(mobile.pdfPreviousPageBtn.x < mobile.pdfPageStatus.x && mobile.pdfPageStatus.x < mobile.pdfNextPageBtn.x, "compteur entre les flèches");
       const toolButtons = await page.evaluate(() => [...document.querySelectorAll("#viewerPdfToolbar .btn")].map(button => { const rect = button.getBoundingClientRect(); return { width: rect.width, height: rect.height }; }));
       for (const button of toolButtons) assert.ok(button.height >= 43.5 && button.width >= 43.5, "cibles tactiles d’au moins 44px dans la barre d’outils");
@@ -830,10 +831,7 @@ test("PDF mobile WebKit : uniquement Miniatures et Informations sous le lecteur"
     await page.setContent(pageDocument, { waitUntil: "load" });
     await openViewerPage(page);
     await page.waitForFunction(() => document.getElementById("viewerPdfPageCanvas").width > 0, undefined, { timeout: 15000 });
-    const back = page.locator("#documentPageBackBtn");
-    /* Header mobile harmonisé : le Retour interne est masqué sur mobile — le
-       chevron de la topbar (hors de ce fragment statique) assure le retour. */
-    assert.equal(await back.evaluate(element => getComputedStyle(element).display), "none", "Retour interne masqué au profit du header mobile dans WebKit");
+    assert.equal(await page.locator("#documentPageBackBtn").count(), 0, "lien Retour desktop supprimé de la fiche Document dans WebKit");
     assert.equal(await page.locator(".document-original-head").evaluate(element => getComputedStyle(element).display), "none", "l’en-tête Original et son dépliant ne prennent pas de place en PDF mobile");
     assert.equal(await page.locator("#viewerDetailsExpandBtn").isVisible(), false, "le dépliant isolé ne paraît pas sous les volets");
     const toggles = page.locator("#pdfPanelToggles .pdf-panel-toggle");
@@ -880,7 +878,7 @@ test("PDF plein écran desktop à 1440 px : commandes et réglages normaux conse
     assert.equal(await page.locator("#documentDetailView").evaluate(element => element.classList.contains("is-viewer-fullscreen-mobile")), false, "aucun mode immersif mobile sur desktop");
     assert.equal(await page.locator("#pdfNextPageBtn").isVisible(), true, "navigation visible en plein écran desktop");
     assert.equal(await page.locator("#pdfZoomInBtn").isVisible(), true, "zoom visible en plein écran desktop");
-    assert.equal(await page.locator("#pdfFullscreenBtn").locator("use").getAttribute("href"), "#icon-minimize", "commande desktop inchangée");
+    assert.equal(await page.locator("#pdfFullscreenBtn").locator("use").getAttribute("href"), "#icon-close", "icône de sortie harmonisée");
     assert.equal(await page.evaluate(() => window.pdfViewerTestState.getState().zoom), zoomBefore, "zoom conservé sur desktop");
     await page.locator("#pdfNextPageBtn").click();
     await page.waitForFunction(() => document.getElementById("pdfPageStatus").textContent.includes("2 / 24"));
