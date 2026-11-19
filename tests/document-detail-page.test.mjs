@@ -163,23 +163,22 @@ window.__documentPageTest = {
       headerClass: $("documentDetailView").querySelector("header").className,
       detailsOverflowY: getComputedStyle($("viewerDocumentDetails")).overflowY,
       readerOverflowY: getComputedStyle($("viewerImageViewport")).overflowY,
-      workshopBackAbsent: !document.getElementById("workshopBackBtn"),
+      workshopBackVisible: !!document.getElementById("workshopBackBtn")?.getClientRects().length,
+      workshopBackLabel: document.getElementById("workshopBackBtn")?.textContent.replace(/\s+/g, " ").trim() || "",
       workshopMenuInHeader: !!document.querySelector(".transcription-workshop-header #workshopActionsMenu"),
       workshopMenuInSlot: !!document.querySelector("#transcriptionMobileActionsSlot #workshopActionsMenu"),
       workshopCtaHeight: Math.round(document.getElementById("workshopModeBtn")?.getBoundingClientRect().height || 0),
       workshopCtaHidden: document.getElementById("workshopModeBtn")?.hidden ?? true,
-      workshopTitleBelowBreadcrumb: (() => {
+      workshopTitleBelowBack: (() => {
         const title = document.getElementById("workshopPageHeading");
-        const crumb = document.querySelector(".transcription-workshop-breadcrumb");
-        if (!title || !crumb) return false;
-        return title.getBoundingClientRect().top >= crumb.getBoundingClientRect().bottom - 1;
+        const back = document.getElementById("workshopBackBtn");
+        if (!title || !back) return false;
+        return title.getBoundingClientRect().top >= back.getBoundingClientRect().bottom - 1;
       })(),
       workshopMenuInPanel: !!document.querySelector("#workshopPanelRight #workshopActionsMenu"),
-      workshopTitle: $("workshopDocumentTitle").textContent,
-      workshopTitleLabel: $("workshopDocumentTitle").getAttribute("aria-label"),
-      workshopTitleWhiteSpace: getComputedStyle($("workshopDocumentTitle")).whiteSpace,
-      workshopTitleOverflow: getComputedStyle($("workshopDocumentTitle")).textOverflow,
-      workshopBreadcrumb: document.querySelector(".transcription-workshop-breadcrumb")?.textContent || "",
+      workshopTitle: $("workshopPageHeading").textContent,
+      workshopTitleWraps: getComputedStyle($("workshopPageHeading")).whiteSpace === "normal",
+      workshopBreadcrumbAbsent: !document.querySelector(".transcription-workshop-breadcrumb"),
       workshopNavigationDisplay: getComputedStyle(document.querySelector(".topbar .main-nav")).display,
       workshopBrandDisplay: getComputedStyle(document.querySelector(".topbar .brand")).display,
       workshopHorizontalOverflow: document.documentElement.scrollWidth > innerWidth,
@@ -362,14 +361,14 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, false, "l'atelier remplace la page");
-    assert.equal(state.workshopBackAbsent, true, "aucun lien Retour dans l’en-tête de l’Atelier");
-    assert.ok(state.workshopTitleBelowBreadcrumb, "titre du document sous le fil d’Ariane dans l’Atelier");
+    assert.equal(state.workshopBackVisible, true, "lien Retour textuel visible dans l’en-tête de l’Atelier");
+    assert.match(state.workshopBackLabel, /^←?\s*Retour\s+\S/, "libellé contextuel du lien Retour");
+    assert.equal(state.workshopTitleBelowBack, true, "titre du document sous le lien Retour dans l’Atelier");
     assert.equal(state.workshopMenuInHeader, true, "menu « … » unique dans l’en-tête de l’Atelier");
     assert.equal(state.workshopMenuInPanel, false, "menu « … » quitté le panneau de transcription");
     assert.ok(state.workshopHeaderClass.includes("dedicated-page-header"), "en-tête partagé de l’Atelier");
-    assert.equal(state.workshopTitleLabel, state.workshopTitle, "titre Atelier complet accessible");
     assert.equal(state.workshopLossBannerPresent, false, "aucun bandeau rouge redondant dans l’Atelier");
-    await page.click('[data-workshop-breadcrumb="document"]');
+    await page.click("#workshopBackBtn");
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, true, "retour à la page Document depuis l'atelier");
@@ -502,21 +501,18 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
       state = await page.evaluate(() => window.__documentPageTest.state());
       assert.equal(state.workshopHorizontalOverflow, false, `Atelier sans débordement à ${width}px`);
-      assert.equal(state.workshopBackAbsent, true, `aucun Retour interne dans l’Atelier à ${width}px`);
+      assert.equal(state.workshopBackVisible, width > 760, `lien Retour visible sur desktop, masqué sur mobile (${width}px)`);
       assert.equal(state.workshopMenuInHeader, width > 760, `menu « … » dans l’en-tête desktop, dans le header dédié sur mobile (${width}px)`);
       assert.equal(state.workshopMenuInSlot, width <= 760, `menu « … » dans l’en-tête dédié sur mobile (${width}px)`);
-      assert.equal(state.workshopTitleBelowBreadcrumb, true, `titre du document sous le fil d’Ariane à ${width}px`);
+      assert.equal(state.workshopTitleBelowBack, true, `titre du document sous le lien Retour à ${width}px`);
       if (!state.workshopCtaHidden) assert.ok(state.workshopCtaHeight >= 44, `CTA vert ≥ 44 px à ${width}px (${state.workshopCtaHeight}px)`);
-      assert.equal(state.workshopTitleWhiteSpace, "nowrap", `titre Atelier sans coupure de mot à ${width}px`);
-      assert.equal(state.workshopTitleOverflow, "ellipsis", `titre Atelier tronqué par ellipse à ${width}px`);
-      assert.match(state.workshopBreadcrumb, width >= 761
-        ? /Documents.*Transcription/
-        : /Registre de consultation paroissial.*Transcription/, `fil d’Ariane compact à ${width}px`);
+      assert.equal(state.workshopTitleWraps, true, `titre du document autorise les retours à la ligne à ${width}px`);
+      assert.equal(state.workshopBreadcrumbAbsent, true, `fil d’Ariane supprimé de l’atelier à ${width}px`);
       assert.equal(state.workshopNavigationDisplay, "none", `navigation générale masquée dans l’atelier (${width}px)`);
       /* Logo et compte masqués dans l’en-tête dédié mobile (modèle fiche Document). */
       assert.equal(state.workshopBrandDisplay === "none", width <= 760, `identité de marque en en-tête desktop, masquée sur mobile (${width}px)`);
       if (width >= 981) {
-        await page.click("[data-workshop-breadcrumb='document']");
+        await page.click("#workshopBackBtn");
         await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentDetailView").hidden);
       } else {
         /* L'en-tête dédié porte le retour contextualisé sur mobile. */

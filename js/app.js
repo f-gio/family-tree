@@ -9740,31 +9740,14 @@ function renderTranscriptionWorkshop() {
   const context = transcriptionWorkshopContext;
   const draft = transcriptionWorkshopDraft;
   if (!context || !draft) return;
-  $("workshopDocumentTitle").textContent = context.title;
-  $("workshopDocumentTitle").setAttribute("aria-label", context.title);
-  $("workshopDocumentTitle").title = context.title;
-  /* Fil d'Ariane au-dessus du titre du document : le titre de page reprend le
-     document, « Transcription » restant le dernier niveau du fil. */
+  /* Lien « Retour » textuel du desktop : destination contextualisée par
+     l'origine d'appel (« Retour au document », « Retour à la source », …). */
+  setTranscriptionWorkshopBackLabel();
+  /* Titre du document sous le lien Retour. */
   const displayTitle = transcriptionWorkshopDisplayTitle(context);
   $("workshopPageHeading").textContent = displayTitle;
   $("workshopPageHeading").setAttribute("aria-label", displayTitle);
   $("workshopPageHeading").title = displayTitle;
-  /* Premier niveau du fil : « Documents » par défaut, le retour vers la Source
-     ou la fiche lorsque c'est elles qui ont ouvert l'atelier — le fil devient
-     alors le retour desktop, le lien Retour dédié ayant été retiré. */
-  const originCrumb = $("transcriptionWorkshopView").querySelector(".transcription-workshop-breadcrumb button[data-workshop-breadcrumb]");
-  const origin = transcriptionWorkshopReturn;
-  const originDestination = origin && origin.kind !== "document" ? dedicatedPageReturnDestination(origin) : "";
-  if (originCrumb) {
-    originCrumb.dataset.workshopBreadcrumb = originDestination ? "origin" : "documents";
-    originCrumb.textContent = originDestination ? `Retour ${originDestination}` : "Documents";
-    originCrumb.title = originCrumb.textContent;
-  }
-  const workshopDocumentOverflow = $("transcriptionWorkshopView").querySelector(".consultation-breadcrumb-overflow [data-workshop-breadcrumb-overflow=\"document\"]");
-  if (workshopDocumentOverflow) {
-    workshopDocumentOverflow.textContent = context.title;
-    workshopDocumentOverflow.title = context.title;
-  }
   const displayedPassages = transcriptionWorkshopDisplayedPassages();
   /* Ligne « Page 1 · 2 passages » retirée : la pagination vit dans la barre
      d'outils (pages ou PDF) et le compteur de passages dans le panneau. */
@@ -10808,6 +10791,9 @@ function updateWorkshopNavigation() {
   }
   renderWorkshopProgress(displayed, consultation);
   const footerNav = $("workshopFooterPassageNav");
+  const counterText = selectedIndex >= 0 ? `${selectedIndex + 1} sur ${displayed.length}` : "";
+  const footerCounter = $("workshopFooterCounter");
+  if (footerCounter) footerCounter.textContent = counterText;
   if (footerNav) {
     footerNav.hidden = !consultation || selectedIndex < 0;
     if (!footerNav.hidden) {
@@ -10817,8 +10803,8 @@ function updateWorkshopNavigation() {
       /* Le numéro affiché reste toujours un passage réel : le suivant n'est
          jamais numéroté au-delà du dernier passage. */
       next.disabled = selectedIndex >= displayed.length - 1;
-      previous.innerHTML = `<span aria-hidden="true">←</span> Précédent`;
-      next.innerHTML = `Passage ${Math.min(selectedIndex + 2, displayed.length)} <span aria-hidden="true">→</span>`;
+      previous.innerHTML = `<span aria-hidden="true">‹</span> Précédent`;
+      next.innerHTML = `Passage ${Math.min(selectedIndex + 2, displayed.length)} <span aria-hidden="true">›</span>`;
     }
   }
 }
@@ -11200,6 +11186,7 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     return;
   }
   if (event.target.closest("#workshopCancelEditBtn")) return cancelTranscriptionWorkshopEdit();
+  if (event.target.closest("#workshopBackBtn")) return exitTranscriptionWorkshop();
   const modeButton = event.target.closest("[data-workshop-mode]");
   if (modeButton) return setTranscriptionWorkshopDisplayMode(modeButton.dataset.workshopMode);
   /* B1 : actions de délimitation du passage actif + commandes du mode tracé. */

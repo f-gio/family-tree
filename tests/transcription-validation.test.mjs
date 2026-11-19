@@ -705,17 +705,17 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").evaluate(button => button.classList.contains("primary")), false, "CTA officiel non principal");
     await page.evaluate(() => window.__inc2.transcribe());
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
-    assert.match(await page.locator(".transcription-workshop-breadcrumb").textContent(), /Documents.*Registre Transactions Immobilières/, "fil d’Ariane compact avec le document courant");
-    assert.equal(await page.locator("#workshopPageHeading").textContent(), "Registre Transactions Immobilières", "titre du document sous le fil d’Ariane, « Transcription » restant le dernier niveau du fil");
+    assert.match(await page.locator("#workshopBackBtn").textContent(), /Retour/, "lien Retour contextualisé en tête de l’atelier");
+    assert.equal(await page.locator("#workshopPageHeading").textContent(), "Registre Transactions Immobilières", "titre du document affiché dans l’atelier");
     assert.equal(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", "méga-menu masqué uniquement dans l’atelier desktop");
     assert.notEqual(await page.locator(".topbar .brand").evaluate(element => getComputedStyle(element).display), "none", "identité La Nostra Storia conservée");
-    await page.click('[data-workshop-breadcrumb="documents"]');
-    await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentsView").hidden);
+    await page.click("#workshopBackBtn");
+    await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentDetailView").hidden);
     await page.evaluate(() => window.__inc2.openDoc());
     await page.waitForSelector(".document-transcription-card [data-transcribe-document]");
     await page.evaluate(() => window.__inc2.transcribe());
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
-    await page.click('[data-workshop-breadcrumb="document"]');
+    await page.click("#workshopBackBtn");
     await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentDetailView").hidden);
     await page.evaluate(() => window.__inc2.transcribe());
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
@@ -815,7 +815,7 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     assert.equal(await page.locator("#workshopModeBtn").textContent(), "Modifier la transcription", "libellé fixe : le brouillon conservé reste reprenable au clic");
     await page.click("#workshopModeBtn");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Révision à conserver", "le brouillon sauvegardé est conservé");
-    await page.click('[data-workshop-breadcrumb="document"]');
+    await page.click("#workshopBackBtn");
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     const revisionCard = await page.locator(".document-transcription-card").textContent();
     assert.match(revisionCard, /Révision en cours · v3/, "carte Document indique la révision locale");
@@ -1056,7 +1056,7 @@ test("repli du volet Document : vue étendue, contenu et défilement conservés,
     assert.equal(expanded.field, before.field, "texte toujours conservé");
 
     /* Une nouvelle session d'atelier repart en vue partagée. */
-    await page.click('[data-workshop-breadcrumb="document"]');
+    await page.click("#workshopBackBtn");
     await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden);
     await openInc2Workshop(page, pageErrors);
     const reopened = await page.evaluate(() => document.getElementById("workshopLayout").classList.contains("is-document-collapsed"));
@@ -1096,7 +1096,7 @@ test("transcription consultée : header mobile harmonisé, atelier d'édition in
         const titleBox = header.querySelector("strong").getBoundingClientRect();
         return {
           headerVisible: getComputedStyle(header).display !== "none" && header.getBoundingClientRect().height > 0,
-          contentBackAbsent: !document.getElementById("workshopBackBtn"),
+          contentBackHidden: document.getElementById("workshopBackBtn").getClientRects().length === 0,
           mobileBackHeight: mobileBack.getBoundingClientRect().height,
           menuCount: header.querySelectorAll("details").length,
           menuInSlot: !!menu.closest("#transcriptionMobileActionsSlot"),
@@ -1107,7 +1107,7 @@ test("transcription consultée : header mobile harmonisé, atelier d'édition in
         };
       });
       assert.equal(consultation.headerVisible, true, `${width}px : header mobile visible pendant la consultation`);
-      assert.equal(consultation.contentBackAbsent, true, `${width}px : plus de Retour interne dans l'atelier`);
+      assert.equal(consultation.contentBackHidden, true, `${width}px : lien Retour textuel masqué, le header dédié porte le retour`);
       assert.ok(consultation.mobileBackHeight >= 44, `${width}px : chevron de retour ≥ 44 px (${consultation.mobileBackHeight}px)`);
       assert.equal(consultation.menuCount, 1, `${width}px : menu « … » monté dans le header de consultation`);
       assert.equal(consultation.menuInSlot, true, `${width}px : menu dans l'emplacement d'actions du header`);
@@ -1132,13 +1132,13 @@ test("transcription consultée : header mobile harmonisé, atelier d'édition in
         const mobileBack = document.getElementById("transcriptionMobileBackBtn");
         return {
           headerVisible: getComputedStyle(document.getElementById("transcriptionMobileHeader")).display !== "none" && mobileBack.getClientRects().length > 0,
-          backAbsent: !document.getElementById("workshopBackBtn"),
+          backHidden: document.getElementById("workshopBackBtn").getClientRects().length === 0,
           menuInSlot: !!document.getElementById("workshopActionsMenu").closest("#transcriptionMobileActionsSlot"),
           returnHeight: Math.round(mobileBack.getBoundingClientRect().height)
         };
       });
       assert.equal(edition.headerVisible, true, `${width}px : en-tête dédié visible en édition aussi`);
-      assert.equal(edition.backAbsent, true, `${width}px : aucun Retour interne résiduel en édition`);
+      assert.equal(edition.backHidden, true, `${width}px : lien Retour textuel masqué en édition mobile`);
       assert.equal(edition.menuInSlot, true, `${width}px : menu « … » dans l'en-tête dédié en édition`);
       assert.ok(edition.returnHeight >= 44, `${width}px : retour contextualisé ≥ 44 px en édition (${edition.returnHeight}px)`);
       assert.ok(edition.returnHeight >= 44, `${width}px : retour par le fil ≥ 44 px en édition (${edition.returnHeight}px)`);

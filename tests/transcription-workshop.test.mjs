@@ -485,22 +485,14 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /\$\("transcriptionWorkshopView"\)\.hidden = view !== "transcriptionWorkshop"/, "vue commutée par setView");
   assert.match(app, /if \(view !== "transcriptionWorkshop" && isTranscriptionWorkshopActive\(\)\)/, "confirmation exigée pour quitter via la navigation");
   assert.match(app, /function exitTranscriptionWorkshop\(\)/, "action Retour gérée");
-  assert.doesNotMatch(html, /id="workshopBackBtn"/, "lien Retour retiré de l’en-tête de l’atelier");
+  assert.match(html, /id="workshopBackBtn"[^>]*aria-label="Retour au document"/, "lien Retour textuel contextualisé dans l’en-tête de l’atelier");
   assert.match(html, /class="dedicated-page-header transcription-workshop-header"/, "l’atelier réutilise l’en-tête commun");
-  assert.match(html, /aria-label="Fil d’Ariane"[\s\S]*?data-workshop-breadcrumb="documents"[\s\S]*?data-workshop-breadcrumb="document"[\s\S]*?aria-current="page">Transcription/, "fil d’Ariane vers les routes Documents, Document et Transcription");
-  assert.match(app, /function navigateTranscriptionWorkshopBreadcrumb\(destination\)/, "retours du fil d’Ariane branchés sur des vues réelles");
+  assert.doesNotMatch(html, /consultation-breadcrumb transcription-workshop-breadcrumb/, "fil d’Ariane remplacé par le lien Retour");
+  assert.match(app, /function navigateTranscriptionWorkshopBreadcrumb\(destination\)/, "navigation d’origine conservée pour les parcours existants");
   assert.match(css, /body:has\(#transcriptionWorkshopView:not\(\[hidden\]\)\) \.topbar \.main-nav,[\s\S]*?body:has\(#proofDetailView:not\(\[hidden\]\)\) \.topbar \.main-nav \{ display: none !important; \}/, "navigation masquée dans les quatre fiches de consultation uniquement");
-  /* Le fil d'Ariane n'emporte plus de Retour : le chevron du header mobile et
-     les niveaux du fil portent le retour, le menu « … » vit dans l'en-tête. */
-  const workshopBreadcrumbStart = html.indexOf('aria-label="Fil d’Ariane"', html.indexOf('id="transcriptionWorkshopView"'));
-  const breadcrumb = html.slice(workshopBreadcrumbStart, html.indexOf('</nav>', workshopBreadcrumbStart));
-  assert.ok(!breadcrumb.includes('id="workshopBackBtn"'), "aucun Retour intégré sur la ligne du fil d’Ariane");
-  assert.ok(!breadcrumb.includes('id="workshopActionsMenu"'), "menu « … » retiré du fil d’Ariane");
-  assert.ok(!breadcrumb.includes('id="workshopSaveStatus"'), "statut de sauvegarde retiré du fil d’Ariane");
-  assert.doesNotMatch(html, /class="dedicated-page-return"/, "aucune ligne Retour indépendante ne subsiste");
-  /* En-tête : fil d'Ariane au-dessus du titre du document, puis rangée titre +
-     CTA vert « Modifier la transcription » + menu « … ». */
-  assert.ok(html.indexOf('id="workshopPageHeading"') > workshopBreadcrumbStart, "titre du document sous le fil d’Ariane");
+  /* L'en-tête porte le lien Retour (desktop) au-dessus du titre du document,
+     puis la rangée titre + CTA vert + menu « … ». */
+  assert.ok(html.indexOf('id="workshopBackBtn"') < html.indexOf('id="workshopPageHeading"'), "lien Retour au-dessus du titre du document");
   assert.ok(html.indexOf('id="workshopHeaderActions"') > html.indexOf('id="workshopPageHeading"'), "actions de l’en-tête après le titre");
   assert.ok(html.indexOf('id="workshopActionsMenu"') < html.indexOf('id="workshopPanelRight"'), "menu « … » unique dans l’en-tête, avant les panneaux");
   assert.match(html, /class="btn primary transcription-workshop-edit-cta"[^>]*id="workshopModeBtn"[^>]*>Modifier la transcription</, "CTA vert avec libellé fixe « Modifier la transcription »");
@@ -580,7 +572,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   /* Consultation : le retour n'est plus un bouton de l'en-tête ; le header
      mobile et le fil d'Ariane le portent. Le pied gère la navigation entre
      passages et l'en-tête porte le compteur et les barres de progression. */
-  assert.doesNotMatch(html, /transcription-workshop-return/, "aucun style résiduel du Retour interne supprimé");
+  assert.match(html, /class="btn dedicated-page-back transcription-workshop-return"/, "lien Retour textuel au format des liens Retour existants");
   assert.match(html, /id="workshopFooterPassageNav"[^>]*hidden/, "navigation Précédent / Passage suivant en pied, masquée hors consultation");
   assert.match(html, /id="workshopPrevPassageBtn"/, "bouton Précédent présent");
   assert.match(html, /id="workshopNextPassageBtn"/, "bouton Passage suivant présent");
@@ -629,7 +621,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.doesNotMatch(css, /\.transcription-workshop-passage \{[^}]*grid-template-columns/, "aucune largeur de colonne imposée aux sections italien/français");
   /* A3 mobile : toutes les nouvelles règles sont bornées au bloc atelier
      ≤ 760 px — desktop strictement inchangé au-delà de ce seuil. */
-  const workshopMobileStart = css.indexOf("/* En-tête mobile compact");
+    const workshopMobileStart = css.indexOf("/* En-tête : le lien Retour textuel est réservé au desktop");
   const workshopMobileEnd = css.indexOf("@media (min-width: 981px)", workshopMobileStart);
   assert.ok(workshopMobileStart >= 0 && workshopMobileEnd > workshopMobileStart, "bloc atelier mobile localisé");
   const workshopMobileA3 = css.slice(workshopMobileStart, workshopMobileEnd);
@@ -733,7 +725,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(css, /\.transcription-workshop-passage-pill\.btn \{[^}]*color: var\(--color-text\)/, "numéro des pastilles inactives en fond foncé lisible");
   /* Bloc mobile atelier : en-tête empilé + onglets dépliés. Extrait tel quel
      pour rester insensible aux longueurs de commentaires de style. */
-  const workshopMobileBlock = css.match(/@media \(max-width: 760px\) \{\s*\/\* En-tête mobile compact[\s\S]*?\.transcription-workshop-tabs \{ display: flex; \}/)?.[0] || "";
+    const workshopMobileBlock = css.match(/@media \(max-width: 760px\) \{\s*\/\* En-tête : le lien Retour textuel[\s\S]*?\.transcription-workshop-tabs \{ display: flex; \}/)?.[0] || "";
   assert.ok(workshopMobileBlock, "bloc mobile de l’atelier présent");
   assert.match(workshopMobileBlock, /\.transcription-workshop-header \{ display: block;/, "en-tête atelier empilé sur mobile");
   assert.match(workshopMobileBlock, /\.transcription-workshop-tabs \{ display: flex; \}/, "onglets mobiles");
@@ -930,13 +922,15 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
       const list = document.getElementById("workshopPassageList").getBoundingClientRect();
       const divider = document.getElementById("workshopDivider").getBoundingClientRect();
       const panelRight = document.getElementById("workshopPanelRight").getBoundingClientRect();
-      const breadcrumb = document.querySelector(".transcription-workshop-breadcrumb").getBoundingClientRect();
+      const backElement = document.getElementById("workshopBackBtn");
+      const back = backElement.getBoundingClientRect();
       const title = document.getElementById("workshopPageHeading").getBoundingClientRect();
       const menu = document.getElementById("workshopActionsMenu").getBoundingClientRect();
       return {
         headerHeight: Math.round(header.height),
-        backAbsent: !document.getElementById("workshopBackBtn"),
-        titleBelowBreadcrumb: title.top >= breadcrumb.bottom - 1,
+        backVisible: back.width > 0 && back.height > 0,
+        backLabel: backElement.textContent.replace(/\s+/g, " ").trim(),
+        titleBelowBack: title.top >= back.bottom - 1,
         titleText: document.getElementById("workshopPageHeading").textContent,
         menuRight: Math.round(menu.right),
         menuHeight: Math.round(menu.height),
@@ -955,8 +949,9 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
       };
     });
     assert.ok(desktopLayout.headerHeight <= 130, `en-tête desktop compact (${desktopLayout.headerHeight}px ≤ 130px)`);
-    assert.equal(desktopLayout.backAbsent, true, "aucun bouton Retour dans l’en-tête desktop");
-    assert.equal(desktopLayout.titleBelowBreadcrumb, true, "titre du document sous le fil d’Ariane");
+    assert.equal(desktopLayout.backVisible, true, "lien Retour visible dans l’en-tête desktop");
+    assert.match(desktopLayout.backLabel, /^←?\s*Retour\s+\S/, "libellé contextuel du lien Retour");
+    assert.equal(desktopLayout.titleBelowBack, true, "titre du document sous le lien Retour");
     assert.ok(desktopLayout.titleText.length > 0, "titre du document renseigné");
     assert.ok(desktopLayout.menuRight <= desktopLayout.headerRight + 1, "menu « … » à droite de l’en-tête desktop");
     assert.ok(desktopLayout.menuHeight >= 44, `menu « … » ≥ 44 px (${desktopLayout.menuHeight}px)`);
@@ -1013,7 +1008,7 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
         backCount: document.querySelectorAll("#workshopBackBtn").length
       };
     });
-    assert.equal(layout.backCount, 0, "aucun bouton Retour dans le DOM");
+    assert.equal(layout.backCount, 1, "un seul lien Retour dans le DOM");
     assert.equal(layout.inHeaderActions, true, "menu « … » dans la rangée titre + actions de l’en-tête");
     assert.equal(layout.inRightPanel, false, "menu « … » quitté le panneau de transcription");
     assert.ok(layout.menu[1] <= layout.headerRight + 1, "menu « … » contenu dans l’en-tête");
@@ -1069,15 +1064,18 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     /* Mobile : aucune largeur débordante avec la colonne d’actions complète. */
     await page.setViewportSize({ width: 320, height: 780 });
     await page.waitForTimeout(120);
-    const mobile = await page.evaluate(() => ({
-      scroll: document.documentElement.scrollWidth,
-      inner: innerWidth,
-      back: document.querySelectorAll("#workshopBackBtn").length,
-      menuInSlot: !!document.getElementById("workshopActionsMenu").closest("#transcriptionMobileActionsSlot"),
-      dedicatedBack: !!document.getElementById("transcriptionMobileBackBtn")
-    }));
+    const mobile = await page.evaluate(() => {
+      const back = document.getElementById("workshopBackBtn");
+      return {
+        scroll: document.documentElement.scrollWidth,
+        inner: innerWidth,
+        backHidden: !back || back.getClientRects().length === 0,
+        menuInSlot: !!document.getElementById("workshopActionsMenu").closest("#transcriptionMobileActionsSlot"),
+        dedicatedBack: !!document.getElementById("transcriptionMobileBackBtn")
+      };
+    });
     assert.ok(mobile.scroll <= mobile.inner + 1, `en-tête atelier sans débordement à 320 px (${mobile.scroll}/${mobile.inner})`);
-    assert.equal(mobile.back, 0, "aucun Retour interne résiduel sur mobile");
+    assert.equal(mobile.backHidden, true, "lien Retour textuel masqué sur mobile : le header dédié porte le retour");
     assert.equal(mobile.menuInSlot, true, "en édition mobile, le menu « … » vit dans l’en-tête dédié");
     assert.equal(mobile.dedicatedBack, true, "retour contextualisé disponible dans l’en-tête dédié");
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -1099,7 +1097,7 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "menu ouvert avant la fermeture extérieure");
     await page.click("#workshopPageHeading", { position: { x: 6, y: 6 } });
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "fermeture extérieure avant navigation");
-    await page.click('[data-workshop-breadcrumb="document"]');
+    await page.click("#workshopBackBtn");
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     assert.deepEqual(dialogs, [], "sortie sans confirmation quand le brouillon est enregistré");
 
@@ -1132,7 +1130,7 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "menu fermé après sélection de l’action");
     await page.waitForFunction(() => window.__repro.stored().length === 0, undefined, { timeout: 3000 });
     assert.equal(await page.evaluate(() => window.__repro.badge()), "Brouillon local", "badge au repos après abandon");
-    await page.click('[data-workshop-breadcrumb="document"]');
+    await page.click("#workshopBackBtn");
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     assert.equal(dialogs.length, 1, "aucune confirmation après un abandon déjà confirmé");
 
@@ -1207,9 +1205,7 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
 
               const layout = await page.evaluate(() => {
                 const header = document.querySelector(".transcription-workshop-header").getBoundingClientRect();
-                const breadcrumb = document.querySelector(".transcription-workshop-breadcrumb");
-                const documentCrumb = document.getElementById("workshopDocumentTitle");
-                const currentCrumb = document.querySelector(".transcription-workshop-breadcrumb-current");
+                const backElement = document.getElementById("workshopBackBtn");
                 const heading = document.querySelector(".transcription-workshop-heading").getBoundingClientRect();
                 const title = document.getElementById("workshopPageHeading");
                 const titleRect = title.getBoundingClientRect();
@@ -1220,27 +1216,24 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 const toolsRect = document.getElementById("workshopImageTools").getBoundingClientRect();
                 const panelRect = document.getElementById("workshopPanelOriginal").getBoundingClientRect();
                 return {
-                  breadcrumbText: breadcrumb.textContent.trim(),
-                  documentCrumbLabel: documentCrumb.getAttribute("aria-label"),
-                  currentCrumb: currentCrumb.textContent.trim(),
+                  backVisible: Boolean(backElement && backElement.getClientRects().length),
+                  backLabel: backElement.textContent.replace(/\s+/g, " ").trim(),
                   headingWidth: Math.round(heading.width),
-                  headingRight: Math.round(currentCrumb.getBoundingClientRect().right),
                   headingBottom: heading.bottom,
                   headerHeight: header.height,
                   headerMarkup: [...document.querySelector(".transcription-workshop-header").children].map(element => ({ tag: element.tagName, className: element.className, height: Math.round(element.getBoundingClientRect().height), display: getComputedStyle(element).display })),
-                  breadcrumbHeight: Math.round(breadcrumb.getBoundingClientRect().height),
                   titleText: title.textContent,
                   titleTop: Math.round(titleRect.top),
                   titleLeft: Math.round(titleRect.left),
                   titleRight: Math.round(titleRect.right),
                   titleWidth: Math.round(titleRect.width),
                   titleHeight: Math.round(titleRect.height),
-                  breadcrumbBottom: Math.round(breadcrumb.getBoundingClientRect().bottom),
+                  titleBelowHeading: titleRect.top >= heading.top - 1,
                   menuRight: Math.round(menuRect.right),
                   menuWidth: Math.round(menuRect.width),
                   menuHeight: Math.round(menuRect.height),
                   menuInHeaderActions: !!menu.closest("#workshopHeaderActions"),
-                  backCount: document.querySelectorAll("#workshopBackBtn").length,
+                  menuInSlot: !!menu.closest("#transcriptionMobileActionsSlot"),
                   headerRight: header.right,
                   tabs, tools,
                   toolsLeft: Math.round(toolsRect.left),
@@ -1251,24 +1244,19 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                   viewport: innerWidth
                 };
               });
-              /* Fil d'Ariane : titre du document complet accessible, page courante explicite. */
-              assert.match(layout.breadcrumbText, width >= 761
-                ? /Documents.*Registre Transactions Immobilières.*Transcription/
-                : /Registre Transactions Immobilières.*Transcription/, "fil d’Ariane compact adapté au breakpoint");
-              assert.equal(layout.documentCrumbLabel, "Registre Transactions Immobilières", "nom complet du document exposé à l’accessibilité");
-              assert.equal(layout.currentCrumb, "Transcription", "étape courante annoncée dans le fil d’Ariane");
+              /* Lien Retour desktop masqué sur mobile : seul le bouton de
+                 l'en-tête dédié porte le retour. */
+              assert.equal(layout.backVisible, false, `lien Retour textuel masqué sur mobile (${width}px)`);
               /* En-tête réellement compact, sur le modèle de la fiche Document :
                  203 px à 390 et 208 px à 320 avant correction, 121 px pour la
                  fiche Document — l'atelier doit désormais rester en dessous. */
-              assert.ok(layout.headerHeight <= 130, `en-tête mobile compact (${layout.headerHeight}px ≤ 130px, jusqu'à 211px avant) ${JSON.stringify({ headerMarkup: layout.headerMarkup, breadcrumbHeight: layout.breadcrumbHeight })}`);
-              /* Modèle fiche Document : le titre du document occupe sa propre
-                 ligne sous le fil d'Ariane, le menu « … » reste une cible de
-                 44 px à droite — aucun Retour interne ne subsiste. */
-              assert.equal(layout.backCount, 0, "aucun bouton Retour dans l’atelier");
-              assert.ok(layout.titleTop >= layout.breadcrumbBottom - 1, `titre du document sur sa propre ligne (${layout.titleTop} ≥ ${layout.breadcrumbBottom})`);
+              assert.ok(layout.headerHeight <= 130, `en-tête mobile compact (${layout.headerHeight}px ≤ 130px, jusqu'à 211px avant) ${JSON.stringify({ headerMarkup: layout.headerMarkup })}`);
+              assert.equal(layout.titleText.length > 0, true, "titre du document renseigné");
+              assert.equal(layout.titleBelowHeading, true, "titre du document sous l’en-tête");
               assert.ok(layout.titleRight <= layout.headerRight + 1, "titre contenu dans l’en-tête");
                assert.ok(layout.titleWidth > 0 && layout.titleHeight > 0, "titre réellement rendu");
-               assert.equal(layout.menuInHeaderActions, width > 760, `menu « … » dans l’en-tête desktop, dans le header dédié sur mobile (${width}px)`);
+               assert.equal(layout.menuInHeaderActions, false, `menu « … » dans le header dédié sur mobile (${width}px)`);
+               assert.equal(layout.menuInSlot, true, "menu « … » dans l’en-tête dédié");
                assert.ok(layout.menuWidth >= 44 && layout.menuHeight >= 44, `menu « … » ≥ 44 px (${layout.menuWidth}×${layout.menuHeight})`);
               /* Aucun débordement horizontal. */
               assert.ok(layout.pageScroll <= layout.viewport + 1, `sans débordement horizontal à ${width}px (${layout.pageScroll}/${layout.viewport})`);
@@ -1438,7 +1426,8 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                    headerVisible: getComputedStyle(mobileHeader).display !== "none" && mobileHeader.getClientRects().length > 0,
                    mobileBackHeight: Math.round(mobileBack.getBoundingClientRect().height),
                    menuInSlot: !!document.getElementById("workshopActionsMenu").closest("#transcriptionMobileActionsSlot"),
-                   backCount: document.querySelectorAll("#workshopBackBtn").length,
+                    backCount: document.querySelectorAll("#workshopBackBtn").length,
+                    backHidden: document.getElementById("workshopBackBtn").getClientRects().length === 0,
                    titleVisible: titleRect.width > 0 && titleRect.height > 0,
                    titleText: title.textContent,
                    visibleCards: visibleCards.length,
@@ -1451,7 +1440,8 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                assert.equal(a3State.headerVisible, true, "en-tête mobile dédié visible en édition");
                assert.ok(a3State.mobileBackHeight >= 44, `retour dédié ≥ 44 px (${a3State.mobileBackHeight}px)`);
                assert.equal(a3State.menuInSlot, true, "menu « … » dans l’en-tête dédié pendant l’édition mobile");
-               assert.equal(a3State.backCount, 0, "aucun Retour interne résiduel");
+                assert.equal(a3State.backCount, 1, "un seul lien Retour dans le DOM");
+                assert.equal(a3State.backHidden, true, "lien Retour textuel masqué : le header dédié porte le retour");
                assert.equal(a3State.titleVisible, true, "titre du document visible sous l’en-tête");
                 assert.ok(a3State.titleText.length > 0, "titre du document renseigné");
                assert.equal(a3State.visibleCards, 1, "un seul passage visible à la fois");

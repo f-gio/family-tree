@@ -3243,9 +3243,9 @@ label .field { margin-top: var(--space-2); }
 .viewer-open-original { display: inline-grid; place-items: center; width: var(--control-touch); min-width: var(--control-touch); padding: 0; }
 .viewer-open-original .ui-icon { width: 1.25rem; height: 1.25rem; }
 .viewer-body { position: relative; touch-action: pan-y; }
-/* Fond propre de la surface de lecture : la visionneuse conserve son fond
-   même lorsque le conteneur n'est plus encadré (version mobile). */
-#documentDetailView .viewer-body { background: var(--color-surface); }
+/* Zone d'affichage des visionneuses : beige commun (fiche Document et
+   atelier), pour que le vide autour du document reste visible. */
+#documentDetailView .viewer-body { background: var(--color-surface-muted); }
 .viewer-body[data-viewer-fit-mode="width"] { display: block; overflow: auto; overscroll-behavior: contain; }
 .viewer-body img { position: absolute; left: 50%; top: 50%; max-width: none; max-height: none; user-select: none; -webkit-user-drag: none; touch-action: pan-y; will-change: transform; }
 .document-original-panel { position: relative; }
@@ -3852,6 +3852,9 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 .transcription-workshop-footer-nav { display: flex; align-items: center; flex: 0 0 auto; gap: var(--space-2); min-width: 0; margin-inline-start: auto; }
 .transcription-workshop-footer-nav[hidden] { display: none; }
 .transcription-workshop-footer-nav .btn { min-height: var(--control-touch); white-space: nowrap; }
+/* Compteur du pied : réservé à la ligne de navigation mobile en consultation
+   — sur desktop, le pied garde la version à gauche et les deux CTA à droite. */
+.transcription-workshop-footer-counter { display: none; }
 /* Annulations et fermetures de dialogue : action textuelle compacte, distincte
    des choix de résolution et des confirmations réellement importantes. */
 #transcriptionUnavailableDialog .modal-actions > [data-close],
@@ -3931,14 +3934,15 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
    barre (l'indicateur de vol de zoom suffit au geste). */
 #workshopImageTools { justify-content: flex-start; gap: var(--space-2); }
 /* Visionneuse de l'atelier : conteneur unique identique à la fiche Document —
-   barre d'outils intégrée (haut arrondi), surface de lecture à angles droits,
-   bandeau de métadonnées en pied (bas arrondi), sans espace beige entre eux. */
-.transcription-workshop-original { gap: 0; }
-.transcription-workshop-original .transcription-workshop-panel-head { box-sizing: border-box; padding: var(--space-2); border: var(--border-default); border-bottom: 0; border-radius: var(--radius-md) var(--radius-md) 0 0; background: var(--color-surface); }
-.transcription-workshop-original .transcription-workshop-image-viewport,
-.transcription-workshop-original .transcription-workshop-pdf-viewport,
-.transcription-workshop-original .transcription-workshop-pdf-fallback { border: var(--border-default); border-top: 0; border-radius: 0; }
-.transcription-workshop-original .document-file-metadata--workshop { border: var(--border-default); border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); }
+   barre d'outils, surface de lecture et bandeau de métadonnées directement
+   accolés (aucun gap), une seule bordure fine par séparation interne, bords
+   latéraux continus et arrondis extérieurs conservés. */
+#workshopPanelOriginal { gap: 0; }
+#workshopPanelOriginal .transcription-workshop-panel-head { box-sizing: border-box; padding: var(--space-2); border: var(--border-default); border-bottom: var(--border-subtle); border-radius: var(--radius-md) var(--radius-md) 0 0; background: var(--color-surface); }
+#workshopPanelOriginal .transcription-workshop-image-viewport,
+#workshopPanelOriginal .transcription-workshop-pdf-viewport,
+#workshopPanelOriginal .transcription-workshop-pdf-fallback { border: var(--border-default); border-top: 0; border-bottom-color: var(--border-subtle); border-radius: 0; }
+#workshopPanelOriginal .document-file-metadata--workshop { border: var(--border-default); border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); }
 .transcription-workshop-original .transcription-workshop-zone-actions { margin-top: var(--space-2); }
 .transcription-workshop-original .transcription-workshop-empty { margin: var(--space-2) 0 0; }
 .transcription-workshop-original #workshopPhotoNav { margin-top: var(--space-2); }
@@ -3960,12 +3964,22 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 .transcription-workshop-menu { position: relative; }
 .transcription-workshop-menu > summary { display: inline-flex; align-items: center; justify-content: center; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); cursor: pointer; list-style: none; }
 .transcription-workshop-menu > summary::-webkit-details-marker { display: none; }
+/* Entrées du menu « … » : format exact des entrées du menu contextuel de la
+   fiche Document — fond neutre du menu, aucune bordure individuelle, texte
+   vert foncé aligné à gauche, survol discret. Le conteneur garde sa bordure,
+   ses arrondis et son ombre. */
+.transcription-workshop-menu .source-detail-actions-menu .btn { min-width: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text); text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.transcription-workshop-menu .source-detail-actions-menu .btn:hover,
+.transcription-workshop-menu .source-detail-actions-menu .btn:focus-visible { border: 0; background: var(--color-surface-muted); color: var(--color-text); }
+.transcription-workshop-menu .source-detail-actions-menu .btn.danger { color: var(--color-danger); }
+.transcription-workshop-menu .source-detail-actions-menu .btn.danger:hover,
+.transcription-workshop-menu .source-detail-actions-menu .btn.danger:focus-visible { background: var(--color-danger-soft); color: var(--color-danger); }
 /* Consultation : compteur « X sur Y » en tête du panneau, à droite du badge. */
 .transcription-workshop-passage-counter { flex: 0 0 auto; color: var(--color-text-muted); font-size: var(--text-sm); font-weight: var(--weight-semibold); white-space: nowrap; }
 .transcription-workshop-passage-counter[hidden] { display: none; }
 /* Barres de progression Italien / Français : composant de la carte
    Transcription de la fiche Document, côte à côte dans le panneau. */
-.transcription-workshop-progress { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); min-width: 0; }
+.transcription-workshop-progress { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: var(--space-3); min-width: 0; }
 .transcription-workshop-progress[hidden] { display: none; }
 .transcription-workshop-tabs { display: none; gap: var(--space-2); }
 .transcription-workshop-tab { flex: 1 1 0; min-height: var(--control-touch); padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-muted); font-weight: var(--weight-semibold); }
@@ -4075,7 +4089,7 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 .transcription-workshop-header-status:empty { display: none; }
 .transcription-workshop-passage-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .transcription-workshop-passage-head strong { flex: 0 0 auto; font-size: var(--text-md); }
-.transcription-workshop-passage textarea { width: 100%; flex: 1 1 auto; min-height: clamp(8rem, 24dvh, 16rem); max-height: 52dvh; overflow: auto; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text); font-family: var(--font-display); font-size: 16px; line-height: var(--leading-body); resize: vertical; field-sizing: content; }
+.transcription-workshop-passage textarea { width: 100%; flex: 1 1 auto; min-height: clamp(8rem, 24dvh, 16rem); max-height: 52dvh; overflow: auto; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-muted); color: var(--color-text); font-family: var(--font-display); font-size: 16px; line-height: var(--leading-body); resize: vertical; field-sizing: content; }
 .transcription-workshop-passage textarea:focus { border-color: var(--color-brand); outline: none; box-shadow: var(--shadow-focus); }
 .transcription-workshop-passage textarea:disabled { background: var(--color-surface-muted); color: var(--color-text); opacity: 1; -webkit-text-fill-color: var(--color-text); }
 .transcription-workshop-badges { display: flex; gap: var(--space-1); flex-wrap: wrap; }
@@ -4177,13 +4191,12 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   .transcription-workshop-list { max-height: 65dvh; }
 }
 @media (max-width: 760px) {
-  /* En-tête mobile compact : fil d’Ariane à gauche, Retour stable à droite. */
+  /* En-tête : le lien Retour textuel est réservé au desktop — sur mobile,
+     seul le bouton Retour de l'en-tête dédié porte le retour. */
   .transcription-workshop-header { display: block; gap: var(--space-2); padding-bottom: var(--space-1); }
   .transcription-workshop-header { position: relative; }
   .transcription-workshop-heading { width: 100%; max-width: 100%; }
-  /* Titre du document sur une ligne dédiée (retour à la ligne si nécessaire) ;
-     le CTA vert passe sous le titre, pleine largeur. */
-  .transcription-workshop-title-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
+  .transcription-workshop-heading .transcription-workshop-return { display: none; }
   /* Titre du document sur sa ligne, typographie du titre de la fiche
      Document mobile (retours à la ligne autorisés). */
   .transcription-workshop-title-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
@@ -4192,8 +4205,6 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   .transcription-workshop-header-actions { justify-content: space-between; flex-wrap: wrap; }
   .transcription-workshop-header-actions .transcription-workshop-edit-cta { flex: 0 1 auto; }
   .transcription-workshop-header-status:empty { display: none; }
-  /* Fil d'Ariane masqué sur mobile : l'en-tête dédié porte le retour. */
-  .transcription-workshop-breadcrumb { display: none; }
   .transcription-workshop-head-status { grid-column: auto; grid-row: auto; justify-self: auto; flex: 0 0 auto; max-width: none; }
   /* Cibles tactiles : `.btn.small` (32px) prime sur le minimum mobile — les
      actions du pied de transcription repassent à 44 px. */
@@ -4202,20 +4213,32 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   .transcription-workshop-passage-nav { flex: 0 0 auto; }
   /* Bandeau de métadonnées réservé au desktop : aucun espace réservé. */
   .document-file-metadata--workshop { display: none; }
-  /* Consultation : sélection, progressions, contenu et pied forment un flux
-     commun aux trois onglets — la colonne de transcription ne bascule plus. */
+  /* Consultation mobile : sélection, progressions, contenu et pied forment un
+     flux commun aux trois onglets — la colonne ne bascule plus. */
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout { grid-template-rows: auto minmax(0, 1fr) auto; }
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight { display: contents; }
-  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-panel-head { order: 1; padding-inline: var(--space-3); }
-  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-progress { order: 2; padding-inline: var(--space-3); }
-  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-list { order: 3; padding: var(--space-2) var(--space-3) 0; overflow: visible; }
-  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-footer { order: 4; padding-inline: var(--space-3); }
-  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelOriginal { order: 3; }
+  /* §6 : plus de pastilles numérotées ni de compteur en haut en consultation
+     mobile — la logique de sélection est conservée (mode modification inclus). */
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-right .transcription-workshop-panel-head { display: none; }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-progress { order: 1; padding-inline: var(--space-3); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-list { order: 2; padding: var(--space-2) var(--space-3) 0; overflow: auto; }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-footer { order: 3; padding-inline: var(--space-3); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelOriginal { order: 2; }
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout[data-active-panel="original"] #workshopPassageList,
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout[data-active-panel="original"] #workshopComparePanel { display: none; }
-  /* Navigation inférieure : deux boutons équilibrés, version centrée dessous. */
-  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-nav { flex: 1 1 100%; order: 1; justify-content: space-between; margin-inline-start: 0; gap: var(--space-2); }
-  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-nav .btn { flex: 1 1 0; min-width: 0; }
-  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-status { flex: 1 1 100%; order: 2; justify-content: center; }
+  /* §7 : pied en une ligne — CTA secondaire, compteur centré, CTA principal —
+     sur fond blanc cassé distinct du beige de la page. */
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer { background: var(--color-surface); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-nav { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; flex: 1 1 100%; order: 1; gap: var(--space-2); margin-inline-start: 0; }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-nav .btn { width: 100%; min-width: 0; }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-nav .btn.primary { border-color: var(--color-brand); background: var(--color-brand); color: var(--color-surface-raised); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-counter { display: block; text-align: center; white-space: nowrap; color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+  /* §8 : plus de mention de version sous le pied en consultation mobile. */
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-status { display: none; }
+  /* §9 : carte de lecture blanc cassé autour du contenu de chaque onglet —
+     la carte épouse son contenu, jamais étirée. */
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-passage,
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-passage.is-selected { flex: 0 0 auto; border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); padding: var(--space-3); gap: var(--space-2); box-shadow: none; }
   .transcription-workshop-desktop-passage-number { display: none; }
   .transcription-workshop-tabs { display: flex; }
   .transcription-workshop-mode-button { min-height: var(--control-touch); }
@@ -7132,7 +7155,7 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
    L'encadrement couvre barre d'outils + visuel, et s'arrête sous le document. */
   #documentDetailView .document-original-panel { height: auto; min-height: 0; overflow: hidden; padding: 0; gap: 0; border: 0; border-radius: 0; background: transparent; }
   #documentDetailView .document-original-panel > .viewer-image-controls,
-  #documentDetailView .document-original-panel > .pdf-viewer-toolbar { border: var(--border-default); border-radius: var(--radius-md) var(--radius-md) 0 0; }
+  #documentDetailView .document-original-panel > .pdf-viewer-toolbar { border: var(--border-default); border-bottom: var(--border-subtle); border-radius: var(--radius-md) var(--radius-md) 0 0; }
   #documentDetailView .document-original-panel > .viewer-body { border: var(--border-default); border-top: 0; }
   #documentDetailView .document-file-metadata--desktop { display: none; }
   #documentDetailView .document-file-details-mobile { display: grid; }
