@@ -344,8 +344,13 @@ async function zoneGroupMetrics(page) {
     const actions = document.getElementById("workshopZoneActions").getBoundingClientRect();
     const cancel = document.getElementById("workshopZoneCancelBtn").getBoundingClientRect();
     const confirm = document.getElementById("workshopZoneConfirmBtn").getBoundingClientRect();
+    /* Le groupe est collé à ce qui le suit réellement : le bandeau de
+       métadonnées du bas ou, à défaut, le pied du panneau. */
+    let next = document.getElementById("workshopZoneActions").nextElementSibling;
+    while (next && !next.getClientRects().length) next = next.nextElementSibling;
+    const below = next ? next.getBoundingClientRect() : panel;
     return {
-      panelGap: Math.round(panel.bottom - actions.bottom),
+      panelGap: Math.round(below.top - actions.bottom),
       textToActions: Math.round(cancel.top - hint.bottom),
       hintClipped: hintEl.scrollWidth > hintEl.clientWidth + 1 || hintEl.scrollHeight > hintEl.clientHeight + 1,
       hintText: hintEl.textContent,

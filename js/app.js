@@ -6462,14 +6462,16 @@ function setDedicatedPageBackLabel(buttonId, context) {
 }
 
 function setTranscriptionWorkshopBackLabel() {
-  const button = $("workshopBackBtn");
-  if (!button) return;
   const destination = `Retour ${dedicatedPageReturnDestination(transcriptionWorkshopReturn)}`;
-  button.setAttribute("aria-label", destination);
-  button.title = destination;
-  const label = button.querySelector(".dedicated-page-back-label");
-  if (label) label.textContent = window.matchMedia("(max-width: 760px)").matches ? "Retour" : destination;
-  /* Header mobile de consultation : même destination que le Retour interne. */
+  /* Le Retour interne a disparu de l'en-tête : le chevron du header mobile
+     reste le retour contextuel et reçoit le même libellé accessible. */
+  const button = $("workshopBackBtn");
+  if (button) {
+    button.setAttribute("aria-label", destination);
+    button.title = destination;
+    const label = button.querySelector(".dedicated-page-back-label");
+    if (label) label.textContent = window.matchMedia("(max-width: 760px)").matches ? "Retour" : destination;
+  }
   const mobileButton = $("transcriptionMobileBackBtn");
   if (mobileButton) {
     mobileButton.setAttribute("aria-label", destination);
@@ -6485,7 +6487,9 @@ function refreshDedicatedPageBackLabels() {
   if (!$("personDetailView").hidden) setDedicatedPageBackLabel("personPageBackBtn", personPageReturnContext);
   if (!$("personDetailView").hidden) setDedicatedPageBackLabel("personPageMobileBackBtn", personPageReturnContext);
   if (isDocumentPageVisible()) setDedicatedPageBackLabel("documentMobileBackBtn", documentPageReturnContext);
+  if (isDocumentPageVisible()) setDedicatedPageBackLabel("documentPageBackBtn", documentPageReturnContext);
   if (isTranscriptionWorkshopActive()) setTranscriptionWorkshopBackLabel();
+  if (isTranscriptionWorkshopActive()) arrangeWorkshopHeader();
 }
 window.addEventListener("resize", refreshDedicatedPageBackLabels);
 
@@ -9469,6 +9473,15 @@ function exitTranscriptionWorkshop() {
 
 function navigateTranscriptionWorkshopBreadcrumb(destination) {
   if (!isTranscriptionWorkshopActive()) return false;
+  /* Le « … » des niveaux intermédiaires se referme dès la navigation, comme
+     sur la fiche Document : aucun menu ouvert ne survit au changement de vue. */
+  document.querySelectorAll(".transcription-workshop-breadcrumb .consultation-breadcrumb-overflow[open]")
+    .forEach(overflow => overflow.removeAttribute("open"));
+  if (destination === "origin") {
+    /* Retour vers l'origine d'appel (Source, fiche) : le contexte d'origine
+       est conservé tel quel, aucune réécriture de la destination. */
+    return exitTranscriptionWorkshop();
+  }
   const previousTarget = transcriptionWorkshopReturn;
   const previousView = activeView;
   activeView = "documents";
@@ -9588,6 +9601,90 @@ async function resolveWorkshopImageSource() {
   }
 }
 
+/* ---- Consultation de la transcription ------------------------------------
+   En consultation, l'en-tête porte le fil d'Ariane, le titre du document, le
+   CTA vert « Modifier la transcription » et le menu « … ». Un seul passage est
+   affiché à la fois, complété du compteur « X sur Y », des deux barres de
+   progression et de la navigation Précédent / Passage suivant. */
+
+function transcriptionWorkshopConsultationMode() {
+  return !transcriptionWorkshopEditing;
+}
+
+/** Titre sous le fil d'Ariane : le titre du document, jamais le libellé
+    générique — « Transcription » reste le dernier niveau du fil. */
+function transcriptionWorkshopDisplayTitle(context) {
+  return String(context?.title || "").trim() || "Transcription";
+}
+
+/** Le menu « … » monte dans le header mobile de consultation (modèle fiche
+    Document) sur petit écran ; partout ailleurs — y compris pendant l'édition
+    mobile, où le header est masqué — il reste dans l'en-tête de la page. */
+function arrangeWorkshopHeader() {
+  const menu = $("workshopActionsMenu");
+  const actions = $("workshopHeaderActions");
+  const slot = $("transcriptionMobileActionsSlot");
+  if (!menu || !actions || !slot) return;
+  const narrow = window.matchMedia("(max-width: 760px)").matches;
+  const target = narrow && transcriptionWorkshopConsultationMode() ? slot : actions;
+  if (menu.parentElement !== target) target.append(menu);
+}
+
+/** Bandeau de métadonnées sous la visionneuse : même contenu que la fiche
+    Document (format, nom du fichier, date d'importation). */
+function renderWorkshopFileMetadata(context) {
+  const box = $("workshopFileMetadata");
+  if (!box) return;
+  const item = context?.kind === "document"
+    ? context.record
+    : (Array.isArray(documents) ? documents.find(value => value.id === context?.documentId) : null);
+  if (!item) {
+    box.hidden = true;
+    box.innerHTML = "";
+    box.removeAttribute("aria-label");
+    box.removeAttribute("title");
+    return;
+  }
+  const fileFormat = documentFileFormatLabel(item);
+  const addedAt = item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString("fr-FR") : "";
+  const fileName = String(item.fileName || "Nom de fichier indisponible");
+  const summary = `${fileFormat} · ${fileName}${addedAt ? ` · Document importé le ${addedAt}` : ""}`;
+  box.innerHTML = `<span>${esc(fileFormat)}</span><span class="document-file-metadata-name" title="${esc(fileName)}">${esc(fileName)}</span>${addedAt ? `<span>Document importé le ${esc(addedAt)}</span>` : ""}`;
+  box.title = summary;
+  box.setAttribute("aria-label", summary);
+  box.hidden = false;
+}
+
+/** Progression de la page : part de passages dont l'italien et la traduction
+    sont renseignés — deux barres distinctes, masquées hors consultation. */
+function renderWorkshopProgress(displayedPassages, visible) {
+  const box = $("workshopProgress");
+  if (!box) return;
+  if (!visible || !displayedPassages.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  const total = displayedPassages.length;
+  const filled = field => displayedPassages.filter(passage => String(passage[field] || "").trim()).length;
+  const row = (label, count) => {
+    const percent = Math.round((count / total) * 100);
+    const noun = total > 1 ? "passages" : "passage";
+    return `<div class="transcription-workshop-progress-item"><div class="transcription-workshop-progress-head"><span class="transcription-workshop-progress-label">${label}</span><span class="transcription-workshop-progress-value">${count} sur ${total}</span></div><div class="transcription-workshop-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${count}" aria-label="${label} : ${count} ${noun} sur ${total}"><span class="transcription-workshop-progress-bar" style="width: ${percent}%"></span></div></div>`;
+  };
+  box.innerHTML = `<div class="transcription-workshop-progress-pair">${row("Italien", filled("textIt"))}${row("Français", filled("translationFr"))}</div>`;
+  box.hidden = false;
+}
+
+/** Navigation Précédent / Passage suivant du pied de consultation. */
+function navigateWorkshopPassage(offset) {
+  const displayed = transcriptionWorkshopDisplayedPassages();
+  const index = displayed.findIndex(passage => passage.id === transcriptionWorkshopDisplayedSelectedPassageId());
+  const target = displayed[index + offset];
+  if (!target) return;
+  selectWorkshopPassage(target.id);
+}
+
 function renderTranscriptionWorkshop() {
   const context = transcriptionWorkshopContext;
   const draft = transcriptionWorkshopDraft;
@@ -9597,6 +9694,23 @@ function renderTranscriptionWorkshop() {
   $("workshopDocumentTitle").textContent = context.title;
   $("workshopDocumentTitle").setAttribute("aria-label", context.title);
   $("workshopDocumentTitle").title = context.title;
+  /* Fil d'Ariane au-dessus du titre du document : le titre de page reprend le
+     document, « Transcription » restant le dernier niveau du fil. */
+  const displayTitle = transcriptionWorkshopDisplayTitle(context);
+  $("workshopPageHeading").textContent = displayTitle;
+  $("workshopPageHeading").setAttribute("aria-label", displayTitle);
+  $("workshopPageHeading").title = displayTitle;
+  /* Premier niveau du fil : « Documents » par défaut, le retour vers la Source
+     ou la fiche lorsque c'est elles qui ont ouvert l'atelier — le fil devient
+     alors le retour desktop, le lien Retour dédié ayant été retiré. */
+  const originCrumb = $("transcriptionWorkshopView").querySelector(".transcription-workshop-breadcrumb button[data-workshop-breadcrumb]");
+  const origin = transcriptionWorkshopReturn;
+  const originDestination = origin && origin.kind !== "document" ? dedicatedPageReturnDestination(origin) : "";
+  if (originCrumb) {
+    originCrumb.dataset.workshopBreadcrumb = originDestination ? "origin" : "documents";
+    originCrumb.textContent = originDestination ? `Retour ${originDestination}` : "Documents";
+    originCrumb.title = originCrumb.textContent;
+  }
   const workshopDocumentOverflow = $("transcriptionWorkshopView").querySelector(".consultation-breadcrumb-overflow [data-workshop-breadcrumb-overflow=\"document\"]");
   if (workshopDocumentOverflow) {
     workshopDocumentOverflow.textContent = context.title;
@@ -9629,6 +9743,8 @@ function renderTranscriptionWorkshop() {
     : "";
   renderWorkshopImageArea();
   renderWorkshopPhotoNav();
+  arrangeWorkshopHeader();
+  renderWorkshopFileMetadata(context);
   renderWorkshopPassageList(editable);
   setWorkshopTab(transcriptionWorkshopView, { silent: true });
   applyWorkshopCompare();
@@ -10386,6 +10502,8 @@ function selectWorkshopPassage(passageId, { scroll = true } = {}) {
       renderWorkshopPhotoNav();
     }
   }
+  /* Consultation : le corps affiche uniquement le passage actif (masquage CSS),
+     la sélection reste donc synchronisée sur la liste complète. */
   syncWorkshopSelectionClasses();
   refreshWorkshopZoneActions();
   syncWorkshopZone();
@@ -10629,6 +10747,29 @@ function updateWorkshopNavigation() {
     ? `${selectedIndex >= 0 ? `Passage ${selectedIndex + 1} sur ${displayed.length}` : ""}`.trim()
     : "";
   renderWorkshopPassageNavigation(displayed, selectedPassageId);
+  /* Consultation : compteur visible, barres de progression et pied de
+     navigation ; en modification, le pied garde seul le statut et les CTA. */
+  const consultation = transcriptionWorkshopConsultationMode();
+  const counter = $("workshopPassageCounter");
+  if (counter) {
+    counter.hidden = !consultation || selectedIndex < 0;
+    if (!counter.hidden) counter.textContent = `${selectedIndex + 1} sur ${displayed.length}`;
+  }
+  renderWorkshopProgress(displayed, consultation);
+  const footerNav = $("workshopFooterPassageNav");
+  if (footerNav) {
+    footerNav.hidden = !consultation || selectedIndex < 0;
+    if (!footerNav.hidden) {
+      const previous = $("workshopPrevPassageBtn");
+      const next = $("workshopNextPassageBtn");
+      previous.disabled = selectedIndex <= 0;
+      /* Le numéro affiché reste toujours un passage réel : le suivant n'est
+         jamais numéroté au-delà du dernier passage. */
+      next.disabled = selectedIndex >= displayed.length - 1;
+      previous.innerHTML = `<span aria-hidden="true">←</span> Précédent`;
+      next.innerHTML = `Passage ${Math.min(selectedIndex + 2, displayed.length)} <span aria-hidden="true">→</span>`;
+    }
+  }
 }
 
 function syncWorkshopUnloadGuard() {
@@ -10716,7 +10857,9 @@ function updateWorkshopDraftIndicators() {
     /* « Modifier » n'existe qu'en consultation ; pendant l'édition, le pied
        affiche Annuler + Valider et le contrôle segmenté gère les vues. */
     modeButton.hidden = inEditSession || !hasOfficial;
-    modeButton.textContent = draft.dirty ? "Reprendre la révision" : "Modifier";
+    /* Libellé fixe imposé en consultation : le CTA vert ne change jamais de
+       texte, seule sa visibilité suit l'état d'édition. */
+    modeButton.textContent = "Modifier la transcription";
     modeButton.setAttribute("aria-label", modeButton.textContent);
   }
   /* Contrôle segmenté Brouillon / Officielle / Différences : visible pendant
@@ -10784,7 +10927,7 @@ function updateWorkshopDraftIndicators() {
   updateWorkshopNavigation();
   const actionMenu = $("workshopActionsMenu");
   if (actionMenu) {
-    const hasAvailableAction = [...actionMenu.querySelectorAll(".transcription-workshop-menu-panel button")]
+    const hasAvailableAction = [...actionMenu.querySelectorAll("button")]
       .some(button => !button.hidden && !button.disabled);
     actionMenu.hidden = !hasAvailableAction;
     if (!hasAvailableAction) actionMenu.open = false;
@@ -11020,7 +11163,6 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
   if (event.target.closest("#workshopZoneConfirmBtn")) return confirmWorkshopZoneTool();
   const tab = event.target.closest("[data-workshop-tab]");
   if (tab) return setWorkshopTab(tab.dataset.workshopTab);
-  if (event.target.closest("#workshopBackBtn")) return exitTranscriptionWorkshop();
   if (event.target.closest("#workshopHelpBtn")) {
     const button = $("workshopHelpBtn");
     const help = $("workshopDraftHelp");
@@ -11173,6 +11315,8 @@ $("transcriptionHistoryList").addEventListener("click", event => {
 $("transcriptionHistoryBackBtn").addEventListener("click", showTranscriptionHistoryList);
 $("workshopPanelCollapseBtn").addEventListener("click", collapseWorkshopDocumentPanel);
 $("workshopPanelExpandBtn").addEventListener("click", expandWorkshopDocumentPanel);
+$("workshopPrevPassageBtn").addEventListener("click", () => navigateWorkshopPassage(-1));
+$("workshopNextPassageBtn").addEventListener("click", () => navigateWorkshopPassage(1));
 
 /* Rechargement ou fermeture de l'onglet : écriture immédiate des sauvegardes
    en attente, pour que le brouillon soit repris au prochain chargement. */
@@ -12982,15 +13126,21 @@ function applyTranscriptionCardRemoteDrafts(item, ownerUid) {
   if (fresh && fresh.outerHTML !== card.outerHTML) card.outerHTML = fresh.outerHTML;
 }
 
+/** Libellé de format du fichier document — partagé par la fiche Document et
+    le bandeau de métadonnées de l'atelier de transcription. */
+function documentFileFormatLabel(item) {
+  const fileExtension = String(item?.fileName || "").match(/\.([^.\/\\]+)$/)?.[1]?.toUpperCase();
+  const mimeFormat = item?.mimeType === "application/pdf" ? "PDF" : item?.mimeType?.startsWith("image/") ? item.mimeType.slice(6).replace(/^x-/, "").toUpperCase() : "";
+  return (fileExtension === "JPG" ? "JPEG" : fileExtension) || mimeFormat || "Format inconnu";
+}
+
 function renderUnifiedDocumentDetails(item) {
-  const fileExtension = String(item.fileName || "").match(/\.([^.\/\\]+)$/)?.[1]?.toUpperCase();
-  const mimeFormat = item.mimeType === "application/pdf" ? "PDF" : item.mimeType?.startsWith("image/") ? item.mimeType.slice(6).replace(/^x-/, "").toUpperCase() : "";
-  const fileFormat = (fileExtension === "JPG" ? "JPEG" : fileExtension) || mimeFormat || "Format inconnu";
+  const fileFormat = documentFileFormatLabel(item);
   const addedAt = item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString("fr-FR") : "";
   const fileName = String(item.fileName || "Nom de fichier indisponible");
-  const fileMetadata = `${fileFormat} · ${fileName}${addedAt ? ` · Ajouté le ${addedAt}` : ""}`;
-  const desktopMetadata = `<span>${esc(fileFormat)}</span><span class="document-file-metadata-name" title="${esc(fileName)}">${esc(fileName)}</span>${addedAt ? `<span>Ajouté le ${esc(addedAt)}</span>` : ""}`;
-  const mobileFileDetails = `<section class="document-unified-section document-file-details-mobile"><h4>Détails du fichier</h4><p class="document-file-details-facts">${esc(fileFormat)}${addedAt ? ` · Ajouté le ${esc(addedAt)}` : ""}</p><p class="document-file-details-name" title="${esc(fileName)}">${esc(fileName)}</p></section>`;
+  const fileMetadata = `${fileFormat} · ${fileName}${addedAt ? ` · Document importé le ${addedAt}` : ""}`;
+  const desktopMetadata = `<span>${esc(fileFormat)}</span><span class="document-file-metadata-name" title="${esc(fileName)}">${esc(fileName)}</span>${addedAt ? `<span>Document importé le ${esc(addedAt)}</span>` : ""}`;
+  const mobileFileDetails = `<section class="document-unified-section document-file-details-mobile"><h4>Détails du fichier</h4><p class="document-file-details-facts">${esc(fileFormat)}${addedAt ? ` · Document importé le ${esc(addedAt)}` : ""}</p><p class="document-file-details-name" title="${esc(fileName)}">${esc(fileName)}</p></section>`;
   const historicalFacts = [];
   if (item.date) historicalFacts.push(["Date du document", formatGenealogyDate(null, item.date)]);
   const place = formatCompactPlace(item.place, item.placeInfo);
@@ -13503,6 +13653,7 @@ async function openStoredDocument(item, returnContext = "previous") {
     ? (returnContext.pageContext ? { ...returnContext.pageContext } : documentPageFallbackContext(returnContext))
     : captureDocumentPageReturnContext();
   setDedicatedPageBackLabel("documentMobileBackBtn", documentPageReturnContext);
+  setDedicatedPageBackLabel("documentPageBackBtn", documentPageReturnContext);
   /* Les couches modales sont refermées : la page Document devient l'unique
      affichage, leur contexte étant déjà capturé pour le retour. */
   if ($("genealogyItemDialog").open) close("genealogyItemDialog");
@@ -13544,7 +13695,7 @@ async function openStoredDocument(item, returnContext = "previous") {
   $("viewerExternalBtn").hidden = true;
   $("viewerExternalBtn").removeAttribute("href");
   if (!setView("documentDetail")) return;
-  requestAnimationFrame(() => (window.matchMedia("(max-width: 760px)").matches ? $("documentMobileBackBtn") : $("viewerEditBtn")).focus({ preventScroll: true }));
+  requestAnimationFrame(() => (window.matchMedia("(max-width: 760px)").matches ? $("documentMobileBackBtn") : $("documentPageBackBtn")).focus({ preventScroll: true }));
   try {
     let source = item.fileUrl || item.externalUrl || "";
     let mimeType = item.mimeType || "";
@@ -17070,6 +17221,7 @@ $("sourcePageReviseBtn").addEventListener("click", () => {
   if (activeSourcePageItem) void performArchiveCardAction(activeSourcePageItem.record.id, "revise");
 });
 $("proofPageBackBtn").addEventListener("click", returnFromProofPage);
+$("documentPageBackBtn").addEventListener("click", returnFromDocumentPage);
 $("proofPageActions").addEventListener("toggle", () => {
   $("proofPageActions").querySelector("summary")?.setAttribute("aria-expanded", String($("proofPageActions").open));
 });

@@ -606,13 +606,15 @@ test("l'export v5 est raccordé et une archive v5 restaure uniquement en prévis
 test("la fiche unifiée du document réutilise le viewer et affiche détails fichier, personnes et toutes les sources liées", () => {
   const unified = app.match(/function renderUnifiedDocumentDetails\(item\)[\s\S]*?\n\}/)?.[0] || "";
   assert.ok(unified.length > 500);
-  for (const field of ["item.fileName", "item.mimeType", "item.createdAt", "item.date", "item.place", "item.notes", "item.personIds"]) assert.ok(unified.includes(field), `champ documentaire absent : ${field}`);
+  for (const field of ["item.fileName", "item.createdAt", "item.date", "item.place", "item.notes", "item.personIds"]) assert.ok(unified.includes(field), `champ documentaire absent : ${field}`);
+  assert.match(unified, /documentFileFormatLabel\(item\)/, "format du fichier résolu par le helper partagé avec l’atelier de transcription");
+  assert.match(app, /function documentFileFormatLabel\(item\) \{[\s\S]{0,320}item\?\.mimeType/, "le helper partagé lit le type MIME du document");
   assert.match(unified, /documentSourcePresentation\(item\)/, "résolution des sources liées factorisée pour la carte et le volet");
   assert.match(app, /function documentSourcePresentation\(item\) \{[\s\S]{0,300}documentLinkedSources\(item\.id\)/, "sources liées résolues à partir de l'identifiant du document");
   assert.match(unified, /linkedSources\.map\(source/);
   assert.match(unified, /data-unified-source-card=/, "carte Source cliquable");
   assert.match(unified, /document-file-metadata/);
-  assert.match(unified, /Ajouté le/);
+  assert.match(unified, /Document importé le/, "la date d’importation ne se confond pas avec la date du document");
   assert.match(unified, /Détails du fichier/);
   assert.doesNotMatch(unified, /fileSize|storedSize|Taille/);
   assert.match(unified, /Date du document/);

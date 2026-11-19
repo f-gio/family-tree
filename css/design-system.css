@@ -3231,7 +3231,6 @@ label .field { margin-top: var(--space-2); }
 .viewer-image-controls[hidden] { display: none; }
 .viewer-image-controls .btn { min-height: var(--control-touch); }
 .viewer-image-controls #viewerDetailsExpandBtn { position: relative; margin-left: auto; }
-.viewer-image-controls #viewerDetailsExpandBtn::before { content: ""; position: absolute; left: calc(-1 * var(--space-2)); top: 25%; bottom: 25%; border-left: var(--border-default); pointer-events: none; }
 .viewer-image-controls .viewer-fullscreen-control { position: static; inset: auto; z-index: auto; flex: 0 0 var(--control-touch); }
 .viewer-image-controls .viewer-open-original { margin-left: 0; }
 .viewer-image-zoom-group { display: inline-flex; flex: 0 0 auto; gap: 0; }
@@ -3244,6 +3243,9 @@ label .field { margin-top: var(--space-2); }
 .viewer-open-original { display: inline-grid; place-items: center; width: var(--control-touch); min-width: var(--control-touch); padding: 0; }
 .viewer-open-original .ui-icon { width: 1.25rem; height: 1.25rem; }
 .viewer-body { position: relative; touch-action: pan-y; }
+/* Fond propre de la surface de lecture : la visionneuse conserve son fond
+   même lorsque le conteneur n'est plus encadré (version mobile). */
+#documentDetailView .viewer-body { background: var(--color-surface); }
 .viewer-body[data-viewer-fit-mode="width"] { display: block; overflow: auto; overscroll-behavior: contain; }
 .viewer-body img { position: absolute; left: 50%; top: 50%; max-width: none; max-height: none; user-select: none; -webkit-user-drag: none; touch-action: pan-y; will-change: transform; }
 .document-original-panel { position: relative; }
@@ -3259,7 +3261,6 @@ label .field { margin-top: var(--space-2); }
 .pdf-viewer-toolbar #pdfZoomOutBtn { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0; }
 .pdf-viewer-toolbar #pdfZoomInBtn { margin-left: calc(0px - var(--pdf-toolbar-gap)); border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .pdf-viewer-toolbar #viewerDetailsExpandBtn { position: relative; margin-left: auto; }
-.pdf-viewer-toolbar #viewerDetailsExpandBtn::before { content: ""; position: absolute; left: calc(-1 * var(--space-2)); top: 25%; bottom: 25%; border-left: var(--border-default); pointer-events: none; }
 .pdf-pagination { display: grid; grid-template-columns: var(--control-touch) minmax(0, 1fr) var(--control-touch); align-items: center; gap: var(--space-2); flex: 0 0 auto; min-height: var(--control-touch); }
 .pdf-pagination .btn { display: inline-grid; place-items: center; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); padding: 0; }
 .pdf-page-status { min-width: 4.5rem; text-align: center; font-size: var(--text-sm); font-weight: var(--weight-semibold); }
@@ -3762,8 +3763,13 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
    et aux panneaux — marges verticales réduites sur desktop et mobile. */
 .transcription-workshop-view { display: flex; flex-direction: column; gap: var(--space-2); min-height: 0; }
 .transcription-workshop-view > .transcription-workshop-header { padding-bottom: var(--space-2); }
-.transcription-workshop-header { display: flex; align-items: stretch; min-width: 0; }
+.transcription-workshop-header { display: block; min-width: 0; }
+.transcription-workshop-header-row { display: block; min-width: 0; }
 .transcription-workshop-heading { flex: 1 1 auto; min-width: 0; width: 100%; }
+.transcription-workshop-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); min-width: 0; }
+.transcription-workshop-header-actions { display: flex; align-items: center; justify-content: flex-end; flex: 0 0 auto; gap: var(--space-2); min-width: 0; }
+.transcription-workshop-header-actions .transcription-workshop-edit-cta { display: inline-flex; align-items: center; justify-content: center; min-height: var(--control-touch); padding-inline: var(--space-3); white-space: normal; text-align: center; }
+.transcription-workshop-title-row > h2 { flex: 1 1 auto; min-width: 0; }
 .transcription-workshop-breadcrumb { margin: 0; }
 .transcription-workshop-breadcrumb-separator { flex: 0 0 auto; }
 .consultation-breadcrumb { position: relative; display: flex; align-items: center; flex: 1 1 auto; gap: var(--space-1); min-width: 0; width: 100%; margin: 0; color: var(--color-text-label); font: 500 14px/var(--leading-body) var(--font-ui); }
@@ -3781,20 +3787,14 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .consultation-breadcrumb-overflow-menu { position: absolute; z-index: 45; top: calc(100% + var(--space-1)); left: 0; display: grid; width: min(18rem, calc(100vw - 7rem)); min-width: 0; max-width: calc(100vw - 7rem); padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-medium); }
 .consultation-breadcrumb-overflow-menu .consultation-breadcrumb-link { justify-content: flex-start; width: 100%; max-width: none; min-height: var(--control-touch); white-space: normal; overflow-wrap: anywhere; }
 /* Les quatre vues de consultation partagent un Retour textuel sans chrome de
-   bouton ; le contrôle garde une cible tactile confortable sur mobile. */
-.dedicated-page-header .dedicated-page-back,
-.transcription-workshop-return,
-.btn.transcription-workshop-return { flex: 0 0 auto; min-width: var(--control-touch); min-height: var(--control-touch); margin: 0; padding-inline: var(--space-2); border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--color-brand); font: var(--weight-medium) 14px/var(--leading-body) var(--font-ui); text-decoration: none; }
-.dedicated-page-header .dedicated-page-back:hover,
-.transcription-workshop-return:hover,
-.btn.transcription-workshop-return:hover { border: 0; background: transparent; box-shadow: none; color: var(--color-brand); text-decoration: none; }
+   bouton ; le contrôle garde une cible tactile confortable sur mobile. L'atelier
+   n'a plus de Retour interne : le fil d'Ariane et le chevron du header mobile
+   portent le retour. */
+.dedicated-page-header .dedicated-page-back { flex: 0 0 auto; min-width: var(--control-touch); min-height: var(--control-touch); margin: 0; padding-inline: var(--space-2); border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--color-brand); font: var(--weight-medium) 14px/var(--leading-body) var(--font-ui); text-decoration: none; }
+.dedicated-page-header .dedicated-page-back:hover { border: 0; background: transparent; box-shadow: none; color: var(--color-brand); text-decoration: none; }
 .dedicated-page-header .dedicated-page-back:hover .dedicated-page-back-label,
-.transcription-workshop-return:hover .dedicated-page-back-label,
-.dedicated-page-header .dedicated-page-back:active .dedicated-page-back-label,
-.transcription-workshop-return:active .dedicated-page-back-label { text-decoration: underline; text-underline-offset: .12em; }
-.dedicated-page-header .dedicated-page-back:focus-visible,
-.transcription-workshop-return:focus-visible,
-.btn.transcription-workshop-return:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.dedicated-page-header .dedicated-page-back:active .dedicated-page-back-label { text-decoration: underline; text-underline-offset: .12em; }
+.dedicated-page-header .dedicated-page-back:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
 .dedicated-page-back-label { white-space: nowrap; text-decoration: none; }
 .dedicated-page-back-arrow { font-size: 14px; line-height: 1; }
 .detail-page-crumb-row { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
@@ -3802,7 +3802,6 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .detail-page-meta-row .source-detail-header-badges { min-width: 0; margin: 0; }
 .detail-page-meta-row .dedicated-page-actions { flex: 0 0 auto; }
 .transcription-workshop-breadcrumb-document { max-width: min(30vw, 22rem); white-space: nowrap; }
-.transcription-workshop-return { margin-inline-start: auto; }
 .transcription-workshop-heading #workshopPageHeading { margin: 0; font: 700 clamp(1.05rem, 2.4vw, 1.5rem)/var(--leading-tight) var(--font-display); }
 .transcription-workshop-heading h2 { margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font: 700 clamp(1.05rem, 2.4vw, 1.5rem)/var(--leading-tight) var(--font-display); }
 .transcription-workshop-heading p { margin: 2px 0 0; }
@@ -3846,6 +3845,11 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 .transcription-workshop-footer-status { display: flex; align-items: center; flex-wrap: nowrap; gap: var(--space-2); min-width: 0; }
 .transcription-workshop-footer-status .transcription-workshop-save-status { min-width: 0; }
 .transcription-workshop-footer-actions { display: flex; align-items: center; flex: 0 0 auto; gap: var(--space-2); min-width: 0; margin-inline-start: auto; }
+/* Consultation : navigation Précédent / Passage suivant au centre du pied ;
+   en édition, les CTA Annuler/Valider prennent seuls la place à droite. */
+.transcription-workshop-footer-nav { display: flex; align-items: center; flex: 0 0 auto; gap: var(--space-2); min-width: 0; margin-inline-start: auto; }
+.transcription-workshop-footer-nav[hidden] { display: none; }
+.transcription-workshop-footer-nav .btn { min-height: var(--control-touch); white-space: nowrap; }
 /* Annulations et fermetures de dialogue : action textuelle compacte, distincte
    des choix de résolution et des confirmations réellement importantes. */
 #transcriptionUnavailableDialog .modal-actions > [data-close],
@@ -3924,6 +3928,16 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
    gauche au-dessus de l'image — le texte « Ajusté » n'apparaît plus dans la
    barre (l'indicateur de vol de zoom suffit au geste). */
 #workshopImageTools { justify-content: flex-start; gap: var(--space-2); }
+/* Visionneuse de l'atelier harmonisée sur la fiche Document : surface de
+   lecture à angles droits et bandeau de métadonnées en pied du panneau
+   Original (format, nom du fichier, date d'importation). */
+#workshopPanelOriginal .transcription-workshop-image-viewport,
+#workshopPanelOriginal .transcription-workshop-pdf-viewport,
+#workshopPanelOriginal .transcription-workshop-pdf-fallback { border-radius: 0; }
+#workshopPanelOriginal.is-viewer-fullscreen .transcription-workshop-image-viewport { border-radius: 0; }
+.document-file-metadata--workshop { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding: var(--space-2) var(--space-3); border-top: var(--border-subtle); background: var(--color-surface); color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; }
+.document-file-metadata--workshop[hidden] { display: none; }
+.document-file-metadata--workshop .document-file-metadata-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .transcription-workshop-head-end { display: flex; align-items: center; flex: 0 0 auto; gap: var(--space-2); min-width: 0; margin-inline-start: auto; }
 .transcription-workshop-head-end .transcription-workshop-badge { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .transcription-workshop-footer-actions .transcription-workshop-edit-cta { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: auto; min-width: 0; min-height: var(--control-touch); padding-inline: var(--space-3); border-radius: var(--radius-md); font-size: var(--text-sm); font-weight: var(--weight-semibold); text-align: center; }
@@ -3932,8 +3946,20 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 .transcription-workshop-menu { position: relative; }
 .transcription-workshop-menu > summary { display: inline-flex; align-items: center; justify-content: center; width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); cursor: pointer; list-style: none; }
 .transcription-workshop-menu > summary::-webkit-details-marker { display: none; }
-.transcription-workshop-menu-panel { position: absolute; right: 0; top: calc(100% + var(--space-1)); z-index: 40; min-width: 15rem; padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-medium); }
-.transcription-workshop-menu-panel .btn { justify-content: flex-start; width: 100%; min-height: var(--control-touch); }
+/* Consultation : compteur « X sur Y » en tête du panneau, à droite du badge. */
+.transcription-workshop-passage-counter { flex: 0 0 auto; color: var(--color-text-muted); font-size: var(--text-sm); font-weight: var(--weight-semibold); white-space: nowrap; }
+.transcription-workshop-passage-counter[hidden] { display: none; }
+/* Barres de progression Italien / Français sous la barre du panneau. */
+.transcription-workshop-progress { display: block; min-width: 0; }
+.transcription-workshop-progress[hidden] { display: none; }
+.transcription-workshop-progress-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); min-width: 0; }
+.transcription-workshop-progress-item { display: grid; gap: var(--space-1); min-width: 0; }
+.transcription-workshop-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.transcription-workshop-progress-label { color: var(--color-text-label); font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: .04em; }
+.transcription-workshop-progress-value { color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); white-space: nowrap; }
+.transcription-workshop-progress-track { display: block; overflow: hidden; height: 6px; border-radius: var(--radius-pill); background: var(--color-surface-muted); }
+.transcription-workshop-progress-bar { display: block; height: 100%; border-radius: inherit; background: var(--color-brand); }
+.transcription-workshop-progress[hidden] .transcription-workshop-progress-pair { display: none; }
 .transcription-workshop-tabs { display: none; gap: var(--space-2); }
 .transcription-workshop-tab { flex: 1 1 0; min-height: var(--control-touch); padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-muted); font-weight: var(--weight-semibold); }
 .transcription-workshop-tab.is-active { background: var(--color-brand-soft); border-color: var(--color-brand); color: var(--color-brand); }
@@ -4021,6 +4047,9 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 .transcription-workshop-passage { position: relative; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface); scroll-margin-block: var(--space-2); }
 .transcription-workshop-passage.is-selected { flex: 1 0 auto; min-height: 0; border-color: var(--color-brand); box-shadow: var(--shadow-focus); }
 .transcription-workshop-passage.is-modified { border-inline-start: 4px solid var(--color-accent); }
+/* Consultation : un seul passage à la fois. Le mode modification conserve la
+   liste verticale complète (le mobile masque déjà les cartes non actives). */
+#transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-passage:not(.is-selected) { display: none; }
 .transcription-workshop-passage-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .transcription-workshop-passage-head strong { flex: 0 0 auto; font-size: var(--text-md); }
 .transcription-workshop-passage textarea { width: 100%; flex: 1 1 auto; min-height: clamp(8rem, 24dvh, 16rem); max-height: 52dvh; overflow: auto; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text); font-family: var(--font-display); font-size: 16px; line-height: var(--leading-body); resize: vertical; field-sizing: content; }
@@ -4116,8 +4145,16 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   .transcription-workshop-header { display: block; gap: var(--space-2); padding-bottom: var(--space-1); }
   .transcription-workshop-header { position: relative; }
   .transcription-workshop-heading { width: 100%; max-width: 100%; }
+  /* Titre du document sur une ligne dédiée (retour à la ligne si nécessaire) ;
+     le CTA vert passe sous le titre, pleine largeur. */
+  .transcription-workshop-title-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
+  /* En édition (CTA masqué) le menu « … » partage la ligne du titre : l'en-tête
+     reste compact sans perdre ni le titre sur sa ligne ni la cible de 44 px. */
+  .transcription-workshop-title-row:not(:has(.transcription-workshop-edit-cta:not([hidden]))) { flex-direction: row; align-items: center; gap: var(--space-2); }
+  .transcription-workshop-title-row > h2 { width: 100%; }
+  .transcription-workshop-header-actions { justify-content: flex-end; flex-wrap: wrap; }
+  .transcription-workshop-header-actions .transcription-workshop-edit-cta { flex: 1 1 auto; width: 100%; }
   .transcription-workshop-breadcrumb { position: static; flex-wrap: nowrap; padding-inline-end: 0; }
-  .transcription-workshop-return { position: static; margin-inline-start: auto; min-width: var(--control-touch); min-height: var(--control-touch); }
   .transcription-workshop-head-status { grid-column: auto; grid-row: auto; justify-self: auto; flex: 0 0 auto; max-width: none; }
   /* Cibles tactiles : `.btn.small` (32px) prime sur le minimum mobile — les
      actions du pied de transcription repassent à 44 px. */
@@ -6863,7 +6900,6 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   body:has(#transcriptionWorkshopView:not([hidden]):not(.is-edit-session)) .topbar > #transcriptionMobileHeader { display: grid; }
   /* Le Retour interne disparaît : le chevron du header est l'unique retour. */
   .detail-page-crumb-row > .dedicated-page-back { display: none; }
-  body:has(#transcriptionWorkshopView:not([hidden]):not(.is-edit-session)) .transcription-workshop-return { display: none; }
   /* Le menu « … » monte dans le header : le doublon en page est masqué. */
   body:has(#sourceDetailView:not([hidden])) #sourcePageActions,
   body:has(#proofDetailView:not([hidden])) #proofPageActions { display: none; }
@@ -6947,6 +6983,10 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 .document-detail-heading { min-width: 0; }
 .document-detail-header { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); padding-bottom: var(--space-2); }
 .document-detail-heading-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); min-width: 0; }
+/* Retour desktop : rangée compacte en haut à droite, au-dessus des actions.
+   Masqué sur mobile, où le chevron de l'en-tête fixe assure le retour. */
+.document-detail-return-row { display: flex; justify-content: flex-end; min-width: 0; }
+.document-detail-return-row .document-detail-back { min-height: var(--control-touch); }
 .document-detail-title-group { flex: 1 1 auto; min-width: 0; }
 .document-detail-title-group .page-title { margin: 0; overflow-wrap: anywhere; }
 .document-detail-actions { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-2); }
@@ -6956,6 +6996,12 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
    du gap commun, le summary du déclencheur est décalé de 4 px et la
    symétrie Retour/… est rompue. Le menu est ancré par right:0, pas par gap. */
 .document-mobile-actions-slot .document-page-menu { display: flex; justify-content: center; gap: 0; width: var(--control-touch); min-width: var(--control-touch); }
+/* Header mobile de l'atelier : le menu « … » de consultation monte dans la
+   troisième colonne, à la place de l'espaceur, pour rester symétrique au
+   chevron de retour (modèle fiche Document). */
+.transcription-mobile-actions-slot { display: grid; place-items: center; width: var(--control-touch); height: var(--control-touch); }
+.transcription-mobile-actions-slot .transcription-workshop-menu { display: flex; justify-content: center; gap: 0; width: var(--control-touch); min-width: var(--control-touch); }
+.transcription-mobile-actions-slot .source-detail-actions-menu { right: 0; width: min(18rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); }
 #documentDetailView .document-actions-menu { width: min(18rem, calc(100vw - 1rem)); max-width: calc(100vw - 1rem); }
 #documentDetailView .document-actions-menu .tile-context-menu-item { min-width: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-label); text-align: left; white-space: normal; overflow-wrap: anywhere; }
 #documentDetailView .document-actions-menu .tile-context-menu-item:hover,
@@ -7026,11 +7072,14 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   /* Lot G : plus d'onglets mobiles — les deux panneaux se suivent dans le
      flux vertical (Ordre : visionneuse, puis [miniatures], puis Informations). */
   #documentDetailView .document-detail-layout { grid-template-columns: minmax(0, 1fr); height: auto; gap: var(--space-3); }
-  #documentDetailView .document-original-panel { height: auto; min-height: 0; overflow: visible; padding-inline-end: 0; }
-  #documentDetailView .document-original-panel { overflow: hidden; padding: 0; border-radius: var(--radius-md); }
+  /* Plus d'encadrement global sous le visuel : la barre d'outils garde son
+     fond, la surface de lecture garde le sien, et le fond beige de la page
+     réapparaît entre la pagination, les volets et leurs espacements. */
+  #documentDetailView .document-original-panel { height: auto; min-height: 0; overflow: hidden; padding: 0; gap: 0; border: 0; border-radius: 0; background: transparent; }
   #documentDetailView .document-file-metadata--desktop { display: none; }
   #documentDetailView .document-file-details-mobile { display: grid; }
   #documentDetailView .document-detail-heading-row { flex-wrap: wrap; gap: var(--space-2); }
+  #documentDetailView .document-detail-return-row { display: none; }
   #documentDetailView .document-detail-title-group { flex-basis: 100%; }
   #documentDetailView .document-detail-title-group .page-title { font-size: clamp(1.35rem, 6vw, 1.9rem); line-height: var(--leading-tight); white-space: normal; }
   #documentDetailView .document-detail-actions { display: none; }

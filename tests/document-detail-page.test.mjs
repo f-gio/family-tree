@@ -122,13 +122,19 @@ window.__documentPageTest = {
       horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
       backHeight: $("documentMobileBackBtn").getBoundingClientRect().height,
       backLabel: $("documentMobileBackBtn").getAttribute("aria-label"),
-      backVisibleLabel: "",
+      backVisibleLabel: (() => {
+        const label = document.getElementById("documentPageBackBtn")?.querySelector(".dedicated-page-back-label");
+        return label && label.getClientRects().length ? label.textContent : "";
+      })(),
       mobileHeaderVisible: (() => { const header = $("documentMobileHeader"); return getComputedStyle(header).display !== "none" && header.getBoundingClientRect().height > 0; })(),
       mobileBackHeight: $("documentMobileBackBtn").getBoundingClientRect().height,
       mobileTitleCenterDelta: (() => { const box = $("documentMobileHeader").querySelector("strong").getBoundingClientRect(); return Math.round((box.left + box.right) / 2 - innerWidth / 2); })(),
       mobileMenuCenterDelta: (() => { const button = document.querySelector("#documentMobileActionsSlot .tile-context-toggle"); if (!button) return null; const box = button.getBoundingClientRect(); const back = $("documentMobileBackBtn").getBoundingClientRect(); return Math.round((back.left + back.right + box.left + box.right) / 2 - innerWidth); })(),
-      contentBackDisplay: "none",
-      desktopBackAbsent: !$("documentPageBackBtn"),
+      contentBackDisplay: (() => {
+        const row = document.querySelector("#documentDetailView .document-detail-return-row");
+        return row ? getComputedStyle(row).display : "none";
+      })(),
+      desktopBackPresent: !!$("documentPageBackBtn"),
       backInsideHeader: !!document.querySelector("#documentMobileHeader #documentMobileBackBtn"),
       backUnderActions: true,
       backRightAligned: true,
@@ -137,7 +143,7 @@ window.__documentPageTest = {
       documentActionCount: document.querySelectorAll("#documentPageActionsHost [data-document-page-action], #documentMobileActionsSlot [data-document-page-action]").length,
       documentDownloadAvailable: !!document.querySelector('#documentPageActionsHost [data-document-page-action="download"], #documentMobileActionsSlot [data-document-page-action="download"]'),
       tileMenuOpen: $("documentPageActions")?.open || false,
-      returnRowAbsent: !document.querySelector("#documentDetailView .dedicated-page-return"),
+      returnRowPresent: !!document.querySelector("#documentDetailView .document-detail-return-row"),
       categoryBadgeText: $("viewerCategoryBadge").textContent,
       categoryBadgeHidden: $("viewerCategoryBadge").hidden,
       categoryBadgeRowHidden: $("viewerCategoryBadgeRow").hidden,
@@ -157,10 +163,17 @@ window.__documentPageTest = {
       headerClass: $("documentDetailView").querySelector("header").className,
       detailsOverflowY: getComputedStyle($("viewerDocumentDetails")).overflowY,
       readerOverflowY: getComputedStyle($("viewerImageViewport")).overflowY,
-      workshopBackHeight: $("workshopBackBtn").getBoundingClientRect().height,
-      workshopBackLabel: $("workshopBackBtn").getAttribute("aria-label"),
+      workshopBackAbsent: !document.getElementById("workshopBackBtn"),
+      workshopMenuInHeader: !!document.querySelector(".transcription-workshop-header #workshopActionsMenu"),
+      workshopCtaHeight: Math.round(document.getElementById("workshopModeBtn")?.getBoundingClientRect().height || 0),
+      workshopCtaHidden: document.getElementById("workshopModeBtn")?.hidden ?? true,
+      workshopTitleBelowBreadcrumb: (() => {
+        const title = document.getElementById("workshopPageHeading");
+        const crumb = document.querySelector(".transcription-workshop-breadcrumb");
+        if (!title || !crumb) return false;
+        return title.getBoundingClientRect().top >= crumb.getBoundingClientRect().bottom - 1;
+      })(),
       workshopMenuInPanel: !!document.querySelector("#workshopPanelRight #workshopActionsMenu"),
-      workshopBackRedundant: !!document.querySelector(".transcription-workshop-head-status")?.classList.contains("is-breadcrumb-redundant"),
       workshopTitle: $("workshopDocumentTitle").textContent,
       workshopTitleLabel: $("workshopDocumentTitle").getAttribute("aria-label"),
       workshopTitleWhiteSpace: getComputedStyle($("workshopDocumentTitle")).whiteSpace,
@@ -233,9 +246,9 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     let state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, true, "page Document ouverte depuis Archives");
     assert.equal(state.backLabel, "Retour aux archives", "destination du Retour annoncée accessible");
-    assert.equal(state.backVisibleLabel, "", "aucun lien Retour de contenu conservé sur desktop");
-    assert.equal(state.desktopBackAbsent, true, "le lien Retour sous les actions a disparu sur desktop");
-    assert.equal(state.returnRowAbsent, true, "aucune ligne Retour résiduelle au-dessus de l’en-tête");
+    assert.match(state.backVisibleLabel, /^Retour\s+\S/, "lien Retour rétabli en haut à droite sur desktop, libellé contextuel");
+    assert.equal(state.desktopBackPresent, true, "le lien Retour de la fiche Document existe sur desktop");
+    assert.equal(state.returnRowPresent, true, "rangée Retour au-dessus de l’en-tête");
     assert.equal(state.categoryBadgeText, "Registre", "badge de catégorie renseigné");
     assert.equal(state.categoryBadgeHidden, false, "badge visible quand la catégorie existe");
     assert.equal(state.categoryBadgeRowHidden, false, "rangée de catégorie visible sous le titre");
@@ -348,11 +361,10 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
     state = await page.evaluate(() => window.__documentPageTest.state());
     assert.equal(state.pageVisible, false, "l'atelier remplace la page");
-    assert.equal(state.workshopBackLabel, "Retour au document", "Retour de l’Atelier précise le Document appelant");
-    assert.equal((await page.locator("#workshopBackBtn .dedicated-page-back-label").textContent()).trim(), "Retour au document", "Retour contextualisé sur desktop");
-    assert.ok(state.workshopBackHeight >= 44, "Retour accessible et visible à droite du fil d’Ariane");
-    assert.equal(state.workshopBackRedundant, false, "le retour contextuel reste disponible avec le fil d’Ariane");
-    assert.equal(state.workshopMenuInPanel, true, "menu « … » unique dans le panneau de transcription");
+    assert.equal(state.workshopBackAbsent, true, "aucun lien Retour dans l’en-tête de l’Atelier");
+    assert.ok(state.workshopTitleBelowBreadcrumb, "titre du document sous le fil d’Ariane dans l’Atelier");
+    assert.equal(state.workshopMenuInHeader, true, "menu « … » unique dans l’en-tête de l’Atelier");
+    assert.equal(state.workshopMenuInPanel, false, "menu « … » quitté le panneau de transcription");
     assert.ok(state.workshopHeaderClass.includes("dedicated-page-header"), "en-tête partagé de l’Atelier");
     assert.equal(state.workshopTitleLabel, state.workshopTitle, "titre Atelier complet accessible");
     assert.equal(state.workshopLossBannerPresent, false, "aucun bandeau rouge redondant dans l’Atelier");
@@ -489,12 +501,10 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
       state = await page.evaluate(() => window.__documentPageTest.state());
       assert.equal(state.workshopHorizontalOverflow, false, `Atelier sans débordement à ${width}px`);
-      if (width >= 761) {
-        assert.ok(state.workshopBackHeight >= 44, `Retour visible sur la ligne du fil d’Ariane à ${width}px`);
-      } else {
-        assert.ok(state.workshopBackHeight >= 44, `Retour ≥44px à ${width}px`);
-      }
-      assert.equal(state.workshopMenuInPanel, true, `menu « … » unique dans le panneau à ${width}px`);
+      assert.equal(state.workshopBackAbsent, true, `aucun Retour interne dans l’Atelier à ${width}px`);
+      assert.equal(state.workshopMenuInHeader, true, `menu « … » unique dans l’en-tête à ${width}px`);
+      assert.equal(state.workshopTitleBelowBreadcrumb, true, `titre du document sous le fil d’Ariane à ${width}px`);
+      if (!state.workshopCtaHidden) assert.ok(state.workshopCtaHeight >= 44, `CTA vert ≥ 44 px à ${width}px (${state.workshopCtaHeight}px)`);
       assert.equal(state.workshopTitleWhiteSpace, "nowrap", `titre Atelier sans coupure de mot à ${width}px`);
       assert.equal(state.workshopTitleOverflow, "ellipsis", `titre Atelier tronqué par ellipse à ${width}px`);
       assert.match(state.workshopBreadcrumb, width >= 761
@@ -506,7 +516,9 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
         await page.click("[data-workshop-breadcrumb='document']");
         await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentDetailView").hidden);
       } else {
-        await page.click("#workshopBackBtn");
+        /* Le niveau Document est absorbé par le « … » du fil en mobile. */
+        await page.click(".transcription-workshop-breadcrumb .consultation-breadcrumb-overflow > summary");
+        await page.click('[data-workshop-breadcrumb-overflow="document"]');
         await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
       }
     }
@@ -544,7 +556,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       const mobileBack = mobileHeader.querySelector(".detail-mobile-back").getBoundingClientRect();
       const mobileActions = mobileHeader.querySelector("#documentMobileActionsSlot .tile-context-toggle")?.getBoundingClientRect() || null;
       const titleBox = mobileHeader.querySelector("strong").getBoundingClientRect();
-      return { actionBackGap: actions && back ? back.y - actions.bottom : null, rightInset: back ? rect.right - back.right : null, returnCenterDelta: back ? Math.abs((back.y + back.height / 2) - (crumb.y + crumb.height / 2)) : null, returnFontSize: backElement ? getComputedStyle(backElement).fontSize : null, height: rect.height, contentBackDisplay: backElement ? getComputedStyle(backElement).display : "none", mobileBackHeight: mobileBack.height, mobileHeaderVisible: getComputedStyle(mobileHeader).display !== "none", mobileTitleCenterDelta: Math.round((titleBox.left + titleBox.right) / 2 - innerWidth / 2), mobileActionSymmetryDelta: mobileActions ? Math.round((mobileBack.left + mobileBack.right + mobileActions.left + mobileActions.right) / 2 - innerWidth) : null, documentBackAbsent: id === "documentDetailView" && !backElement };
+      const returnRow = backElement?.closest(".document-detail-return-row") || null;
+      return { actionBackGap: actions && back ? back.y - actions.bottom : null, rightInset: back ? rect.right - back.right : null, returnCenterDelta: back ? Math.abs((back.y + back.height / 2) - (crumb.y + crumb.height / 2)) : null, returnFontSize: backElement ? getComputedStyle(backElement).fontSize : null, height: rect.height, contentBackDisplay: backElement ? getComputedStyle(returnRow || backElement).display : "none", backAboveTitle: back && crumb ? back.bottom <= crumb.y + 1 : null, mobileBackHeight: mobileBack.height, mobileHeaderVisible: getComputedStyle(mobileHeader).display !== "none", mobileTitleCenterDelta: Math.round((titleBox.left + titleBox.right) / 2 - innerWidth / 2), mobileActionSymmetryDelta: mobileActions ? Math.round((mobileBack.left + mobileBack.right + mobileActions.left + mobileActions.right) / 2 - innerWidth) : null, documentBackPresent: id === "documentDetailView" && !!backElement };
     }, viewId);
     for (const width of [320, 375, 390, 820, 1440]) {
       await page.setViewportSize({ width, height: 900 });
@@ -574,9 +587,12 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
           assert.ok(Math.abs(geometry.mobileTitleCenterDelta) <= 1, `${width}px : titre centré pour ${name} (${geometry.mobileTitleCenterDelta}px)`);
           if (name === "Document") assert.ok(Math.abs(geometry.mobileActionSymmetryDelta) <= 1, `${width}px : menu ⋯ symétrique au Retour (${geometry.mobileActionSymmetryDelta}px) ${JSON.stringify(geometry.mobileActionBoxes)}`);
         } else {
-          if (name === "Document") assert.equal(geometry.documentBackAbsent, true, `${width}px : aucun lien Retour dans la fiche Document desktop`);
-          else {
-            assert.ok(geometry.rightInset >= -1 && geometry.rightInset <= 3, `${width}px : Retour de ${name} aligné à droite (${geometry.rightInset}px)`);
+          assert.ok(geometry.rightInset >= -1 && geometry.rightInset <= 3, `${width}px : Retour de ${name} aligné à droite (${geometry.rightInset}px)`);
+          if (name === "Document") {
+            assert.equal(geometry.documentBackPresent, true, `${width}px : lien Retour rétabli dans la fiche Document desktop`);
+            assert.equal(geometry.backAboveTitle, true, `${width}px : Retour au-dessus du titre dans la fiche Document`);
+            assert.equal(geometry.returnFontSize, "14px", `${width}px : Retour Document en 14 px`);
+          } else {
             assert.ok(geometry.returnCenterDelta <= 1, `${width}px : Retour de ${name} centré sur le fil (${geometry.returnCenterDelta}px)`);
             assert.equal(geometry.returnFontSize, "14px", `${width}px : Retour de ${name} en 14 px`);
           }
@@ -622,8 +638,18 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       assert.ok(categoryState.badge.y >= categoryState.title.bottom, `${width}px : « Autre » sous le titre`);
       assert.ok(categoryState.badge.bottom <= categoryState.header.bottom, `${width}px : badge contenu dans l'en-tête`);
       assert.ok(documentGeometry.height <= (width <= 390 ? 175 : 220), `${width}px : en-tête Document reste compact (${documentGeometry.height}px)`);
-      const returnLabels = await page.evaluate(() => ({ contentBack: document.getElementById("documentPageBackBtn"), mobileAria: document.getElementById("documentMobileBackBtn").getAttribute("aria-label") }));
-      assert.equal(returnLabels.contentBack, null, `${width}px : aucun bouton Retour redondant dans la fiche`);
+      const returnLabels = await page.evaluate(() => {
+        const button = document.getElementById("documentPageBackBtn");
+        return {
+          contentBackPresent: Boolean(button),
+          contentBackVisible: Boolean(button && button.getClientRects().length),
+          contentBackLabel: button?.querySelector(".dedicated-page-back-label")?.textContent || "",
+          mobileAria: document.getElementById("documentMobileBackBtn").getAttribute("aria-label")
+        };
+      });
+      assert.equal(returnLabels.contentBackPresent, true, `${width}px : bouton Retour présent dans la fiche`);
+      assert.equal(returnLabels.contentBackVisible, width > 760, `${width}px : Retour visible sur desktop, masqué derrière le chevron mobile`);
+      if (width > 760) assert.match(returnLabels.contentBackLabel, /^Retour\s+\S/, `${width}px : libellé contextuel du Retour desktop`);
       assert.notEqual(returnLabels.mobileAria, "Retour", `${width}px : nom accessible contextuel conservé sur le bouton mobile existant`);
 
       if (width === 320) {

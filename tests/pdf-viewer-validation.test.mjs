@@ -537,7 +537,11 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
           header: get(".document-detail-header"),
           title: get("#viewerTitle"),
           titleStyle: { whiteSpace: titleStyle.whiteSpace, textOverflow: titleStyle.textOverflow, overflow: titleStyle.overflow },
-          closeDisplay: document.getElementById("documentPageBackBtn") ? getComputedStyle(document.getElementById("documentPageBackBtn")).display : "absent"
+          closeDisplay: (() => {
+            const button = document.getElementById("documentPageBackBtn");
+            if (!button) return "absent";
+            return getComputedStyle(button.closest(".document-detail-return-row") || button).display;
+          })()
         };
       });
       if (viewport.width <= 390) {
@@ -545,7 +549,7 @@ test("PDF.js : organisation finale desktop et mobile du dialog Consulter", async
            modèle fiche Personne) : ce fragment statique n'a pas de topbar. */
         assert.ok(mobileHeader.header.height <= 220, `en-tête mobile compact avec titre renvoyé à la ligne (${mobileHeader.header.height}px)`);
         assert.equal(mobileHeader.titleStyle.whiteSpace, "normal", "titre long renvoyé à la ligne");
-        assert.equal(mobileHeader.closeDisplay, "absent", "lien Retour desktop retiré de l’en-tête de contenu");
+        assert.equal(mobileHeader.closeDisplay, "none", "lien Retour desktop masqué derrière le chevron de la topbar");
         assert.ok(mobileHeader.title.right <= mobileHeader.header.right + 1, "titre contenu dans l'en-tête");
       }
       if (viewport.width === 320) {
@@ -831,7 +835,8 @@ test("PDF mobile WebKit : uniquement Miniatures et Informations sous le lecteur"
     await page.setContent(pageDocument, { waitUntil: "load" });
     await openViewerPage(page);
     await page.waitForFunction(() => document.getElementById("viewerPdfPageCanvas").width > 0, undefined, { timeout: 15000 });
-    assert.equal(await page.locator("#documentPageBackBtn").count(), 0, "lien Retour desktop supprimé de la fiche Document dans WebKit");
+    assert.equal(await page.locator("#documentPageBackBtn").count(), 1, "lien Retour desktop présent dans la fiche Document");
+    assert.equal(await page.locator("#documentPageBackBtn").isVisible(), false, "lien Retour desktop masqué derrière le chevron mobile dans WebKit");
     assert.equal(await page.locator(".document-original-head").evaluate(element => getComputedStyle(element).display), "none", "l’en-tête Original et son dépliant ne prennent pas de place en PDF mobile");
     assert.equal(await page.locator("#viewerDetailsExpandBtn").isVisible(), false, "le dépliant isolé ne paraît pas sous les volets");
     const toggles = page.locator("#pdfPanelToggles .pdf-panel-toggle");

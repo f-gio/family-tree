@@ -287,7 +287,9 @@ test("la page Source conserve les parcours, les associations et l'ergonomie mobi
     await page.click("#sourcePageActions > summary");
     await page.click('#sourcePageActionsMenu [data-genealogy-item-action="transcribe"]');
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
-    await page.click("#workshopBackBtn");
+    /* Le premier niveau du fil reprend l'origine d'appel : « Retour à la
+       source » lorsque la Source a ouvert l'atelier (plus de Retour dédié). */
+    await page.locator(".transcription-workshop-breadcrumb button[data-workshop-breadcrumb]").first().click();
     await page.waitForFunction(() => !document.getElementById("sourceDetailView").hidden);
     assert.equal((await page.evaluate(() => window.__sourcePageTest.state())).sourceVisible, true, "retour atelier à la Source");
     await page.click("#sourcePageActions > summary");

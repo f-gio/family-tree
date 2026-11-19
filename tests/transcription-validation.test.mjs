@@ -706,7 +706,7 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     await page.evaluate(() => window.__inc2.transcribe());
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
     assert.match(await page.locator(".transcription-workshop-breadcrumb").textContent(), /Documents.*Registre Transactions Immobilières/, "fil d’Ariane compact avec le document courant");
-    assert.equal(await page.locator("#workshopPageHeading").textContent(), "Transcription", "titre de page sans répétition du document");
+    assert.equal(await page.locator("#workshopPageHeading").textContent(), "Registre Transactions Immobilières", "titre du document sous le fil d’Ariane, « Transcription » restant le dernier niveau du fil");
     assert.equal(await page.locator(".topbar .main-nav").evaluate(element => getComputedStyle(element).display), "none", "méga-menu masqué uniquement dans l’atelier desktop");
     assert.notEqual(await page.locator(".topbar .brand").evaluate(element => getComputedStyle(element).display), "none", "identité La Nostra Storia conservée");
     await page.click('[data-workshop-breadcrumb="documents"]');
@@ -741,7 +741,7 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     assert.equal(await page.locator(".transcription-workshop-passage textarea").first().inputValue(), "Anno millenovecento corrente", "la consultation affiche la version officielle, jamais le brouillon");
     assert.equal(await page.locator("#workshopActionsMenu #workshopHelpBtn").evaluate(button => button.hidden), true, "aide masquée en lecture seule");
     assert.equal(await page.locator(".transcription-workshop-header #workshopValidateBtn").count(), 0, "aucun doublon de validation dans l’en-tête supérieur");
-    assert.equal(await page.locator("#workshopModeBtn").textContent(), "Modifier", "action explicite pour entrer en édition");
+    assert.equal(await page.locator("#workshopModeBtn").textContent(), "Modifier la transcription", "libellé fixe du CTA vert, action explicite pour entrer en édition");
     const consultationModeBox = await page.locator("#workshopModeBtn").boundingBox();
     assert.ok(consultationModeBox && consultationModeBox.height >= 44, `« Modifier » ≥ 44 px (${consultationModeBox?.height})`);
     const footerHeightConsultation = await page.locator(".transcription-workshop-footer").evaluate(footer => footer.getBoundingClientRect().height);
@@ -779,7 +779,7 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     assert.equal(await page.evaluate(() => window.__inc2.officialBadge().text), "Validée · v2", "contenu revenu à l'officiel sans nouvelle version");
     await page.click("#workshopCancelEditBtn");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "annulation sans modification repasse immédiatement en lecture seule");
-    assert.equal(await page.locator("#workshopModeBtn").textContent(), "Modifier", "entrée en édition disponible après annulation propre");
+    assert.equal(await page.locator("#workshopModeBtn").textContent(), "Modifier la transcription", "entrée en édition disponible après annulation propre");
     await page.click("#workshopModeBtn");
     await page.locator('[data-workshop-field="textIt"]').first().fill("Révision à conserver");
     await page.click("#workshopCancelEditBtn");
@@ -812,7 +812,7 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     await page.click("#workshopCancelKeepBtn");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), true, "conservation retourne à la consultation officielle");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Anno millenovecento corrente", "annulation affiche l'officiel sans le modifier");
-    assert.equal(await page.locator("#workshopModeBtn").textContent(), "Reprendre la révision", "le brouillon conservé reste reprenable");
+    assert.equal(await page.locator("#workshopModeBtn").textContent(), "Modifier la transcription", "libellé fixe : le brouillon conservé reste reprenable au clic");
     await page.click("#workshopModeBtn");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Révision à conserver", "le brouillon sauvegardé est conservé");
     await page.click('[data-workshop-breadcrumb="document"]');
@@ -1091,14 +1091,15 @@ test("transcription consultée : header mobile harmonisé, atelier d'édition in
 
       const consultation = await page.evaluate(() => {
         const header = document.getElementById("transcriptionMobileHeader");
-        const contentBack = document.getElementById("workshopBackBtn");
         const mobileBack = document.getElementById("transcriptionMobileBackBtn");
+        const menu = document.getElementById("workshopActionsMenu");
         const titleBox = header.querySelector("strong").getBoundingClientRect();
         return {
           headerVisible: getComputedStyle(header).display !== "none" && header.getBoundingClientRect().height > 0,
-          contentBackDisplay: getComputedStyle(contentBack).display,
+          contentBackAbsent: !document.getElementById("workshopBackBtn"),
           mobileBackHeight: mobileBack.getBoundingClientRect().height,
           menuCount: header.querySelectorAll("details").length,
+          menuInSlot: !!menu.closest("#transcriptionMobileActionsSlot"),
           spacerCount: header.querySelectorAll(".detail-mobile-header-spacer").length,
           titleText: header.querySelector("strong").textContent,
           titleCenterDelta: Math.round((titleBox.left + titleBox.right) / 2 - innerWidth / 2),
@@ -1106,10 +1107,11 @@ test("transcription consultée : header mobile harmonisé, atelier d'édition in
         };
       });
       assert.equal(consultation.headerVisible, true, `${width}px : header mobile visible pendant la consultation`);
-      assert.equal(consultation.contentBackDisplay, "none", `${width}px : Retour interne de l'atelier masqué en consultation`);
+      assert.equal(consultation.contentBackAbsent, true, `${width}px : plus de Retour interne dans l'atelier`);
       assert.ok(consultation.mobileBackHeight >= 44, `${width}px : chevron de retour ≥ 44 px (${consultation.mobileBackHeight}px)`);
-      assert.equal(consultation.menuCount, 0, `${width}px : aucun menu « … » fantôme : la page n'en possède pas`);
-      assert.equal(consultation.spacerCount, 1, `${width}px : espaceur de centrage à droite pour équilibrer le titre`);
+      assert.equal(consultation.menuCount, 1, `${width}px : menu « … » monté dans le header de consultation`);
+      assert.equal(consultation.menuInSlot, true, `${width}px : menu dans l'emplacement d'actions du header`);
+      assert.equal(consultation.spacerCount, 0, `${width}px : espaceur remplacé par l'emplacement du menu`);
       assert.equal(consultation.titleText, "La Nostra Storia", `${width}px : titre de marque centré, sans logo`);
       assert.ok(Math.abs(consultation.titleCenterDelta) <= 1, `${width}px : titre centré horizontalement (${consultation.titleCenterDelta}px)`);
       assert.ok(consultation.horizontalOverflow <= 0, `${width}px : aucun débordement horizontal (${consultation.horizontalOverflow}px)`);
@@ -1118,22 +1120,30 @@ test("transcription consultée : header mobile harmonisé, atelier d'édition in
       await page.click("#transcriptionMobileBackBtn");
       await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentDetailView").hidden);
 
-      /* Mode édition : l'atelier redevient strictement identique à avant. Le pied
-         (Modifier) vit dans le panneau droit, affiché hors onglet Original. */
+      /* Mode édition : le header de consultation disparaît, le menu « … » et le
+         retour restent disponibles dans l'en-tête de la page. */
       await page.evaluate(() => window.__inc2.transcribe());
       await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
       await page.click("#workshopTabItalian");
       await page.waitForFunction(() => getComputedStyle(document.getElementById("workshopPanelRight")).display !== "none");
       await page.click("#workshopModeBtn");
       await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").classList.contains("is-edit-session"));
-      const edition = await page.evaluate(() => ({
-        headerHidden: getComputedStyle(document.getElementById("transcriptionMobileHeader")).display === "none",
-        backVisible: getComputedStyle(document.getElementById("workshopBackBtn")).display !== "none",
-        backHeight: document.getElementById("workshopBackBtn").getBoundingClientRect().height
-      }));
+      const edition = await page.evaluate(() => {
+        const returnTargets = [...document.querySelectorAll(".transcription-workshop-breadcrumb .consultation-breadcrumb-link, .transcription-workshop-breadcrumb .consultation-breadcrumb-overflow > summary")]
+          .filter(element => element.getClientRects().length);
+        return {
+          headerHidden: getComputedStyle(document.getElementById("transcriptionMobileHeader")).display === "none",
+          backAbsent: !document.getElementById("workshopBackBtn"),
+          menuInHeaderActions: !!document.getElementById("workshopActionsMenu").closest("#workshopHeaderActions"),
+          returnHeight: Math.max(0, ...returnTargets.map(element => Math.round(element.getBoundingClientRect().height))),
+          returnCount: returnTargets.length
+        };
+      });
       assert.equal(edition.headerHidden, true, `${width}px : header de consultation masqué pendant l'édition`);
-      assert.equal(edition.backVisible, true, `${width}px : Retour de l'atelier conservé en édition`);
-      assert.ok(edition.backHeight >= 44, `${width}px : Retour atelier ≥ 44 px en édition (${edition.backHeight}px)`);
+      assert.equal(edition.backAbsent, true, `${width}px : aucun Retour interne résiduel en édition`);
+      assert.equal(edition.menuInHeaderActions, true, `${width}px : menu « … » conservé dans l'en-tête de page en édition`);
+      assert.ok(edition.returnCount >= 1, `${width}px : retour possible depuis le fil d'Ariane en édition`);
+      assert.ok(edition.returnHeight >= 44, `${width}px : retour par le fil ≥ 44 px en édition (${edition.returnHeight}px)`);
 
       assertNoInc2PageErrors(pageErrors);
     } finally {
