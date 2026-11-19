@@ -344,13 +344,13 @@ async function zoneGroupMetrics(page) {
     const actions = document.getElementById("workshopZoneActions").getBoundingClientRect();
     const cancel = document.getElementById("workshopZoneCancelBtn").getBoundingClientRect();
     const confirm = document.getElementById("workshopZoneConfirmBtn").getBoundingClientRect();
-    /* Le groupe est collé à ce qui le suit réellement : le bandeau de
-       métadonnées du bas ou, à défaut, le pied du panneau. */
-    let next = document.getElementById("workshopZoneActions").nextElementSibling;
-    while (next && !next.getClientRects().length) next = next.nextElementSibling;
-    const below = next ? next.getBoundingClientRect() : panel;
+    /* Le groupe est collé sous le document : l'écart se mesure au-dessus du
+       groupe, depuis la surface de lecture réellement affichée. */
+    const surface = [...document.querySelectorAll("#workshopPanelOriginal .transcription-workshop-pdf-viewport:not([hidden]), #workshopPanelOriginal .transcription-workshop-image-viewport:not([hidden]), #workshopPanelOriginal .transcription-workshop-pdf-fallback:not([hidden])")]
+      .find(element => element.getClientRects().length);
+    const surfaceBottom = surface ? surface.getBoundingClientRect().bottom : panel.bottom;
     return {
-      panelGap: Math.round(below.top - actions.bottom),
+      panelGap: Math.round(actions.top - surfaceBottom),
       textToActions: Math.round(cancel.top - hint.bottom),
       hintClipped: hintEl.scrollWidth > hintEl.clientWidth + 1 || hintEl.scrollHeight > hintEl.clientHeight + 1,
       hintText: hintEl.textContent,
@@ -483,7 +483,9 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
     });
     assert.equal(initialPdfChrome.pageNavHidden, true, "navigation photo vide masquée pour le PDF");
     assert.equal(initialPdfChrome.photoNavHidden, true, "bandeau photo vide masqué : aucun interligne fantôme sous les actions");
-    assert.ok(initialPdfChrome.toolsLeft <= initialPdfChrome.headLeft + 2 && initialPdfChrome.toolsRight <= initialPdfChrome.headRight + 2, "commandes PDF alignées dans l'en-tête du volet");
+    /* La barre d'outils est intégrée au conteneur (marge interne de 8 px) :
+       les commandes restent contenues dans l'en-tête du volet. */
+    assert.ok(initialPdfChrome.toolsLeft >= initialPdfChrome.headLeft + 1 && initialPdfChrome.toolsRight <= initialPdfChrome.headRight - 1, "commandes PDF contenues dans l'en-tête du volet");
 
     /* Rafales navigation/zoom : un nouveau rendu attend l'annulation effective
        du précédent avant de réutiliser le canvas. Aucune erreur périmée ne doit
@@ -500,7 +502,7 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
       return { leftOffset: tools.left - head.left, right: tools.right, headRight: head.right,
         canvasWidth: document.getElementById("workshopPdfCanvas").width };
     });
-    assert.ok(settledPdfChrome.leftOffset <= 2 && settledPdfChrome.right <= settledPdfChrome.headRight + 2 && settledPdfChrome.canvasWidth > 0, "rendu et commandes stables après les changements rapides");
+    assert.ok(settledPdfChrome.leftOffset >= 1 && settledPdfChrome.right <= settledPdfChrome.headRight - 1 && settledPdfChrome.canvasWidth > 0, "rendu et commandes stables après les changements rapides");
     assert.ok(Math.abs(settledPdfChrome.leftOffset - initialPdfChrome.toolOffset) <= 1, "commandes PDF au même alignement après navigation et zoom rapides");
     assert.equal(await page.evaluate(() => window.__b2.pdfState().hash), expectedHash, "rendus rapides et zoom ne modifient pas les octets ni leur empreinte");
     await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(0).click();
@@ -635,7 +637,7 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
       const tools = document.getElementById("workshopPdfTools").getBoundingClientRect();
       return { leftOffset: tools.left - head.left, right: tools.right, headRight: head.right };
     });
-    assert.ok(Math.abs(resizedPdfChrome.leftOffset - initialPdfChrome.toolOffset) <= 1 && resizedPdfChrome.right <= resizedPdfChrome.headRight + 2, "commandes PDF alignées après redimensionnement du panneau");
+    assert.ok(Math.abs(resizedPdfChrome.leftOffset - initialPdfChrome.toolOffset) <= 1 && resizedPdfChrome.right <= resizedPdfChrome.headRight - 1, "commandes PDF contenues après redimensionnement du panneau");
 
     /* Navigation rapide : jamais de zone périmée sur une autre page. */
     await page.click("#workshopPdfNextBtn");

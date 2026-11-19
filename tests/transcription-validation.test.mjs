@@ -1129,20 +1129,18 @@ test("transcription consultée : header mobile harmonisé, atelier d'édition in
       await page.click("#workshopModeBtn");
       await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").classList.contains("is-edit-session"));
       const edition = await page.evaluate(() => {
-        const returnTargets = [...document.querySelectorAll(".transcription-workshop-breadcrumb .consultation-breadcrumb-link, .transcription-workshop-breadcrumb .consultation-breadcrumb-overflow > summary")]
-          .filter(element => element.getClientRects().length);
+        const mobileBack = document.getElementById("transcriptionMobileBackBtn");
         return {
-          headerHidden: getComputedStyle(document.getElementById("transcriptionMobileHeader")).display === "none",
+          headerVisible: getComputedStyle(document.getElementById("transcriptionMobileHeader")).display !== "none" && mobileBack.getClientRects().length > 0,
           backAbsent: !document.getElementById("workshopBackBtn"),
-          menuInHeaderActions: !!document.getElementById("workshopActionsMenu").closest("#workshopHeaderActions"),
-          returnHeight: Math.max(0, ...returnTargets.map(element => Math.round(element.getBoundingClientRect().height))),
-          returnCount: returnTargets.length
+          menuInSlot: !!document.getElementById("workshopActionsMenu").closest("#transcriptionMobileActionsSlot"),
+          returnHeight: Math.round(mobileBack.getBoundingClientRect().height)
         };
       });
-      assert.equal(edition.headerHidden, true, `${width}px : header de consultation masqué pendant l'édition`);
+      assert.equal(edition.headerVisible, true, `${width}px : en-tête dédié visible en édition aussi`);
       assert.equal(edition.backAbsent, true, `${width}px : aucun Retour interne résiduel en édition`);
-      assert.equal(edition.menuInHeaderActions, true, `${width}px : menu « … » conservé dans l'en-tête de page en édition`);
-      assert.ok(edition.returnCount >= 1, `${width}px : retour possible depuis le fil d'Ariane en édition`);
+      assert.equal(edition.menuInSlot, true, `${width}px : menu « … » dans l'en-tête dédié en édition`);
+      assert.ok(edition.returnHeight >= 44, `${width}px : retour contextualisé ≥ 44 px en édition (${edition.returnHeight}px)`);
       assert.ok(edition.returnHeight >= 44, `${width}px : retour par le fil ≥ 44 px en édition (${edition.returnHeight}px)`);
 
       assertNoInc2PageErrors(pageErrors);

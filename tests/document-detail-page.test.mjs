@@ -165,6 +165,7 @@ window.__documentPageTest = {
       readerOverflowY: getComputedStyle($("viewerImageViewport")).overflowY,
       workshopBackAbsent: !document.getElementById("workshopBackBtn"),
       workshopMenuInHeader: !!document.querySelector(".transcription-workshop-header #workshopActionsMenu"),
+      workshopMenuInSlot: !!document.querySelector("#transcriptionMobileActionsSlot #workshopActionsMenu"),
       workshopCtaHeight: Math.round(document.getElementById("workshopModeBtn")?.getBoundingClientRect().height || 0),
       workshopCtaHidden: document.getElementById("workshopModeBtn")?.hidden ?? true,
       workshopTitleBelowBreadcrumb: (() => {
@@ -502,7 +503,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       state = await page.evaluate(() => window.__documentPageTest.state());
       assert.equal(state.workshopHorizontalOverflow, false, `Atelier sans débordement à ${width}px`);
       assert.equal(state.workshopBackAbsent, true, `aucun Retour interne dans l’Atelier à ${width}px`);
-      assert.equal(state.workshopMenuInHeader, true, `menu « … » unique dans l’en-tête à ${width}px`);
+      assert.equal(state.workshopMenuInHeader, width > 760, `menu « … » dans l’en-tête desktop, dans le header dédié sur mobile (${width}px)`);
+      assert.equal(state.workshopMenuInSlot, width <= 760, `menu « … » dans l’en-tête dédié sur mobile (${width}px)`);
       assert.equal(state.workshopTitleBelowBreadcrumb, true, `titre du document sous le fil d’Ariane à ${width}px`);
       if (!state.workshopCtaHidden) assert.ok(state.workshopCtaHeight >= 44, `CTA vert ≥ 44 px à ${width}px (${state.workshopCtaHeight}px)`);
       assert.equal(state.workshopTitleWhiteSpace, "nowrap", `titre Atelier sans coupure de mot à ${width}px`);
@@ -511,14 +513,14 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
         ? /Documents.*Transcription/
         : /Registre de consultation paroissial.*Transcription/, `fil d’Ariane compact à ${width}px`);
       assert.equal(state.workshopNavigationDisplay, "none", `navigation générale masquée dans l’atelier (${width}px)`);
-      assert.notEqual(state.workshopBrandDisplay, "none", `identité de marque conservée dans l’atelier (${width}px)`);
+      /* Logo et compte masqués dans l’en-tête dédié mobile (modèle fiche Document). */
+      assert.equal(state.workshopBrandDisplay === "none", width <= 760, `identité de marque en en-tête desktop, masquée sur mobile (${width}px)`);
       if (width >= 981) {
         await page.click("[data-workshop-breadcrumb='document']");
         await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentDetailView").hidden);
       } else {
-        /* Le niveau Document est absorbé par le « … » du fil en mobile. */
-        await page.click(".transcription-workshop-breadcrumb .consultation-breadcrumb-overflow > summary");
-        await page.click('[data-workshop-breadcrumb-overflow="document"]');
+        /* L'en-tête dédié porte le retour contextualisé sur mobile. */
+        await page.click("#transcriptionMobileBackBtn");
         await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
       }
     }

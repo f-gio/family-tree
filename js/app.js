@@ -6116,7 +6116,7 @@ function renderDocumentPageActions(item) {
   if (previousMenu) previousMenu.remove();
   const canDownload = Boolean(item.chunkVersion && item.chunkCount || item.fileData || item.fileUrl);
   const menuItems = `${canDownload ? `<button class="btn tile-context-menu-item" id="downloadDocumentBtn" type="button" role="menuitem" data-document-page-action="download">${icon("download")}<span>Télécharger le document</span></button><div class="tile-context-menu-separator" role="separator"></div>` : ""}<button class="btn tile-context-menu-item is-danger" id="deleteDocumentFromPageBtn" type="button" role="menuitem" data-document-page-action="delete">${icon("trash")}<span>Supprimer le document</span></button>`;
-  $("documentPageActionsHost").innerHTML = `<details class="dedicated-page-actions source-detail-actions document-page-menu" id="documentPageActions"><summary class="btn icon-btn tile-context-toggle" id="documentPageActionsBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Actions secondaires du document" title="Actions"><span class="tile-context-glyph" aria-hidden="true"><span class="tile-context-dot"></span><span class="tile-context-dot"></span><span class="tile-context-dot"></span></span></summary><div class="source-detail-actions-menu document-actions-menu" id="documentPageActionsMenu" role="menu" aria-label="Actions secondaires du document">${menuItems}</div></details>`;
+  $("documentPageActionsHost").innerHTML = `<details class="dedicated-page-actions source-detail-actions document-page-menu" id="documentPageActions"><summary class="btn icon-btn" id="documentPageActionsBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Actions secondaires du document" title="Actions">⋯</summary><div class="source-detail-actions-menu document-actions-menu" id="documentPageActionsMenu" role="menu" aria-label="Actions secondaires du document">${menuItems}</div></details>`;
   const details = $("documentPageActions");
   const summary = $("documentPageActionsBtn");
   details.addEventListener("toggle", () => summary.setAttribute("aria-expanded", String(details.open)));
@@ -8891,6 +8891,10 @@ function showTranscriptionHistoryList() {
 function applyWorkshopDocumentLayout() {
   const layout = $("workshopLayout");
   if (layout) layout.classList.toggle("is-document-collapsed", transcriptionWorkshopDocumentCollapsed);
+  /* Chevrons de la fiche Document : vers la droite quand le panneau est
+     affiché (repli), vers la gauche quand il est masqué (réouverture). */
+  $("workshopPanelCollapseBtn")?.querySelector("use")?.setAttribute("href", "#icon-chevron-right");
+  $("workshopPanelExpandBtn")?.querySelector("use")?.setAttribute("href", "#icon-chevron-left");
 }
 
 function collapseWorkshopDocumentPanel() {
@@ -9552,6 +9556,10 @@ function restoreTranscriptionWorkshopOrigin(target) {
 function teardownTranscriptionWorkshop() {
   destroyWorkshopImageViewer();
   destroyWorkshopPdfViewer();
+  if (workshopExternalObjectUrl) {
+    URL.revokeObjectURL(workshopExternalObjectUrl);
+    workshopExternalObjectUrl = "";
+  }
   resetTranscriptionWorkshopState();
   transcriptionWorkshopReturn = null;
   /* Retire le marqueur d'entrée d'atelier de l'entrée courante : aucune entrée
@@ -9595,6 +9603,7 @@ async function resolveWorkshopImageSource() {
     if (!imageSource || transcriptionWorkshopContext !== context || transcriptionWorkshopContext.imageSrc) return;
     transcriptionWorkshopContext.imageSrc = imageSource;
     renderWorkshopImageArea();
+    void setWorkshopExternalLink(imageSource);
     syncWorkshopZone();
   } catch {
     /* Panneau Original : le message « stockage durable indisponible » reste affiché. */
@@ -9617,17 +9626,59 @@ function transcriptionWorkshopDisplayTitle(context) {
   return String(context?.title || "").trim() || "Transcription";
 }
 
-/** Le menu « … » monte dans le header mobile de consultation (modèle fiche
-    Document) sur petit écran ; partout ailleurs — y compris pendant l'édition
-    mobile, où le header est masqué — il reste dans l'en-tête de la page. */
+/** Le menu « … » et le statut de transcription suivent le gabarit de la fiche
+    Document : sur mobile ils rejoignent l'en-tête dédié (menu à droite du
+    titre de marque, statut à gauche du CTA) ; sur desktop ils restent dans
+    l'en-tête de la page et dans la barre du panneau. */
 function arrangeWorkshopHeader() {
+  const narrow = window.matchMedia("(max-width: 760px)").matches;
   const menu = $("workshopActionsMenu");
   const actions = $("workshopHeaderActions");
   const slot = $("transcriptionMobileActionsSlot");
-  if (!menu || !actions || !slot) return;
-  const narrow = window.matchMedia("(max-width: 760px)").matches;
-  const target = narrow && transcriptionWorkshopConsultationMode() ? slot : actions;
-  if (menu.parentElement !== target) target.append(menu);
+  if (menu && actions && slot) {
+    const target = narrow ? slot : actions;
+    if (menu.parentElement !== target) target.append(menu);
+  }
+  const badge = $("workshopOfficialBadge");
+  const statusSlot = $("workshopHeaderStatusSlot");
+  const headEnd = document.querySelector("#workshopPanelRight .transcription-workshop-head-end");
+  if (badge && statusSlot && headEnd) {
+    const target = narrow ? statusSlot : headEnd;
+    if (badge.parentElement !== target) target.prepend(badge);
+  }
+}
+
+/** Lien « Ouvrir dans un nouvel onglet » de l'atelier : réutilise le mécanisme
+    de la visionneuse Document (href direct pour blob/http, objet Blob pour une
+    data-URL). L'URL temporaire est révoquée au remplacement et à la sortie. */
+let workshopExternalObjectUrl = "";
+
+function setWorkshopExternalLink(source) {
+  const link = $("workshopExternalBtn");
+  if (!link) return;
+  if (!source) {
+    link.hidden = true;
+    link.removeAttribute("href");
+    return;
+  }
+  if (/^(?:https?:|blob:)/.test(source)) {
+    link.href = source;
+    link.hidden = false;
+    return;
+  }
+  void (async () => {
+    try {
+      const blob = await (await fetch(source)).blob();
+      if (transcriptionWorkshopContext?.imageSrc !== source) return;
+      if (workshopExternalObjectUrl) URL.revokeObjectURL(workshopExternalObjectUrl);
+      workshopExternalObjectUrl = URL.createObjectURL(blob);
+      link.href = workshopExternalObjectUrl;
+      link.hidden = false;
+    } catch {
+      link.hidden = true;
+      link.removeAttribute("href");
+    }
+  })();
 }
 
 /** Bandeau de métadonnées sous la visionneuse : même contenu que la fiche
@@ -9665,14 +9716,14 @@ function renderWorkshopProgress(displayedPassages, visible) {
     box.innerHTML = "";
     return;
   }
-  const total = displayedPassages.length;
-  const filled = field => displayedPassages.filter(passage => String(passage[field] || "").trim()).length;
-  const row = (label, count) => {
-    const percent = Math.round((count / total) * 100);
-    const noun = total > 1 ? "passages" : "passage";
-    return `<div class="transcription-workshop-progress-item"><div class="transcription-workshop-progress-head"><span class="transcription-workshop-progress-label">${label}</span><span class="transcription-workshop-progress-value">${count} sur ${total}</span></div><div class="transcription-workshop-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${count}" aria-label="${label} : ${count} ${noun} sur ${total}"><span class="transcription-workshop-progress-bar" style="width: ${percent}%"></span></div></div>`;
+  /* Progressions calculées sur la version consultée (officielle en
+     consultation) avec le même calcul que la carte Transcription de la fiche
+     Document : part des passages non vides dans chaque langue. */
+  const column = (label, field, ariaLabel) => {
+    const percent = transcriptionPassageProgress(displayedPassages, field);
+    return `<div class="document-transcription-progress"><div class="document-transcription-progress-label"><span>${label}</span><strong>${percent} %</strong></div><div class="document-transcription-progress-track" role="progressbar" aria-label="${ariaLabel}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><span class="document-transcription-progress-fill document-transcription-progress-fill--${field === "textIt" ? "italian" : "french"}" style="width:${percent}%"></span></div></div>`;
   };
-  box.innerHTML = `<div class="transcription-workshop-progress-pair">${row("Italien", filled("textIt"))}${row("Français", filled("translationFr"))}</div>`;
+  box.innerHTML = `${column("Italien", "textIt", "Progression de la transcription italienne")}${column("Français", "translationFr", "Progression de la traduction française")}`;
   box.hidden = false;
 }
 
@@ -9689,8 +9740,6 @@ function renderTranscriptionWorkshop() {
   const context = transcriptionWorkshopContext;
   const draft = transcriptionWorkshopDraft;
   if (!context || !draft) return;
-  const page = context.pages.find(value => value.id === context.pageId) || context.pages[0];
-  const pageLabel = page?.label ? ` · ${page.label}` : "";
   $("workshopDocumentTitle").textContent = context.title;
   $("workshopDocumentTitle").setAttribute("aria-label", context.title);
   $("workshopDocumentTitle").title = context.title;
@@ -9717,7 +9766,9 @@ function renderTranscriptionWorkshop() {
     workshopDocumentOverflow.title = context.title;
   }
   const displayedPassages = transcriptionWorkshopDisplayedPassages();
-  $("workshopPageLabel").textContent = `Page ${context.pages.indexOf(page) + 1}${pageLabel} · ${displayedPassages.length} passage${displayedPassages.length > 1 ? "s" : ""}`;
+  /* Ligne « Page 1 · 2 passages » retirée : la pagination vit dans la barre
+     d'outils (pages ou PDF) et le compteur de passages dans le panneau. */
+  void setWorkshopExternalLink(context.pdf?.source || context.imageSrc || "");
   for (const button of document.querySelectorAll("[data-workshop-mode]")) {
     const active = button.dataset.workshopMode === transcriptionWorkshopDisplayMode;
     button.classList.toggle("is-active", active);

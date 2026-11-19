@@ -588,7 +588,8 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(html, /id="workshopProgress"[^>]*hidden/, "barres de progression dans la barre du panneau");
   assert.match(html, /id="workshopFileMetadata"[^>]*hidden/, "bandeau de métadonnées sous la visionneuse");
   assert.match(css, /\.transcription-workshop-title-row \{[^}]*display: flex/, "rangée titre + actions de l’en-tête");
-  assert.match(css, /\.transcription-workshop-progress-pair \{[^}]*grid-template-columns: repeat\(2/, "deux barres de progression côte à côte");
+  assert.match(css, /\.transcription-workshop-progress \{[^}]*grid-template-columns: repeat\(2/, "deux barres de progression côte à côte");
+  assert.match(css, /\.document-transcription-progress-label \{[^}]*justify-content: space-between/, "progressions réutilisant le composant de la carte Transcription");
   assert.match(css, /\.transcription-workshop-footer-nav \{[^}]*display: flex/, "navigation de pied en groupe flex");
   assert.match(css, /\.document-file-metadata--workshop \{[^}]*border-top/, "bandeau de métadonnées séparé en pied de panneau");
   assert.match(app, /function arrangeWorkshopHeader\(\)/, "menu « … » déplacé entre l’en-tête et le header mobile");
@@ -647,7 +648,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /removeEventListener\("resize", onViewportChange\)/, "nettoyage des listeners du clavier");
   assert.match(css, /\.source-detail-actions-menu \{/, "menu secondaire d’en-tête ancré sous le déclencheur");
   assert.match(css, /\.consultation-breadcrumb \{[^}]*flex: 1 1 auto/, "le fil d’Ariane réserve l’espace qui aligne le Retour à droite");
-  assert.match(css, /\.transcription-workshop-heading h2 \{[^}]*-webkit-line-clamp: 2/, "titre Atelier lisible sur deux lignes maximum");
+  assert.match(css, /\.transcription-workshop-heading #workshopPageHeading \{ margin: 0; overflow-wrap: anywhere/, "titre du document réutilise le composant page-title sans surcharge");
   assert.match(css, /\.transcription-workshop-passage\.is-selected \{ flex: 1 0 auto; min-height: 0;/, "le passage actif utilise la hauteur disponible");
   assert.match(css, /\.transcription-workshop-passage textarea \{ width: 100%; flex: 1 1 auto; min-height: clamp\(8rem, 24dvh, 16rem\)[^}]*field-sizing: content/, "champs de hauteur adaptée au contenu avec plafond anti-scroll imbriqué");
   assert.match(app, /class="transcription-workshop-delete-passage"[^>]*data-workshop-delete-passage/, "suppression de passage visible dans son contexte");
@@ -1053,7 +1054,7 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
         sameSize: Math.round(firstPill.width) === Math.round(add.width) && Math.round(firstPill.height) === Math.round(add.height)
       };
     });
-    assert.ok(desktopTools.toolsLeft <= desktopTools.panelLeft + 1, `outils à gauche du panneau (${desktopTools.toolsLeft} ≤ ${desktopTools.panelLeft})`);
+    assert.ok(desktopTools.toolsLeft >= desktopTools.panelLeft + 1 && desktopTools.toolsLeft <= desktopTools.panelLeft + 12, `outils intégrés à la barre du conteneur (${desktopTools.toolsLeft} ≥ ${desktopTools.panelLeft})`);
     assert.equal(desktopTools.zoomLabelAbsent, true, "texte « Ajusté » retiré de la barre");
     assert.deepEqual(desktopTools.order, ["out", "in", "workshopImageModeBtn", "workshopImageFullscreenBtn"], "4 commandes dans l’ordre de la fiche Document");
     assert.equal(desktopTools.passagePillCount, 2, "une pastille numérotée par passage courant");
@@ -1072,19 +1073,19 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
       scroll: document.documentElement.scrollWidth,
       inner: innerWidth,
       back: document.querySelectorAll("#workshopBackBtn").length,
-      menuInHeaderActions: !!document.getElementById("workshopActionsMenu").closest("#workshopHeaderActions"),
-      returnPath: document.querySelectorAll('[data-workshop-breadcrumb="document"], [data-workshop-breadcrumb="documents"]').length
+      menuInSlot: !!document.getElementById("workshopActionsMenu").closest("#transcriptionMobileActionsSlot"),
+      dedicatedBack: !!document.getElementById("transcriptionMobileBackBtn")
     }));
     assert.ok(mobile.scroll <= mobile.inner + 1, `en-tête atelier sans débordement à 320 px (${mobile.scroll}/${mobile.inner})`);
     assert.equal(mobile.back, 0, "aucun Retour interne résiduel sur mobile");
-    assert.equal(mobile.menuInHeaderActions, true, "en édition mobile, le menu « … » reste dans l’en-tête de page");
-    assert.ok(mobile.returnPath >= 2, "retour possible par les niveaux du fil d’Ariane");
+    assert.equal(mobile.menuInSlot, true, "en édition mobile, le menu « … » vit dans l’en-tête dédié");
+    assert.equal(mobile.dedicatedBack, true, "retour contextualisé disponible dans l’en-tête dédié");
     await page.setViewportSize({ width: 1280, height: 900 });
 
     /* Menu « … » : ouverture normale, fermeture extérieure, Échap, sortie. */
     await page.click("#workshopActionsMenu > summary");
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "menu ouvert par « … »");
-    await page.click("#workshopPageLabel");
+    await page.click("#workshopPageHeading", { position: { x: 6, y: 6 } });
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "clic extérieur ferme le menu");
     await page.click("#workshopActionsMenu > summary");
     await page.keyboard.press("Escape");
@@ -1093,10 +1094,10 @@ test("régression atelier : le brouillon survit à la fermeture, à la réouvert
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "« … » réouvre le menu");
 
     /* Fermeture : aucune confirmation (tout est enregistré). Le menu ouvert
-       recouvre temporairement le lien Retour (même grammaire que l'en-tête de
-       la fiche Document) : une fermeture extérieure le libère. */
+       recouvre temporairement le libellé de page (même grammaire que l'en-tête
+       de la fiche Document) : une fermeture extérieure le libère. */
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), true, "menu ouvert avant la fermeture extérieure");
-    await page.click("#workshopPageLabel");
+    await page.click("#workshopPageHeading", { position: { x: 6, y: 6 } });
     assert.equal(await page.evaluate(() => document.getElementById("workshopActionsMenu").open), false, "fermeture extérieure avant navigation");
     await page.click('[data-workshop-breadcrumb="document"]');
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
@@ -1210,8 +1211,6 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 const documentCrumb = document.getElementById("workshopDocumentTitle");
                 const currentCrumb = document.querySelector(".transcription-workshop-breadcrumb-current");
                 const heading = document.querySelector(".transcription-workshop-heading").getBoundingClientRect();
-                const label = document.getElementById("workshopPageLabel");
-                const labelRect = label.getBoundingClientRect();
                 const title = document.getElementById("workshopPageHeading");
                 const titleRect = title.getBoundingClientRect();
                 const menu = document.getElementById("workshopActionsMenu");
@@ -1230,8 +1229,6 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                   headerHeight: header.height,
                   headerMarkup: [...document.querySelector(".transcription-workshop-header").children].map(element => ({ tag: element.tagName, className: element.className, height: Math.round(element.getBoundingClientRect().height), display: getComputedStyle(element).display })),
                   breadcrumbHeight: Math.round(breadcrumb.getBoundingClientRect().height),
-                  labelWhiteSpace: getComputedStyle(label).whiteSpace,
-                  labelHeight: Math.round(labelRect.height),
                   titleText: title.textContent,
                   titleTop: Math.round(titleRect.top),
                   titleLeft: Math.round(titleRect.left),
@@ -1260,9 +1257,6 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 : /Registre Transactions Immobilières.*Transcription/, "fil d’Ariane compact adapté au breakpoint");
               assert.equal(layout.documentCrumbLabel, "Registre Transactions Immobilières", "nom complet du document exposé à l’accessibilité");
               assert.equal(layout.currentCrumb, "Transcription", "étape courante annoncée dans le fil d’Ariane");
-              /* « Page X · Y passages » compact : une seule ligne. */
-              assert.equal(layout.labelWhiteSpace, "nowrap", "libellé de page sur une seule ligne");
-              assert.ok(layout.labelHeight <= 26, `libellé de page compact sans retour à la ligne (${layout.labelHeight}px)`);
               /* En-tête réellement compact, sur le modèle de la fiche Document :
                  203 px à 390 et 208 px à 320 avant correction, 121 px pour la
                  fiche Document — l'atelier doit désormais rester en dessous. */
@@ -1273,10 +1267,9 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               assert.equal(layout.backCount, 0, "aucun bouton Retour dans l’atelier");
               assert.ok(layout.titleTop >= layout.breadcrumbBottom - 1, `titre du document sur sa propre ligne (${layout.titleTop} ≥ ${layout.breadcrumbBottom})`);
               assert.ok(layout.titleRight <= layout.headerRight + 1, "titre contenu dans l’en-tête");
-              assert.ok(layout.titleWidth > 0 && layout.titleHeight > 0, "titre réellement rendu");
-              assert.equal(layout.menuInHeaderActions, true, "menu « … » dans la rangée titre + actions");
-              assert.ok(layout.menuRight <= layout.headerRight + 1, "menu « … » à droite de l’en-tête");
-              assert.ok(layout.menuWidth >= 44 && layout.menuHeight >= 44, `menu « … » ≥ 44 px (${layout.menuWidth}×${layout.menuHeight})`);
+               assert.ok(layout.titleWidth > 0 && layout.titleHeight > 0, "titre réellement rendu");
+               assert.equal(layout.menuInHeaderActions, width > 760, `menu « … » dans l’en-tête desktop, dans le header dédié sur mobile (${width}px)`);
+               assert.ok(layout.menuWidth >= 44 && layout.menuHeight >= 44, `menu « … » ≥ 44 px (${layout.menuWidth}×${layout.menuHeight})`);
               /* Aucun débordement horizontal. */
               assert.ok(layout.pageScroll <= layout.viewport + 1, `sans débordement horizontal à ${width}px (${layout.pageScroll}/${layout.viewport})`);
               /* Onglets et barre d'outils de la photographie. */
@@ -1289,7 +1282,7 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                 assert.ok(toolWidth >= 44 && toolHeight >= 44, `outil photo ≥ 44 px (${toolWidth}×${toolHeight})`);
               }
               assert.equal(layout.zoomLabelAbsent, true, "texte « Ajusté » retiré de la barre");
-              assert.ok(layout.toolsLeft <= layout.panelLeft + 1, `outils à gauche sous les onglets (${layout.toolsLeft} ≤ ${layout.panelLeft})`);
+              assert.ok(layout.toolsLeft >= layout.panelLeft + 1 && layout.toolsLeft <= layout.panelLeft + 12, `outils intégrés à la barre sous les onglets (${layout.toolsLeft} ≥ ${layout.panelLeft})`);
               assert.deepEqual(layout.toolOrder, ["out", "in", "workshopImageModeBtn", "workshopImageFullscreenBtn"], "4 commandes dans l’ordre de la fiche Document");
 
               /* Statut de sauvegarde : pied d'atelier du panneau de
@@ -1434,37 +1427,34 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
                  passage visible, contrôle segmenté contenu. */
               const a3State = await page.evaluate(() => {
                 const visibleCards = [...document.querySelectorAll(".transcription-workshop-passage")].filter(card => card.getClientRects().length > 0);
-                 const crumbSeparators = [...document.querySelectorAll(".consultation-breadcrumb-separator")];
                  const mode = document.querySelector(".transcription-workshop-mode");
-                 const documentCrumb = document.getElementById("workshopDocumentTitle");
-                 const overflowCrumb = document.querySelector(".transcription-workshop-breadcrumb .consultation-breadcrumb-overflow > summary");
+                 const mobileHeader = document.getElementById("transcriptionMobileHeader");
+                 const mobileBack = document.getElementById("transcriptionMobileBackBtn");
+                 const title = document.getElementById("workshopPageHeading");
+                 const titleRect = title.getBoundingClientRect();
                  return {
                    navHidden: getComputedStyle(document.querySelector(".topbar .main-nav")).display === "none",
-                   brandTaglineHidden: getComputedStyle(document.querySelector(".topbar .brand p")).display === "none",
-                   crumbSeparatorsVisible: crumbSeparators.length > 0 && crumbSeparators.every(span => getComputedStyle(span).display !== "none"),
-                   documentsLevelVisible: document.querySelector('[data-workshop-breadcrumb="documents"]').getClientRects().length > 0,
-                   titleAccessible: documentCrumb.getAttribute("aria-label") === documentCrumb.textContent,
-                   titleOrOverflowVisible: documentCrumb.getClientRects().length > 0 || overflowCrumb.getClientRects().length > 0,
-                  backCount: document.querySelectorAll("#workshopBackBtn").length,
-                  returnTargetHeight: Math.max(0, ...[...document.querySelectorAll(".transcription-workshop-breadcrumb .consultation-breadcrumb-link, .transcription-workshop-breadcrumb .consultation-breadcrumb-overflow > summary")].filter(element => element.getClientRects().length).map(element => Math.round(element.getBoundingClientRect().height))),
-                  menuInHeaderActions: !!document.getElementById("workshopActionsMenu").closest("#workshopHeaderActions"),
-                  pageLabelVisible: document.getElementById("workshopPageLabel").getClientRects().length > 0,
-                  visibleCards: visibleCards.length,
-                  modeScroll: mode ? mode.scrollWidth - mode.clientWidth : null,
-                  horizontalOverflow: document.documentElement.scrollWidth > innerWidth
-                };
-              });
-              assert.equal(a3State.navHidden, true, "navigation générale masquée dans l’atelier mobile");
-              assert.equal(a3State.brandTaglineHidden, true, "sous-titre de marque masqué pour l’espace compact");
-               assert.equal(a3State.crumbSeparatorsVisible, true, "séparateurs du fil conservés dans la vue mobile");
-               assert.equal(a3State.documentsLevelVisible, true, "niveau Documents conservé dans le fil mobile");
-               assert.equal(a3State.titleAccessible, true, "titre complet du document accessible");
-               assert.equal(a3State.titleOrOverflowVisible, true, "titre Document visible ou accessible via le menu intermédiaire");
-              assert.equal(a3State.backCount, 0, "aucun Retour interne en édition mobile");
-              assert.ok(a3State.returnTargetHeight >= 44, `retour par le fil d’Ariane ≥ 44 px (${a3State.returnTargetHeight}px)`);
-              assert.equal(a3State.menuInHeaderActions, true, "menu « … » conservé dans l’en-tête pendant l’édition mobile");
-              assert.equal(a3State.pageLabelVisible, true, "contexte de page visible");
-              assert.equal(a3State.visibleCards, 1, "un seul passage visible à la fois");
+                   brandHidden: getComputedStyle(document.querySelector(".topbar > .brand")).display === "none",
+                   headerVisible: getComputedStyle(mobileHeader).display !== "none" && mobileHeader.getClientRects().length > 0,
+                   mobileBackHeight: Math.round(mobileBack.getBoundingClientRect().height),
+                   menuInSlot: !!document.getElementById("workshopActionsMenu").closest("#transcriptionMobileActionsSlot"),
+                   backCount: document.querySelectorAll("#workshopBackBtn").length,
+                   titleVisible: titleRect.width > 0 && titleRect.height > 0,
+                   titleText: title.textContent,
+                   visibleCards: visibleCards.length,
+                   modeScroll: mode ? mode.scrollWidth - mode.clientWidth : null,
+                   horizontalOverflow: document.documentElement.scrollWidth > innerWidth
+                 };
+               });
+               assert.equal(a3State.navHidden, true, "navigation générale masquée dans l’atelier mobile");
+               assert.equal(a3State.brandHidden, true, "logo et compte masqués dans l’en-tête dédié");
+               assert.equal(a3State.headerVisible, true, "en-tête mobile dédié visible en édition");
+               assert.ok(a3State.mobileBackHeight >= 44, `retour dédié ≥ 44 px (${a3State.mobileBackHeight}px)`);
+               assert.equal(a3State.menuInSlot, true, "menu « … » dans l’en-tête dédié pendant l’édition mobile");
+               assert.equal(a3State.backCount, 0, "aucun Retour interne résiduel");
+               assert.equal(a3State.titleVisible, true, "titre du document visible sous l’en-tête");
+                assert.ok(a3State.titleText.length > 0, "titre du document renseigné");
+               assert.equal(a3State.visibleCards, 1, "un seul passage visible à la fois");
               assert.ok(a3State.modeScroll <= 1, `contrôle segmenté sans débordement horizontal (${a3State.modeScroll}px)`);
               assert.equal(a3State.horizontalOverflow, false, "aucun débordement horizontal de la page");
               /* Conservation de la sélection entre onglets et changement de passage. */
@@ -1527,20 +1517,17 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               assert.equal(restoredKeyboard.actionsVisible, true, "actions restaurées à la fermeture du clavier");
               assert.equal(restoredKeyboard.keyboardHeight, "", "hauteur forcée nettoyée à la fermeture");
 
-               /* Sortie sans friction (brouillon enregistré), retours nets. Le
-                  niveau Document est absorbé par le « … » du fil en mobile. */
-               await page.click(".transcription-workshop-breadcrumb .consultation-breadcrumb-overflow > summary");
-               await page.click('[data-workshop-breadcrumb-overflow="document"]');
+               /* Sortie sans friction (brouillon enregistré), retours nets :
+                  l'en-tête dédié porte le retour contextualisé. */
+               await page.click("#transcriptionMobileBackBtn");
                await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
                assert.deepEqual(dialogs, [], "sortie sans confirmation");
                if (width === 320) {
                  await page.evaluate(() => window.__repro.transcribe());
                  await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden, undefined, { timeout: 10000 });
-                 await page.locator(".transcription-workshop-breadcrumb .consultation-breadcrumb-overflow > summary").click();
-                 assert.equal(await page.locator(".transcription-workshop-breadcrumb .consultation-breadcrumb-overflow").evaluate(element => element.open), true, "menu des niveaux intermédiaires ouvrable au toucher");
-                 await page.locator("[data-workshop-breadcrumb-overflow='document']").click();
+                 await page.locator("#transcriptionMobileBackBtn").click();
                  await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden, undefined, { timeout: 10000 });
-                 assert.deepEqual(dialogs, [], "navigation depuis le niveau intermédiaire conserve le parcours enregistré");
+                 assert.deepEqual(dialogs, [], "retour depuis l’en-tête dédié conserve le parcours enregistré");
                }
                assert.deepEqual(pageErrors, [], `erreurs JavaScript : ${pageErrors.join(" | ")}`);
             } finally {

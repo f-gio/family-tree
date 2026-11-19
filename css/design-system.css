@@ -3802,8 +3802,10 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .detail-page-meta-row .source-detail-header-badges { min-width: 0; margin: 0; }
 .detail-page-meta-row .dedicated-page-actions { flex: 0 0 auto; }
 .transcription-workshop-breadcrumb-document { max-width: min(30vw, 22rem); white-space: nowrap; }
-.transcription-workshop-heading #workshopPageHeading { margin: 0; font: 700 clamp(1.05rem, 2.4vw, 1.5rem)/var(--leading-tight) var(--font-display); }
-.transcription-workshop-heading h2 { margin: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font: 700 clamp(1.05rem, 2.4vw, 1.5rem)/var(--leading-tight) var(--font-display); }
+/* Titre de l'atelier : composant « page-title » de la fiche Document, sans
+   surcharge de police ni limite de lignes. */
+.transcription-workshop-heading #workshopPageHeading { margin: 0; overflow-wrap: anywhere; }
+.transcription-workshop-heading h2 { margin: 0; overflow-wrap: anywhere; }
 .transcription-workshop-heading p { margin: 2px 0 0; }
 .transcription-workshop-head-status { display: flex; align-items: center; gap: var(--space-2); flex: 0 0 auto; }
 /* Statut de sauvegarde compact : information discrète (pas une action), les
@@ -3928,14 +3930,26 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
    gauche au-dessus de l'image — le texte « Ajusté » n'apparaît plus dans la
    barre (l'indicateur de vol de zoom suffit au geste). */
 #workshopImageTools { justify-content: flex-start; gap: var(--space-2); }
-/* Visionneuse de l'atelier harmonisée sur la fiche Document : surface de
-   lecture à angles droits et bandeau de métadonnées en pied du panneau
-   Original (format, nom du fichier, date d'importation). */
-#workshopPanelOriginal .transcription-workshop-image-viewport,
-#workshopPanelOriginal .transcription-workshop-pdf-viewport,
-#workshopPanelOriginal .transcription-workshop-pdf-fallback { border-radius: 0; }
-#workshopPanelOriginal.is-viewer-fullscreen .transcription-workshop-image-viewport { border-radius: 0; }
-.document-file-metadata--workshop { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding: var(--space-2) var(--space-3); border-top: var(--border-subtle); background: var(--color-surface); color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; }
+/* Visionneuse de l'atelier : conteneur unique identique à la fiche Document —
+   barre d'outils intégrée (haut arrondi), surface de lecture à angles droits,
+   bandeau de métadonnées en pied (bas arrondi), sans espace beige entre eux. */
+.transcription-workshop-original { gap: 0; }
+.transcription-workshop-original .transcription-workshop-panel-head { box-sizing: border-box; padding: var(--space-2); border: var(--border-default); border-bottom: 0; border-radius: var(--radius-md) var(--radius-md) 0 0; background: var(--color-surface); }
+.transcription-workshop-original .transcription-workshop-image-viewport,
+.transcription-workshop-original .transcription-workshop-pdf-viewport,
+.transcription-workshop-original .transcription-workshop-pdf-fallback { border: var(--border-default); border-top: 0; border-radius: 0; }
+.transcription-workshop-original .document-file-metadata--workshop { border: var(--border-default); border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); }
+.transcription-workshop-original .transcription-workshop-zone-actions { margin-top: var(--space-2); }
+.transcription-workshop-original .transcription-workshop-empty { margin: var(--space-2) 0 0; }
+.transcription-workshop-original #workshopPhotoNav { margin-top: var(--space-2); }
+#workshopPanelOriginal.is-viewer-fullscreen .transcription-workshop-panel-head,
+#workshopPanelOriginal.is-viewer-fullscreen .transcription-workshop-image-viewport,
+#workshopPanelOriginal.is-viewer-fullscreen .transcription-workshop-pdf-viewport,
+#workshopPanelOriginal.is-viewer-fullscreen .document-file-metadata--workshop { border: 0; border-radius: 0; background: transparent; }
+/* Barre d'outils de l'atelier : mêmes dimensions que celles de la fiche
+   Document (44 px, boutons carrés, groupe de zoom jointif). */
+.transcription-workshop-tools .btn { width: var(--control-touch); min-width: var(--control-touch); height: var(--control-touch); min-height: var(--control-touch); padding: 0; }
+.document-file-metadata--workshop { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-width: 0; padding: var(--space-2) var(--space-3); background: var(--color-surface); color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; }
 .document-file-metadata--workshop[hidden] { display: none; }
 .document-file-metadata--workshop .document-file-metadata-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .transcription-workshop-head-end { display: flex; align-items: center; flex: 0 0 auto; gap: var(--space-2); min-width: 0; margin-inline-start: auto; }
@@ -3949,17 +3963,10 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 /* Consultation : compteur « X sur Y » en tête du panneau, à droite du badge. */
 .transcription-workshop-passage-counter { flex: 0 0 auto; color: var(--color-text-muted); font-size: var(--text-sm); font-weight: var(--weight-semibold); white-space: nowrap; }
 .transcription-workshop-passage-counter[hidden] { display: none; }
-/* Barres de progression Italien / Français sous la barre du panneau. */
-.transcription-workshop-progress { display: block; min-width: 0; }
+/* Barres de progression Italien / Français : composant de la carte
+   Transcription de la fiche Document, côte à côte dans le panneau. */
+.transcription-workshop-progress { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); min-width: 0; }
 .transcription-workshop-progress[hidden] { display: none; }
-.transcription-workshop-progress-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); min-width: 0; }
-.transcription-workshop-progress-item { display: grid; gap: var(--space-1); min-width: 0; }
-.transcription-workshop-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); min-width: 0; }
-.transcription-workshop-progress-label { color: var(--color-text-label); font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: .04em; }
-.transcription-workshop-progress-value { color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); white-space: nowrap; }
-.transcription-workshop-progress-track { display: block; overflow: hidden; height: 6px; border-radius: var(--radius-pill); background: var(--color-surface-muted); }
-.transcription-workshop-progress-bar { display: block; height: 100%; border-radius: inherit; background: var(--color-brand); }
-.transcription-workshop-progress[hidden] .transcription-workshop-progress-pair { display: none; }
 .transcription-workshop-tabs { display: none; gap: var(--space-2); }
 .transcription-workshop-tab { flex: 1 1 0; min-height: var(--control-touch); padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-muted); font-weight: var(--weight-semibold); }
 .transcription-workshop-tab.is-active { background: var(--color-brand-soft); border-color: var(--color-brand); color: var(--color-brand); }
@@ -4050,6 +4057,22 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 /* Consultation : un seul passage à la fois. Le mode modification conserve la
    liste verticale complète (le mobile masque déjà les cartes non actives). */
 #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-passage:not(.is-selected) { display: none; }
+/* Consultation : le passage actif est identifié par son bouton numéroté —
+   ni encadrement vert, ni carte séparée, et des zones de lecture qui ne
+   ressemblent pas à des champs de formulaire. */
+#transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-passage { border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 0; gap: var(--space-3); }
+#transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-passage.is-selected { border: 0; box-shadow: none; }
+#transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-passage-head { display: none; }
+#transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-field-block { flex: 0 0 auto; }
+#transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-desktop-passage-number { display: inline; }
+#transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-passage textarea { flex: 0 0 auto; min-height: 0; max-height: none; padding: var(--space-3); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface-muted); resize: none; overflow: hidden; }
+#transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-passage textarea:disabled { background: var(--color-surface-muted); }
+/* Statut de la traduction annoncé avant le texte en consultation. */
+#transcriptionWorkshopView:not(.is-edit-session) .workshop-field-fr .transcription-workshop-fr-state { order: 1; }
+#transcriptionWorkshopView:not(.is-edit-session) .workshop-field-fr textarea { order: 2; }
+/* Emplacement du statut réel à gauche du CTA dans l'en-tête mobile. */
+.transcription-workshop-header-status { display: inline-flex; align-items: center; min-width: 0; }
+.transcription-workshop-header-status:empty { display: none; }
 .transcription-workshop-passage-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .transcription-workshop-passage-head strong { flex: 0 0 auto; font-size: var(--text-md); }
 .transcription-workshop-passage textarea { width: 100%; flex: 1 1 auto; min-height: clamp(8rem, 24dvh, 16rem); max-height: 52dvh; overflow: auto; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text); font-family: var(--font-display); font-size: 16px; line-height: var(--leading-body); resize: vertical; field-sizing: content; }
@@ -4063,6 +4086,19 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 /* Panneau de transcription : navigation à gauche, badge et menu « … » calés
    à droite — l'en-tête reste sur une ligne le plus longtemps possible. */
 .transcription-workshop-right .transcription-workshop-panel-head { justify-content: flex-start; }
+/* Consultation desktop : le panneau de transcription forme une carte unique
+   alignée sur la visionneuse — sélection, progressions, lecture et pied
+   réunis, séparés par de fines bordures internes. */
+@media (min-width: 761px) {
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-right { gap: 0; border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-right .transcription-workshop-panel-head { padding: var(--space-2) var(--space-3); border-bottom: var(--border-subtle); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-right .transcription-workshop-progress { padding: var(--space-2) var(--space-3); border-bottom: var(--border-subtle); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-right .transcription-workshop-list { padding: var(--space-3); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-right .transcription-workshop-footer { padding: var(--space-2) var(--space-3); border-top: var(--border-subtle); }
+  /* Pied : version à gauche, navigation regroupée à l'extrémité droite. */
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-status { flex: 1 1 auto; }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-nav { margin-inline-start: 0; }
+}
 /* Historique des versions : lignes compactes et texte officiel en lecture
    seule, consultables sans quitter l'atelier ni perdre le brouillon. */
 .transcription-history-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); width: 100%; min-height: var(--control-touch); padding: var(--space-2); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); color: inherit; text-align: left; cursor: pointer; }
@@ -4148,20 +4184,38 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   /* Titre du document sur une ligne dédiée (retour à la ligne si nécessaire) ;
      le CTA vert passe sous le titre, pleine largeur. */
   .transcription-workshop-title-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
-  /* En édition (CTA masqué) le menu « … » partage la ligne du titre : l'en-tête
-     reste compact sans perdre ni le titre sur sa ligne ni la cible de 44 px. */
-  .transcription-workshop-title-row:not(:has(.transcription-workshop-edit-cta:not([hidden]))) { flex-direction: row; align-items: center; gap: var(--space-2); }
-  .transcription-workshop-title-row > h2 { width: 100%; }
-  .transcription-workshop-header-actions { justify-content: flex-end; flex-wrap: wrap; }
-  .transcription-workshop-header-actions .transcription-workshop-edit-cta { flex: 1 1 auto; width: 100%; }
-  .transcription-workshop-breadcrumb { position: static; flex-wrap: nowrap; padding-inline-end: 0; }
+  /* Titre du document sur sa ligne, typographie du titre de la fiche
+     Document mobile (retours à la ligne autorisés). */
+  .transcription-workshop-title-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
+  .transcription-workshop-title-row #workshopPageHeading { font-size: clamp(1.35rem, 6vw, 1.9rem); line-height: var(--leading-tight); white-space: normal; }
+  /* Statut réel à gauche, CTA vert à droite — aucun second menu « … » ici. */
+  .transcription-workshop-header-actions { justify-content: space-between; flex-wrap: wrap; }
+  .transcription-workshop-header-actions .transcription-workshop-edit-cta { flex: 0 1 auto; }
+  .transcription-workshop-header-status:empty { display: none; }
+  /* Fil d'Ariane masqué sur mobile : l'en-tête dédié porte le retour. */
+  .transcription-workshop-breadcrumb { display: none; }
   .transcription-workshop-head-status { grid-column: auto; grid-row: auto; justify-self: auto; flex: 0 0 auto; max-width: none; }
   /* Cibles tactiles : `.btn.small` (32px) prime sur le minimum mobile — les
      actions du pied de transcription repassent à 44 px. */
   .transcription-workshop-footer .btn { min-height: var(--control-touch); }
   .transcription-workshop-passage-pills { flex: 0 0 auto; max-width: calc(var(--control-touch) + var(--control-touch) + var(--control-touch) + var(--space-1) + var(--space-1)); scroll-snap-type: x mandatory; }
   .transcription-workshop-passage-nav { flex: 0 0 auto; }
-  .transcription-workshop-heading #workshopPageLabel { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Bandeau de métadonnées réservé au desktop : aucun espace réservé. */
+  .document-file-metadata--workshop { display: none; }
+  /* Consultation : sélection, progressions, contenu et pied forment un flux
+     commun aux trois onglets — la colonne de transcription ne bascule plus. */
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight { display: contents; }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-panel-head { order: 1; padding-inline: var(--space-3); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-progress { order: 2; padding-inline: var(--space-3); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-list { order: 3; padding: var(--space-2) var(--space-3) 0; overflow: visible; }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-footer { order: 4; padding-inline: var(--space-3); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelOriginal { order: 3; }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout[data-active-panel="original"] #workshopPassageList,
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout[data-active-panel="original"] #workshopComparePanel { display: none; }
+  /* Navigation inférieure : deux boutons équilibrés, version centrée dessous. */
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-nav { flex: 1 1 100%; order: 1; justify-content: space-between; margin-inline-start: 0; gap: var(--space-2); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-nav .btn { flex: 1 1 0; min-width: 0; }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-status { flex: 1 1 100%; order: 2; justify-content: center; }
   .transcription-workshop-desktop-passage-number { display: none; }
   .transcription-workshop-tabs { display: flex; }
   .transcription-workshop-mode-button { min-height: var(--control-touch); }
@@ -6882,22 +6936,22 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   body:has(#documentDetailView:not([hidden])) .topbar,
   body:has(#sourceDetailView:not([hidden])) .topbar,
   body:has(#proofDetailView:not([hidden])) .topbar,
-  body:has(#transcriptionWorkshopView:not([hidden]):not(.is-edit-session)) .topbar { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; min-height: calc(var(--control-touch) + env(safe-area-inset-top)); padding: max(var(--space-1), env(safe-area-inset-top)) var(--space-3) var(--space-1); }
+   body:has(#transcriptionWorkshopView:not([hidden])) .topbar { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; min-height: calc(var(--control-touch) + env(safe-area-inset-top)); padding: max(var(--space-1), env(safe-area-inset-top)) var(--space-3) var(--space-1); }
   body:has(#personDetailView:not([hidden])) .topbar > .brand,
   body:has(#documentDetailView:not([hidden])) .topbar > .brand,
   body:has(#sourceDetailView:not([hidden])) .topbar > .brand,
   body:has(#proofDetailView:not([hidden])) .topbar > .brand,
-  body:has(#transcriptionWorkshopView:not([hidden]):not(.is-edit-session)) .topbar > .brand,
+  body:has(#transcriptionWorkshopView:not([hidden])) .topbar > .brand,
   body:has(#personDetailView:not([hidden])) .topbar > .account-menu,
   body:has(#documentDetailView:not([hidden])) .topbar > .account-menu,
   body:has(#sourceDetailView:not([hidden])) .topbar > .account-menu,
   body:has(#proofDetailView:not([hidden])) .topbar > .account-menu,
-  body:has(#transcriptionWorkshopView:not([hidden]):not(.is-edit-session)) .topbar > .account-menu { display: none !important; }
+  body:has(#transcriptionWorkshopView:not([hidden])) .topbar > .account-menu { display: none !important; }
   body:has(#personDetailView:not([hidden])) .topbar > .person-page-mobile-header { display: grid; }
   body:has(#documentDetailView:not([hidden])) .topbar > #documentMobileHeader { display: grid; }
   body:has(#sourceDetailView:not([hidden])) .topbar > #sourceMobileHeader { display: grid; }
   body:has(#proofDetailView:not([hidden])) .topbar > #proofMobileHeader { display: grid; }
-  body:has(#transcriptionWorkshopView:not([hidden]):not(.is-edit-session)) .topbar > #transcriptionMobileHeader { display: grid; }
+  body:has(#transcriptionWorkshopView:not([hidden])) .topbar > #transcriptionMobileHeader { display: grid; }
   /* Le Retour interne disparaît : le chevron du header est l'unique retour. */
   .detail-page-crumb-row > .dedicated-page-back { display: none; }
   /* Le menu « … » monte dans le header : le doublon en page est masqué. */
@@ -7072,10 +7126,14 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   /* Lot G : plus d'onglets mobiles — les deux panneaux se suivent dans le
      flux vertical (Ordre : visionneuse, puis [miniatures], puis Informations). */
   #documentDetailView .document-detail-layout { grid-template-columns: minmax(0, 1fr); height: auto; gap: var(--space-3); }
-  /* Plus d'encadrement global sous le visuel : la barre d'outils garde son
-     fond, la surface de lecture garde le sien, et le fond beige de la page
-     réapparaît entre la pagination, les volets et leurs espacements. */
+/* Plus d'encadrement global sous le visuel : la barre d'outils garde son
+   fond, la surface de lecture garde le sien, et le fond beige de la page
+   réapparaît entre la pagination, les volets et leurs espacements.
+   L'encadrement couvre barre d'outils + visuel, et s'arrête sous le document. */
   #documentDetailView .document-original-panel { height: auto; min-height: 0; overflow: hidden; padding: 0; gap: 0; border: 0; border-radius: 0; background: transparent; }
+  #documentDetailView .document-original-panel > .viewer-image-controls,
+  #documentDetailView .document-original-panel > .pdf-viewer-toolbar { border: var(--border-default); border-radius: var(--radius-md) var(--radius-md) 0 0; }
+  #documentDetailView .document-original-panel > .viewer-body { border: var(--border-default); border-top: 0; }
   #documentDetailView .document-file-metadata--desktop { display: none; }
   #documentDetailView .document-file-details-mobile { display: grid; }
   #documentDetailView .document-detail-heading-row { flex-wrap: wrap; gap: var(--space-2); }
