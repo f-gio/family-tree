@@ -251,8 +251,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     assert.equal(state.returnRowPresent, true, "rangée Retour au-dessus de l’en-tête");
     assert.equal(state.categoryBadgeText, "Registre", "badge de catégorie renseigné");
     assert.equal(state.categoryBadgeHidden, false, "badge visible quand la catégorie existe");
-    assert.equal(state.categoryBadgeRowHidden, false, "rangée de catégorie visible sous le titre");
-    assert.ok(state.categoryBadgeRowRect.y >= state.titleRect.bottom, "badge placé sous le titre principal");
+    assert.equal(state.categoryBadgeRowRect.height > 0, true, "rangée de catégorie visible sur la ligne du titre");
+    assert.ok(state.categoryBadgeRowRect.y >= state.titleRect.y && state.categoryBadgeRowRect.y < state.titleRect.bottom, "badge à droite du titre principal, centré verticalement");
     assert.equal(state.subtitleAbsent, true, "aucun sous-titre sous le titre Document (lot G)");
     assert.ok(state.headerClass.includes("dedicated-page-header"), "en-tête Document partagé");
     assert.equal(state.imageVisible, true, "aperçu du document chargé");
@@ -555,7 +555,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       const mobileActions = mobileHeader.querySelector("#documentMobileActionsSlot .tile-context-toggle")?.getBoundingClientRect() || null;
       const titleBox = mobileHeader.querySelector("strong").getBoundingClientRect();
       const returnRow = backElement?.closest(".document-detail-return-row") || null;
-      return { actionBackGap: actions && back ? back.y - actions.bottom : null, rightInset: back ? rect.right - back.right : null, returnCenterDelta: back ? Math.abs((back.y + back.height / 2) - (crumb.y + crumb.height / 2)) : null, returnFontSize: backElement ? getComputedStyle(backElement).fontSize : null, height: rect.height, contentBackDisplay: backElement ? getComputedStyle(returnRow || backElement).display : "none", backAboveTitle: back && crumb ? back.bottom <= crumb.y + 1 : null, mobileBackHeight: mobileBack.height, mobileHeaderVisible: getComputedStyle(mobileHeader).display !== "none", mobileTitleCenterDelta: Math.round((titleBox.left + titleBox.right) / 2 - innerWidth / 2), mobileActionSymmetryDelta: mobileActions ? Math.round((mobileBack.left + mobileBack.right + mobileActions.left + mobileActions.right) / 2 - innerWidth) : null, documentBackPresent: id === "documentDetailView" && !!backElement };
+      return { actionBackGap: actions && back ? back.y - actions.bottom : null, rightInset: back ? rect.right - back.right : null, leftInset: back ? back.left - rect.left : null, returnCenterDelta: back ? Math.abs((back.y + back.height / 2) - (crumb.y + crumb.height / 2)) : null, returnFontSize: backElement ? getComputedStyle(backElement).fontSize : null, height: rect.height, contentBackDisplay: backElement ? getComputedStyle(returnRow || backElement).display : "none", backAboveTitle: back && crumb ? back.bottom <= crumb.y + 1 : null, mobileBackHeight: mobileBack.height, mobileHeaderVisible: getComputedStyle(mobileHeader).display !== "none", mobileTitleCenterDelta: Math.round((titleBox.left + titleBox.right) / 2 - innerWidth / 2), mobileActionSymmetryDelta: mobileActions ? Math.round((mobileBack.left + mobileBack.right + mobileActions.left + mobileActions.right) / 2 - innerWidth) : null, documentBackPresent: id === "documentDetailView" && !!backElement };
     }, viewId);
     for (const width of [320, 375, 390, 820, 1440]) {
       await page.setViewportSize({ width, height: 900 });
@@ -585,12 +585,13 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
           assert.ok(Math.abs(geometry.mobileTitleCenterDelta) <= 1, `${width}px : titre centré pour ${name} (${geometry.mobileTitleCenterDelta}px)`);
           if (name === "Document") assert.ok(Math.abs(geometry.mobileActionSymmetryDelta) <= 1, `${width}px : menu ⋯ symétrique au Retour (${geometry.mobileActionSymmetryDelta}px) ${JSON.stringify(geometry.mobileActionBoxes)}`);
         } else {
-          assert.ok(geometry.rightInset >= -1 && geometry.rightInset <= 3, `${width}px : Retour de ${name} aligné à droite (${geometry.rightInset}px)`);
           if (name === "Document") {
+            assert.ok(geometry.leftInset >= -1 && geometry.leftInset <= 3, `${width}px : Retour de ${name} aligné à gauche (${geometry.leftInset}px)`);
             assert.equal(geometry.documentBackPresent, true, `${width}px : lien Retour rétabli dans la fiche Document desktop`);
             assert.equal(geometry.backAboveTitle, true, `${width}px : Retour au-dessus du titre dans la fiche Document`);
             assert.equal(geometry.returnFontSize, "14px", `${width}px : Retour Document en 14 px`);
           } else {
+            assert.ok(geometry.rightInset >= -1 && geometry.rightInset <= 3, `${width}px : Retour de ${name} aligné à droite (${geometry.rightInset}px)`);
             assert.ok(geometry.returnCenterDelta <= 1, `${width}px : Retour de ${name} centré sur le fil (${geometry.returnCenterDelta}px)`);
             assert.equal(geometry.returnFontSize, "14px", `${width}px : Retour de ${name} en 14 px`);
           }
@@ -633,7 +634,8 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
         header: document.querySelector("#documentDetailView .document-detail-header").getBoundingClientRect()
       }));
       assert.equal(categoryState.breadcrumb, null, `${width}px : fil d’Ariane supprimé de la fiche Document`);
-      assert.ok(categoryState.badge.y >= categoryState.title.bottom, `${width}px : « Autre » sous le titre`);
+      if (width <= 760) assert.ok(categoryState.badge.y >= categoryState.title.bottom, `${width}px : « Autre » sous le titre`);
+      else assert.ok(categoryState.badge.y >= categoryState.title.y && categoryState.badge.y < categoryState.title.bottom, `${width}px : « Autre » à droite du titre, centré verticalement`);
       assert.ok(categoryState.badge.bottom <= categoryState.header.bottom, `${width}px : badge contenu dans l'en-tête`);
       assert.ok(documentGeometry.height <= (width <= 390 ? 175 : 220), `${width}px : en-tête Document reste compact (${documentGeometry.height}px)`);
       const returnLabels = await page.evaluate(() => {

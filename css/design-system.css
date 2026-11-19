@@ -3770,6 +3770,15 @@ dialog::backdrop { animation: ft-backdrop-in 180ms ease-out; }
 .transcription-workshop-header-actions { display: flex; align-items: center; justify-content: flex-end; flex: 0 0 auto; gap: var(--space-2); min-width: 0; }
 .transcription-workshop-header-actions .transcription-workshop-edit-cta { display: inline-flex; align-items: center; justify-content: center; min-height: var(--control-touch); padding-inline: var(--space-3); white-space: normal; text-align: center; }
 .transcription-workshop-title-row > h2 { flex: 1 1 auto; min-width: 0; }
+/* En-tête desktop de l'atelier : la pastille du type est collée au titre
+   (jamais poussée vers les actions, jamais sur une seconde ligne), le titre
+   cède la place sans chevauchement et les actions restent calées à droite. */
+@media (min-width: 761px) {
+  .transcription-workshop-title-row { align-items: center; justify-content: flex-start; }
+  .transcription-workshop-title-row > h2 { flex: 0 1 auto; min-width: 0; }
+  .transcription-workshop-title-row > .transcription-workshop-type-badge { flex: 0 0 auto; }
+  .transcription-workshop-header-actions { margin-inline-start: auto; }
+}
 .transcription-workshop-breadcrumb { margin: 0; }
 .transcription-workshop-breadcrumb-separator { flex: 0 0 auto; }
 .consultation-breadcrumb { position: relative; display: flex; align-items: center; flex: 1 1 auto; gap: var(--space-1); min-width: 0; width: 100%; margin: 0; color: var(--color-text-label); font: 500 14px/var(--leading-body) var(--font-ui); }
@@ -3939,9 +3948,13 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
    latéraux continus et arrondis extérieurs conservés. */
 #workshopPanelOriginal { gap: 0; }
 #workshopPanelOriginal .transcription-workshop-panel-head { box-sizing: border-box; padding: var(--space-2); border: var(--border-default); border-bottom: var(--border-subtle); border-radius: var(--radius-md) var(--radius-md) 0 0; background: var(--color-surface); }
+/* Séparateur sous le document : 1 px beige clair, même couleur que celui de la
+   barre d'outils supérieure — `--border-subtle` est un raccourci de bordure
+   (1px solid), invalide comme couleur et remplacé par currentColor (ligne
+   foncée). Le token de couleur explicite évite la double bordure. */
 #workshopPanelOriginal .transcription-workshop-image-viewport,
 #workshopPanelOriginal .transcription-workshop-pdf-viewport,
-#workshopPanelOriginal .transcription-workshop-pdf-fallback { border: var(--border-default); border-top: 0; border-bottom-color: var(--border-subtle); border-radius: 0; }
+#workshopPanelOriginal .transcription-workshop-pdf-fallback { border: var(--border-default); border-top: 0; border-bottom-color: var(--color-border-subtle); border-radius: 0; }
 #workshopPanelOriginal .document-file-metadata--workshop { border: var(--border-default); border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); }
 .transcription-workshop-original .transcription-workshop-zone-actions { margin-top: var(--space-2); }
 .transcription-workshop-original .transcription-workshop-empty { margin: var(--space-2) 0 0; }
@@ -4084,9 +4097,22 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 /* Statut de la traduction annoncé avant le texte en consultation. */
 #transcriptionWorkshopView:not(.is-edit-session) .workshop-field-fr .transcription-workshop-fr-state { order: 1; }
 #transcriptionWorkshopView:not(.is-edit-session) .workshop-field-fr textarea { order: 2; }
-/* Emplacement du statut réel à gauche du CTA dans l'en-tête mobile. */
-.transcription-workshop-header-status { display: inline-flex; align-items: center; min-width: 0; }
+/* Consultation officielle desktop : respiration au-dessus des titres de
+   lecture — 8 px sous le séparateur des progressions pour le titre italien,
+   12 px après la zone de lecture italienne pour le titre français.
+   Les espacements sous les titres restent inchangés sur desktop. */
+@media (min-width: 761px) {
+  #transcriptionWorkshopView:not(.is-edit-session) .workshop-field-it { margin-top: var(--space-2); }
+  #transcriptionWorkshopView:not(.is-edit-session) .workshop-field-fr { margin-top: var(--space-3); }
+}
+/* Emplacement du statut réel à gauche du CTA dans l'en-tête mobile : la
+   pastille du type et la pastille de statut restent toujours sur la même
+   ligne. Seule la pastille du type peut céder de la place (ellipsée) ; la
+   pastille de statut garde sa taille et sa couleur. */
+.transcription-workshop-header-status { display: inline-flex; align-items: center; flex-wrap: nowrap; gap: var(--space-2); min-width: 0; }
 .transcription-workshop-header-status:empty { display: none; }
+.transcription-workshop-header-status .document-detail-category { flex: 0 1 auto; min-width: 0; }
+.transcription-workshop-header-status .transcription-workshop-badge { flex: 0 0 auto; min-width: 0; }
 .transcription-workshop-passage-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .transcription-workshop-passage-head strong { flex: 0 0 auto; font-size: var(--text-md); }
 .transcription-workshop-passage textarea { width: 100%; flex: 1 1 auto; min-height: clamp(8rem, 24dvh, 16rem); max-height: 52dvh; overflow: auto; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-muted); color: var(--color-text); font-family: var(--font-display); font-size: 16px; line-height: var(--leading-body); resize: vertical; field-sizing: content; }
@@ -4201,9 +4227,12 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
      Document mobile (retours à la ligne autorisés). */
   .transcription-workshop-title-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
   .transcription-workshop-title-row #workshopPageHeading { font-size: clamp(1.35rem, 6vw, 1.9rem); line-height: var(--leading-tight); white-space: normal; }
-  /* Statut réel à gauche, CTA vert à droite — aucun second menu « … » ici. */
-  .transcription-workshop-header-actions { justify-content: space-between; flex-wrap: wrap; }
-  .transcription-workshop-header-actions .transcription-workshop-edit-cta { flex: 0 1 auto; }
+  /* Statut réel à gauche, CTA vert à droite — aucun second menu « … » ici.
+     Une seule ligne : les deux pastilles ne se séparent jamais, le CTA reste
+     calé à droite et c'est la pastille du type qui cède la place (ellipsée)
+     sur un écran étroit. */
+  .transcription-workshop-header-actions { justify-content: space-between; flex-wrap: nowrap; }
+  .transcription-workshop-header-actions .transcription-workshop-edit-cta { flex: 0 0 auto; margin-inline-start: auto; }
   .transcription-workshop-header-status:empty { display: none; }
   .transcription-workshop-head-status { grid-column: auto; grid-row: auto; justify-self: auto; flex: 0 0 auto; max-width: none; }
   /* Cibles tactiles : `.btn.small` (32px) prime sur le minimum mobile — les
@@ -4220,7 +4249,10 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   /* §6 : plus de pastilles numérotées ni de compteur en haut en consultation
      mobile — la logique de sélection est conservée (mode modification inclus). */
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-right .transcription-workshop-panel-head { display: none; }
-  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-progress { order: 1; padding-inline: var(--space-3); }
+  /* §7.3 : carte indépendante des deux progressions — blanc cassé, bordure
+     beige, arrondis et espacement intérieur des cartes de la fiche Document,
+     12 px d'air au-dessus et en dessous, largeur alignée sur les onglets. */
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-progress { order: 1; margin: var(--space-3) 0; padding: var(--space-3); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); }
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-list { order: 2; padding: var(--space-2) var(--space-3) 0; overflow: auto; }
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-footer { order: 3; padding-inline: var(--space-3); }
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelOriginal { order: 2; }
@@ -4239,6 +4271,10 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
      la carte épouse son contenu, jamais étirée. */
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-passage,
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-passage.is-selected { flex: 0 0 auto; border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); padding: var(--space-3); gap: var(--space-2); box-shadow: none; }
+  /* §8 : 8 px entre le titre de lecture et l'élément suivant (zone de texte
+     italienne, statut de traduction ou zone de texte française) — seul
+     l'espacement sous le titre change, cartes et typographie inchangées. */
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-field-block { gap: var(--space-2); }
   .transcription-workshop-desktop-passage-number { display: none; }
   .transcription-workshop-tabs { display: flex; }
   .transcription-workshop-mode-button { min-height: var(--control-touch); }
@@ -7060,12 +7096,16 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 .document-detail-heading { min-width: 0; }
 .document-detail-header { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); padding-bottom: var(--space-2); }
 .document-detail-heading-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); min-width: 0; }
-/* Retour desktop : rangée compacte en haut à droite, au-dessus des actions.
+/* Retour desktop : rangée compacte en haut à gauche, au-dessus du titre —
+   même format que le lien Retour de l'atelier de transcription.
    Masqué sur mobile, où le chevron de l'en-tête fixe assure le retour. */
-.document-detail-return-row { display: flex; justify-content: flex-end; min-width: 0; }
+.document-detail-return-row { display: flex; justify-content: flex-start; min-width: 0; }
 .document-detail-return-row .document-detail-back { min-height: var(--control-touch); }
-.document-detail-title-group { flex: 1 1 auto; min-width: 0; }
-.document-detail-title-group .page-title { margin: 0; overflow-wrap: anywhere; }
+/* Titre + pastille du type sur une même ligne : le titre cède la place sans
+   jamais chevaucher les actions, la pastille reste centrée verticalement et
+   n'est jamais écrasée (largeur bornée, retour à la ligne naturel du titre). */
+.document-detail-title-group { display: flex; flex: 1 1 auto; align-items: center; gap: var(--space-2); min-width: 0; }
+.document-detail-title-group .page-title { flex: 0 1 auto; min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .document-detail-actions { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-2); }
 .document-detail-actions > .btn { min-height: var(--control-touch); }
 .document-mobile-actions-slot { display: grid; place-items: center; width: var(--control-touch); height: var(--control-touch); }
@@ -7086,9 +7126,10 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 #documentDetailView .document-actions-menu .tile-context-menu-item.is-danger { color: var(--color-danger); }
 #documentDetailView .document-actions-menu .tile-context-menu-item.is-danger:hover,
 #documentDetailView .document-actions-menu .tile-context-menu-item.is-danger:focus-visible { background: var(--color-danger-soft); color: var(--color-danger); }
-.document-detail-category-row { align-self: flex-start; }
-/* Badge de catégorie sous le titre Document : valeur métier existante du document. */
-.document-detail-category-row { margin-top: var(--space-1); }
+/* Pastille du type à droite du titre Desktop : aucune rangée dédiée, donc
+   aucun espace vertical réservé sous le titre. Sur mobile elle retrouve sa
+   propre ligne (règles de la media query ci-dessous). */
+.document-detail-category-row { flex: 0 0 auto; align-self: center; min-width: 0; margin-top: 0; }
 .document-detail-category { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #documentDetailView .document-original-panel:has(#viewerImageViewport.viewer-pdf-active) .document-original-head { display: none; }
 /* Lot G : les onglets Original/Informations ont disparu — panneaux en flux. */
@@ -7161,7 +7202,7 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   #documentDetailView .document-file-details-mobile { display: grid; }
   #documentDetailView .document-detail-heading-row { flex-wrap: wrap; gap: var(--space-2); }
   #documentDetailView .document-detail-return-row { display: none; }
-  #documentDetailView .document-detail-title-group { flex-basis: 100%; }
+  #documentDetailView .document-detail-title-group { display: block; flex-basis: 100%; }
   #documentDetailView .document-detail-title-group .page-title { font-size: clamp(1.35rem, 6vw, 1.9rem); line-height: var(--leading-tight); white-space: normal; }
   #documentDetailView .document-detail-actions { display: none; }
   #documentDetailView .document-detail-category-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); width: 100%; margin-top: var(--space-2); }

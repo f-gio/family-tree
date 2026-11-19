@@ -586,7 +586,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(css, /\.document-file-metadata--workshop \{[^}]*border-top/, "bandeau de métadonnées séparé en pied de panneau");
   assert.match(app, /function arrangeWorkshopHeader\(\)/, "menu « … » déplacé entre l’en-tête et le header mobile");
   assert.match(css, /#transcriptionWorkshopView:not\(\.is-edit-session\) \.transcription-workshop-passage:not\(\.is-selected\) \{ display: none; \}/, "consultation : un seul passage à la fois");
-  assert.match(app, /modeButton\.textContent = "Modifier la transcription"/, "libellé fixe du CTA vert");
+  assert.match(app, /modeButton\.textContent = window\.matchMedia\("\(max-width: 760px\)"\)\.matches \? "Modifier" : "Modifier la transcription"/, "libellé du CTA vert : « Modifier » sur mobile, « Modifier la transcription » sur desktop");
   assert.match(app, /function navigateWorkshopPassage\(offset\)/, "navigation Précédent / suivant branchée sur la sélection");
   assert.match(app, /function teardownTranscriptionWorkshop\(\)/, "nettoyage du lecteur à la sortie");
   for (const tab of ["Original", "Italien", "Français"]) assert.ok(html.includes(`>${tab}</button>`), `onglet ${tab} présent`);

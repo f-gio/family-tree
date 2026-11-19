@@ -12,6 +12,7 @@ import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree
 import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
 import { MAIN_TREE_ID, UNASSIGNED_TREE_STATE, UNASSIGNED_TREE_CHOICE, TREE_LIFECYCLE_ACTIVE, TREE_LIFECYCLE_DELETING, MAX_MULTI_TREE_TRANSFER_PEOPLE, MAX_MULTI_TREE_TRANSFER_READS, getTreeLifecycleState, getTreeDeletionMemberReport, getPersonTreeId, getPersonTreeMembership, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan, prepareMultipleTreeTransferPlan } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
+import { documentTypeOptionsMarkup, documentTypeFilterOptionsMarkup, documentTypeHistoricalValues } from "./document-types.js";
 import { deleteDocumentAndChunks } from "./document-delete.js";
 import { documentDeletionBlockers } from "./document-deletion-guard.js";
 import { createDocumentImageViewer, selectInitialDocumentImageMode } from "./document-image-viewer.js";
@@ -6258,6 +6259,10 @@ function openDocument(item = null, preselectedPersonId = "", returnContext = nul
   $("documentId").value = item?.id || "";
   $("documentDialogTitle").textContent = item ? "Modifier le document" : "Ajouter un document";
   $("documentTitle").value = item?.title || "";
+  /* Sélecteur de type reconstitué depuis la source unique : les catégories
+     restent des regroupements visuels et une valeur historique absente de la
+     liste reste sélectionnable sans être réécrite. */
+  $("documentType").innerHTML = documentTypeOptionsMarkup(item?.type);
   $("documentType").value = item?.type || "";
   $("documentDate").value = item?.date || "";
   setLocationField("documentPlace", item?.place || "", item?.placeInfo);
@@ -6282,7 +6287,23 @@ function openOfficialSourceFromDocument(documentId) {
   openGenealogyContribution({ official: true, sourceDocument: documentItem });
 }
 
+/* Filtre par type : mêmes catégories que le formulaire, complétées par les
+   valeurs historiques réellement enregistrées — reconstruit uniquement quand
+   l'ensemble des valeurs change, pour ne jamais perdre la sélection courante. */
+function refreshDocumentTypeFilter() {
+  const select = $("documentTypeFilter");
+  if (!select) return;
+  const historical = documentTypeHistoricalValues(documents);
+  const signature = JSON.stringify(historical);
+  if (select.dataset.typeSignature === signature) return;
+  const previous = select.value;
+  select.innerHTML = documentTypeFilterOptionsMarkup(historical);
+  select.value = [...select.options].some(option => option.value === previous) ? previous : "";
+  select.dataset.typeSignature = signature;
+}
+
 function renderDocuments() {
+  refreshDocumentTypeFilter();
   const query = searchable($("documentSearch").value);
   const type = $("documentTypeFilter").value;
   const filtered = documents.filter(item => (!type || item.type === type) && (!query || searchable(`${documentDisplayLabel(item)} ${item.fileName || ""} ${item.type || ""} ${item.place || ""} ${item.notes || ""} ${(item.personIds || []).map(nameOf).join(" ")}`).includes(query)));
@@ -6490,6 +6511,7 @@ function refreshDedicatedPageBackLabels() {
   if (isDocumentPageVisible()) setDedicatedPageBackLabel("documentPageBackBtn", documentPageReturnContext);
   if (isTranscriptionWorkshopActive()) setTranscriptionWorkshopBackLabel();
   if (isTranscriptionWorkshopActive()) arrangeWorkshopHeader();
+  if (isTranscriptionWorkshopActive()) syncWorkshopEditCtaLabel();
 }
 window.addEventListener("resize", refreshDedicatedPageBackLabels);
 
@@ -9646,6 +9668,45 @@ function arrangeWorkshopHeader() {
     const target = narrow ? statusSlot : headEnd;
     if (badge.parentElement !== target) target.prepend(badge);
   }
+  /* Pastille du type : à droite du titre sur desktop, immédiatement à gauche
+     de la pastille de statut sur mobile — un seul composant, jamais dupliqué. */
+  const typeBadge = $("workshopTypeBadge");
+  const titleRow = document.querySelector(".transcription-workshop-title-row");
+  if (typeBadge && titleRow && actions) {
+    const target = narrow ? statusSlot : titleRow;
+    if (target && typeBadge.parentElement !== target) {
+      if (narrow) target.prepend(typeBadge);
+      else target.insertBefore(typeBadge, actions);
+    } else if (!narrow && typeBadge.nextElementSibling !== actions) {
+      titleRow.insertBefore(typeBadge, actions);
+    }
+  }
+}
+
+/** Libellé du CTA vert de consultation : « Modifier la transcription » sur
+    desktop, « Modifier » sur mobile — style, icône et fonctionnement identiques. */
+function syncWorkshopEditCtaLabel() {
+  const modeButton = $("workshopModeBtn");
+  if (!modeButton) return;
+  modeButton.textContent = window.matchMedia("(max-width: 760px)").matches ? "Modifier" : "Modifier la transcription";
+  modeButton.setAttribute("aria-label", modeButton.textContent);
+}
+
+/** Pastille du type de document de l'atelier : même composant, même couleur,
+    même typographie que la fiche Document. La valeur est lue sur le document
+    existant — elle n'est jamais recopiée dans la transcription. */
+function renderWorkshopTypeBadge() {
+  const badge = $("workshopTypeBadge");
+  if (!badge) return;
+  const context = transcriptionWorkshopContext;
+  const item = context?.kind === "document"
+    ? context.record
+    : (Array.isArray(documents) ? documents.find(value => value.id === context?.documentId) : null);
+  const type = String(item?.type || "").trim();
+  badge.textContent = type;
+  badge.hidden = !type;
+  if (type) badge.title = type;
+  else badge.removeAttribute("title");
 }
 
 /** Lien « Ouvrir dans un nouvel onglet » de l'atelier : réutilise le mécanisme
@@ -9777,6 +9838,7 @@ function renderTranscriptionWorkshop() {
     : "";
   renderWorkshopImageArea();
   renderWorkshopPhotoNav();
+  renderWorkshopTypeBadge();
   arrangeWorkshopHeader();
   renderWorkshopFileMetadata(context);
   renderWorkshopPassageList(editable);
@@ -10894,10 +10956,9 @@ function updateWorkshopDraftIndicators() {
     /* « Modifier » n'existe qu'en consultation ; pendant l'édition, le pied
        affiche Annuler + Valider et le contrôle segmenté gère les vues. */
     modeButton.hidden = inEditSession || !hasOfficial;
-    /* Libellé fixe imposé en consultation : le CTA vert ne change jamais de
-       texte, seule sa visibilité suit l'état d'édition. */
-    modeButton.textContent = "Modifier la transcription";
-    modeButton.setAttribute("aria-label", modeButton.textContent);
+    /* Libellé imposé en consultation : le CTA vert ne change jamais de style,
+       seul son libellé suit la largeur d'écran. */
+    syncWorkshopEditCtaLabel();
   }
   /* Contrôle segmenté Brouillon / Officielle / Différences : visible pendant
      la session d'édition uniquement, masqué en consultation officielle. */
@@ -13712,6 +13773,8 @@ async function openStoredDocument(item, returnContext = "previous") {
   const categoryBadge = $("viewerCategoryBadge");
   categoryBadge.textContent = item.type || "";
   categoryBadge.hidden = !item.type;
+  if (item.type) categoryBadge.title = item.type;
+  else categoryBadge.removeAttribute("title");
   $("viewerCategoryBadgeRow").hidden = !item.type && !window.matchMedia("(max-width: 760px)").matches;
   renderDocumentPageActions(item);
   $("viewerImage").hidden = true;
@@ -17117,6 +17180,8 @@ $("documentDialog").addEventListener("close", () => {
 
 $("documentSearch").oninput = renderDocuments;
 $("documentTypeFilter").onchange = renderDocuments;
+$("documentType").innerHTML = documentTypeOptionsMarkup();
+refreshDocumentTypeFilter();
 $("genealogySearch").oninput = renderGenealogyWorkspace;
 $("genealogyKindFilter").onchange = renderGenealogyWorkspace;
 $("genealogyResults").addEventListener("click", event => runSafely(() => handleGenealogyWorkspaceClick(event), "Action d’archive impossible"));
