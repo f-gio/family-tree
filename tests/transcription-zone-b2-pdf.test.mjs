@@ -288,7 +288,9 @@ async function dragOnCanvas(page, fromX, fromY, toX, toY) {
     relance ponctuellement des rendus sans que ce soit un changement de page). */
 async function clickZoneAction(page, action) {
   await waitForPdfReady(page);
-  await page.click(`[data-workshop-zone-action="${action}"]`);
+  /* Desktop : la barre d'outils de la visionneuse porte l'action ; mobile :
+     la carte de passage. Le sélecteur « visible » cible la porteuse réelle. */
+  await page.click(`[data-workshop-zone-action="${action}"]:visible`);
 }
 
 /** Rectangle d'édition visible et dimensionné (les re-rendus PDF peuvent
@@ -484,7 +486,8 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
     assert.equal(initialPdfChrome.pageNavHidden, true, "navigation photo vide masquée pour le PDF");
     assert.equal(initialPdfChrome.photoNavHidden, true, "bandeau photo vide masqué : aucun interligne fantôme sous les actions");
     /* La barre d'outils est intégrée au conteneur (marge interne de 8 px) :
-       les commandes restent contenues dans l'en-tête du volet. */
+       les commandes restent contenues dans l'en-tête du volet, la barre de
+       délimitation venant juste après elles. */
     assert.ok(initialPdfChrome.toolsLeft >= initialPdfChrome.headLeft + 1 && initialPdfChrome.toolsRight <= initialPdfChrome.headRight - 1, "commandes PDF contenues dans l'en-tête du volet");
 
     /* Rafales navigation/zoom : un nouveau rendu attend l'annulation effective
@@ -510,10 +513,10 @@ test("B2 édition : tracé, confirmation, ajustement, suppression, navigation et
     await waitForPdfReady(page);
 
     /* Entrées sur le passage actif : Ajuster + Supprimer pour une zone valide. */
-    assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="adjust"]').count(), 1, "« Ajuster » sur la carte active");
-    assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="delete"]').count(), 1, "« Supprimer la zone » sur la carte active");
+    assert.equal(await page.locator('#workshopZoneToolbar [data-workshop-zone-action="adjust"]').count(), 1, "« Ajuster » sur la carte active");
+    assert.equal(await page.locator('#workshopZoneToolbar [data-workshop-zone-action="delete"]').count(), 1, "« Supprimer la zone » sur la carte active");
     await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
-    assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="draw"]').count(), 1, "« Délimiter ce passage » sans zone");
+    assert.equal(await page.locator('#workshopZoneToolbar [data-workshop-zone-action="draw"]').count(), 1, "« Délimiter ce passage » sans zone");
 
     /* Tracé : aucune écriture avant confirmation. */
     await clickZoneAction(page, "draw");
@@ -684,7 +687,7 @@ test("B2 secours : PDF illisible → fallback natif explicite, aucune délimitat
     assert.equal(await page.locator("#workshopPdfFallback").isVisible(), true, "consultation de secours native affichée");
     assert.equal(await page.locator("#workshopPdfTools").isHidden(), true, "aucune pagination sans lecteur");
     await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
-    await page.click('[data-workshop-zone-action="draw"]');
+    await page.click('#workshopZoneToolbar [data-workshop-zone-action="draw"]');
     assert.equal(await page.evaluate(() => window.__b2.toolActive()), false, "aucune délimitation sans lecteur PDF");
     assertNoB2PageErrors(pageErrors);
   } finally {

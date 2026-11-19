@@ -194,16 +194,16 @@ test("B1 édition : tracé, confirmation, annulation, ajustement, suppression et
     const originalAnchors = await page.evaluate(() => window.__b1.anchors());
 
     /* Action présente uniquement sur le passage ACTIF. */
-    assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="adjust"]').count(), 1, "passage avec zone : « Ajuster » sur la carte active");
-    assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="delete"]').count(), 1, "passage avec zone : « Supprimer la zone » sur la carte active");
-    assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="draw"]').count(), 0, "pas de tracé proposé quand une zone existe");
+    assert.equal(await page.locator('#workshopZoneToolbar [data-workshop-zone-action="adjust"]').count(), 1, "passage avec zone : « Ajuster » sur la carte active");
+    assert.equal(await page.locator('#workshopZoneToolbar [data-workshop-zone-action="delete"]').count(), 1, "passage avec zone : « Supprimer la zone » sur la carte active");
+    assert.equal(await page.locator('#workshopZoneToolbar [data-workshop-zone-action="draw"]').count(), 0, "pas de tracé proposé quand une zone existe");
     await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
-    assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="draw"]').count(), 1, "passage sans zone : « Délimiter ce passage »");
+    assert.equal(await page.locator('#workshopZoneToolbar [data-workshop-zone-action="draw"]').count(), 1, "passage sans zone : « Délimiter ce passage »");
     assert.equal(await page.locator(".transcription-workshop-passage:not(.is-selected) [data-workshop-zone-action]").count(), 0, "aucune action de zone sur les cartes non actives");
     await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
 
     /* Tracé : cliquer-glisser sur la photographie. */
-    await page.click('[data-workshop-zone-action="draw"]');
+    await page.click('#workshopZoneToolbar [data-workshop-zone-action="draw"]');
     assert.equal(await page.evaluate(() => window.__b1.toolActive()), true, "mode de tracé activé");
     assert.equal(await page.evaluate(() => document.getElementById("workshopPanelOriginal").classList.contains("is-zone-editing")), true, "panneau photographie en mode tracé");
     assert.equal(await page.locator("#workshopZoneActions").isVisible(), true, "Annuler / Confirmer affichés sous la photographie");
@@ -233,7 +233,7 @@ test("B1 édition : tracé, confirmation, annulation, ajustement, suppression et
     assert.equal(await page.evaluate(() => window.__b1.anchors()["p-2"]), null, "annulation sans aucune écriture");
 
     /* Tracé puis confirmation : coordonnées normalisées + photographie. */
-    await page.click('[data-workshop-zone-action="draw"]');
+    await page.click('#workshopZoneToolbar [data-workshop-zone-action="draw"]');
     await page.mouse.move(x0, y0);
     await page.mouse.down();
     await page.mouse.move(x1, y1, { steps: 6 });
@@ -254,11 +254,11 @@ test("B1 édition : tracé, confirmation, annulation, ajustement, suppression et
       return snapshot.passages.find(passage => passage.id === "p-2")?.anchor || null;
     });
     assert.ok(storedAnchor && storedAnchor.shape === "rect", "zone présente dans le brouillon sauvegardé localement");
-    assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="adjust"]').count(), 1, "carte basculée sur « Ajuster » après confirmation");
+    assert.equal(await page.locator('#workshopZoneToolbar [data-workshop-zone-action="adjust"]').count(), 1, "carte basculée sur « Ajuster » après confirmation");
 
     /* Ajustement : déplacement par la zone, borné et confirmé. */
     const confirmed = await page.evaluate(() => window.__b1.anchors()["p-2"]);
-    await page.click('[data-workshop-zone-action="adjust"]');
+    await page.click('#workshopZoneToolbar [data-workshop-zone-action="adjust"]');
     await page.waitForFunction(() => document.getElementById("workshopZoneEditorRect") && !document.getElementById("workshopZoneEditorRect").hidden);
     const rectBox = await page.locator("#workshopZoneEditorRect").boundingBox();
     await page.mouse.move(rectBox.x + rectBox.width / 2, rectBox.y + rectBox.height / 2);
@@ -272,7 +272,7 @@ test("B1 édition : tracé, confirmation, annulation, ajustement, suppression et
     assert.ok(moved.x >= 0 && norm(moved.x + moved.width) <= 1, "déplacement borné à l’image");
 
     /* Annulation d’un ajustement : restaure exactement la zone confirmée. */
-    await page.click('[data-workshop-zone-action="adjust"]');
+    await page.click('#workshopZoneToolbar [data-workshop-zone-action="adjust"]');
     await page.waitForFunction(() => document.getElementById("workshopZoneEditorRect") && !document.getElementById("workshopZoneEditorRect").hidden);
     const beforeCancel = JSON.stringify(await page.evaluate(() => window.__b1.anchors()["p-2"]));
     const cancelRectBox = await page.locator("#workshopZoneEditorRect").boundingBox();
@@ -284,7 +284,7 @@ test("B1 édition : tracé, confirmation, annulation, ajustement, suppression et
     assert.equal(JSON.stringify(await page.evaluate(() => window.__b1.anchors()["p-2"])), beforeCancel, "annulation d’ajustement restaure exactement la zone précédente");
 
     /* Redimensionnement par poignée + limitation aux bords. */
-    await page.click('[data-workshop-zone-action="adjust"]');
+    await page.click('#workshopZoneToolbar [data-workshop-zone-action="adjust"]');
     await page.waitForFunction(() => document.getElementById("workshopZoneEditorRect") && !document.getElementById("workshopZoneEditorRect").hidden);
     const seBox = await page.locator('#workshopZoneEditorRect [data-zone-handle="se"]').boundingBox();
     assert.ok(seBox && seBox.width >= 12, "poignée visible");
@@ -296,7 +296,7 @@ test("B1 édition : tracé, confirmation, annulation, ajustement, suppression et
     const resized = await page.evaluate(() => window.__b1.anchors()["p-2"]);
     assert.ok(resized.width > moved.width || resized.height > moved.height, "redimensionnement effectif");
     assert.ok(resized.x >= 0 && resized.y >= 0 && norm(resized.x + resized.width) <= 1 && norm(resized.y + resized.height) <= 1, "redimensionnement contenu dans l’image");
-    await page.click('[data-workshop-zone-action="adjust"]');
+    await page.click('#workshopZoneToolbar [data-workshop-zone-action="adjust"]');
     await page.waitForFunction(() => document.getElementById("workshopZoneEditorRect") && !document.getElementById("workshopZoneEditorRect").hidden);
     const nwBox = await page.locator('#workshopZoneEditorRect [data-zone-handle="nw"]').boundingBox();
     await page.mouse.move(nwBox.x + nwBox.width / 2, nwBox.y + nwBox.height / 2);
@@ -327,11 +327,11 @@ test("B1 édition : tracé, confirmation, annulation, ajustement, suppression et
     assert.ok(Math.abs(aligned.zone.x - (aligned.image.x + aligned.anchor.x * aligned.image.w)) <= 2, "zone alignée après redimensionnement de fenêtre à 1440 px");
 
     /* Suppression : association retirée, transcription intacte. */
-    await page.click('[data-workshop-zone-action="delete"]');
+    await page.click('#workshopZoneToolbar [data-workshop-zone-action="delete"]');
     await page.waitForFunction(() => window.__b1.anchors()["p-2"] === null, undefined, { timeout: 4000 });
     assert.equal(await page.evaluate(() => window.__b1.fields()["textIt:p-2"]), "indici di Orino", "suppression de zone sans perte de la transcription");
     assert.deepEqual(await page.evaluate(() => window.__b1.anchors()["p-1"]), originalAnchors["p-1"], "la zone des autres passages est intacte après suppression");
-    assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="draw"]').count(), 1, "retour à « Délimiter ce passage »");
+    assert.equal(await page.locator('#workshopZoneToolbar [data-workshop-zone-action="draw"]').count(), 1, "retour à « Délimiter ce passage »");
     assertNoB1PageErrors(pageErrors);
   } finally {
     await context.close().catch(() => {});
@@ -361,7 +361,7 @@ test("B1 mobile : tracé au doigt depuis l’onglet Original, poignées et A3 pr
               await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
               assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="draw"]').count(), 1, "action de délimitation sur le passage actif");
               /* Clic depuis Italien : bascule vers l'onglet Original pour le tracé. */
-              await page.click('[data-workshop-zone-action="draw"]');
+              await page.click('.transcription-workshop-passage.is-selected [data-workshop-zone-action="draw"]');
               assert.equal(await page.evaluate(() => document.getElementById("workshopLayout").dataset.activePanel), "original", "bascule automatique vers l’onglet Original");
               assert.equal(await page.evaluate(() => window.__b1.toolActive()), true, "mode de tracé actif");
               assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("workshopImageTools")).pointerEvents), "none", "gestes d’image neutralisés pendant le tracé");
@@ -401,7 +401,7 @@ test("B1 mobile : tracé au doigt depuis l’onglet Original, poignées et A3 pr
               /* Ajustement : poignées tactiles visibles puis Annuler. */
               await page.click("#workshopTabItalian");
               await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
-              await page.click('[data-workshop-zone-action="adjust"]');
+              await page.click('.transcription-workshop-passage.is-selected [data-workshop-zone-action="adjust"]');
               assert.equal(await page.evaluate(() => document.getElementById("workshopLayout").dataset.activePanel), "original", "ajustement depuis l’onglet Original");
               await page.waitForFunction(() => {
                 const rect = document.getElementById("workshopZoneEditorRect");

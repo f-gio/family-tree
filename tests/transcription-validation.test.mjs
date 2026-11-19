@@ -510,8 +510,9 @@ test("suppression d'un passage hérité : révision locale, officiel et abandon 
     await page.click("#workshopModeBtn");
     assert.equal(await page.locator("#workshopPassagePills [data-workshop-passage-select]").count(), 3, "trois passages hérités à l'ouverture de la révision");
     assert.equal(await page.locator("[data-workshop-delete-passage]").count(), 3, "chaque passage hérité offre la suppression dans le brouillon éditable");
-    const firstPassageId = await page.locator("#workshopPassagePills [data-workshop-passage-select]").first().getAttribute("data-workshop-passage-select");
-    await page.locator(`[data-workshop-delete-passage="${firstPassageId}"]`).click();
+    /* Le CTA de suppression vit désormais dans le bandeau supérieur et cible
+       le passage affiché — premier passage sélectionné à l'ouverture. */
+    await page.click("#workshopDeletePassageBtn");
     await page.waitForFunction(() => document.querySelectorAll("#workshopPassagePills [data-workshop-passage-select]").length === 2);
     assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "1", "le passage voisin suivant devient actif");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').count(), 2, "seuls les deux passages restants sont dans la révision");
@@ -590,7 +591,8 @@ test("versionnement : +0 sans changement réel, +1 par validation d'un ensemble"
     assert.equal(await page.evaluate(() => document.getElementById("workshopValidateBtn").disabled), false, "ajout de passage = différence réelle");
     const countBeforeRemove = await page.locator("#workshopPassagePills [data-workshop-passage-select]").count();
     const addedId = await page.locator("#workshopPassagePills [data-workshop-passage-select]").last().getAttribute("data-workshop-passage-select");
-    await page.locator(`[data-workshop-delete-passage="${addedId}"]`).click();
+    assert.ok(addedId, "le passage ajouté devient le passage sélectionné");
+    await page.click("#workshopDeletePassageBtn");
     await page.waitForFunction(expected => document.querySelectorAll("#workshopPassagePills [data-workshop-passage-select]").length === expected, countBeforeRemove - 1);
     assert.equal(await page.evaluate(() => document.getElementById("workshopValidateBtn").disabled), true, "passage ajouté puis supprimé : validation désarmée");
     assert.deepEqual(await page.evaluate(() => window.__inc2.versionState()), { version: 2, revisions: 2 }, "+0 version après aller-retour d'ajout");
@@ -598,7 +600,7 @@ test("versionnement : +0 sans changement réel, +1 par validation d'un ensemble"
     /* Ensemble de changements + double confirmation rapide : la seconde est
        rejetée par la garde mono-instance (l'écriture échoue sur le réseau
        bloqué du harnais, jamais deux écritures concurrentes). */
-    await page.locator('[data-workshop-field="textIt"]').first().fill("Anno con modifica e aggiunte");
+    await page.locator('[data-workshop-field="textIt"]:visible').first().fill("Anno con modifica e aggiunte");
     await page.click("#workshopAddPassageBtn");
     assert.equal(await page.evaluate(() => document.getElementById("workshopValidateBtn").disabled), false, "validation réarmée pour un ensemble de changements");
     await page.evaluate(() => window.__inc2.openValidation());

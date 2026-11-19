@@ -4097,13 +4097,29 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 /* Statut de la traduction annoncé avant le texte en consultation. */
 #transcriptionWorkshopView:not(.is-edit-session) .workshop-field-fr .transcription-workshop-fr-state { order: 1; }
 #transcriptionWorkshopView:not(.is-edit-session) .workshop-field-fr textarea { order: 2; }
-/* Consultation officielle desktop : respiration au-dessus des titres de
-   lecture — 8 px sous le séparateur des progressions pour le titre italien,
-   12 px après la zone de lecture italienne pour le titre français.
-   Les espacements sous les titres restent inchangés sur desktop. */
+/* Titres de langue : chaque titre est visiblement rattaché au bloc qu'il
+   ouvre — toujours plus d'air au-dessus qu'entre le titre et son champ.
+   Desktop (consultation ET modification) : 12 px de marge s'ajoutent aux
+   12 px déjà présents sous la barre de progression ou entre les deux blocs,
+   soit 24 px au-dessus, et 12 px entre le titre et son champ. Tokens
+   uniquement, sans cumul inutile. */
 @media (min-width: 761px) {
-  #transcriptionWorkshopView:not(.is-edit-session) .workshop-field-it { margin-top: var(--space-2); }
-  #transcriptionWorkshopView:not(.is-edit-session) .workshop-field-fr { margin-top: var(--space-3); }
+  .transcription-workshop-field-block { gap: var(--space-3); }
+  .workshop-field-it,
+  .workshop-field-fr { margin-top: var(--space-3); }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-passage { gap: var(--space-3); }
+}
+/* Mobile (consultation) : 8 px sous le titre français, 8 px de marge au-dessus
+   qui s'ajoutent aux 8 px du bloc précédent — 16 px contre 8 px. */
+@media (max-width: 760px) {
+  #transcriptionWorkshopView:not(.is-edit-session) .workshop-field-fr { margin-top: var(--space-2); }
+}
+/* État vide de la traduction : message gris secondaire en italique, rendu à
+   l'intérieur même du bloc beige (placeholder du champ désactivé). */
+#transcriptionWorkshopView .transcription-workshop-passage textarea:disabled::placeholder {
+  color: var(--color-text-muted);
+  font-style: italic;
+  opacity: 1;
 }
 /* Emplacement du statut réel à gauche du CTA dans l'en-tête mobile : la
    pastille du type et la pastille de statut restent toujours sur la même
@@ -4138,6 +4154,114 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   /* Pied : version à gauche, navigation regroupée à l'extrémité droite. */
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-status { flex: 1 1 auto; }
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-footer-nav { margin-inline-start: 0; }
+}
+
+/* ---- Modification desktop (lot D) --------------------------------------
+   Bandeau, onglets, contenu du passage et pied de navigation réunis dans une
+   carte unique ; pied de validation distinct en dessous. Hors desktop, la
+   carte reste « contents » : les enfants du panneau participent directement
+   au flux existant, le rendu mobile (consultation ET modification) est donc
+   strictement inchangé. */
+.transcription-workshop-card { display: contents; }
+.transcription-workshop-nav-slot { display: none; }
+.transcription-workshop-band-separator { flex: 0 0 auto; align-self: center; width: 1px; height: 1.5rem; margin-inline: var(--space-1); background: var(--color-border); }
+/* Le séparateur du bandeau n'apparaît qu'en modification desktop, entre les
+   pastilles et la suppression du passage. */
+.transcription-workshop-panel-head > .transcription-workshop-band-separator { display: none; }
+.transcription-workshop-zone-toolbar { display: flex; align-items: center; gap: var(--space-1); flex: 0 0 auto; min-width: 0; }
+.transcription-workshop-zone-toolbar[hidden] { display: none; }
+.transcription-workshop-zone-cta { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); min-height: var(--control-touch); padding-inline: var(--space-2); white-space: nowrap; }
+.transcription-workshop-zone-cta .ui-icon { flex: 0 0 auto; width: 1rem; height: 1rem; }
+.transcription-workshop-zone-cta:not(.primary):not(.danger) { color: var(--color-brand); }
+.transcription-workshop-zone-cta.btn.danger { border-color: var(--color-border); background: var(--color-surface); color: var(--color-danger); }
+.transcription-workshop-zone-cta.btn.danger:hover { border-color: var(--color-border-strong); background: var(--color-surface-raised); color: var(--color-danger-hover); }
+.transcription-workshop-delete-cta { display: none; align-items: center; justify-content: center; min-height: var(--control-touch); padding-inline: var(--space-2); white-space: nowrap; color: var(--color-danger); }
+.transcription-workshop-delete-cta:disabled { opacity: 0.55; cursor: not-allowed; }
+.transcription-workshop-footer-version { flex: 1 1 auto; min-width: 0; color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Adaptation compacte de la barre d'outils : sous 1440 px, les libellés des
+   actions de zone se réduisent à leur icône (aria-label conservé) — aucune
+   action n'est rendue inaccessible et le document n'est jamais rogné. */
+@media (max-width: 1439px) {
+  .transcription-workshop-zone-cta .transcription-workshop-zone-cta-label { display: none; }
+  .transcription-workshop-zone-cta { width: var(--control-touch); min-width: var(--control-touch); padding-inline: 0; }
+}
+@media (max-width: 760px) {
+  .transcription-workshop-zone-toolbar { display: none; }
+}
+/* Chevron de repli du volet : toujours en extrémité droite de la barre
+   d'outils, sans perturber la navigation des pages lorsqu'elle est présente. */
+@media (min-width: 761px) {
+  #workshopPanelOriginal .transcription-workshop-panel-head > #workshopPageNav[hidden] ~ #workshopPanelCollapseBtn,
+  #workshopPanelOriginal .transcription-workshop-panel-head > #workshopPageNav:empty ~ #workshopPanelCollapseBtn { margin-inline-start: auto; }
+}
+@media (min-width: 761px) {
+  /* Lien « Ouvrir dans un nouvel onglet » retiré de la seule visionneuse en
+     modification : les autres vues le conservent. */
+  #transcriptionWorkshopView.is-edit-session #workshopExternalBtn { display: none; }
+  /* Carte principale : bandeau, onglets, contenu défilant et pied de
+     navigation, bordure fine et angles du Design System. */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-right { gap: var(--space-3); }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-card {
+    display: flex; flex-direction: column; gap: 0; flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden;
+    border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface);
+  }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-card > .transcription-workshop-panel-head { flex: 0 0 auto; padding: var(--space-2) var(--space-3); border-bottom: var(--border-subtle); }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-delete-cta { display: inline-flex; }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-panel-head > .transcription-workshop-band-separator { display: block; }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-list { flex: 1 1 auto; min-height: 0; gap: 0; padding: var(--space-3); overflow: auto; }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-compare { padding: var(--space-3); }
+  /* Un seul passage à la fois : la navigation ne se fait plus par défilement
+     vertical de la pile, mais par le bandeau et le pied de navigation. */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-passage:not(.is-selected) { display: none; }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-passage,
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-passage.is-selected { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-passage.is-modified { border-inline-start: 0; }
+  /* Les actions de zone et la suppression quittent la carte de passage. */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-passage-head { display: none; }
+  /* Onglets repris de la fiche Personne : pleine largeur, trois entrées
+     égales, fond beige, actif en vert clair arrondi, séparateurs fins. */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode {
+    display: flex; flex: 0 0 auto; align-self: stretch; gap: 0; padding: var(--space-1);
+    border: 0; border-bottom: var(--border-subtle); border-radius: 0; background: var(--color-surface-muted);
+  }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button {
+    position: relative; flex: 1 1 0; min-width: 0; min-height: var(--control-touch); padding-inline: var(--space-3);
+    border: 0; border-radius: var(--radius-md); background: transparent; color: var(--color-text-label);
+    font-size: var(--text-sm); font-weight: var(--weight-medium); white-space: nowrap;
+  }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button:hover { background: var(--color-surface-soft); color: var(--color-text); }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button.is-active { background: var(--color-brand-soft); color: var(--color-brand); }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button.is-active:hover { background: var(--color-brand-soft); color: var(--color-brand); }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button:not(:last-child)::after {
+    content: ""; position: absolute; top: 25%; right: 0; bottom: 25%; width: 1px; background: var(--color-border-subtle);
+  }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button.is-active::after { background: transparent; }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button.is-active + .transcription-workshop-mode-button::after { background: transparent; }
+  /* Pied de navigation intégré à la carte, après le contenu du passage. */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-nav-slot {
+    display: flex; align-items: center; flex: 0 0 auto; min-width: 0;
+    padding: var(--space-2) var(--space-3); border-top: var(--border-subtle);
+  }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-nav-slot .transcription-workshop-footer-nav { flex: 1 1 auto; margin-inline-start: 0; }
+  #transcriptionWorkshopView.is-edit-session #workshopFooterCounter { display: none; }
+  /* Pied de validation distinct sous la carte : autosauvegarde à gauche,
+     Annuler (secondaire, plus de fond rouge) et Valider à droite. */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-footer {
+    flex: 0 0 auto; margin-top: 0; padding: var(--space-3);
+    border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface);
+  }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-footer-status { flex: 1 1 auto; }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-footer-actions { margin-inline-start: auto; }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-edit-cta.btn.danger { border-color: var(--color-border); background: var(--color-surface); color: var(--color-brand); }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-edit-cta.btn.danger:hover { border-color: var(--color-border-strong); background: var(--color-surface-raised); color: var(--color-brand-hover); }
+  /* Indicateur d'actualisation de la traduction : aligné à droite du titre
+     français, sur la même ligne — jamais un numéro de passage redondant. */
+  #transcriptionWorkshopView.is-edit-session .workshop-field-fr {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3);
+  }
+  #transcriptionWorkshopView.is-edit-session .workshop-field-fr .transcription-workshop-field-label { grid-column: 1; grid-row: 1; }
+  #transcriptionWorkshopView.is-edit-session .workshop-field-fr .transcription-workshop-fr-state { grid-column: 2; grid-row: 1; justify-self: end; align-self: center; }
+  #transcriptionWorkshopView.is-edit-session .workshop-field-fr textarea { grid-column: 1 / -1; grid-row: 2; }
 }
 /* Historique des versions : lignes compactes et texte officiel en lecture
    seule, consultables sans quitter l'atelier ni perdre le brouillon. */
@@ -4252,8 +4376,8 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   /* §7.3 : carte indépendante des deux progressions — blanc cassé, bordure
      beige, arrondis et espacement intérieur des cartes de la fiche Document,
      12 px d'air au-dessus et en dessous, largeur alignée sur les onglets. */
-  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-progress { order: 1; margin: var(--space-3) 0; padding: var(--space-3); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); }
-  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-list { order: 2; padding: var(--space-2) var(--space-3) 0; overflow: auto; }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight .transcription-workshop-progress { order: 1; margin: var(--space-3) 0; padding: var(--space-3); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); }
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight .transcription-workshop-list { order: 2; padding: var(--space-2) var(--space-3) 0; overflow: auto; }
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelRight > .transcription-workshop-footer { order: 3; padding-inline: var(--space-3); }
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout #workshopPanelOriginal { order: 2; }
   #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-layout[data-active-panel="original"] #workshopPassageList,
@@ -4367,6 +4491,11 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
    body:has(#sourceDetailView:not([hidden])) .topbar .brand-mark,
    body:has(#proofDetailView:not([hidden])) .topbar .brand-mark { width: 2rem; height: 2rem; }
   body:has(#transcriptionWorkshopView:not([hidden])) #transcriptionWorkshopView { padding-block: var(--space-2); }
+  /* Fiche Document : même espacement supérieur que l'atelier de transcription,
+     mesuré sur son en-tête — le lien « Retour aux documents » reprend
+     exactement la hauteur du lien « Retour au document ». Seul le haut est
+     aligné : le bas de page garde son propre rythme. */
+  body:has(#documentDetailView:not([hidden])) #documentDetailView { padding-top: var(--space-2); }
 }
 .genealogy-status-badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: var(--color-surface-muted); color: var(--color-text-muted); font-size: var(--text-xs); }
 .genealogy-status-badge--source { background: var(--color-source-soft); color: var(--color-source); }
@@ -7153,6 +7282,15 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 #documentDetailView #viewerPdfPageViewport,
 #documentDetailView #viewerPdfPageCanvas { border-radius: 0; }
 #documentDetailView .document-unified-details { min-height: 0; overflow: visible; }
+/* Desktop : le titre générique « Informations » disparaît du panneau droit —
+   il ne portait aucune information et décalait la première carte sous le bord
+   supérieur de la visionneuse. Le contenu du volet commence donc exactement à
+   la hauteur du bloc Original et de sa barre d'outils. Le conteneur (et son
+   bouton de repli toujours masqué) reste en place : seul le titre et la
+   hauteur qu'il génère sont retirés. Sur mobile, la présentation est inchangée. */
+@media (min-width: 761px) {
+  #documentDetailView .document-unified-details-head { display: none; }
+}
 #documentDetailView .document-original-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 #documentDetailView.is-viewer-fullscreen .document-detail-header { display: none; }
 #documentDetailView.is-viewer-fullscreen { display: flex !important; flex-direction: column; }

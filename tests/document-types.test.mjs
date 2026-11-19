@@ -60,7 +60,7 @@ test("les catégories et les valeurs de documents suivent le formalisme imposé"
 
 test("le sélecteur du formulaire groupe les valeurs sans jamais sélectionner une catégorie", () => {
   const markup = documentTypeOptionsMarkup();
-  assert.equal(markup.startsWith(`<option value="">Sélectionner…</option>`), true, "placeholder de création");
+  assert.equal(markup.startsWith(`<option value="" disabled hidden>Sélectionner…</option>`), true, "placeholder de création désactivé et masqué");
   assert.deepEqual(optionGroups(markup), DOCUMENT_TYPE_GROUPS.map(group => group.label), "catégories dans l’ordre, en optgroup non sélectionnable");
   const values = optionValues(markup);
   assert.equal(values[0], "", "placeholder en première position");

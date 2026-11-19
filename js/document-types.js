@@ -63,7 +63,10 @@ function groupMarkup(group, selected) {
  */
 export function documentTypeOptionsMarkup(selected = "") {
   const value = String(selected ?? "").trim();
-  const placeholder = `<option value="">Sélectionner…</option>`;
+  /* Placeholder natif : visible comme libellé fermé tant que le champ est vide,
+     jamais proposé dans la liste déroulante (désactivé et masqué), jamais
+     enregistrable (value vide + required sur le select). */
+  const placeholder = `<option value="" disabled hidden>Sélectionner…</option>`;
   const groups = DOCUMENT_TYPE_GROUPS.map(group => groupMarkup(group, value)).join("");
   if (!value || isDocumentTypeValue(value)) return `${placeholder}${groups}`;
   return `${placeholder}${groups}<optgroup label="${escapeAttribute(DOCUMENT_TYPE_HISTORICAL_GROUP_LABEL)}"><option value="${escapeAttribute(value)}" selected>${escapeAttribute(value)}</option></optgroup>`;

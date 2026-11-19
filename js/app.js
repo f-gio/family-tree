@@ -58,6 +58,7 @@ import {
   transcriptionWorkshopPassagePosition,
   transcriptionWorkshopPassageLabel,
   transcriptionWorkshopTranslationBadge,
+  WORKSHOP_TRANSLATION_STATE_LABELS,
   WORKSHOP_CONFIDENCE_LABELS,
   isTranscriptionJpegDocument,
   canInitializeLegacyJpegPage,
@@ -6320,10 +6321,12 @@ function renderDocuments() {
     const sourceAction = sourceDocumentsLoaded && isAdminUser()
       ? linkedSources.length ? { key: "manage-sources", label: "Gérer les sources liées", icon: "link" } : { key: "create-source", label: "Ajouter une source", icon: "plus" }
       : null;
+    const canDownload = Boolean(item.chunkVersion && item.chunkCount || item.fileData || item.fileUrl);
     const menu = tileContextMenuMarkup("document", item.id, label, [
       { key: "edit", label: "Modifier", icon: "edit" },
       ...(sourceAction ? [sourceAction] : []),
-      { key: "delete", label: "Supprimer", icon: "trash", danger: true }
+      ...(canDownload ? [{ key: "download", label: "Télécharger", icon: "download" }] : []),
+      { key: "delete", label: "Supprimer", icon: "trash", danger: true, separator: true }
     ]);
     return `<article class="content-card document-card" data-document-card="${esc(item.id)}" ${tileSemantics}><div class="document-card-main"><h3 title="${esc(label)}">${esc(label)}</h3><span class="badge">${esc(item.type || "Autre")}</span></div><p class="card-meta">${item.date ? esc(new Date(item.date + "T12:00:00").toLocaleDateString("fr-FR")) : "Date inconnue"}${compactPlace ? ` · ${esc(compactPlace)}` : ""}</p><div class="document-card-details"><p class="document-card-people" title="${esc((item.personIds || []).map(nameOf).join(", "))}">${(item.personIds || []).length ? esc(item.personIds.map(nameOf).join(", ")) : "Aucune personne associée"}</p>${linkedSourcesMarkup}</div><div class="card-actions">${menu}</div></article>`;
   }).join("") : (documents.length
@@ -9842,6 +9845,7 @@ function renderTranscriptionWorkshop() {
   arrangeWorkshopHeader();
   renderWorkshopFileMetadata(context);
   renderWorkshopPassageList(editable);
+  refreshWorkshopZoneActions();
   setWorkshopTab(transcriptionWorkshopView, { silent: true });
   applyWorkshopCompare();
   if (transcriptionWorkshopCompare) renderWorkshopCompareContent();
@@ -10077,8 +10081,24 @@ function workshopPassageBadges(passage, draft) {
   return badges.join("");
 }
 
+/* État de la traduction affiché dans le champ français. En lecture seule
+   (consultation officielle, aperçu officiel, comparaison), la mention
+   « Traduction à jour » n'apporte rien et disparaît : seul un avertissement
+   réel (« Traduction à revoir ») est conservé. L'absence de traduction est
+   rendue par l'état vide du bloc beige (placeholder), jamais par une mention
+   supplémentaire écrite ni par une donnée enregistrée. */
+function workshopTranslationStateLabel(passage, draft) {
+  const label = transcriptionWorkshopTranslationBadge(draft, passage);
+  if (!transcriptionWorkshopIsReadOnly()) return label;
+  if (label === WORKSHOP_TRANSLATION_STATE_LABELS.current) return "";
+  if (label === WORKSHOP_TRANSLATION_STATE_LABELS["not-started"]) return "";
+  return label;
+}
+
 /* B1 : délimitation de la zone du passage ACTIF, en édition du brouillon
-   uniquement — jamais en consultation, version officielle ou différences. */
+   uniquement — jamais en consultation, version officielle ou différences.
+   Sur desktop, ces actions ont été déplacées dans la barre d'outils de la
+   visionneuse : la carte de passage n'en porte plus (aucun doublon). */
 function workshopZoneEntryMarkup(passage, { selected = false, editable = false } = {}) {
   if (!editable || !selected || !passage) return "";
   return passage.anchor
@@ -10086,21 +10106,59 @@ function workshopZoneEntryMarkup(passage, { selected = false, editable = false }
     : `<button class="btn small" type="button" data-workshop-zone-action="draw">Délimiter ce passage</button>`;
 }
 
+const WORKSHOP_ZONE_TOOLBAR_SEPARATOR = `<span class="transcription-workshop-band-separator" aria-hidden="true"></span>`;
+const WORKSHOP_ZONE_TOOLBAR_ICONS = { adjust: "icon-crosshair", delete: "icon-trash", draw: "icon-crosshair" };
+
+function workshopZoneToolbarButton(action, label) {
+  const danger = action === "delete" ? " danger" : "";
+  const primary = action === "draw" ? " primary" : "";
+  return `<button class="btn small${primary}${danger} transcription-workshop-zone-cta" type="button" data-workshop-zone-action="${action}" aria-label="${label}" title="${label}"><svg class="ui-icon" aria-hidden="true"><use href="#${WORKSHOP_ZONE_TOOLBAR_ICONS[action]}"></use></svg><span class="transcription-workshop-zone-cta-label">${label}</span></button>`;
+}
+
 /* Les actions de zone suivent la sélection sans réécriture complète de la
-   liste (la sélection de passage ne re-rend jamais les cartes). */
+   liste (la sélection de passage ne re-rend jamais les cartes). Sur desktop,
+   elles vivent dans la barre d'outils de la visionneuse — un seul CTA quand
+   aucune zone n'existe, « Ajuster la zone » + « Supprimer la zone » sinon ;
+   sur mobile, elles restent dans l'en-tête du passage (mode modification
+   mobile inchangé). Le balisage de la barre n'est reconstruit que lorsque sa
+   configuration change, pour ne jamais voler le focus. */
 function refreshWorkshopZoneActions() {
   const draft = transcriptionWorkshopDraft;
-  const list = $("workshopPassageList");
-  if (!draft || !list) return;
+  if (!draft) return;
   const editable = !transcriptionWorkshopEditorState() && !transcriptionWorkshopIsReadOnly();
   const displayedSelection = transcriptionWorkshopDisplayedSelectedPassageId();
+  const selectedPassage = draft.passages.find(item => item.id === displayedSelection);
+  const desktop = window.matchMedia("(min-width: 761px)").matches;
+  const toolbar = $("workshopZoneToolbar");
+  if (toolbar) {
+    const showToolbar = Boolean(editable && desktop && selectedPassage);
+    const signature = !showToolbar ? "" : selectedPassage.anchor ? "zone" : "draw";
+    toolbar.hidden = !showToolbar;
+    /* Position : juste après les commandes de visualisation réellement
+       utilisées — après l'outillage image ou après l'outillage PDF — afin que
+       le séparateur matérialise toujours la frontière entre les deux familles
+       d'actions et que le chevron reste en extrémité droite. */
+    const anchor = transcriptionWorkshopContext?.pdf ? $("workshopPdfTools") : $("workshopImageTools");
+    if (anchor && toolbar.previousElementSibling !== anchor) anchor.after(toolbar);
+    if (toolbar.dataset.zoneSignature !== signature) {
+      toolbar.dataset.zoneSignature = signature;
+      toolbar.innerHTML = signature === "zone"
+        ? `${WORKSHOP_ZONE_TOOLBAR_SEPARATOR}${workshopZoneToolbarButton("adjust", "Ajuster la zone")}${workshopZoneToolbarButton("delete", "Supprimer la zone")}`
+        : signature === "draw"
+          ? `${WORKSHOP_ZONE_TOOLBAR_SEPARATOR}${workshopZoneToolbarButton("draw", "Délimiter ce passage")}`
+          : "";
+    }
+  }
+  const list = $("workshopPassageList");
+  if (!list) return;
+  const headEditable = editable && !desktop;
   for (const article of list.children) {
     const box = article.querySelector(".transcription-workshop-zone-entry");
     if (!box) continue;
     const selected = article.dataset.workshopPassage === displayedSelection;
     box.innerHTML = workshopZoneEntryMarkup(
       draft.passages.find(item => item.id === article.dataset.workshopPassage),
-      { selected, editable }
+      { selected, editable: headEditable }
     );
   }
 }
@@ -10145,11 +10203,17 @@ function renderWorkshopPassageList(editable) {
     const deleteMenu = editable
       ? `<details class="transcription-workshop-passage-menu"><summary aria-label="Plus d’actions du passage ${index + 1}" title="Plus d’actions">⋯</summary><div class="transcription-workshop-passage-menu-panel"><button class="btn danger" type="button" data-workshop-delete-passage-menu="${esc(passage.id)}">Supprimer le passage</button></div></details>`
       : "";
-    const zoneActions = workshopZoneEntryMarkup(passage, { selected, editable });
+    const zoneActions = workshopZoneEntryMarkup(passage, { selected, editable: editable && !window.matchMedia("(min-width: 761px)").matches });
+    const translationState = workshopTranslationStateLabel(passage, draft);
+    /* État vide de la traduction en lecture seule : le message vit dans le
+       bloc beige lui-même (placeholder du champ désactivé), jamais au-dessus. */
+    const translationPlaceholder = !editable && !String(passage.translationFr ?? "").trim()
+      ? ' placeholder="Aucune traduction disponible."'
+      : "";
     return `<article class="transcription-workshop-passage${selected ? " is-selected" : ""}${changed ? " is-modified" : ""}" data-workshop-passage="${esc(passage.id)}"${selected ? ' aria-current="true"' : ""}>
 <div class="transcription-workshop-passage-head"><span class="sr-only">Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</span><div class="transcription-workshop-badges">${transcriptionWorkshopViewingOfficial ? "" : workshopPassageBadges(passage, draft)}</div><div class="transcription-workshop-passage-actions"><span class="transcription-workshop-zone-entry">${zoneActions}</span>${deleteAction}${deleteMenu}</div></div>
 <div class="transcription-workshop-field-block workshop-field-it"><label class="transcription-workshop-field-label" for="${esc(itId)}"><span>Transcription italienne</span><span class="transcription-workshop-desktop-passage-number"> — Passage ${index + 1}</span></label><textarea id="${esc(itId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="textIt"${editable ? "" : " disabled"}>${esc(passage.textIt ?? "")}</textarea>${hypotheses}</div>
-<div class="transcription-workshop-field-block workshop-field-fr"><label class="transcription-workshop-field-label" for="${esc(frId)}"><span>Traduction française</span><span class="transcription-workshop-desktop-passage-number"> — Passage ${index + 1}</span></label><textarea id="${esc(frId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="translationFr"${editable ? "" : " disabled"}>${esc(passage.translationFr ?? "")}</textarea><p class="transcription-workshop-meta transcription-workshop-fr-state">${esc(transcriptionWorkshopTranslationBadge(draft, passage))}</p></div>
+<div class="transcription-workshop-field-block workshop-field-fr"><label class="transcription-workshop-field-label" for="${esc(frId)}"><span>Traduction française</span><span class="transcription-workshop-desktop-passage-number"> — Passage ${index + 1}</span></label><textarea id="${esc(frId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="translationFr"${editable ? "" : " disabled"}${translationPlaceholder}>${esc(passage.translationFr ?? "")}</textarea><p class="transcription-workshop-meta transcription-workshop-fr-state"${translationState ? "" : " hidden"}>${esc(translationState)}</p></div>
 </article>`;
   }).join("");
 }
@@ -10166,7 +10230,11 @@ function refreshWorkshopPassageBadges(passageId) {
   const badgeBox = article.querySelector(".transcription-workshop-badges");
   if (badgeBox) badgeBox.innerHTML = workshopPassageBadges(passage, draft);
   const translationState = article.querySelector(".transcription-workshop-fr-state");
-  if (translationState) translationState.textContent = transcriptionWorkshopTranslationBadge(draft, passage);
+  if (translationState) {
+    const label = workshopTranslationStateLabel(passage, draft);
+    translationState.textContent = label;
+    translationState.hidden = !label;
+  }
 }
 
 function syncWorkshopSelectionClasses() {
@@ -10829,6 +10897,28 @@ function setupWorkshopPassageCarouselInput() {
   }, { passive: false });
 }
 
+/* Pied de navigation entre les passages : sur desktop en session de
+   modification, il rejoint la carte principale (immédiatement après le
+   contenu du passage) ; partout ailleurs — consultation et modification
+   mobile — il reste dans le pied d'atelier, à droite du statut de
+   sauvegarde. Le DOM est déplacé, jamais dupliqué. */
+function arrangeWorkshopPassageNav() {
+  const nav = $("workshopFooterPassageNav");
+  const slot = $("workshopNavSlot");
+  const footer = document.querySelector("#workshopPanelRight > .transcription-workshop-footer");
+  if (!nav || !slot || !footer) return;
+  const inCard = transcriptionWorkshopEditing && window.matchMedia("(min-width: 761px)").matches;
+  if (inCard) {
+    if (nav.parentElement !== slot) slot.append(nav);
+    return;
+  }
+  if (nav.parentElement !== footer) {
+    const status = footer.querySelector(".transcription-workshop-footer-status");
+    if (status) footer.insertBefore(nav, status.nextSibling);
+    else footer.prepend(nav);
+  }
+}
+
 function updateWorkshopNavigation() {
   const draft = transcriptionWorkshopDraft;
   if (!draft) return;
@@ -10843,21 +10933,28 @@ function updateWorkshopNavigation() {
     ? `${selectedIndex >= 0 ? `Passage ${selectedIndex + 1} sur ${displayed.length}` : ""}`.trim()
     : "";
   renderWorkshopPassageNavigation(displayed, selectedPassageId);
-  /* Consultation : compteur visible, barres de progression et pied de
-     navigation ; en modification, le pied garde seul le statut et les CTA. */
+  /* Modification desktop : le compteur « X sur Y » rejoint le bandeau et le
+     pied de navigation passe dans la carte — sur mobile, la consultation et
+     le mode modification conservent leur comportement actuel. */
+  const desktopEdit = transcriptionWorkshopEditing && window.matchMedia("(min-width: 761px)").matches;
+  arrangeWorkshopPassageNav();
   const consultation = transcriptionWorkshopConsultationMode();
   const counter = $("workshopPassageCounter");
   if (counter) {
-    counter.hidden = !consultation || selectedIndex < 0;
+    counter.hidden = (consultation || desktopEdit) ? selectedIndex < 0 : true;
     if (!counter.hidden) counter.textContent = `${selectedIndex + 1} sur ${displayed.length}`;
   }
   renderWorkshopProgress(displayed, consultation);
+  /* Suppression du passage depuis le bandeau : même confirmation et mêmes
+     règles que le bouton inline, ciblé sur le passage affiché. */
+  const deleteCta = $("workshopDeletePassageBtn");
+  if (deleteCta) deleteCta.disabled = selectedIndex < 0 || transcriptionWorkshopIsReadOnly();
   const footerNav = $("workshopFooterPassageNav");
   const counterText = selectedIndex >= 0 ? `${selectedIndex + 1} sur ${displayed.length}` : "";
   const footerCounter = $("workshopFooterCounter");
   if (footerCounter) footerCounter.textContent = counterText;
   if (footerNav) {
-    footerNav.hidden = !consultation || selectedIndex < 0;
+    footerNav.hidden = selectedIndex < 0 || !(consultation || desktopEdit);
     if (!footerNav.hidden) {
       const previous = $("workshopPrevPassageBtn");
       const next = $("workshopNextPassageBtn");
@@ -10868,6 +10965,17 @@ function updateWorkshopNavigation() {
       previous.innerHTML = `<span aria-hidden="true">‹</span> Précédent`;
       next.innerHTML = `Passage ${Math.min(selectedIndex + 2, displayed.length)} <span aria-hidden="true">›</span>`;
     }
+  }
+  /* Version affichée à gauche du pied de navigation : uniquement une
+     information réellement pertinente — jamais « Consultation officielle »
+     pendant une session de brouillon. */
+  const versionBox = $("workshopFooterVersion");
+  if (versionBox) {
+    const head = transcriptionWorkshopHead();
+    const version = head && Number.isSafeInteger(head.version) && head.version >= 1 ? head.version : 1;
+    versionBox.textContent = transcriptionWorkshopViewingOfficial
+      ? (head ? `Version officielle · v${version}` : "Aucune version officielle")
+      : "";
   }
 }
 
@@ -11308,11 +11416,15 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     toast("Passage ajouté au brouillon.");
     return;
   }
-  const deleteButton = event.target.closest("[data-workshop-delete-passage], [data-workshop-delete-passage-menu]");
+  const deleteButton = event.target.closest("[data-workshop-delete-passage], [data-workshop-delete-passage-menu], [data-workshop-delete-current-passage]");
   if (deleteButton) {
     const draft = transcriptionWorkshopDraft;
     if (!draft || transcriptionWorkshopIsReadOnly()) return;
-    const passageId = deleteButton.dataset.workshopDeletePassage || deleteButton.dataset.workshopDeletePassageMenu;
+    /* Le CTA du bandeau cible toujours le passage affiché ; les boutons des
+       cartes conservent leur identifiant explicite. */
+    const passageId = deleteButton.hasAttribute("data-workshop-delete-current-passage")
+      ? transcriptionWorkshopDisplayedSelectedPassageId()
+      : deleteButton.dataset.workshopDeletePassage || deleteButton.dataset.workshopDeletePassageMenu;
     /* Le menu ⋯ se ferme quel que soit le choix (confirmation ou annulation). */
     for (const passageMenu of document.querySelectorAll(".transcription-workshop-passage-menu[open]")) passageMenu.open = false;
     const passageIndex = draft.passages.findIndex(passage => passage.id === passageId);
@@ -11533,6 +11645,12 @@ function setupWorkshopDivider() {
 }
 setupWorkshopDivider();
 setupWorkshopPassageCarouselInput();
+/* Bascule desktop/mobile : le pied de navigation change de conteneur et la
+   barre d'outils de délimitation n'existe qu'au-delà du seuil — le rendu est
+   repris uniquement lorsque l'atelier est réellement affiché. */
+window.matchMedia("(min-width: 761px)").addEventListener("change", () => {
+  if (isTranscriptionWorkshopActive()) renderTranscriptionWorkshop();
+});
 
 $("transcriptionPageInitConfirmBtn").onclick = () => { void confirmTranscriptionPageInit(); };
 $("transcriptionPageInitSource").onchange = () => {

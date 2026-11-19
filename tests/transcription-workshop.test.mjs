@@ -645,7 +645,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(css, /\.transcription-workshop-passage textarea \{ width: 100%; flex: 1 1 auto; min-height: clamp\(8rem, 24dvh, 16rem\)[^}]*field-sizing: content/, "champs de hauteur adaptée au contenu avec plafond anti-scroll imbriqué");
   assert.match(app, /class="transcription-workshop-delete-passage"[^>]*data-workshop-delete-passage/, "suppression de passage visible dans son contexte");
   assert.match(app, /data-workshop-delete-passage-menu=/, "menu ⋯ du passage : suppression accessible sur mobile");
-  assert.match(app, /closest\("\[data-workshop-delete-passage\], \[data-workshop-delete-passage-menu\]"\)/, "inline et menu partagent la même confirmation");
+  assert.match(app, /closest\("\[data-workshop-delete-passage\], \[data-workshop-delete-passage-menu\], \[data-workshop-delete-current-passage\]"\)/, "inline, menu ⋯ et bandeau partagent la même confirmation");
   assert.match(css, /\.transcription-workshop-passage-menu-panel \{/, "panneau d’actions rattaché au passage");
   assert.match(css, /max-width: calc\(var\(--control-touch\)/, "carrousel à largeur maximale stable");
   assert.doesNotMatch(css, /\.transcription-workshop-passage-pills \{[^}]*; width: calc/, "la bande suit le contenu : aucune case vide avant le bouton +");
