@@ -123,3 +123,19 @@ export function blockedServiceFor(urlString) {
 export function isAllowedRequest(urlString, baseURL) {
   return urlString.startsWith(baseURL) || urlString.startsWith(GSTATIC_PREFIX);
 }
+
+/* Neutralisation du bootstrap d'authentification.
+   L'application enregistre onAuthStateChanged : sans session, le callback
+   appelle asynchronément stopPrivateData() (ferme adminDialog, masque les
+   vues) et showAuthPanel("login"). En exécution parallèle, ce callback peut
+   tomber au milieu d'un scénario et fermer une modale déjà ouverte — la
+   cause racine des échecs intermittents liés à la concurrence.
+   Ce correctif est ajouté à la fin du source injecté de js/app.js (jamais au
+   code publié) et reprend le motif déjà utilisé par les suites d'atelier. */
+export const AUTH_BOOTSTRAP_PATCH = `
+const originalStopPrivateData = stopPrivateData;
+stopPrivateData = (...args) => { if (window.__ignoreAuthBootstrap) return; return originalStopPrivateData(...args); };
+const originalShowAuthPanel = showAuthPanel;
+showAuthPanel = (panel, ...args) => { if (window.__ignoreAuthBootstrap && panel !== "app") return; return originalShowAuthPanel(panel, ...args); };
+window.__ignoreAuthBootstrap = true;
+`;

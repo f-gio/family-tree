@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chromium } from "playwright";
-import { isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
+import { AUTH_BOOTSTRAP_PATCH, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 const mobileViewports = [[320, 844], [390, 844], [760, 900]];
 
@@ -45,6 +45,7 @@ async function createPage(browser, server, width, height) {
       return route.fetch().then(async response => route.fulfill({
         response,
         body: `${await response.text()}
+${AUTH_BOOTSTRAP_PATCH}
 window.__openLot3cAdmin = users => { adminUsersCache = users; renderAdminUsers(); document.getElementById("adminDialog").showModal(); };
 window.__renderLot3cAdminUsers = users => { adminUsersCache = users; renderAdminUsers(); };
 window.__openLot3cQuality = (long, fixture) => { document.getElementById("treeQualitySummary").textContent = long ? "48 éléments à vérifier" : "Aucun élément à vérifier"; document.getElementById("treeQualityContent").innerHTML = fixture; initTreeQualityScroll(); document.getElementById("treeQualityDialog").showModal(); };`

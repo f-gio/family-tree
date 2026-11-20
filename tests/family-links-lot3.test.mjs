@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { chromium } from "playwright";
-import { isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
+import { AUTH_BOOTSTRAP_PATCH, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 import { parentChildLinkType } from "../js/family-relations.js";
 
 const [html, css, app] = await Promise.all([
@@ -224,7 +224,7 @@ async function createPage(browser, server, { stubWrites = false, stubPartnerWrit
         assert.ok(block.includes("const batch = writeBatch(db);"), "batch partenaire remplaçable");
         source = source.slice(0, start) + block.replace("const batch = writeBatch(db);", "const batch = window.__parentBuilderTest.createPartnerBatch();") + source.slice(end);
       }
-      return route.fulfill({ response, body: `${source}\n${hooks}` });
+      return route.fulfill({ response, body: `${source}\n${AUTH_BOOTSTRAP_PATCH}\n${hooks}` });
     }
     return isAllowedRequest(url, server.baseURL) ? route.continue().catch(() => {})
       : route.abort("blockedbyclient").catch(() => {});

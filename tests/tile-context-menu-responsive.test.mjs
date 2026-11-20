@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chromium } from "playwright";
-import { ROOT, startStaticServer } from "./helpers.mjs";
+import { AUTH_BOOTSTRAP_PATCH, ROOT, startStaticServer } from "./helpers.mjs";
 
 const widths = [320, 390, 560, 760, 1024];
 let browser;
@@ -50,8 +50,12 @@ test("tuiles et menus secondaires restent utilisables de 320 px au desktop", asy
 
   server = await startStaticServer(ROOT);
   const context = await browser.newContext({ locale: "fr-FR" });
-  await context.route("**/*", route => {
+  await context.route("**/*", async route => {
     const url = route.request().url();
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
+      const response = await route.fetch();
+      return route.fulfill({ response, body: `${await response.text()}\n${AUTH_BOOTSTRAP_PATCH}` });
+    }
     return url.startsWith(server.baseURL) || url.includes("gstatic.com")
       ? route.continue()
       : route.abort("blockedbyclient");
@@ -154,7 +158,14 @@ test("Documents : liste et tuiles restent compactes avec sources liées et actio
   const server = await startStaticServer(ROOT);
   try {
     const context = await browser.newContext({ locale: "fr-FR" });
-    await context.route("**/*", route => route.request().url().startsWith(server.baseURL) || route.request().url().includes("gstatic.com") ? route.continue() : route.abort("blockedbyclient"));
+    await context.route("**/*", async route => {
+      const url = route.request().url();
+      if (new URL(url).pathname.endsWith("/js/app.js")) {
+        const response = await route.fetch();
+        return route.fulfill({ response, body: `${await response.text()}\n${AUTH_BOOTSTRAP_PATCH}` });
+      }
+      return url.startsWith(server.baseURL) || url.includes("gstatic.com") ? route.continue() : route.abort("blockedbyclient");
+    });
     const page = await context.newPage();
     await page.goto(server.baseURL, { waitUntil: "load" });
     await page.waitForFunction(() => document.getElementById("documentsList") && document.getElementById("genealogyContributionDialog"));

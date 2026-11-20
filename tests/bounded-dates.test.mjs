@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chromium, webkit } from "playwright";
-import { isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
+import { AUTH_BOOTSTRAP_PATCH, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 /*
  * Lot « Avant / Après » :
@@ -157,7 +157,7 @@ async function launch(viewport) {
         let source = original;
         if (source.includes(update)) source = source.split(update).join("await window.__bounded.record(id, data);");
         if (source.includes(familyUpdate)) source = source.split(familyUpdate).join("await window.__bounded.recordFamily(familyId, data);");
-        return route.fulfill({ response, body: `${source}\n${hooks}\nwindow.__bounded.record = (id, data) => { window.__bounded.updates.push({ kind: "person", id, birthDateInfo: data.birthDateInfo, deathDateInfo: data.deathDateInfo }); const current = people.find(p => p.id === id); if (current) { if (data.birthDateInfo !== undefined) current.birthDateInfo = data.birthDateInfo; if (data.deathDateInfo !== undefined) current.deathDateInfo = data.deathDateInfo; } };\nwindow.__bounded.recordFamily = (id, data) => { window.__bounded.updates.push({ kind: "family", id, unionDateInfo: data.unionDateInfo, endDateInfo: data.endDateInfo }); const current = families.find(f => f.id === id); if (current) { if (data.unionDateInfo !== undefined) current.unionDateInfo = data.unionDateInfo; if (data.endDateInfo !== undefined) current.endDateInfo = data.endDateInfo; } };\n` });
+        return route.fulfill({ response, body: `${source}\n${AUTH_BOOTSTRAP_PATCH}\n${hooks}\nwindow.__bounded.record = (id, data) => { window.__bounded.updates.push({ kind: "person", id, birthDateInfo: data.birthDateInfo, deathDateInfo: data.deathDateInfo }); const current = people.find(p => p.id === id); if (current) { if (data.birthDateInfo !== undefined) current.birthDateInfo = data.birthDateInfo; if (data.deathDateInfo !== undefined) current.deathDateInfo = data.deathDateInfo; } };\nwindow.__bounded.recordFamily = (id, data) => { window.__bounded.updates.push({ kind: "family", id, unionDateInfo: data.unionDateInfo, endDateInfo: data.endDateInfo }); const current = families.find(f => f.id === id); if (current) { if (data.unionDateInfo !== undefined) current.unionDateInfo = data.unionDateInfo; if (data.endDateInfo !== undefined) current.endDateInfo = data.endDateInfo; } };\n` });
       }).catch(() => {});
     }
     return isAllowedRequest(url, server.baseURL) ? route.continue().catch(() => {}) : route.abort("blockedbyclient").catch(() => {});
@@ -552,7 +552,7 @@ test("Safari WebKit mobile : modale familiale à la hauteur Personne et options 
         const familyUpdate = "await withButtonPending(submitButton, () => updateDoc(doc(db, \"families\", familyId), data));";
         source = source.split(update).join("await window.__bounded.record(id, data);");
         source = source.split(familyUpdate).join("await window.__bounded.recordFamily(familyId, data);");
-        return route.fulfill({ response, body: `${source}\n${hooks}\nwindow.__bounded.record = () => {}; window.__bounded.recordFamily = () => {};` });
+        return route.fulfill({ response, body: `${source}\n${AUTH_BOOTSTRAP_PATCH}\n${hooks}\nwindow.__bounded.record = () => {}; window.__bounded.recordFamily = () => {};` });
       }).catch(() => {});
     }
     return isAllowedRequest(url, server.baseURL) ? route.continue().catch(() => {}) : route.abort("blockedbyclient").catch(() => {});

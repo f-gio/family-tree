@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { chromium } from "playwright";
-import { isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
+import { AUTH_BOOTSTRAP_PATCH, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 const appSource = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
 const applyCall = "await applyParentDissociation(plan);";
@@ -72,7 +72,7 @@ async function createPage(browser, server) {
       let source = await response.text();
       assert.ok(source.includes(applyCall), "l'appel d'écriture reste remplacable");
       source = source.split(applyCall).join("await window.__familyDissociationTest.apply(plan);");
-      return route.fulfill({ response, body: `${source}\n${hooks}` });
+      return route.fulfill({ response, body: `${source}\n${AUTH_BOOTSTRAP_PATCH}\n${hooks}` });
     }
     return isAllowedRequest(url, server.baseURL) ? route.continue().catch(() => {})
       : route.abort("blockedbyclient").catch(() => {});

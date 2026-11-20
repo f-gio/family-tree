@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { chromium, webkit } from "playwright";
-import { isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
+import { AUTH_BOOTSTRAP_PATCH, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 const svg = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#557a65"/></svg>');
 const hooks = `
@@ -174,7 +174,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.ok(source.includes(hookSource), `point d’écriture lot 2C-4 présent : ${hookSource}`);
         source = source.split(hookSource).join(hookTarget);
       }
-      return route.fulfill({ response, body: `${source}\n${hooks}` });
+      return route.fulfill({ response, body: `${source}\n${AUTH_BOOTSTRAP_PATCH}\n${hooks}` });
     }
     return isAllowedRequest(url, server.baseURL) || url.includes("gstatic.com")
       ? route.continue().catch(() => {})
@@ -3332,7 +3332,7 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
       source = source.split(update).join("await window.__personPageTest.update(id, data);");
       return route.fulfill({
         response,
-        body: `${source}\n${hooks}\nwindow.__personPageWebkitHarness = { openEdit() { const item = people.find(value => value.id === "person-page-a"); item.birthDateInfo = { type: "exact", value: "1904-08-25" }; item.deathDateInfo = { type: "exact", value: "1931-07-28" }; people = people.map(value => value.id === item.id ? item : value); window.__personPageWebkitFixture = { ...item }; $("authScreen").hidden = true; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); }, savedDates() { const data = window.__personPageUpdates.at(-1) || {}; return { birth: data.birthDateInfo || null, death: data.deathDateInfo || null }; }, reopenSaved() { const data = window.__personPageUpdates.at(-1) || {}; const item = { ...window.__personPageWebkitFixture, ...data }; window.__personPageWebkitFixture = item; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); }, journeyLists() { const item = activePersonPageItem || {}; return { residences: item.residences || [], professions: item.professions || [], lifeEvents: item.lifeEvents || [] }; }, writeCount() { return (window.__personPageUpdates || []).length; }, addLegacyEvent() { const item = activePersonPageItem; const event = { id: "webkit-legacy-event", kind: "studies", label: "Études historiques", dateInfo: { type: "before", value: "1912-05-01" }, attestations: [] }; item.lifeEvents = [...(item.lifeEvents || []), event]; people = people.map(value => value.id === item.id ? item : value); renderJourneySection({ preserveForm: false }); } };`
+        body: `${source}\n${AUTH_BOOTSTRAP_PATCH}\n${hooks}\nwindow.__personPageWebkitHarness = { openEdit() { const item = people.find(value => value.id === "person-page-a"); item.birthDateInfo = { type: "exact", value: "1904-08-25" }; item.deathDateInfo = { type: "exact", value: "1931-07-28" }; people = people.map(value => value.id === item.id ? item : value); window.__personPageWebkitFixture = { ...item }; $("authScreen").hidden = true; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); }, savedDates() { const data = window.__personPageUpdates.at(-1) || {}; return { birth: data.birthDateInfo || null, death: data.deathDateInfo || null }; }, reopenSaved() { const data = window.__personPageUpdates.at(-1) || {}; const item = { ...window.__personPageWebkitFixture, ...data }; window.__personPageWebkitFixture = item; renderPersonPage(item, { kind: "view", view: "directory" }); $("authScreen").hidden = true; $("personPageEditBtn").click(); }, journeyLists() { const item = activePersonPageItem || {}; return { residences: item.residences || [], professions: item.professions || [], lifeEvents: item.lifeEvents || [] }; }, writeCount() { return (window.__personPageUpdates || []).length; }, addLegacyEvent() { const item = activePersonPageItem; const event = { id: "webkit-legacy-event", kind: "studies", label: "Études historiques", dateInfo: { type: "before", value: "1912-05-01" }, attestations: [] }; item.lifeEvents = [...(item.lifeEvents || []), event]; people = people.map(value => value.id === item.id ? item : value); renderJourneySection({ preserveForm: false }); } };`
       });
     }
     if (new URL(url).pathname.endsWith("/js/firebase-environment.js")) {

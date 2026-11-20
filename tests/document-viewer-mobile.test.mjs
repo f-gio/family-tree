@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { chromium, webkit } from "playwright";
-import { blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
+import { AUTH_BOOTSTRAP_PATCH, blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 import { selectInitialDocumentImageMode } from "../js/document-image-viewer.js";
 
 const [html, css, app] = await Promise.all([
@@ -89,8 +89,12 @@ async function createViewerPage(browser, server, width, height) {
     hasTouch: width <= 760,
     reducedMotion: "reduce"
   });
-  await context.route("**/*", route => {
+  await context.route("**/*", async route => {
     const url = route.request().url();
+    if (new URL(url).pathname.endsWith("/js/app.js")) {
+      const response = await route.fetch();
+      return route.fulfill({ response, body: `${await response.text()}\n${AUTH_BOOTSTRAP_PATCH}` });
+    }
     if (isAllowedRequest(url, server.baseURL)) return route.continue().catch(() => {});
     if (blockedServiceFor(url)) return route.abort("blockedbyclient").catch(() => {});
     return route.continue().catch(() => {});
