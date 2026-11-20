@@ -42,7 +42,9 @@ test("D. dates : formateur généalogique existant, aucune fabrication", () => {
 
 test("E. lieux compacts : formatCompactPlace commun, texte legacy repris tel quel", () => {
   assert.match(app, /function printPlaceDetail\(text, placeInfo = null\) \{\r?\n\s*return esc\(formatCompactPlace\(text, placeInfo\)\);\r?\n\}/);
-  assert.doesNotMatch(app, /\|\u0030\u0030|\btoIsoAlpha3\(/) || true;
+  const printPlace = app.match(/function printPlaceDetail\(text, placeInfo = null\) \{[\s\S]*?\r?\n\}/)?.[0] || "";
+  assert.ok(printPlace, "formateur dédié aux lieux imprimés présent");
+  assert.doesNotMatch(printPlace, /\|\s*00\b|\btoIsoAlpha3\s*\(/, "le formateur imprimé n'ajoute pas de code technique après le lieu compact");
   assert.doesNotMatch(html, /print-.*undefined/i);
 });
 
@@ -197,15 +199,20 @@ test("G. mise en page A4 static : colonnes, ruptures, portail, fond, aperçu mob
 });
 
 test("G2. protection des données : lecture seule, sans écriture Firestore", () => {
-  const printBlock = app.match(/\/\* ---------- Fiche individuelle imprimable[\s\S]+?function openPersonPrint[\s\S]*?\$\("personPrintGoBtn"\)\.onclick[\s\S]*?\n};/)?.[0] || "";
-  assert.ok(printBlock.length > 500, "bloc fiche présent");
-  assert.doesNotMatch(printBlock, /addDoc|updateDoc|deleteDoc|setDoc|serverTimestamp|collection\(db/);
-  assert.doesNotMatch(printBlock, /marriedName =|lastName =|firstName =|birthDate =|deathDate =/);
+  const printBuilder = app.match(/function buildPersonPrintSheet\(item, scope = null\) \{[\s\S]*?^\}/m)?.[0] || "";
+  const printOpener = app.match(/function openPersonPrint\(scope = personPrintScopeOverride\) \{[\s\S]*?^\}/m)?.[0] || "";
+  const printAction = app.match(/\$\("personPrintGoBtn"\)\.onclick = \(\) => \{[\s\S]*?^\};/m)?.[0] || "";
+  assert.ok(printBuilder.length > 500, "constructeur de fiche imprimée présent");
+  assert.ok(printOpener.length > 100, "ouverture de l'aperçu imprimable présente");
+  assert.ok(printAction.length > 500, "action Imprimer / PDF présente");
+  const printFlow = [printBuilder, printOpener, printAction].join("\n");
+  assert.doesNotMatch(printFlow, /\b(?:addDoc|updateDoc|deleteDoc|setDoc|serverTimestamp)\s*\(|\bcollection\s*\(\s*db\b/, "le parcours d'impression ne contient aucun appel d'écriture Firestore");
+  assert.doesNotMatch(printFlow, /\b(?:marriedName|lastName|firstName|birthDate|deathDate)\s*=/, "le parcours d'impression ne modifie pas les données de la personne");
   /* Cycle iOS-safe : aucun nettoyage synchrone, rAF avant print, afterprint + fallback */
-  assert.match(printBlock, /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) => \{/);
-  assert.match(printBlock, /restorePrintingState\(\);[\s\S]{0,80}\(void 0|\$\("printPortal"\)\.innerHTML = sheet\.innerHTML;[\s\S]{0,900}window\.print\(\)/);
-  assert.doesNotMatch(printBlock, /window\.print\(\);\s*\r?\n\s*restorePrintingState\(\);/);
-  assert.match(printBlock, /fallbackTimer = window\.setTimeout\(\(\) => restorePrintingState\(\), 60000\)/);
+  assert.match(printAction, /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) => \{/);
+  assert.match(printAction, /restorePrintingState\(\);[\s\S]{0,80}\(void 0|\$\("printPortal"\)\.innerHTML = sheet\.innerHTML;[\s\S]{0,900}window\.print\(\)/);
+  assert.doesNotMatch(printAction, /window\.print\(\);\s*\r?\n\s*restorePrintingState\(\);/);
+  assert.match(printAction, /fallbackTimer = window\.setTimeout\(\(\) => restorePrintingState\(\), 60000\)/);
 });
 
 test("H. navigateur réel : contenu complet, legacy, aperçu mobile + PDF (lecture seule)", async () => {
