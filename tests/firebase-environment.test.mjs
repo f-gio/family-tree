@@ -72,20 +72,54 @@ test("Recette est autorisée uniquement sur son hostname HTTPS exact", () => {
   assert.equal(resolveFirebaseEnvironment({ protocol: "http:", hostname: "la-nostra-storia-recette.web.app", pathname: "/" }).allowed, false, "HTTP Recette refusé");
 });
 
-test("localhost et 127.0.0.1 utilisent exclusivement le projet fictif et les émulateurs", () => {
+test("localhost et 127.0.0.1 utilisent exclusivement le projet fictif et l’hôte d’émulateur configuré", async () => {
+  /* L'hôte d'émulateur est piloté par la constante locale du module : le
+     dépôt garde la boucle locale par défaut (aucune adresse personnelle
+     versionnée) tout en restant ajustable localement — docs/LAN_TESTING.md.
+     L'assertion vérifie le câblage et la sécurité de la valeur, pas un
+     littéral, afin qu'un ajustement local documenté reste vert. */
+  const source = await readFile(new URL("../js/firebase-environment.js", import.meta.url), "utf8");
+  const configuredHost = source.match(/const localEmulatorHost = "([^"]*)"/)?.[1] || "";
+  assert.ok(configuredHost, "constante localEmulatorHost présente dans le module");
+  assert.ok(
+    /^(?:127\.0\.0\.1|localhost|::1)$/.test(configuredHost) || /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(configuredHost),
+    `hôte d’émulateur en boucle locale ou dans une plage privée RFC1918 : ${configuredHost}`
+  );
   for (const hostname of ["localhost", "127.0.0.1"]) {
     const local = resolveFirebaseEnvironment({ protocol: "http:", hostname, pathname: "/" });
     assert.equal(local.allowed, true);
     assert.equal(local.environment, "local");
     assert.equal(local.firebaseConfig.projectId, "family-tree-emulator-test");
     assert.equal(firebaseConfigurationMatchesEnvironment("local", local.firebaseConfig), true);
-    assert.equal(local.emulators.auth.host, "127.0.0.1");
+    assert.equal(local.emulators.auth.host, configuredHost, "hôte d’émulateur piloté par la constante locale");
     assert.equal(local.emulators.auth.port, 9099);
-    assert.equal(local.emulators.firestore.host, "127.0.0.1");
+    assert.equal(local.emulators.firestore.host, configuredHost, "hôte d’émulateur piloté par la constante locale");
     assert.equal(local.emulators.firestore.port, 8080);
     assert.notEqual(local.firebaseConfig.projectId, FIREBASE_PROJECT_IDS.production);
     assert.notEqual(local.firebaseConfig.projectId, FIREBASE_PROJECT_IDS.recette);
   }
+});
+
+test("les IP privées du LAN résolvent l'environnement local, jamais la Production", () => {
+  const lan = resolveFirebaseEnvironment({ protocol: "http:", hostname: "192.168.1.14", pathname: "/" });
+  assert.equal(lan.allowed, true, "IP privée HTTP acceptée pour les tests locaux");
+  assert.equal(lan.environment, "local");
+  assert.equal(lan.firebaseConfig.projectId, "family-tree-emulator-test", "jamais la configuration Production");
+  assert.equal(firebaseConfigurationMatchesEnvironment("local", lan.firebaseConfig), true);
+  assert.equal(lan.emulators.auth.host, "192.168.1.14", "émulateurs atteignables depuis le LAN via l'IP du poste");
+  assert.equal(lan.emulators.firestore.host, "192.168.1.14");
+  assert.equal(lan.emulators.auth.port, 9099);
+  assert.equal(lan.emulators.firestore.port, 8080);
+  assert.equal(resolveFirebaseEnvironment({ protocol: "https:", hostname: "192.168.1.14", pathname: "/" }).allowed, true);
+  for (const hostname of ["10.0.0.2", "172.31.0.1"]) {
+    assert.equal(resolveFirebaseEnvironment({ protocol: "http:", hostname, pathname: "/" }).environment, "local", `${hostname} = plage privée`);
+  }
+  /* Les protections restent actives. */
+  assert.equal(resolveFirebaseEnvironment({ protocol: "http:", hostname: "203.0.113.7", pathname: "/" }).allowed, false, "IP publique refusée");
+  assert.equal(resolveFirebaseEnvironment({ protocol: "http:", hostname: "192.168.1.14.evil.test", pathname: "/" }).allowed, false, "sous-domaine forgé refusé");
+  assert.equal(resolveFirebaseEnvironment({ protocol: "http:", hostname: "999.168.1.14", pathname: "/" }).allowed, false, "octet hors bornes refusé");
+  assert.equal(resolveFirebaseEnvironment({ protocol: "file:", hostname: "192.168.1.14", pathname: "/C:/" }).allowed, false, "hors http(s) refusé");
+  assert.equal(resolveFirebaseEnvironment({ protocol: "http:", hostname: "f-gio.github.io", pathname: "/family-tree/" }).allowed, false, "GitHub Pages exige HTTPS");
 });
 
 test("origine inconnue et file:// refusés sans configuration Firebase", () => {

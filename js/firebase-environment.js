@@ -29,6 +29,14 @@ const firebaseConfigs = Object.freeze({
   })
 });
 
+/* Hôte d'émulateur utilisé par les pages ouvertes sur localhost / 127.0.0.1.
+   Valeur par défaut : boucle locale — le dépôt ne porte aucune adresse
+   personnelle. Un appareil du réseau local n'a besoin d'aucune configuration :
+   sa propre adresse IP privée pilote les émulateurs (voir plus bas). Pour
+   pointer localhost vers un autre hôte d'émulateur, modifier la valeur
+   localement, sans la committer : docs/LAN_TESTING.md. */
+const localEmulatorHost = "127.0.0.1";
+
 export function firebaseProjectIdMatches(environment, config) {
   const expected = FIREBASE_PROJECT_IDS[environment];
   return typeof expected === "string" && config?.projectId === expected;
@@ -51,11 +59,23 @@ function allow(environment) {
   const result = { allowed: true, environment, firebaseConfig };
   if (environment === "local") {
     result.emulators = Object.freeze({
-      auth: Object.freeze({ host: "127.0.0.1", port: 9099 }),
-      firestore: Object.freeze({ host: "127.0.0.1", port: 8080 })
+      auth: Object.freeze({ host: localEmulatorHost, port: 9099 }),
+      firestore: Object.freeze({ host: localEmulatorHost, port: 8080 })
     });
   }
   return Object.freeze(result);
+}
+
+/* IP privées RFC1918 uniquement (10/8, 172.16/12, 192.168/16) : les tests
+   locaux depuis un appareil du LAN restent rattachés à l'environnement
+   émulateur, jamais à la Production. */
+function isPrivateIpv4Hostname(hostname) {
+  const parts = hostname.split(".");
+  if (parts.length !== 4) return false;
+  const octets = parts.map(part => (/^\d{1,3}$/.test(part) ? Number(part) : NaN));
+  if (octets.some(octet => !Number.isInteger(octet) || octet > 255)) return false;
+  const [first, second] = octets;
+  return first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168);
 }
 
 export function resolveFirebaseEnvironment(locationLike) {
@@ -78,6 +98,17 @@ export function resolveFirebaseEnvironment(locationLike) {
   }
   if (hostname === "localhost" || hostname === "127.0.0.1") {
     return protocol === "http:" || protocol === "https:" ? allow("local") : denied("local-origin-invalid");
+  }
+  if (isPrivateIpv4Hostname(hostname)) {
+    if (protocol !== "http:" && protocol !== "https:") return denied("local-origin-invalid");
+    const local = allow("local");
+    return Object.freeze({
+      ...local,
+      emulators: Object.freeze({
+        auth: Object.freeze({ host: hostname, port: local.emulators.auth.port }),
+        firestore: Object.freeze({ host: hostname, port: local.emulators.firestore.port })
+      })
+    });
   }
   return denied("unrecognized-hostname");
 }

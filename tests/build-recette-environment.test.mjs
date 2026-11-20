@@ -34,10 +34,12 @@ test("l'artefact Recette n'autorise que son hostname HTTPS", async () => {  cons
 
 test("le transform accepte aussi un clone propre dépourvu des réglages locaux", async () => {
   const source = (await readFile(new URL("../js/firebase-environment.js", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
-  // Reproduit l'état d'un clone propre : réglage LAN, branche d'émulateurs et
-  // détecteur RFC1918 absents. Ces blocs ne sont retirés que s'ils existent.
+  // Reproduit l'état d'un clone propre : réglage local de l'hôte d'émulateur,
+  // branche d'émulateurs et détecteur RFC1918 absents. Ces blocs ne sont
+  // retirés que s'ils existent — le retrait du réglage est insensible à la
+  // valeur configurée localement.
   const clean = source
-    .replace('/* Hôte commun pour le PC et les appareils du LAN pendant les essais locaux. */\nconst localEmulatorHost = "192.168.1.14";\n\n', "")
+    .replace(/\/\*(?:[^*]|\*(?!\/))*\*\/\nconst localEmulatorHost = "[^"]*";[^\n]*\n\n/, "")
     .replace(`  if (environment === "local") {
     result.emulators = Object.freeze({
       auth: Object.freeze({ host: localEmulatorHost, port: 9099 }),

@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { copyFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { productionOnlyEnvironment } from "./production-environment.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT = resolve(ROOT, "dist-production");
@@ -61,24 +62,6 @@ async function verifyFirebaseEnvironment() {
     "production-short": ["lanostrastoria"]
   }, "les cibles Hosting pointent vers les deux sites attendus");
   assert.equal("firestore" in productionConfig, false, "la configuration dédiée ne cible que Hosting");
-}
-
-function productionOnlyEnvironment(source) {
-  let output = source.replace(/\r\n/g, "\n");
-  assert.ok(output.includes('  recette: "la-nostra-storia-recette",\n  local: "family-tree-emulator-test"'), "les environnements Recette et local doivent être repérables avant exclusion");
-  output = output.replace('  recette: "la-nostra-storia-recette",\n  local: "family-tree-emulator-test"', "");
-  const isolatedConfigs = output.replace(/\n  recette: Object\.freeze\(\{[\s\S]*?\n  local: Object\.freeze\(\{[\s\S]*?\n  \}\)\n\}\);/, "\n});");
-  assert.notEqual(isolatedConfigs, output, "les configurations Firebase Recette/local doivent être retirées du build Production");
-  output = isolatedConfigs;
-  const recetteRouteRemoved = output.replace(/  if \(hostname === "la-nostra-storia-recette\.web\.app"\) \{\n[\s\S]*?\n  \}\n/, "");
-  assert.notEqual(recetteRouteRemoved, output, "la route Hosting Recette doit être retirée du build Production");
-  output = recetteRouteRemoved;
-  output = output.replace(/  if \(hostname === "localhost" \|\| hostname === "127\.0\.0\.1"\) \{\n[\s\S]*?\n  \}\n/, '  if (hostname === "localhost" || hostname === "127.0.0.1") return denied("local-unavailable-in-production-build");\n');
-  for (const forbidden of ["la-nostra-storia-recette", "family-tree-emulator-test", "local-emulator-only"]) {
-    assert.ok(!output.includes(forbidden), `Environnement non-production interdit dans l’artefact : ${forbidden}`);
-  }
-  assert.ok(output.includes('projectId: "family-tree-c2fe2"'), "la configuration Firebase Production reste incluse");
-  return output;
 }
 
 async function verifyServed(output, files) {

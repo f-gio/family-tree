@@ -88,6 +88,19 @@ export const GSTATIC_PREFIX = "https://www.gstatic.com/";
 export const BOOT_WARNING = "Vérification des inscriptions impossible";
 export const LOGIN_BLOCKED_MESSAGE = "Connexion impossible. Vérifiez Firebase Authentication.";
 
+/* Émulateurs Firebase : boucle locale (localhost, 127.0.0.1, ::1) ou plage
+   privée RFC1918 — la configuration LAN locale rend l'émulateur accessible
+   depuis l'IP du poste. Le port seul ne suffit jamais : le serveur statique
+   des tests écoute sur un port éphémère, et un hôte public sur le port 8080
+   n'est pas un émulateur. */
+function isFirebaseEmulatorHost(hostname) {
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]") return true;
+  const parts = hostname.split(".");
+  if (parts.length !== 4 || !parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return false;
+  const [first, second] = parts.map(Number);
+  return first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168);
+}
+
 export function blockedServiceFor(urlString) {
   let host = urlString;
   let parsedUrl = null;
@@ -97,7 +110,7 @@ export function blockedServiceFor(urlString) {
   } catch {
     /* URL invalide : on garde la chaîne brute */
   }
-  if ((host === "localhost" || host === "127.0.0.1") && parsedUrl?.port === "8080") return "Firestore Emulator local";
+  if (isFirebaseEmulatorHost(host) && (parsedUrl?.port === "8080" || parsedUrl?.port === "9099")) return "Émulateur Firebase local";
   if (host === "firestore.googleapis.com") return "firestore (données)";
   if (host === "identitytoolkit.googleapis.com") return "Firebase Authentication";
   if (host === "securetoken.googleapis.com") return "jeton Firebase";

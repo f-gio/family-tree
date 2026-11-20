@@ -25,12 +25,13 @@ export function buildRecetteOnlyEnvironment(source) {
   assert.ok(localConfigStart >= 0 && localConfigEnd > localConfigStart,
     "bloc de configuration locale attendu pour l’exclure de l’artefact Recette");
   output = output.slice(0, localConfigStart) + output.slice(localConfigEnd + "\n  })".length);
-  // Réglages locaux de développement (hôte LAN, émulateurs, détecteur RFC1918)
-  // : présents dans l'arbre de travail local, absents d'un clone propre. Leur
-  // retrait est donc conditionnel — l'invariant non négociable reste la liste
-  // `forbidden` appliquée en fin de transformation.
-  const localHostSetting = '/* Hôte commun pour le PC et les appareils du LAN pendant les essais locaux. */\nconst localEmulatorHost = "192.168.1.14";\n\n';
-  if (output.includes(localHostSetting)) output = output.replace(localHostSetting, "");
+  // Réglages locaux de développement (valeur locale de l'hôte d'émulateur,
+  // détecteur RFC1918) : le mécanisme est versionné mais sa valeur peut être
+  // ajustée localement, sans être jamais publiée. Leur retrait est donc
+  // conditionnel — l'invariant non négociable reste la liste `forbidden`
+  // appliquée en fin de transformation.
+  const localHostMatch = output.match(/\/\*(?:[^*]|\*(?!\/))*\*\/\nconst localEmulatorHost = "[^"]*";[^\n]*\n\n/);
+  if (localHostMatch) output = output.replace(localHostMatch[0], "");
 
   const emulatorBranch = `  if (environment === "local") {
     result.emulators = Object.freeze({
@@ -82,6 +83,7 @@ export function buildRecetteOnlyEnvironment(source) {
     output = output.slice(0, privateRouteStart) + output.slice(fallbackStart);
   }
   assert.ok(!output.includes("isPrivateIpv4Hostname"), "le détecteur RFC1918 ne doit pas rester dans l’artefact Recette");
+  assert.ok(!/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/.test(output), "aucune adresse IP en dur dans le résolveur Recette");
 
   for (const forbidden of ["family-tree-c2fe2", "family-tree-c2fe2.firebaseapp.com", "1096091899254", "1:1096091899254:", "family-tree-emulator-test", "local-emulator-only", "192.168.1.14", "127.0.0.1", "9099", "8080"]) {
     assert.ok(!output.includes(forbidden), `référence Production interdite dans l’artefact Recette : ${forbidden}`);
