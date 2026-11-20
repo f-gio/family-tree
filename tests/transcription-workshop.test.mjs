@@ -597,6 +597,11 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(app, /transcription-workshop-diff-added/, "ajouts différenciés en ligne");
   assert.match(app, /transcription-workshop-diff-removed/, "suppressions différenciées en ligne");
   assert.match(app, /Aucune comparaison possible : il n’existe pas encore de version officielle/, "état explicite sans version comparable");
+  /* §4 : l'onglet Différences est ancré sur le passage actif du bandeau, les
+     suppressions (sans passage sélectionnable) restent représentées. */
+  assert.match(app, /const activeId = transcriptionWorkshopDisplayedSelectedPassageId\(\)/, "diff ancrée sur le passage actif du bandeau");
+  assert.match(app, /Aucune différence disponible pour ce passage/, "état neutre quand le passage actif n’a aucune différence");
+  assert.match(app, /\.filter\(id => !draftIds\.has\(id\) && changedIds\.has\(id\)\)/, "les suppressions de la page restent représentées");
   assert.doesNotMatch(html, /data-workshop-compare=|id="workshopCompareMenuBtn"|>Comparer</, "actions de comparaison redondantes retirées des cartes et du menu");
   assert.match(html, /id="workshopSaveStatus"[^>]*role="status"[^>]*>Brouillon local</, "statut compact « Brouillon local » annoncé comme statut");
   assert.doesNotMatch(html, /id="workshopDraftBadge"/, "l’ancienne pastille de remplacement a disparu");

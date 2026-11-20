@@ -4089,10 +4089,16 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
    soit 24 px au-dessus, et 12 px entre le titre et son champ. Tokens
    uniquement, sans cumul inutile. */
 @media (min-width: 761px) {
-  .transcription-workshop-field-block { gap: var(--space-3); }
+  /* §6 : la consultation officielle reprend l'écart de 12 px mesuré sur
+     « Mon brouillon » — la règle générale est neutralisée par la règle de base
+     posée plus bas, le sélecteur qualifié l'emporte sans déplacer les autres. */
+  #transcriptionWorkshopView:not(.is-edit-session) .transcription-workshop-field-block { gap: var(--space-3); }
   .workshop-field-it,
   .workshop-field-fr { margin-top: var(--space-3); }
   #transcriptionWorkshopView.is-edit-session .transcription-workshop-passage { gap: var(--space-3); }
+  /* §5 : 12 px entre le texte explicatif des Différences et le contenu qui
+     suit (carte de comparaison ou état informatif), sans cumul de marges. */
+  #workshopCompareContent > .transcription-workshop-meta { margin-bottom: var(--space-3); }
 }
 /* Mobile (consultation) : 8 px sous le titre français, 8 px de marge au-dessus
    qui s'ajoutent aux 8 px du bloc précédent — 16 px contre 8 px. */
@@ -4285,6 +4291,10 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   /* §11.5 : la barre d'outils tient sur une seule ligne à 320 px — les
      espaces se resserrent avant tout retour à ligne ni débordement. */
   #workshopPanelOriginal .transcription-workshop-panel-head { gap: var(--space-1); }
+  /* §10 : cible tactile des commandes de zone — la rangée fait déjà 44 px avec
+     les outils de visualisation, les CTA passent de 32 à 44 px en hauteur
+     (largeur et position inchangées, aucun retour à ligne supplémentaire). */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-zone-cta { min-height: var(--control-touch); }
   /* §13 : poubelle de suppression du passage à droite du bandeau, même
      hauteur que les pastilles numérotées. Le séparateur de bandeau et la zone
      de fin de bandeau (badge déjà monté dans l'en-tête, compteur masqué)

@@ -9823,14 +9823,14 @@ function renderTranscriptionWorkshop() {
   const readOnly = transcriptionWorkshopIsReadOnly();
   const editable = !editorState && !readOnly;
   const pageNav = $("workshopPageNav");
-  pageNav.hidden = Boolean(context.pdf);
-  pageNav.innerHTML = !context.pdf && context.pages.length > 1
-    ? `<nav class="genealogy-inline-actions" aria-label="Pages du document">${context.pages.map((value, index) => {
+  pageNav.hidden = Boolean(context.pdf) || context.pages.length < 2;
+  pageNav.innerHTML = pageNav.hidden
+    ? ""
+    : `<nav class="genealogy-inline-actions" aria-label="Pages du document">${context.pages.map((value, index) => {
       const pageDraft = transcriptionWorkshopDrafts.get(transcriptionWorkshopDraftKey(context.documentId, value.id));
       const unsaved = pageDraft?.dirty ? `<span class="sr-only">, modifications non enregistrées</span><span aria-hidden="true"> •</span>` : "";
       return `<button class="btn small${value.id === context.pageId ? " primary" : ""}" type="button" data-workshop-page="${esc(value.id)}"${pageDraft?.dirty ? ' title="Modifications non enregistrées sur cette page"' : ""}>Page ${index + 1}${value.label ? ` · ${esc(value.label)}` : ""}${unsaved}</button>`;
-    }).join("")}</nav>`
-    : "";
+    }).join("")}</nav>`;
   renderWorkshopImageArea();
   renderWorkshopPhotoNav();
   renderWorkshopTypeBadge();
@@ -10158,6 +10158,18 @@ function refreshWorkshopZoneActions() {
      d'actions et que le chevron reste en extrémité droite. */
   const anchor = transcriptionWorkshopContext?.pdf ? $("workshopPdfTools") : $("workshopImageTools");
   if (anchor && toolbar.previousElementSibling !== anchor) anchor.after(toolbar);
+  /* §7-§10 mobile : le groupe de délimitation est calé à droite comme sur la
+     visionneuse PDF — la navigation des pages est placée avant lui pour que
+     l'espace flexible (margin-inline-start: auto) tombe entre les outils de
+     visualisation et le groupe de droite, et non après lui. */
+  const pageNav = $("workshopPageNav");
+  if (pageNav && !pageNav.hidden) {
+    if (window.matchMedia("(max-width: 760px)").matches) {
+      if (pageNav.previousElementSibling !== toolbar) toolbar.before(pageNav);
+    } else if (pageNav.nextElementSibling !== toolbar) {
+      toolbar.after(pageNav);
+    }
+  }
   if (toolbar.dataset.zoneSignature !== signature) {
     toolbar.dataset.zoneSignature = signature;
     toolbar.innerHTML = signature === "zone"
@@ -10777,10 +10789,23 @@ function renderWorkshopCompareContent() {
   const officialById = new Map(official.passages.map(passage => [passage.id, passage]));
   const draftById = new Map(draft.passages.map(passage => [passage.id, passage]));
   const changedIds = new Set(comparison.passageChanges.map(item => item.passageId));
-  const passageIds = [...new Set([...official.passages.map(passage => passage.id), ...draft.passages.map(passage => passage.id)])]
-    .filter(id => changedIds.has(id));
+  /* Présentation limitée au passage actif du bandeau : le calcul métier reste
+     la comparaison globale des deux révisions, mais l'onglet n'affiche que le
+     passage sélectionné (rapproché par identifiant, jamais par rang — un ajout
+     décale la numérotation) auquel s'ajoutent les suppressions, qui n'ont aucun
+     passage sélectionnable et restent une information de la page. */
+  const activeId = transcriptionWorkshopDisplayedSelectedPassageId();
+  const draftIds = new Set(draft.passages.map(passage => passage.id));
+  const activeChanged = Boolean(activeId && changedIds.has(activeId));
+  const deletedIds = official.passages.map(passage => passage.id)
+    .filter(id => !draftIds.has(id) && changedIds.has(id));
+  const passageIds = [...new Set([...(activeChanged ? [activeId] : []), ...deletedIds])];
   const renderField = (title, before, after) => `<div class="transcription-workshop-compare-block"><strong>${title}</strong><p class="transcription-workshop-compare-text">${transcriptionWorkshopDisplayTextDiff(before, after)}</p></div>`;
-  container.innerHTML = `<p class="transcription-workshop-meta">Ajouts en vert, suppressions en rouge ; le texte inchangé reste neutre.</p>${passageIds.map(id => {
+  const intro = `<p class="transcription-workshop-meta">Ajouts en vert, suppressions en rouge ; le texte inchangé reste neutre.</p>`;
+  const neutral = activeChanged
+    ? ""
+    : `<p class="transcription-workshop-empty">Aucune différence disponible pour ce passage : son texte est identique à la version officielle.</p>`;
+  container.innerHTML = `${intro}${neutral}${passageIds.map(id => {
     const previous = officialById.get(id);
     const current = draftById.get(id);
     const index = current ? draft.passages.indexOf(current) : official.passages.indexOf(previous);
