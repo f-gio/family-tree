@@ -210,9 +210,26 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
        « N passages » au pluriel. */
     assert.equal(documentCard.passageCount, "2 passages", "carte Document affiche le nombre réel de passages");
     assert.match(documentCard.passageCount, /^(?:1 passage|\d+ passages)$/, "compteur de passages au singulier ou au pluriel");
-    assert.match(documentCard.text, /Italien\s*Présente/, "état italien affiché dans la carte");
-    assert.match(documentCard.text, /Français\s*Partielle/, "état français affiché dans la carte");
-    assert.equal(documentCard.action, "Reprendre", "action courte adaptée à la transcription existante");
+    /* Progression par langue, lue sur les sélecteurs dédiés de la carte :
+       les deux passages ont un texte italien (100 %) et une seule traduction
+       sur deux est renseignée (50 %). */
+    const languageProgress = await page.evaluate(() => {
+      const card = document.querySelector(".document-transcription-card");
+      const displayed = {};
+      for (const label of card.querySelectorAll(".document-transcription-progress-label")) {
+        displayed[label.querySelector("span")?.textContent.trim()] = label.querySelector("strong")?.textContent.replace(/\s+/g, " ").trim();
+      }
+      const aria = {};
+      for (const bar of card.querySelectorAll('[role="progressbar"]')) {
+        aria[bar.getAttribute("aria-label")] = bar.getAttribute("aria-valuenow");
+      }
+      return { displayed, aria };
+    });
+    assert.equal(languageProgress.displayed.Italien, "100 %", "progression italienne : les deux passages ont un texte italien");
+    assert.equal(languageProgress.displayed.Français, "50 %", "progression française : une traduction sur deux passages");
+    assert.equal(languageProgress.aria["Progression de la transcription italienne"], "100", "valeur ARIA de la progression italienne");
+    assert.equal(languageProgress.aria["Progression de la traduction française"], "50", "valeur ARIA de la progression française");
+    assert.equal(documentCard.action, "Reprendre la transcription", "action de reprise adaptée à la transcription existante");
     assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").evaluate(button => button.classList.contains("primary")), false, "CTA ivoire sans style principal vert");
     await openInc2Workshop(page, pageErrors);
     await page.waitForFunction(() => window.__inc2.officialBadge().text !== "", undefined, { timeout: 5000 });
@@ -250,7 +267,7 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
     await page.click("#workshopCancelKeepBtn");
     await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden && !document.getElementById("documentDetailView").hidden);
     assert.ok(await page.evaluate(() => window.__inc2.localDraftCount() > 0), "sans version officielle, l’annulation conserve le brouillon local");
-    assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").textContent(), "Reprendre", "la carte Document permet de reprendre le brouillon conservé");
+    assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").textContent(), "Reprendre la transcription", "la carte Document permet de reprendre le brouillon conservé");
 
     /* Aucune écriture distante ni officielle n'est tentée : le badge et le
        dialogue restent cohérents même hors connexion. */
@@ -759,13 +776,73 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     assert.equal(await page.locator("#workshopModeBtn").textContent(), "Modifier la transcription", "libellé fixe du CTA vert, action explicite pour entrer en édition");
     const consultationModeBox = await page.locator("#workshopModeBtn").boundingBox();
     assert.ok(consultationModeBox && consultationModeBox.height >= 44, `« Modifier » ≥ 44 px (${consultationModeBox?.height})`);
-    const footerHeightConsultation = await page.locator(".transcription-workshop-footer").evaluate(footer => footer.getBoundingClientRect().height);
+    /* Pied en consultation : le statut de sauvegarde est propre à l'édition et
+       reste masqué, la navigation de passages reste accessible, et le pied est
+       contenu dans le conteneur d'atelier, sans débordement horizontal. */
+    const consultationFooter = await page.evaluate(() => {
+      const footer = document.querySelector(".transcription-workshop-footer");
+      const layout = document.querySelector(".transcription-workshop-layout");
+      const autoSaveHint = document.getElementById("workshopAutosaveHint");
+      const rect = element => { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right, top: box.top, bottom: box.bottom }; };
+      return {
+        footer: rect(footer),
+        layout: rect(layout),
+        autoSaveHintHidden: autoSaveHint.hidden,
+        navHidden: document.getElementById("workshopFooterPassageNav").hidden,
+        clientWidth: document.documentElement.clientWidth
+      };
+    });
+    assert.equal(consultationFooter.autoSaveHintHidden, true, "annonce d’auto-save propre à l’édition masquée en consultation");
+    assert.equal(consultationFooter.navHidden, false, "navigation de passages visible dans le pied en consultation");
+    assert.equal(await page.locator("#workshopNextPassageBtn").isVisible(), true, "« Passage suivant » visible en consultation");
+    assert.equal(await page.locator("#workshopNextPassageBtn").isEnabled(), true, "« Passage suivant » accessible en consultation");
+    assert.ok(consultationFooter.footer.left >= consultationFooter.layout.left
+      && consultationFooter.footer.right <= consultationFooter.layout.right
+      && consultationFooter.footer.top >= consultationFooter.layout.top
+      && consultationFooter.footer.bottom <= consultationFooter.layout.bottom,
+    "pied contenu dans le conteneur d'atelier en consultation");
+    assert.ok(consultationFooter.footer.left >= 0 && consultationFooter.footer.right <= consultationFooter.clientWidth, "pied sans débordement horizontal en consultation");
+
+    /* Stabilité dans un même mode : un changement de passage ne déplace pas
+       le pied — seules les étiquettes du contenu changent. */
+    const footerBeforePassageChange = await page.locator(".transcription-workshop-footer").boundingBox();
+    await page.click("#workshopNextPassageBtn");
+    await page.waitForFunction(() => document.getElementById("workshopFooterCounter").textContent.includes("2 sur"), undefined, { timeout: 3000 });
+    const footerAfterPassageChange = await page.locator(".transcription-workshop-footer").boundingBox();
+    assert.deepEqual(footerAfterPassageChange, footerBeforePassageChange, "le pied ne bouge pas au changement de passage (consultation)");
+    await page.click("#workshopPrevPassageBtn");
+    await page.waitForFunction(() => document.getElementById("workshopFooterCounter").textContent.includes("1 sur"), undefined, { timeout: 3000 });
+    const footerBackToFirstPassage = await page.locator(".transcription-workshop-footer").boundingBox();
+    assert.deepEqual(footerBackToFirstPassage, footerBeforePassageChange, "retour au passage initial sans déplacement du pied");
     await page.click("#workshopModeBtn");
     assert.equal(await page.locator(".transcription-workshop-mode").isVisible(), true, "contrôle segmenté visible après « Modifier »");
     assert.equal(await page.locator('[data-workshop-mode="draft"]').getAttribute("aria-pressed"), "true", "« Mon brouillon » sélectionné par défaut en édition");
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().isDisabled(), false, "édition activée explicitement");
-    const footerHeightEdit = await page.locator(".transcription-workshop-footer").evaluate(footer => footer.getBoundingClientRect().height);
-    assert.ok(Math.abs(footerHeightEdit - footerHeightConsultation) <= 1, `hauteur de pied stable consultation/édition (${footerHeightConsultation} → ${footerHeightEdit})`);
+    /* Pied en édition : les actions Annuler/Valider sont présentes et
+       accessibles, sans chevauchement avec le statut ni débordement horizontal
+       — les deux modes composent leur pied volontairement différemment
+       (hauteurs non imposées). L'annonce d'auto-save propre à l'édition est
+       contrôlée plus bas dans ce même scénario. */
+    const editFooter = await page.evaluate(() => {
+      const footer = document.querySelector(".transcription-workshop-footer");
+      const status = footer.querySelector(".transcription-workshop-footer-status");
+      const actions = footer.querySelector(".transcription-workshop-footer-actions");
+      const rect = element => { const box = element.getBoundingClientRect(); return { left: box.left, right: box.right, top: box.top, bottom: box.bottom }; };
+      const statusBox = rect(status);
+      const actionsBox = rect(actions);
+      return {
+        footer: rect(footer),
+        overlap: statusBox.left < actionsBox.right && actionsBox.left < statusBox.right
+          && statusBox.top < actionsBox.bottom && actionsBox.top < statusBox.bottom,
+        clientWidth: document.documentElement.clientWidth
+      };
+    });
+    assert.equal(await page.locator("#workshopCancelEditBtn").isVisible(), true, "« Annuler » visible en édition");
+    assert.equal(await page.locator("#workshopCancelEditBtn").isEnabled(), true, "« Annuler » accessible en édition");
+    assert.equal(await page.locator("#workshopValidateBtn").isVisible(), true, "« Valider » visible en édition (profil administrateur du harnais)");
+    assert.equal(await page.locator(".transcription-workshop-footer-actions").isVisible(), true, "groupe d'actions du pied visible en édition");
+    assert.equal(editFooter.overlap, false, "statut et actions sans chevauchement");
+    assert.ok(editFooter.footer.left >= 0 && editFooter.footer.right <= editFooter.clientWidth, "pied sans débordement horizontal en édition");
     assert.equal(await page.locator("#workshopSaveDraftBtn").count(), 0, "pas de commande manuelle créée par l'activation seule");
     assert.equal(await page.locator("#workshopAutosaveHint").isVisible(), true, "autosauvegarde annoncée en édition");
     assert.equal(await page.locator("#workshopActionsMenu").isHidden(), false, "menu ⋯ visible dès qu’une aide secondaire est disponible");
@@ -834,7 +911,7 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     const revisionCard = await page.locator(".document-transcription-card").textContent();
     assert.match(revisionCard, /Révision en cours · v3/, "carte Document indique la révision locale");
-    assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").textContent(), "Reprendre", "CTA court de reprise de révision");
+    assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").textContent(), "Reprendre la transcription", "CTA de reprise de révision");
     await page.click(".document-transcription-card [data-transcribe-document]");
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
     assert.equal(await page.locator('[data-workshop-field="textIt"]').first().inputValue(), "Révision à conserver", "la révision reprend sans perte depuis la carte Document");
