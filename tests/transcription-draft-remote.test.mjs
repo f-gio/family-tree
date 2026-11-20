@@ -249,7 +249,7 @@ async function openWorkshopOn(page) {
 }
 
 async function exitWorkshop(page) {
-  await page.click('[data-workshop-breadcrumb="document"]');
+  await page.click("#workshopBackBtn");
   await page.waitForFunction(() => document.getElementById("transcriptionWorkshopView").hidden);
 }
 
@@ -990,12 +990,12 @@ test("la fiche Document bascule sur Reprendre quand un brouillon distant existe"
     };
     const bareButton = '#viewerDocumentDetails [data-transcribe-document]';
 
-    /* Ordinateur A : sans brouillon, la fiche affiche « Ajouter ». */
+    /* Ordinateur A : sans brouillon, la fiche propose de commencer la transcription. */
     const first = await createDevice();
     await first.evaluate(() => window.__draftRemote.seedBareDocument());
     await first.evaluate(() => window.__draftRemote.openDoc());
     await first.waitForSelector(bareButton);
-    assert.equal(await first.locator(bareButton).textContent(), "Ajouter", "aucun brouillon : libellé court « Ajouter »");
+    assert.equal(await first.locator(bareButton).textContent(), "Commencer une transcription", "aucun brouillon : CTA de démarrage");
     assert.match(await first.evaluate(() => document.querySelector(".document-transcription-card").textContent), /Aucune transcription/, "état vide explicite avant tout brouillon");
 
     /* A : brouillon créé et publié sur le compte (page sans passage : le
@@ -1017,7 +1017,7 @@ test("la fiche Document bascule sur Reprendre quand un brouillon distant existe"
     const readsBeforeOpen = serverState.readCount;
     await second.evaluate(() => window.__draftRemote.openDoc());
     await second.waitForSelector(bareButton);
-    await second.waitForFunction(() => document.querySelector('#viewerDocumentDetails [data-transcribe-document]')?.textContent.trim() === "Reprendre", undefined, { timeout: 8000 });
+    await second.waitForFunction(() => document.querySelector('#viewerDocumentDetails [data-transcribe-document]')?.textContent.trim() === "Reprendre la transcription", undefined, { timeout: 8000 });
     assert.match(await second.evaluate(() => document.querySelector(".document-transcription-card").textContent), /Brouillon distant/, "état « Brouillon distant » affiché");
     assert.equal(serverState.readCount, readsBeforeOpen + 1, "une seule lecture distante par page");
 
@@ -1025,12 +1025,12 @@ test("la fiche Document bascule sur Reprendre quand un brouillon distant existe"
     await second.evaluate(() => window.__draftRemote.reRenderDetails());
     await second.waitForTimeout(300);
     assert.equal(serverState.readCount, readsAfterFlip, "ré-affichage sans nouvelle lecture distante");
-    assert.equal(await second.locator(bareButton).textContent(), "Reprendre", "libellé conservé au ré-affichage");
+    assert.equal(await second.locator(bareButton).textContent(), "Reprendre la transcription", "libellé conservé au ré-affichage");
 
     /* Réouverture de la fiche : cache vidé, une nouvelle lecture, libellé juste. */
     const readsBeforeReopen = serverState.readCount;
     await second.evaluate(() => window.__draftRemote.openDoc());
-    await second.waitForFunction(() => document.querySelector('#viewerDocumentDetails [data-transcribe-document]')?.textContent.trim() === "Reprendre", undefined, { timeout: 8000 });
+    await second.waitForFunction(() => document.querySelector('#viewerDocumentDetails [data-transcribe-document]')?.textContent.trim() === "Reprendre la transcription", undefined, { timeout: 8000 });
     assert.equal(serverState.readCount, readsBeforeReopen + 1, "réouverture = une nouvelle lecture distante");
 
     /* Le bouton ouvre le même atelier et y reprend le brouillon distant. */
@@ -1054,7 +1054,7 @@ test("la fiche Document bascule sur Reprendre quand un brouillon distant existe"
     await third.evaluate(() => window.__draftRemote.openDoc());
     await third.waitForSelector(bareButton);
     await third.waitForTimeout(1200);
-    assert.equal(await third.locator(bareButton).textContent(), "Ajouter", "lecture en échec : libellé neutre conservé");
+    assert.equal(await third.locator(bareButton).textContent(), "Commencer une transcription", "lecture en échec : CTA neutre de démarrage conservé");
     assert.match(await third.evaluate(() => document.querySelector(".document-transcription-card").textContent), /Aucune transcription/, "aucun état distant affiché sans lecture réussie");
     serverState.offline = false;
 
@@ -1073,7 +1073,7 @@ test("la fiche Document bascule sur Reprendre quand un brouillon distant existe"
     await fourth.evaluate(() => window.__draftRemote.openDoc());
     await fourth.waitForSelector(bareButton);
     await fourth.waitForTimeout(800);
-    assert.equal(await fourth.locator(bareButton).textContent(), "Consulter", "version officielle : comportement inchangé");
+    assert.equal(await fourth.locator(bareButton).textContent(), "Consulter la transcription officielle", "version officielle : CTA de consultation conservé");
     assert.match(await fourth.evaluate(() => document.querySelector(".document-transcription-card").textContent), /Validée · v1/, "état officiel inchangé");
     assert.equal(serverState.readCount, readsBeforeOfficial, "aucune lecture distante quand la version officielle existe");
 
