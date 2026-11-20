@@ -199,10 +199,17 @@ test("badges et états : Brouillon, Validée · vN, Révision en cours · vN —
     await page.waitForSelector(".document-transcription-card [data-transcribe-document]");
     const documentCard = await page.evaluate(() => {
       const card = document.querySelector(".document-transcription-card");
-      return { text: card.textContent, action: card.querySelector("[data-transcribe-document]").textContent.trim() };
+      return {
+        text: card.textContent,
+        action: card.querySelector("[data-transcribe-document]").textContent.trim(),
+        passageCount: card.querySelector(".document-transcription-count")?.textContent.trim() || ""
+      };
     });
     assert.match(documentCard.text, /Transcription existante · version source/, "carte Document reflète les passages de la page sans créer de version");
-    assert.match(documentCard.text, /Passages\s*2/, "carte Document affiche le nombre de passages");
+    /* Compteur réel et accord du libellé : « 1 passage » au singulier,
+       « N passages » au pluriel. */
+    assert.equal(documentCard.passageCount, "2 passages", "carte Document affiche le nombre réel de passages");
+    assert.match(documentCard.passageCount, /^(?:1 passage|\d+ passages)$/, "compteur de passages au singulier ou au pluriel");
     assert.match(documentCard.text, /Italien\s*Présente/, "état italien affiché dans la carte");
     assert.match(documentCard.text, /Français\s*Partielle/, "état français affiché dans la carte");
     assert.equal(documentCard.action, "Reprendre", "action courte adaptée à la transcription existante");
@@ -697,10 +704,19 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     await page.waitForSelector(".document-transcription-card [data-transcribe-document]");
     const officialCard = await page.evaluate(() => {
       const card = document.querySelector(".document-transcription-card");
-      return { text: card.textContent, action: card.querySelector("[data-transcribe-document]").textContent.trim() };
+      const action = card.querySelector("[data-transcribe-document]");
+      return {
+        text: card.textContent,
+        action: action.textContent.trim(),
+        official: action.classList.contains("document-transcription-action--official")
+      };
     });
     assert.match(officialCard.text, /Validée · v2/, "carte indique la version officielle courante");
-    assert.equal(officialCard.action, "Consulter", "action de consultation quand aucune révision n'existe");
+    /* Libellé exact du CTA en l'absence de révision, dans la carte Document et
+       sur le bouton [data-transcribe-document] — jamais un libellé générique
+       contenant simplement « Consulter ». */
+    assert.equal(officialCard.action, "Consulter la transcription officielle", "action de consultation quand aucune révision n'existe");
+    assert.equal(officialCard.official, true, "CTA en état de consultation officielle");
     assert.equal(await page.locator(".document-transcription-card [data-transcribe-document]").evaluate(button => button.classList.contains("primary")), false, "CTA officiel non principal");
     await page.evaluate(() => window.__inc2.transcribe());
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);

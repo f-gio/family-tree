@@ -59,5 +59,10 @@ test("la sauvegarde reste additive et sans migration globale", () => {
   for (const key of ["birthPlaceInfo", "deathPlaceInfo", "unionPlaceInfo", "endPlaceInfo", "placeInfo"]) assert.ok(app.includes(key));
   assert.match(app, /applyLocationField\(data, "place", existing, !!id\)/);
   assert.match(app, /applyLocationField\(data, "deathPlace", existing, !!id\)/);
-  assert.ok(!/migration|migratePeople|rewriteAll/i.test(app));
+  /* Mécanisme réellement visé : aucun symbole de migration/réécriture globale.
+     Le terme générique « migration » n'est plus interdit — il est employé
+     légitimement par la synchronisation des brouillons de transcription. */
+  assert.ok(!/\bmigratePeople\b|\brewriteAll\b|\bglobalMigration\b/.test(app), "aucun symbole de migration globale dans l'application");
+  /* Opération interdite : boucle qui réécrit la collection people entière. */
+  assert.ok(!/for\s*\([^)]*\bof\s+people\b[\s\S]{0,240}?(?:setDoc|updateDoc|writeBatch)\(/.test(app), "aucune réécriture itérative de la collection people");
 });

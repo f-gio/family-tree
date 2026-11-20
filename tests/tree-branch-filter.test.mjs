@@ -43,7 +43,26 @@ test("C. valeur par défaut = Toutes les branches", () => {
 test("D. changement de filtre → portée recalculée et caméra ajustée, sans bouton Appliquer", () => {
   assert.match(app, /\$\("treeBranchFilter"\)\.onchange\s*=/);
   assert.match(app, /lineageSurname\s*=\s*\$\("treeBranchFilter"\)\.value/);
-  assert.match(app, /lineageSurname[\s\S]{0,160}renderTree\(\)[\s\S]{0,80}camera\.fit\(\)/);
+  /* Bloc fonctionnel du gestionnaire, ordre exigé et sans distance arbitraire :
+     mise à jour de la portée, rafraîchissement du sélecteur de branches,
+     réinitialisation de la vue de branche, redessin de l'arbre, puis cadrage
+     caméra. */
+  const branchFilterHandler = app.match(/\$\("treeBranchFilter"\)\.onchange = \(\) => \{[\s\S]*?\n\};/)?.[0] || "";
+  assert.ok(branchFilterHandler, "gestionnaire de changement de branche présent");
+  const expectedSteps = [
+    'lineageSurname = $("treeBranchFilter").value',
+    "renderTreeBranchPicker(",
+    "branchView = null",
+    "focusAfterRender = null",
+    "renderTree();",
+    "camera.fit();"
+  ];
+  let stepCursor = -1;
+  for (const step of expectedSteps) {
+    const position = branchFilterHandler.indexOf(step);
+    assert.ok(position > stepCursor, `étape du gestionnaire présente et dans l’ordre : ${step}`);
+    stepCursor = position;
+  }
   assert.ok(!html.includes("Appliquer"), "aucun bouton Appliquer");
 });
 
