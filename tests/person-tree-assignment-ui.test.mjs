@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
-import { blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
+import { AUTH_BOOTSTRAP_PATCH, blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 const hooks = `
 window.__personTreeHarness = {
@@ -88,7 +88,7 @@ async function openHarness(t, width = 1024) {
       assert.ok(source.includes(write), "la création doit être vérifiable sans Firestore distant");
       source = source.replace(lookup, 'await window.__personTreeTargetMock(destinationTreeId)')
         .replace(write, 'await window.__personCreateMock(createdId, { ...createData, inTree: true, createdAt: serverTimestamp() });');
-      return route.fulfill({ response, body: `${source}\n${hooks}` });
+      return route.fulfill({ response, body: `${source}\n${AUTH_BOOTSTRAP_PATCH}\n${hooks}` });
     }
     if (isAllowedRequest(url, server.baseURL)) return route.continue().catch(() => {});
     if (blockedServiceFor(url)) return route.abort("blockedbyclient").catch(() => {});
@@ -113,6 +113,17 @@ async function fillNewPerson(page, firstName) {
   await page.locator("#savePersonBtn").click();
 }
 
+/* openPerson déplace le focus vers #firstName dans un setTimeout(30 ms) après
+   l'ouverture de la modale. Attendre cet état observable avant de saisir évite
+   que ce focus différé détourne la saisie du champ suivant vers #firstName
+   (course intermittente qui laissait le formulaire invalide et le toast périmé). */
+async function waitForPersonDialogReady(page) {
+  await page.waitForFunction(() => {
+    const dialog = document.getElementById("personDialog");
+    return Boolean(dialog?.open && document.activeElement?.id === "firstName");
+  });
+}
+
 test("création depuis Arbre utilise main ou l’arbre actif, sans champ de changement", async t => {
   const harness = await openHarness(t);
   if (!harness) return;
@@ -120,6 +131,7 @@ test("création depuis Arbre utilise main ou l’arbre actif, sans champ de chan
   try {
     await page.evaluate(() => window.__personTreeHarness.showTree());
     await page.locator("#addBtn").click();
+    await waitForPersonDialogReady(page);
     assert.equal(await page.locator("#personTreeAssignment").textContent(), "Ajoutée à : Arbre familial");
     assert.equal(await page.locator("#personTreeSelectWrap").isVisible(), false);
     await fillNewPerson(page, "Main Créée");
@@ -132,6 +144,7 @@ test("création depuis Arbre utilise main ou l’arbre actif, sans champ de chan
     await page.locator('#personDialog button.icon-btn[data-close="personDialog"]').click();
     await page.evaluate(() => window.__personTreeHarness.chooseTree("tree-conti"));
     await page.locator("#addBtn").click();
+    await waitForPersonDialogReady(page);
     assert.equal(await page.locator("#personTreeAssignment").textContent(), "Ajoutée à : Ramo Conti");
     await fillNewPerson(page, "Secondaire Créée");
     await page.waitForFunction(() => window.__personTreeWrites.length === 2);
@@ -147,6 +160,7 @@ test("création depuis l’annuaire propose main par défaut et un choix seconda
   const { page, context, browser, server } = harness;
   try {
     await page.locator("#addDirectoryPersonBtn").click();
+    await waitForPersonDialogReady(page);
     assert.equal(await page.locator("#personTreeSelectWrap").isVisible(), true);
     assert.equal(await page.locator("#personTreeSelect").inputValue(), "main");
     assert.deepEqual(await page.locator("#personTreeSelect option").allTextContents(), ["Aucun arbre", "Arbre familial", "Ramo Conti"], JSON.stringify(await page.evaluate(() => window.__personTreeHarness.state())));
@@ -157,6 +171,7 @@ test("création depuis l’annuaire propose main par défaut et un choix seconda
 
     await page.locator('#personDialog button.icon-btn[data-close="personDialog"]').click();
     await page.locator("#addDirectoryPersonBtn").click();
+    await waitForPersonDialogReady(page);
     await page.locator("#personTreeSelect").selectOption("tree-conti");
     await fillNewPerson(page, "Annuaire Secondaire");
     await page.waitForFunction(() => window.__personTreeWrites.length === 2);
@@ -172,6 +187,7 @@ test("l’arbre secondaire est revérifié avant écriture et aucun échec ne cr
   const { page, context, browser, server } = harness;
   try {
     await page.locator("#addDirectoryPersonBtn").click();
+    await waitForPersonDialogReady(page);
     await page.locator("#personTreeSelect").selectOption("tree-conti");
     await page.evaluate(() => { window.__personTreeTargetMode = "missing"; });
     await page.locator("#firstName").fill("Arbre absent");
@@ -195,6 +211,7 @@ test("l’arbre secondaire est revérifié avant écriture et aucun échec ne cr
     await page.evaluate(() => window.__personTreeHarness.chooseTree("tree-conti"));
     await page.evaluate(() => window.__personTreeHarness.showTree());
     await page.locator("#addBtn").click();
+    await waitForPersonDialogReady(page);
     await page.evaluate(() => window.__personTreeHarness.failCatalog());
     await page.locator("#firstName").fill("Catalogue absent");
     await page.locator("#lastName").fill("Test");
@@ -210,6 +227,7 @@ test("double soumission protégée et reprise réseau idempotente dans le même 
   const { page, context, browser, server } = harness;
   try {
     await page.locator("#addDirectoryPersonBtn").click();
+    await waitForPersonDialogReady(page);
     await page.locator("#firstName").fill("Reprise");
     await page.locator("#lastName").fill("Test");
     await page.evaluate(() => { window.__personTreeWriteMode = "delay"; });
@@ -223,6 +241,7 @@ test("double soumission protégée et reprise réseau idempotente dans le même 
 
     await page.locator('#personDialog button.icon-btn[data-close="personDialog"]').click();
     await page.locator("#addDirectoryPersonBtn").click();
+    await waitForPersonDialogReady(page);
     await page.locator("#firstName").fill("Reprise réseau");
     await page.locator("#lastName").fill("Test");
     await page.evaluate(() => { window.__personTreeWriteMode = "fail-once"; });
