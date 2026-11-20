@@ -64,7 +64,7 @@ test("tuiles et menus secondaires restent utilisables de 320 px au desktop", asy
     await t.test(`${width} px : listes sans débordement, menus visibles et clavier accessibles`, async () => {
       await page.setViewportSize({ width, height: 800 });
       await page.evaluate(() => {
-        const sections = ["directoryView", "documentsView", "tasksView", "dossiersView"];
+        const sections = ["directoryView", "documentsView", "tasksView"];
         document.getElementById("authScreen").hidden = true;
         document.getElementById("topbar").hidden = false;
         document.getElementById("appMain").hidden = true;
@@ -72,15 +72,14 @@ test("tuiles et menus secondaires restent utilisables de 320 px au desktop", asy
         document.getElementById("directoryList").innerHTML = `<article class="directory-entry" data-primary-tile tabindex="0" role="group"><span class="directory-avatar">AB</span><div class="directory-main"><h3>Nom long de démonstration</h3><p class="directory-life">Naissance — décès</p></div><div class="directory-entry-actions"><span class="directory-action">📄 12 documents</span>${menu("directory", "fictif")}</div></article>`;
         document.getElementById("documentsList").innerHTML = `<article class="content-card document-card" data-primary-tile data-document-openable="true" tabindex="0" role="group"><div><span class="badge">Acte</span><h3>Document familial de démonstration</h3></div><p class="card-meta">1 janvier 1900 · Turin</p><div class="document-card-details"><p class="document-card-people">Associé à : Prénom Nom, Autre Prénom Autre Nom</p><p class="card-description">Note complémentaire.</p></div><div class="card-actions">${menu("document", "fictif")}</div></article>`;
         document.getElementById("tasksList").innerHTML = `<article class="task-row" data-primary-tile data-task-row="fictif" tabindex="0" role="group"><div class="task-main"><h3>Action de démonstration</h3><span class="task-note">Détail de l’action</span></div><div class="task-assignee">Responsable</div><div class="task-due">Sans date</div><span class="task-priority badge">Moyenne</span><span class="task-status">À faire</span><div class="task-actions">${menu("task", "fictif")}</div></article>`;
-        document.getElementById("proceduresList").innerHTML = `<article class="procedure-item" data-primary-tile data-procedure-card="fictif" tabindex="0" role="group"><span class="procedure-updated">Aujourd’hui</span><div><h3 class="procedure-title">Démarche familiale de démonstration</h3><span class="procedure-tags"><span class="procedure-tag">Recherche</span></span></div><span class="procedure-organization">Service municipal</span><span class="procedure-context">Contexte du dossier</span><div class="procedure-tags procedure-item-status"><span class="procedure-tag procedure-status">En cours</span>${menu("procedure", "fictif")}</div></article>`;
         document.getElementById("directoryList").className = "content-grid directory-grid list-mode";
         document.getElementById("documentsList").className = "content-grid list-mode";
       });
 
-      for (const [listId, selector] of [["directoryList", ".directory-entry"], ["documentsList", ".document-card"], ["tasksList", ".task-row"], ["proceduresList", ".procedure-item"]]) {
+      for (const [listId, selector] of [["directoryList", ".directory-entry"], ["documentsList", ".document-card"], ["tasksList", ".task-row"]]) {
         await page.evaluate(currentList => {
-          const currentView = { directoryList: "directoryView", documentsList: "documentsView", tasksList: "tasksView", proceduresList: "dossiersView" }[currentList];
-          for (const id of ["directoryView", "documentsView", "tasksView", "dossiersView"]) {
+          const currentView = { directoryList: "directoryView", documentsList: "documentsView", tasksList: "tasksView" }[currentList];
+          for (const id of ["directoryView", "documentsView", "tasksView"]) {
             const view = document.getElementById(id);
             if (view) view.hidden = id !== currentView;
           }
@@ -165,7 +164,7 @@ test("Documents : liste et tuiles restent compactes avec sources liées et actio
         await page.evaluate(currentMode => {
           document.getElementById("authScreen").hidden = true;
           document.getElementById("topbar").hidden = false;
-          for (const id of ["treeView", "directoryView", "documentsView", "tasksView", "dossiersView", "genealogyView"]) {
+          for (const id of ["treeView", "directoryView", "documentsView", "tasksView", "genealogyView"]) {
             const view = document.getElementById(id);
             if (view) view.hidden = id !== "documentsView";
           }

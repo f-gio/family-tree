@@ -57,7 +57,7 @@ test("F. réutilisation de l'existant : relationRole, filiation discrète, label
 });
 
 test("G0. géométrie mobile : sheet interactive 92dvh, print/UI séparés", () => {
-  assert.match(css, /dialog#procedureActionDialog\.modal-mobile-sheet--form,\r?\n\s*dialog#personPrintDialog\.modal-mobile-sheet--form \{\r?\n\s*height: 92dvh;\r?\n\s*max-height: 92dvh;\r?\n\s*\}/);
+  assert.match(css, /dialog#personPrintDialog\.modal-mobile-sheet--form \{\r?\n\s*height: 92dvh;\r?\n\s*max-height: 92dvh;\r?\n\s*\}/);
   /* Le fullscreen historique ne venait pas du mécanisme d'impression :
      @media print masque les dialogs et n'imprime que #printPortal. */
   assert.match(css, /body\.is-printing-person dialog,\r?\n\s*body\.is-printing-person dialog::backdrop \{ display: none !important; \}/);

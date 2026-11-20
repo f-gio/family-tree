@@ -107,7 +107,7 @@ test("stopPrivateData ferme l'atelier et masque sa vue privée", () => {
   assert.ok(stop.length > 400, "arrêt des données privées présent");
   assert.match(stop, /if \(isTranscriptionWorkshopActive\(\)\) teardownTranscriptionWorkshop\(\);/, "atelier nettoyé à la perte d'accès");
   assert.match(stop, /\$\("transcriptionWorkshopView"\)\.hidden = true/, "vue de l'atelier masquée");
-  assert.match(stop, /\$\("dossiersView"\)\.hidden = \$\("transcriptionWorkshopView"\)\.hidden = true/, "vue des démarches masquée");
+  assert.match(stop, /\$\("tasksView"\)\.hidden = \$\("transcriptionWorkshopView"\)\.hidden = true/, "vue des Actions masquée");
 });
 
 test("le module de contexte est déclaré dans la carte d'import versionnée", () => {

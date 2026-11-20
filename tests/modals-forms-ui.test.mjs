@@ -24,8 +24,8 @@ for (const rule of [
 
 assert.match(html, /class="person-dialog modal-xl[^\"]*"/);
 assert.match(html, /class="modal-body person-modal-form" id="personForm"/);
-// 7 modales-formulaires, dont le formulaire de contribution Sources & preuves (lot 8A).
-assert.equal((html.match(/class="modal-body modal-form"/g) || []).length, 7);
+// 5 modales-formulaires, dont le formulaire de contribution Sources & preuves (lot 8A).
+assert.equal((html.match(/class="modal-body modal-form"/g) || []).length, 5);
 assert.equal((html.match(/class="person-section-panel"/g) || []).length, 3);
 
 for (const heading of [

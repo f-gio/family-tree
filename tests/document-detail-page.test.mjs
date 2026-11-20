@@ -21,7 +21,7 @@ window.__documentPageTest = {
     const proofData = { id: "doc-proof-fixture", factId: "fact-doc", factType: "birth", personIds: ["doc-person-fixture"], documentId: documentItem.id, relation: "supports", technicalStatus: "active", sourceValue: "1891", citationIt: { textIt: "Nato nel 1891" }, citationFr: { textIt: "Nato nel 1891", translationFr: "Né en 1891" } };
     people = [{ id: "doc-person-fixture", firstName: "Ada Maria Costanza Vittoria", lastName: "Consultazione Genealogica Internazionale", birthDate: "1890", deathDate: "1960", place: "", deathPlace: "", partnerIds: [], childIds: [], inTree: true }];
     documents = [documentItem];
-    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = loadedProcedures = true;
+    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = true;
     genealogyRecords = {
       sourceDocuments: [{ id: sourceData.id, data: sourceData }],
       sourceRevisions: [],

@@ -28,7 +28,7 @@ test("les contrôles mobiles de l’Arbre reprennent la largeur et le rythme de 
       await t.test(`${width} px`, async tViewport => {
         await page.setViewportSize({ width, height: width <= 760 ? 844 : 768 });
         const measures = await page.evaluate(() => {
-          const views = ["appMain", "directoryView", "documentsView", "tasksView", "dossiersView"];
+          const views = ["appMain", "directoryView", "documentsView", "tasksView"];
           const rect = selector => {
             const element = document.querySelector(selector);
             const box = element.getBoundingClientRect();

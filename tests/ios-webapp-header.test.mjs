@@ -61,10 +61,6 @@ test("Web App iOS : en-tête, navigation et bouton … alignés sous la zone sys
       document.getElementById("authScreen").hidden = true;
       document.getElementById("topbar").hidden = false;
       document.getElementById("appMain").hidden = false;
-      /* Mode production : Démarches masqué, donc cinq destinations restantes. */
-      document.documentElement.classList.add("procedures-hidden");
-      const procedures = document.querySelector('[data-view="dossiers"]');
-      if (procedures) { procedures.hidden = true; procedures.setAttribute("aria-hidden", "true"); }
     });
 
     const nav = await page.evaluate(() => {
@@ -74,7 +70,7 @@ test("Web App iOS : en-tête, navigation et bouton … alignés sous la zone sys
         rows: new Set(buttons.map(button => Math.round(button.getBoundingClientRect().top))).size
       };
     });
-    assert.equal(nav.count, 5, "cinq destinations visibles quand Démarches est masqué");
+    assert.equal(nav.count, 5, "cinq destinations visibles");
     assert.equal(nav.rows, 1, "navigation sur une seule ligne");
 
     const header = await page.evaluate(() => {

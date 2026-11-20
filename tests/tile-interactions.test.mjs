@@ -28,19 +28,6 @@ test("Documents : les personnes restent affichées et seules les pièces consult
   assert.match(app, /openStoredDocument\(item, "documents"\)/);
 });
 
-test("Démarches : la fiche s'ouvre par activation principale, sans suppression risquée du dossier", () => {
-  const render = app.slice(app.indexOf("function procedureCard(item)"), app.indexOf("function renderProcedures()", app.indexOf("function procedureCard(item)")));
-  assert.match(render, /class="procedure-item" tabindex="0" role="group" data-primary-tile data-procedure-card=/);
-  assert.match(render, /tileContextMenuMarkup\("procedure", item\.id[\s\S]*?key: "edit", label: "Modifier"/);
-  assert.doesNotMatch(render, /key: "delete"|data-remove-dossier|procedure-open-btn|>Consulter</);
-  assert.match(app, /if \(kind === "procedure" && action === "edit"\)[\s\S]*?openDossierForm\(item\)/);
-  assert.match(app, /preparePrimaryTileActivation\(event, tile, \$\("procedureDetailDialog"\)\);\s*openProcedureDetail\(tile\.dataset\.procedureCard\)/);
-  assert.match(app, /if \(!tile \|\| event\.target !== tile \|\| !\["Enter", " "\]\.includes\(event\.key\)\) return;/);
-  const deleteDossier = app.slice(app.indexOf("async function removeDossier()"), app.indexOf("function openUnknownDossier", app.indexOf("async function removeDossier()")));
-  assert.match(deleteDossier, /deleteDoc\(doc\(db, "procedures", id\)\)/);
-  assert.doesNotMatch(deleteDossier, /collection\(db, "procedures", id, "actions"\)|writeBatch/);
-});
-
 test("Actions : menu secondaire aligné à la fenêtre malgré content-visibility des cartes", () => {
   assert.match(app, /group\.closest\("\.directory-entry, \.content-card"\)\?\.classList\.add\("tile-context-open"\)/);
   assert.match(app, /const maxTop = Math\.max\(8, viewportHeight - bounds\.height - 8\);/);

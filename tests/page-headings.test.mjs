@@ -3,7 +3,7 @@ import test from "node:test";
 import { chromium } from "playwright";
 import { ROOT, startStaticServer } from "./helpers.mjs";
 
-test("les en-têtes Arbre, Annuaire, Documents, Actions et Démarches partagent la même hiérarchie", async t => {
+test("les en-têtes Arbre, Annuaire, Documents, Archives et Actions partagent la même hiérarchie", async t => {
   let browser;
   try {
     browser = await chromium.launch({ headless: true });
@@ -22,7 +22,7 @@ test("les en-têtes Arbre, Annuaire, Documents, Actions et Démarches partagent 
   const page = await context.newPage();
   try {
     await page.goto(server.baseURL, { waitUntil: "load" });
-    await page.waitForSelector("#dossiersView .page-title", { state: "attached" });
+    await page.waitForSelector("#tasksView .page-title", { state: "attached" });
 
     for (const viewport of [
       { label: "mobile 390 px", width: 390, height: 844 },
@@ -33,7 +33,7 @@ test("les en-têtes Arbre, Annuaire, Documents, Actions et Démarches partagent 
         const headingGaps = await page.evaluate(() => {
           document.getElementById("authScreen").hidden = true;
           document.getElementById("topbar").hidden = false;
-          const ids = ["appMain", "directoryView", "documentsView", "genealogyView", "tasksView", "dossiersView"];
+          const ids = ["appMain", "directoryView", "documentsView", "genealogyView", "tasksView"];
           return ids.map(id => {
             for (const viewId of ids) document.getElementById(viewId).hidden = viewId !== id;
             const kickerElement = document.querySelector(`#${id} .page-kicker`);
@@ -56,13 +56,13 @@ test("les en-têtes Arbre, Annuaire, Documents, Actions et Démarches partagent 
         for (const property of ["topToKicker", "kickerToTitle"]) {
           assert.ok(headingGaps.every(gaps => Math.abs(gaps[property] - headingGaps[0][property]) < 0.1), `${property} identique : ${JSON.stringify(headingGaps)}`);
         }
-        assert.ok(headingGaps.every(gaps => !gaps.kickerPresent), `surtitres retirés des six pages : ${JSON.stringify(headingGaps)}`);
+        assert.ok(headingGaps.every(gaps => !gaps.kickerPresent), `surtitres retirés des cinq pages : ${JSON.stringify(headingGaps)}`);
         const visibleDescriptionGaps = headingGaps.filter(gaps => typeof gaps.titleToDescription === "number");
         const expectedDescriptionGap = viewport.width === 390 ? 7 : 10;
         assert.ok(visibleDescriptionGaps.every(gaps => Math.abs(gaps.titleToDescription - expectedDescriptionGap) < 0.1), `H2 → description ${expectedDescriptionGap}px : ${JSON.stringify(headingGaps)}`);
         tViewport.diagnostic(`${viewport.label}: mesures des espacements ${JSON.stringify(headingGaps)}`);
         await page.evaluate(() => {
-          for (const id of ["appMain", "directoryView", "documentsView", "genealogyView", "tasksView", "dossiersView"]) {
+          for (const id of ["appMain", "directoryView", "documentsView", "genealogyView", "tasksView"]) {
             document.getElementById(id).hidden = id !== "appMain";
           }
         });
@@ -71,8 +71,7 @@ test("les en-têtes Arbre, Annuaire, Documents, Actions et Démarches partagent 
           ["Annuaire", document.querySelector("#directoryView .page-title"), document.querySelector("#directoryView .page-kicker")],
           ["Documents", document.querySelector("#documentsView .page-title"), document.querySelector("#documentsView .page-kicker")],
           ["Archives", document.querySelector("#genealogyView .page-title"), document.querySelector("#genealogyView .page-kicker")],
-          ["Actions", document.querySelector("#tasksView .page-title"), document.querySelector("#tasksView .page-kicker")],
-          ["Démarches", document.querySelector("#dossiersView .page-title"), document.querySelector("#dossiersView .page-kicker")]
+          ["Actions", document.querySelector("#tasksView .page-title"), document.querySelector("#tasksView .page-kicker")]
         ].map(([view, title, kicker]) => {
           const titleStyle = getComputedStyle(title);
           return {
@@ -81,7 +80,7 @@ test("les en-têtes Arbre, Annuaire, Documents, Actions et Démarches partagent 
             kickerPresent: !!kicker
           };
         }));
-        assert.equal(headings.length, 6);
+        assert.equal(headings.length, 5);
         assert.equal(new Set(headings.map(item => JSON.stringify(item.title))).size, 1, `H2 identiques : ${JSON.stringify(headings)}`);
         assert.ok(headings.every(item => !item.kickerPresent), `aucun surtitre sur les pages principales : ${JSON.stringify(headings)}`);
         assert.ok(Math.abs(parseFloat(headings[0].title.size) - (viewport.width === 390 ? 31.2 : 40)) < 0.1, `taille H2 standard responsive : ${headings[0].title.size}`);

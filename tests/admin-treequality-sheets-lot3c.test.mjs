@@ -59,7 +59,7 @@ window.__openLot3cQuality = (long, fixture) => { document.getElementById("treeQu
   await page.evaluate(() => {
     document.getElementById("authScreen").hidden = true;
     document.getElementById("topbar").hidden = true;
-    for (const id of ["appMain", "directoryView", "documentsView", "tasksView", "dossiersView"]) {
+    for (const id of ["appMain", "directoryView", "documentsView", "tasksView"]) {
       const view = document.getElementById(id);
       if (view) view.hidden = true;
     }

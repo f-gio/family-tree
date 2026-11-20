@@ -39,7 +39,7 @@ test("le menu des commandes de l’arbre aligne les icônes et s’adapte au con
             document.getElementById("authScreen").hidden = true;
             document.getElementById("topbar").hidden = false;
             document.getElementById("appMain").hidden = false;
-            for (const id of ["directoryView", "documentsView", "tasksView", "dossiersView"]) document.getElementById(id).hidden = true;
+            for (const id of ["directoryView", "documentsView", "tasksView"]) document.getElementById(id).hidden = true;
           });
           if (viewport.isMobile) await page.locator("#treeMoreBtn").tap();
           else await page.locator("#treeMoreBtn").click();

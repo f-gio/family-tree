@@ -113,7 +113,7 @@ async function openViewer(page, { title, fileName, kind = "image", src = portrai
     window.__viewerImageController?.destroy();
     window.__viewerImageController = null;
     /* Ouverture fidèle à setView : seule la page Document reste affichée. */
-    for (const viewId of ["appMain", "directoryView", "documentsView", "genealogyView", "sourceDetailView", "proofDetailView", "tasksView", "dossiersView", "transcriptionWorkshopView"]) {
+    for (const viewId of ["appMain", "directoryView", "documentsView", "genealogyView", "sourceDetailView", "proofDetailView", "tasksView", "transcriptionWorkshopView"]) {
       const view = document.getElementById(viewId);
       if (view) view.hidden = true;
     }
@@ -582,11 +582,10 @@ test("Zoom tactile image : affichage ajusté, pincement, déplacement, reset et 
 });
 
 test("Viewer : non-régression des sheets 92dvh (CSS inchangé)", () => {
-  assert.match(css, /dialog#documentDialog\.modal-mobile-sheet,\s*\n\s*dialog#dossierDialog\.modal-mobile-sheet/);
+  assert.match(css, /dialog#documentDialog\.modal-mobile-sheet \{/);
   assert.match(css, /dialog\.modal-mobile-sheet--long-form \{ height: 92dvh; max-height: 92dvh; \}/);
   assert.match(css, /dialog#taskDialog\.modal-mobile-sheet--form \{\s*\n\s*height: 92dvh;\s*\n\s*max-height: 92dvh;/);
-  assert.match(css, /dialog#procedureActionDialog\.modal-mobile-sheet--form,\s*\n\s*dialog#personPrintDialog\.modal-mobile-sheet--form/);
-  assert.match(css, /#procedureDetailDialog\.modal-mobile-sheet--stable \{\s*\n\s*height: 92dvh;/);
+  assert.match(css, /dialog#personPrintDialog\.modal-mobile-sheet--form \{/);
   /* viewer volontairement hors du pattern sheet */
   assert.doesNotMatch(html, /id="documentViewerDialog"[^>]*modal-mobile-sheet/);
 });

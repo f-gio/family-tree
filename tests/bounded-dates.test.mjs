@@ -22,9 +22,9 @@ window.__bounded = {
       { id: "bounded-2", firstName: "Carlo", lastName: "Verdi", gender: "M", inTree: true }
     ];
     families = [{ id: "bounded-family", partnerIds: ["bounded-1", "bounded-2"], childIds: [], relationType: "marriage", unionDateInfo: { type: "year", year: 1888 }, endType: "none" }];
-    documents = []; tasks = []; procedures = [];
+    documents = []; tasks = [];
     genealogyRecords = { sourceDocuments: [], sourceRevisions: [], transcriptionHeads: [], transcriptionRevisions: [], genealogyProofs: [], genealogyProofRevisions: [], factConclusions: [], conclusionRevisions: [], genealogyProposals: [], genealogyEvents: [], genealogyNotifications: [] };
-    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = loadedProcedures = true;
+    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = true;
     genealogyLoaded = true;
     currentUserProfile = { role: "admin", displayName: "Test" };
     activeDataUid = "bounded-uid";

@@ -36,19 +36,19 @@ test("les formulaires partagent leurs footers et réservent … aux actions d’
 window.__documentExistsForTest = id => documents.some(item => item.id === id);
 window.__setDocumentSnapshotForTest = complete => {
   if (complete) {
-    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = loadedProcedures = true;
-    people = []; families = []; tasks = []; procedures = [];
+    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = true;
+    people = []; families = []; tasks = [];
     genealogyCollectionErrors = new Map();
     genealogyCollectionsLoaded = new Set(["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyProposals", "genealogyEvents", "genealogyNotifications"]);
     genealogyRecords = { sourceDocuments: [], sourceRevisions: [], transcriptionHeads: [], transcriptionRevisions: [], genealogyProofs: [], genealogyProofRevisions: [], factConclusions: [], conclusionRevisions: [], genealogyProposals: [], genealogyEvents: [], genealogyNotifications: [] };
   } else {
-    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = loadedProcedures = false;
+    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = false;
     genealogyCollectionErrors = new Map();
     genealogyCollectionsLoaded = new Set();
   }
 };
 window.__openModalForTest = async (kind, item = null) => {
-  for (const id of ["personDialog", "documentDialog", "taskDialog", "dossierDialog", "procedureActionDialog", "familyDetailsDialog"]) {
+  for (const id of ["personDialog", "documentDialog", "taskDialog", "familyDetailsDialog"]) {
     const dialog = document.getElementById(id);
     if (dialog.open) dialog.close();
   }
@@ -62,11 +62,6 @@ window.__openModalForTest = async (kind, item = null) => {
     openDocument(item);
   } else if (kind === "task") {
     await openTask(item);
-  } else if (kind === "procedureAction") {
-    activeDossierId = "procedure-action-ui-test";
-    openProcedureAction(item);
-  } else if (kind === "dossier") {
-    openDossierForm(item);
   } else if (kind === "familyDetails") {
     document.getElementById("familyDetailsDialog").showModal();
   } else if (kind === "person") {
@@ -92,8 +87,6 @@ window.__openModalForTest = async (kind, item = null) => {
       { kind: "person", dialog: "personDialog", close: "personDialog", title: "dialogTitle", menu: "personMenuBtn", popup: "personMenu", delete: "deleteBtn", existing: { id: "person-ui-test", firstName: "Ada", lastName: "Rossi", inTree: true } },
       { kind: "task", dialog: "taskDialog", close: "taskDialog", title: "taskDialogTitle", menu: "taskMenuBtn", popup: "taskActionMenu", delete: "deleteTaskBtn", existing: { id: "task-ui-test", title: "Action de test", status: "todo", priority: "medium", assignee: "", dueDate: "", description: "", comments: "" } },
       { kind: "document", dialog: "documentDialog", close: "documentDialog", title: "documentDialogTitle", menu: "documentMenuBtn", popup: "documentActionMenu", delete: "deleteDocumentBtn", existing: { id: "document-ui-test", title: "Document de test", type: "Photo", personIds: [], notes: "" } },
-      { kind: "procedureAction", dialog: "procedureActionDialog", close: "procedureActionDialog", title: "procedureActionTitle", menu: "procedureActionMenuBtn", popup: "procedureActionMenu", delete: "deleteProcedureActionBtn", existing: { id: "procedure-action-ui-test", type: "note", date: "", direction: "none", title: "Action de chronologie", text: "", author: "" } },
-      { kind: "dossier", dialog: "dossierDialog", close: "dossierDialog", title: "dossierDialogTitle", menu: null, popup: null, delete: "deleteDossierBtn", existing: { id: "dossier-ui-test", title: "Démarche de test", type: "research", status: "progress", personIds: [] } },
       { kind: "familyDetails", dialog: "familyDetailsDialog", close: "familyDetailsDialog", title: "familyDetailsTitle", menu: null, popup: null, delete: null, existing: null }
     ];
 
@@ -123,8 +116,6 @@ window.__openModalForTest = async (kind, item = null) => {
           if (modal.menu) {
             assert.equal(await page.locator(`#${modal.menu}`).isVisible(), false, `${modal.kind} masque … en création`);
             assert.equal(await page.locator(`#${modal.delete}`).isVisible(), false, `${modal.kind} masque Supprimer en création`);
-          } else if (modal.kind === "dossier") {
-            assert.equal(await page.locator(`#${modal.delete}`).isVisible(), false, "Supprimer Démarches reste masqué en création");
           } else {
             assert.equal(await page.locator(`#${modal.dialog} .modal-head-actions`).count(), 0, "aucun menu vide dans Détails relation");
           }
@@ -180,14 +171,7 @@ window.__openModalForTest = async (kind, item = null) => {
           await tap(`#${modal.dialog} .modal-actions [data-close="${modal.close}"]`);
           await page.waitForFunction(id => !document.getElementById(id).open, modal.dialog);
 
-          if (modal.kind === "dossier") {
-            await open(modal.existing);
-            assert.equal(await page.locator(`#${modal.delete}`).isVisible(), false, "Supprimer Démarches reste masqué en modification");
-            assert.equal(await page.locator("#dossierMenuBtn").count(), 0, "aucun menu n’est créé pour une action non sûre");
-            const editFooter = await page.locator("#dossierDialog .modal-actions").boundingBox();
-            assert.ok(Math.abs(editFooter.height - createFooter.height) < 1.5, "Démarches garde la même hauteur de footer en modification");
-            footerHeights.push(editFooter.height);
-          } else if (modal.menu) {
+          if (modal.menu) {
             await open(modal.existing);
             assert.equal(await page.locator(`#${modal.menu}`).isVisible(), true, `${modal.kind} menu présent en modification`);
             if (modal.kind === "person") assert.equal(await footerButtons().nth(1).textContent(), "Enregistrer", "l’édition Personne conserve Enregistrer");

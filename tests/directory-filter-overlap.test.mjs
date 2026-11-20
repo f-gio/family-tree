@@ -41,7 +41,7 @@ async function createDirectoryPage(browser, server, width, height) {
     document.getElementById("topbar").hidden = false;
     document.getElementById("appMain").hidden = true;
     document.getElementById("directoryView").hidden = false;
-    for (const id of ["documentsView", "tasksView", "dossiersView"]) document.getElementById(id).hidden = true;
+    for (const id of ["documentsView", "tasksView"]) document.getElementById(id).hidden = true;
   });
   await page.waitForFunction(() => {
     const control = document.getElementById("directoryFiltersBtn");

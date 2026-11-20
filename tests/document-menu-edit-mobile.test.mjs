@@ -99,7 +99,7 @@ test("Documents : … → Modifier/Supprimer fonctionne au clic et au tap", asyn
               );
             return route.fulfill({
               response,
-              body: `${source}\nwindow.__setDocumentFixtures = (items, records) => { documents = items; people = records; renderDocuments(); }; window.__getDocumentFixtureForTest = id => documents.find(item => item.id === id); window.__captureDocumentSaveForTest = false; window.__documentSaveCaptureForTest = null; window.__setOtherMenuFixtures = (records, actionItems, dossiers) => { people = records; tasks = actionItems; procedures = dossiers; renderDirectory(); renderTasks(); renderProcedures(); }; window.__showMenuTestView = listId => { const views = { directoryList: 'directoryView', documentsList: 'documentsView', tasksList: 'tasksView', proceduresList: 'dossiersView' }; for (const id of Object.values(views)) document.getElementById(id).hidden = id !== views[listId]; };`
+              body: `${source}\nwindow.__setDocumentFixtures = (items, records) => { documents = items; people = records; renderDocuments(); }; window.__getDocumentFixtureForTest = id => documents.find(item => item.id === id); window.__captureDocumentSaveForTest = false; window.__documentSaveCaptureForTest = null; window.__setOtherMenuFixtures = (records, actionItems) => { people = records; tasks = actionItems; renderDirectory(); renderTasks(); }; window.__showMenuTestView = listId => { const views = { directoryList: 'directoryView', documentsList: 'documentsView', tasksList: 'tasksView' }; for (const id of Object.values(views)) document.getElementById(id).hidden = id !== views[listId]; };`
             });
           }
           return url.startsWith(server.baseURL) || url.includes("gstatic.com")
@@ -129,7 +129,7 @@ test("Documents : … → Modifier/Supprimer fonctionne au clic et au tap", asyn
             document.getElementById("authScreen").hidden = true;
             document.getElementById("topbar").hidden = false;
             document.getElementById("appMain").hidden = true;
-            for (const id of ["directoryView", "tasksView", "dossiersView"]) document.getElementById(id).hidden = true;
+            for (const id of ["directoryView", "tasksView"]) document.getElementById(id).hidden = true;
             document.getElementById("documentsView").hidden = false;
             window.__setDocumentFixtures([
               { id: "document-mobile-test", title: "Acte de démonstration", type: "Acte de naissance", externalUrl: `https://example.invalid/${"long-chemin_".repeat(30)}`, fileName: "Transaction_Immobilières_GiovannoniAndreaFuCarloAntonio.jpg", fileSize: 500000, storedSize: 345600, mimeType: "image/jpeg", compressed: true, storageMode: "firestore-chunks", chunkVersion: "document-test-version", chunkCount: 2, personIds: ["person-linked-test", "person-long-link"], notes: "Note conservée" }
@@ -143,7 +143,7 @@ test("Documents : … → Modifier/Supprimer fonctionne au clic et au tap", asyn
             document.getElementById("authScreen").hidden = true;
             document.getElementById("topbar").hidden = false;
             document.getElementById("appMain").hidden = true;
-            for (const id of ["directoryView", "tasksView", "dossiersView"]) document.getElementById(id).hidden = true;
+            for (const id of ["directoryView", "tasksView"]) document.getElementById(id).hidden = true;
             document.getElementById("documentsView").hidden = false;
             window.__setDocumentFixtures([
               { id: "document-mobile-test", title: "Acte de démonstration", type: "Acte de naissance", externalUrl: `https://example.invalid/${"long-chemin_".repeat(30)}`, fileName: "Transaction_Immobilières_GiovannoniAndreaFuCarloAntonio.jpg", fileSize: 500000, storedSize: 345600, mimeType: "image/jpeg", compressed: true, storageMode: "firestore-chunks", chunkVersion: "document-test-version", chunkCount: 2, personIds: ["person-linked-test", "person-long-link"], notes: "Note conservée" }
@@ -369,10 +369,8 @@ test("Documents : … → Modifier/Supprimer fonctionne au clic et au tap", asyn
               { id: "person-menu-test", firstName: "Anna", lastName: "Rossi", inTree: true }
             ], [
               { id: "task-menu-test", title: "Action de démonstration", status: "todo", priority: "medium", assignee: "" }
-            ], [
-              { id: "procedure-menu-test", title: "Démarche de démonstration", type: "research", status: "progress", personIds: [] }
             ]));
-            for (const list of ["directoryList", "tasksList", "proceduresList"]) {
+            for (const list of ["directoryList", "tasksList"]) {
               await page.evaluate(id => window.__showMenuTestView(id), list);
               await tapVisibleElement(page, `#${list} [data-tile-menu-toggle]`, scenario);
               assert.equal(await page.locator(`#${list} .tile-context-menu`).evaluate(menu => menu.hidden), false, `${list} : menu commun ouvert sur WebKit tactile`);

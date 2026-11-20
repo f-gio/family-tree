@@ -29,7 +29,7 @@ test("le compteur de l’Annuaire et le contrôle de l’arbre partagent une lig
         const measure = await page.evaluate(() => {
           document.getElementById("authScreen").hidden = true;
           document.getElementById("topbar").hidden = false;
-          for (const id of ["appMain", "documentsView", "tasksView", "dossiersView"]) document.getElementById(id).hidden = true;
+          for (const id of ["appMain", "documentsView", "tasksView"]) document.getElementById(id).hidden = true;
           document.getElementById("directoryView").hidden = false;
           document.getElementById("directoryResultCount").textContent = "79 personnes";
           document.getElementById("treeQualityBtn").textContent = "Contrôle de l’arbre · 56";

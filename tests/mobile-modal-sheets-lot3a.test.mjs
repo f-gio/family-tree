@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chromium, webkit } from "playwright";
+import { chromium } from "playwright";
 import { blockedServiceFor, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 const mobileViewports = [[320, 720], [390, 844], [760, 900]];
@@ -27,7 +27,7 @@ async function createPage(browser, server, width, height) {
 
 async function openDialog(page, id, mode) {
   await page.evaluate(({ id: dialogId, mode: scenario }) => {
-    for (const candidate of ["documentDialog", "dossierDialog"]) {
+    for (const candidate of ["documentDialog"]) {
       const current = document.getElementById(candidate);
       if (current.open) current.close();
     }
@@ -42,12 +42,6 @@ async function openDialog(page, id, mode) {
       document.getElementById("documentPeopleChips").innerHTML = scenario === "edit"
         ? ["Marie Rossi", "Andrea Giovannoni", "Personne historique"].map((name, index) => `<span class="person-multiselect-chip"><span class="person-multiselect-chip-label">${name}</span><button class="person-multiselect-chip-remove selection-chip-remove" type="button" aria-label="Retirer ${name}" data-remove-document-person="person-${index}">×</button></span>`).join("")
         : "";
-    } else {
-      document.getElementById("dossierId").value = scenario === "edit" ? "fixture-dossier" : "";
-      document.getElementById("dossierDialogTitle").textContent = scenario === "edit" ? "Modifier la démarche" : "Nouvelle démarche";
-      document.getElementById("dossierTitle").value = scenario === "edit" ? "Dossier de test" : "";
-      document.getElementById("dossierType").value = "research";
-      document.getElementById("dossierStatus").value = "progress";
     }
     document.getElementById(dialogId).showModal();
     const dialog = document.getElementById(dialogId);
@@ -59,26 +53,15 @@ async function openDialog(page, id, mode) {
 
 async function prepareCompactFixture(page, id) {
   await page.locator(`#${id}`).evaluate(dialog => {
-    if (dialog.id === "documentDialog") {
-      const grid = dialog.querySelector(".grid");
-      for (const heading of grid.querySelectorAll(".form-section-heading")) {
-        if (heading.querySelector("h4")?.textContent !== "Identification") heading.hidden = true;
-      }
-      for (const fieldId of ["documentDate", "documentPlace", "documentNotes"]) dialog.querySelector(`#${fieldId}`).closest("label").hidden = true;
-      dialog.querySelector(".document-file-field").hidden = true;
-      dialog.querySelector("#documentPeopleList").hidden = true;
-      dialog.querySelector("#documentUrl").closest("label").hidden = true;
-      return;
-    }
-    const grid = dialog.querySelector(".modal-scroll .grid");
+    if (dialog.id !== "documentDialog") return;
+    const grid = dialog.querySelector(".grid");
     for (const heading of grid.querySelectorAll(".form-section-heading")) {
-      if (heading.querySelector("h4")?.textContent !== "Objet de la démarche") heading.hidden = true;
+      if (heading.querySelector("h4")?.textContent !== "Identification") heading.hidden = true;
     }
-    dialog.querySelector("#dossierObjective").closest("label").hidden = true;
-    for (const fieldId of ["dossierOrganization", "dossierService", "dossierContactName", "dossierEmail", "dossierPhone", "dossierPlace", "dossierNextAction", "dossierNextActionDate", "dossierNotes", "dossierResult"]) {
-      dialog.querySelector(`#${fieldId}`).closest("label").hidden = true;
-    }
-    dialog.querySelector("#dossierPeopleList").hidden = true;
+    for (const fieldId of ["documentDate", "documentPlace", "documentNotes"]) dialog.querySelector(`#${fieldId}`).closest("label").hidden = true;
+    dialog.querySelector(".document-file-field").hidden = true;
+    dialog.querySelector("#documentPeopleList").hidden = true;
+    dialog.querySelector("#documentUrl").closest("label").hidden = true;
   });
 }
 
@@ -146,7 +129,6 @@ async function verifyMobileDialog(browser, server, id, width, height, mode, comp
       assert.equal(short.fileArea.people, 3, "les personnes associées restent affichées");
       assert.equal(await page.locator("#documentMenuBtn").isVisible(), true, "le menu d’édition ⋯ reste disponible");
     }
-    if (id === "dossierDialog" && mode === "edit") assert.equal(await page.locator("#deleteDossierBtn").isVisible(), false, "la suppression existante reste masquée");
 
     await addLongContent(page, `#${id} .modal-scroll`);
     const beforeScroll = await measure(page, id);
@@ -187,7 +169,7 @@ async function desktopMetrics(browser, server, width, height, id) {
   }
 }
 
-test("Lot 3A : Document et Dossier en bottom sheets mobiles", async t => {
+test("Lot 3A : Document en bottom sheet mobile", async t => {
   let browser;
   try { browser = await chromium.launch({ headless: true }); }
   catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
@@ -196,74 +178,11 @@ test("Lot 3A : Document et Dossier en bottom sheets mobiles", async t => {
     for (const [width, height] of mobileViewports) {
       await t.test(`${width}×${height} Document création compacte`, async child => verifyMobileDialog(browser, server, "documentDialog", width, height, "create", true, child));
       await t.test(`${width}×${height} Document édition, associations et fichier`, async child => verifyMobileDialog(browser, server, "documentDialog", width, height, "edit", false, child));
-      await t.test(`${width}×${height} Dossier création compacte`, async child => verifyMobileDialog(browser, server, "dossierDialog", width, height, "create", true, child));
-      await t.test(`${width}×${height} Dossier édition longue`, async child => verifyMobileDialog(browser, server, "dossierDialog", width, height, "edit", false, child));
     }
     for (const [width, height] of desktopViewports) {
-      for (const id of ["documentDialog", "dossierDialog"]) {
-        const result = await desktopMetrics(browser, server, width, height, id);
-        try {
-          if (id === "dossierDialog") {
-            t.diagnostic(`Dossier ${width}×${height} desktop : ${JSON.stringify({ footer: result.metrics.footer, rightGroup: result.metrics.right, primary: result.metrics.primary, rightInset: result.metrics.desktopPrimaryRightInset })}`);
-          }
-        } finally { await result.context.close(); }
-      }
+      await desktopMetrics(browser, server, width, height, "documentDialog").then(result => result.context.close());
     }
   } finally {
-    await browser.close();
-    await server.close();
-  }
-});
-
-test("Diagnostic Dossier desktop : reproduit le hook du test d’alignement existant", async t => {
-  let browser;
-  try { browser = await webkit.launch({ headless: true }); }
-  catch (error) { t.skip(`WebKit indisponible : ${error.message}`); return; }
-  const server = await startStaticServer(ROOT);
-  const context = await browser.newContext({ locale: "fr-FR", isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } });
-  await context.route("**/*", async route => {
-    const url = route.request().url();
-    if (new URL(url).pathname.endsWith("/js/app.js")) {
-      const response = await route.fetch();
-      const hook = `window.__openDossierDiagnostic = () => { document.getElementById("authScreen").hidden = true; document.getElementById("topbar").hidden = false; openDossierForm(null); };`;
-      return route.fulfill({ response, body: `${await response.text()}\n${hook}` });
-    }
-    if (isAllowedRequest(url, server.baseURL) || url.includes("gstatic.com")) return route.continue();
-    return blockedServiceFor(url) ? route.abort("blockedbyclient") : route.continue();
-  });
-  const page = await context.newPage();
-  try {
-    await page.goto(server.baseURL, { waitUntil: "load" });
-    await page.waitForFunction(() => typeof window.__openDossierDiagnostic === "function");
-    await page.setViewportSize({ width: 1024, height: 768 });
-    await page.evaluate(() => window.__openDossierDiagnostic());
-    const measureFooter = () => page.evaluate(() => {
-      const dialog = document.getElementById("dossierDialog");
-      const footer = dialog.querySelector(".modal-actions");
-      const primary = footer.querySelector("#saveDossierBtn");
-      const right = footer.querySelector(".right");
-      const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, right: r.right, width: r.width, y: r.y, height: r.height }; };
-      return { dialog: rect(dialog), footer: rect(footer), right: rect(right), primary: rect(primary), inset: footer.getBoundingClientRect().right - primary.getBoundingClientRect().right, footerPaddingRight: getComputedStyle(footer).paddingRight, display: getComputedStyle(right).display, justifyContent: getComputedStyle(right).justifyContent, viewport: { innerWidth, clientWidth: document.documentElement.clientWidth } };
-    });
-    const duringOpening = await measureFooter();
-    await page.locator("#dossierDialog").evaluate(dialog => {
-      dialog.getBoundingClientRect();
-      dialog.getAnimations({ subtree: true }).forEach(animation => animation.finish());
-    });
-    const settled = await measureFooter();
-    await page.locator("#dossierDialog").evaluate(dialog => dialog.classList.remove("modal-mobile-sheet", "modal-mobile-sheet--long-form"));
-    await page.locator("#dossierDialog").evaluate(dialog => {
-      dialog.getBoundingClientRect();
-      dialog.getAnimations({ subtree: true }).forEach(animation => animation.finish());
-    });
-    const withoutClasses = await measureFooter();
-    t.diagnostic(`Dossier WebKit 1024 px via openDossierForm: ${JSON.stringify({ duringOpening: { footer: duringOpening.footer, primary: duringOpening.primary, inset: duringOpening.inset }, settled: { footer: settled.footer, primary: settled.primary, inset: settled.inset }, withoutMobileClasses: { footer: withoutClasses.footer, primary: withoutClasses.primary, inset: withoutClasses.inset } })}`);
-    assert.ok(Math.abs(settled.inset - 24) < 0.5, "le CTA est à son padding desktop une fois l’animation d’ouverture terminée");
-    assert.ok(Math.abs(withoutClasses.inset - 24) < 0.5, "le footer sans classes mobiles garde le padding desktop de 24px");
-    assert.ok(Math.abs(settled.footer.width - withoutClasses.footer.width) < 1.5, "largeur du footer desktop identique avec/sans variantes mobiles (tolérance fractionnaire)");
-    assert.ok(Math.abs(settled.primary.x - withoutClasses.primary.x) < 1.5, "position primaire desktop identique avec/sans variantes mobiles (tolérance fractionnaire)");
-  } finally {
-    await context.close();
     await browser.close();
     await server.close();
   }

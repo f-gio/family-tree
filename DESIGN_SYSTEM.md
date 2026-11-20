@@ -104,7 +104,7 @@ fois la même information sans raison.
 
 ## 10. Listes
 
-Annuaire, Documents, Démarches et Actions doivent partager un langage
+Annuaire, Documents et Actions doivent partager un langage
 commun : - surface claire ; - bordure neutre discrète ; - bonne densité
 ; - titre dominant ; - métadonnées secondaires ; - actions à droite sur
 desktop.

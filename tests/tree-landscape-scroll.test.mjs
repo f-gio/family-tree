@@ -34,7 +34,7 @@ test("la page Arbre défile en paysage sans transformer le canvas en zone de scr
         await page.evaluate(async () => {
           document.getElementById("authScreen").hidden = true;
           document.getElementById("topbar").hidden = false;
-          for (const id of ["appMain", "directoryView", "documentsView", "tasksView", "dossiersView"]) {
+          for (const id of ["appMain", "directoryView", "documentsView", "tasksView"]) {
             document.getElementById(id).hidden = id !== "appMain";
           }
           const { createTreeCamera } = await import("./js/tree-camera.js");

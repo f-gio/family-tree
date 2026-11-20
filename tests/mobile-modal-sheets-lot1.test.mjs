@@ -36,7 +36,7 @@ async function makePage(browser, server, width, height) {
     document.getElementById("authScreen").hidden = true;
     document.getElementById("topbar").hidden = false;
     document.getElementById("appMain").hidden = false;
-    for (const id of ["directoryView", "documentsView", "tasksView", "dossiersView"]) {
+    for (const id of ["directoryView", "documentsView", "tasksView"]) {
       document.getElementById(id).hidden = id !== "appMain";
     }
   });

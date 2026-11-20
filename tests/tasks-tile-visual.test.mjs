@@ -28,7 +28,7 @@ test("Actions : tuiles distinctes en mobile et alignement conservé sur desktop"
       document.getElementById("authScreen").hidden = true;
       document.getElementById("topbar").hidden = false;
       document.getElementById("appMain").hidden = true;
-      for (const id of ["directoryView", "documentsView", "tasksView", "dossiersView"]) {
+      for (const id of ["directoryView", "documentsView", "tasksView"]) {
         const view = document.getElementById(id);
         if (view) view.hidden = id !== "tasksView";
       }

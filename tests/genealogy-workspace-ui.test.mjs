@@ -31,20 +31,16 @@ test("la vue principale est restaurée après authentification et suit Retour/Av
   assert.ok(app.includes("RESTORABLE_VIEWS.includes(view) && navigationUrlReady"), "l’URL n’est réécrite qu’après lecture de la cible d’accès");
 });
 
-test("les cinq fiches sont réouvertes par identifiant stable après le chargement des données", () => {
+test("les quatre fiches sont réouvertes par identifiant stable après le chargement des données", () => {
   assert.ok(app.includes("function openDetailTarget(target)"));
   assert.ok(app.includes("function navigationRestoreReady(target)"));
   assert.ok(app.includes('case "personDetail": return loadedPeople && loadedFamilies && loadedDocuments;'));
   assert.ok(app.includes('case "documentDetail": return loadedDocuments;'));
   assert.ok(app.includes('case "proofDetail": return genealogyLoaded;'));
-  assert.ok(app.includes('case "dossiers": return loadedProcedures;'));
   assert.ok(app.includes('openPersonPage(item, { kind: "view", view: "directory", focusId: item.id })'));
   assert.ok(app.includes('openStoredDocument(item, { returnContext: "documents", view: "documents" })'));
   assert.ok(app.includes("renderSourcePage(item, returnContext)"));
   assert.ok(app.includes("renderProofPage(item, returnContext)"));
-  assert.ok(app.includes("openProcedureDetail(target.id)"), "la fiche Démarche réutilise sa modale existante");
-  assert.match(app, /\$\("procedureDetailDialog"\)\.showModal\(\);[ \t]*\r?\n[ \t]*syncProcedureDetailUrl\(\);/, "l’ouverture de la démarche met son identifiant dans l’URL");
-  assert.match(app, /closeProcedureActionUnsub\(\);[ \t]*\r?\n[ \t]*syncProcedureDetailUrl\(\);/, "la fermeture retire l’identifiant de l’URL");
   assert.ok(app.includes("pendingNavigationRestore = null;"), "aucune fiche en attente après une perte d’accès");
 });
 
@@ -52,8 +48,7 @@ test("une fiche absente ou inaccessible retombe sur sa vue d’origine", () => {
   assert.ok(app.includes('setView(detailBaseView(target.view), { history: fromHistory ? "none" : "replace" });'));
   assert.ok(app.includes('personDetail: "Cette personne n’est plus disponible.",'));
   assert.ok(app.includes('documentDetail: "Ce document n’est plus disponible.",'));
-  assert.ok(app.includes('dossiers: "Démarche introuvable"'));
-  assert.ok(app.includes("normalizeNavigationTarget"), "les démarches masquées ne sont jamais restaurées");
+  assert.ok(!app.includes('normalizeNavigationTarget'), "aucun normaliseur spécifique ne subsiste");
 });
 
 test("les collections du lot 6 sont abonnées avec des requêtes limitées pour propositions et notifications", () => {
@@ -166,7 +161,7 @@ test("le sélecteur de personnes réutilise le composant partagé et reste disti
   }
   assert.match(app, /genealogySourcePersonPicker = createPersonMultiSelect\(\{/, "instance du composant partagé");
   assert.match(app, /kind: "genealogy-source"/, "attributs de sélection dédiés");
-  assert.match(app, /minQueryLength: DOSSIER_MIN_QUERY_LENGTH/, "longueur minimale identique aux formulaires Documents/Démarches");
+  assert.match(app, /minQueryLength: PERSON_PICKER_MIN_QUERY_LENGTH/, "longueur minimale identique aux sélecteurs de personnes partagés");
   assert.match(app, /personPickerMatches\(query, selectedIds, \(\) => people\.slice\(\)\.sort\(comparePeopleBySurname\)\)/, "moteur de recherche partagé");
   assert.match(app, /const \[label, context\] = personSuggestionLabel\(item\)/, "nom, années et branche comme modèle document");
   assert.match(app, /nameFor: nameOf/, "libellé de pastille partagé");
@@ -217,6 +212,15 @@ test("les Archives remplacent le nom visible sans renommer les identifiants inte
   assert.match(html, /id="genealogyView"/);
   assert.match(app, /view === "genealogy"\) renderGenealogyWorkspace/);
   assert.match(app, /genealogyCollections = \["sourceDocuments"/);
+});
+
+test("la navigation et l’interface ne contiennent plus aucune entrée Démarches", () => {
+  assert.doesNotMatch(html, /data-view="dossiers"/, "aucun bouton Démarches dans la navigation desktop et mobile");
+  assert.doesNotMatch(html, /id="dossiersView"/, "aucune vue Démarches");
+  assert.doesNotMatch(html, /id="dossierDialog"|id="procedureDetailDialog"|id="procedureActionDialog"/, "aucune modale Démarches");
+  assert.doesNotMatch(html, /\.\/js\/procedures\.js/, "module dédié retiré de la carte d’import");
+  assert.doesNotMatch(app, /renderProcedures|openDossierForm|refs\.procedures|loadedProcedures/, "aucun code Démarches actif dans l’application");
+  assert.equal((html.match(/data-view="/g) || []).length, 5, "cinq rubriques de navigation");
 });
 
 test("une preuve peut être archivée en conservant son historique et sans suppression destructive", () => {

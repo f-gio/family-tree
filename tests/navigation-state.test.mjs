@@ -12,7 +12,7 @@ import {
 
 test("les vues principales restent restaurables depuis l’URL", () => {
   assert.equal(readNavigationTarget("?view=directory").view, "directory");
-  assert.equal(readNavigationTarget("?view=dossiers").view, "dossiers");
+  assert.equal(readNavigationTarget("?view=dossiers").view, "tree", "ancienne vue Démarche : repli sur l’accueil");
   assert.equal(readNavigationTarget("?view=admin").view, "tree");
   assert.equal(readNavigationTarget("").view, "tree");
   assert.equal(readRestorableView("?view=directory"), "directory");
@@ -25,11 +25,9 @@ test("chaque fiche de détail est identifiée par son identifiant stable", () =>
   assert.deepEqual(readNavigationTarget("?view=documentDetail&id=doc-1"), { view: "documentDetail", id: "doc-1" });
   assert.deepEqual(readNavigationTarget("?view=sourceDetail&id=s1"), { view: "sourceDetail", id: "s1" });
   assert.deepEqual(readNavigationTarget("?view=proofDetail&id=pr1"), { view: "proofDetail", id: "pr1" });
-  assert.deepEqual(readNavigationTarget("?view=dossiers&id=d1"), { view: "dossiers", id: "d1" });
+  assert.deepEqual(readNavigationTarget("?view=dossiers&id=d1"), { view: "tree", id: "" }, "ancienne fiche Démarche : repli sur l’accueil");
   assert.deepEqual([...DETAIL_VIEWS], ["personDetail", "documentDetail", "sourceDetail", "proofDetail"]);
   for (const view of DETAIL_VIEWS) assert.equal(isDetailTarget({ view, id: "x" }), true);
-  assert.equal(isDetailTarget({ view: "dossiers", id: "x" }), true);
-  assert.equal(isDetailTarget({ view: "dossiers", id: "" }), false);
   assert.equal(isDetailTarget({ view: "directory", id: "" }), false);
 });
 
@@ -43,14 +41,12 @@ test("une fiche sans identifiant valide dégénère vers sa vue d’origine", ()
   assert.equal(detailBaseView("documentDetail"), "documents");
   assert.equal(detailBaseView("sourceDetail"), "genealogy");
   assert.equal(detailBaseView("proofDetail"), "genealogy");
-  assert.equal(detailBaseView("dossiers"), "dossiers");
 });
 
 test("l’URL conserve les autres paramètres et l’ancre, et port l’identifiant de fiche", () => {
   const location = { href: "https://example.test/app?mode=dark#section" };
   assert.equal(navigationUrl(location, "documents"), "/app?mode=dark&view=documents#section");
   assert.equal(navigationUrl(location, "personDetail", "p1"), "/app?mode=dark&view=personDetail&id=p1#section");
-  assert.equal(navigationUrl(location, "dossiers", "d1"), "/app?mode=dark&view=dossiers&id=d1#section");
   assert.equal(
     navigationUrl({ href: "https://example.test/app?view=personDetail&id=p1&mode=dark#section" }, "tree"),
     "/app?mode=dark#section",

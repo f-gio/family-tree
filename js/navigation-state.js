@@ -1,10 +1,9 @@
 /* Modèle d'URL de navigation (SPA sans routeur) :
-   - vues principales  : ?view=tree|directory|documents|genealogy|tasks|dossiers
+   - vues principales  : ?view=tree|directory|documents|genealogy|tasks
    - fiches de détail   : ?view=personDetail|documentDetail|sourceDetail|proofDetail&id=<id stable>
-   - fiche Démarche    : ?view=dossiers&id=<id de la démarche> (modale sur la liste)
    Module pur : aucune dépendance DOM, aucune écriture d'historique. */
 
-export const MAIN_VIEWS = Object.freeze(["tree", "directory", "documents", "genealogy", "tasks", "dossiers"]);
+export const MAIN_VIEWS = Object.freeze(["tree", "directory", "documents", "genealogy", "tasks"]);
 export const DETAIL_VIEWS = Object.freeze(["personDetail", "documentDetail", "sourceDetail", "proofDetail"]);
 export const RESTORABLE_VIEWS = Object.freeze([...MAIN_VIEWS, ...DETAIL_VIEWS]);
 
@@ -32,7 +31,7 @@ export function detailBaseView(view) {
 }
 
 export function isDetailTarget(target = {}) {
-  return DETAIL_VIEWS.includes(target.view) || (target.view === "dossiers" && Boolean(target.id));
+  return DETAIL_VIEWS.includes(target.view);
 }
 
 /** Cible complète lue dans l'URL : une fiche sans identifiant valide dégénère
@@ -43,8 +42,9 @@ export function readNavigationTarget(search = "") {
   const rawId = params.get("id");
   const id = isValidId(rawId) ? rawId : "";
   if (DETAIL_VIEWS.includes(view)) return id ? { view, id } : { view: detailBaseView(view), id: "" };
-  if (view === "dossiers") return { view, id };
   if (MAIN_VIEWS.includes(view)) return { view, id: "" };
+  /* Toute vue inconnue (dont une ancienne vue retirée de l'application) rejoint
+     l'accueil : pas de page blanche ni de navigation bloquée. */
   return { view: "tree", id: "" };
 }
 
@@ -57,7 +57,7 @@ export function navigationUrl(locationLike, view, id = "") {
   const url = new URL(locationLike.href);
   if (RESTORABLE_VIEWS.includes(view) && view !== "tree") url.searchParams.set("view", view);
   else url.searchParams.delete("view");
-  const carriesId = view === "dossiers" || DETAIL_VIEWS.includes(view);
+  const carriesId = DETAIL_VIEWS.includes(view);
   if (carriesId && isValidId(id)) url.searchParams.set("id", id);
   else url.searchParams.delete("id");
   return `${url.pathname}${url.search}${url.hash}`;

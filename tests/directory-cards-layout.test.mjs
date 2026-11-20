@@ -41,7 +41,7 @@ test("Annuaire en cartes : menu près de l’identité et documents en pied, san
     await page.evaluate(() => {
       document.getElementById("authScreen").hidden = true;
       document.getElementById("topbar").hidden = false;
-      for (const id of ["appMain", "documentsView", "tasksView", "dossiersView"]) document.getElementById(id).hidden = true;
+      for (const id of ["appMain", "documentsView", "tasksView"]) document.getElementById(id).hidden = true;
       document.getElementById("directoryView").hidden = false;
       window.__renderDirectoryCardsFixture();
     });

@@ -29,7 +29,6 @@ window.__multiHarness = {
     documents = []; tasks = []; treeMetadata = trees.map(item => ({ ...item }));
     activeTreeId = "main"; treeCatalogState = "ready"; treeCatalogMessage = "";
     loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = true;
-    loadedProcedures = true;
     document.getElementById("authScreen").hidden = true;
     document.getElementById("topbar").hidden = false;
     document.getElementById("appMain").hidden = false;

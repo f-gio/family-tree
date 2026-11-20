@@ -5,7 +5,7 @@ import { isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 /*
  * Restauration de navigation : accès direct par URL, actualisation d'une fiche
- * (Personne, Document, Source, Preuve, Démarche), Retour/Avancer, session
+ * (Personne, Document, Source, Preuve), Retour/Avancer, session
  * expirée, fiche inexistante et navigation mobile.
  *
  * Firebase Auth/Firestore sont bloqués : aucun compte ni donnée réelle. Le
@@ -34,7 +34,6 @@ window.__navRestoreTest = {
       personIds: ["nav-person"]
     }];
     tasks = [];
-    procedures = [{ id: "nav-dossier", title: "Démarche de test", type: "other", status: "open", organization: "Préfecture", updatedAtSort: 0 }];
     genealogyRecords = {
       sourceDocuments: [{ id: "nav-source", data: { id: "nav-source", title: "Cadastre d’Orino", status: "active", personIds: ["nav-person"], documentIds: [] } }],
       sourceRevisions: [],
@@ -48,7 +47,7 @@ window.__navRestoreTest = {
       genealogyEvents: [],
       genealogyNotifications: []
     };
-    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = loadedProcedures = true;
+    loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = true;
     genealogyLoaded = true;
     currentUserProfile = { role: "admin", displayName: "Testeur" };
     activeDataUid = "nav-test-uid";
@@ -67,12 +66,10 @@ window.__navRestoreTest = {
       documentVisible: !$("documentDetailView").hidden,
       sourceVisible: !$("sourceDetailView").hidden,
       proofVisible: !$("proofDetailView").hidden,
-      dossierOpen: $("procedureDetailDialog").open,
       personTitle: $("personPageTitle").textContent.trim(),
       documentTitle: $("viewerTitle").textContent.trim(),
       sourceTitle: $("sourcePageTitle").textContent.trim(),
       proofTitle: $("proofPageTitle").textContent.trim(),
-      dossierTitle: $("procedureDetailTitle").textContent.trim(),
       toast: $("toast").textContent.trim()
     };
   }
@@ -164,17 +161,10 @@ const TARGETS = [
     visible: state => state.proofVisible,
     title: state => state.proofTitle,
     expected: "Naissance"
-  },
-  {
-    name: "Démarche",
-    search: "?view=dossiers&id=nav-dossier",
-    visible: state => state.dossierOpen,
-    title: state => state.dossierTitle,
-    expected: "Démarche de test"
   }
 ];
 
-test("actualisation d’une fiche : les cinq fiches sont restaurées par leur identifiant", async t => {
+test("actualisation d’une fiche : les quatre fiches sont restaurées par leur identifiant", async t => {
   for (const target of TARGETS) {
     const session = await openApp(t, { search: target.search });
     if (!session) return;
@@ -212,8 +202,7 @@ test("fiche inexistante : retour à la vue d’origine sans fiche fantôme", asy
     { search: "?view=personDetail&id=personne-inexistante", check: state => state.directoryVisible && !state.personVisible, toast: /Cette personne n’est plus disponible/ },
     { search: "?view=documentDetail&id=document-inexistant", check: state => !state.documentVisible, toast: /Ce document n’est plus disponible/ },
     { search: "?view=sourceDetail&id=source-inexistante", check: state => !state.sourceVisible, toast: /Cet élément n’est plus disponible/ },
-    { search: "?view=proofDetail&id=preuve-inexistante", check: state => !state.proofVisible, toast: /Cet élément n’est plus disponible/ },
-    { search: "?view=dossiers&id=demarche-inexistante", check: state => !state.dossierOpen, toast: /Démarche introuvable/ }
+    { search: "?view=proofDetail&id=preuve-inexistante", check: state => !state.proofVisible, toast: /Cet élément n’est plus disponible/ }
   ];
   for (const item of cases) {
     const session = await openApp(t, { search: item.search });
@@ -271,27 +260,14 @@ test("Retour/Avancer après ouverture et fermeture d’une fiche Personne", asyn
   }
 });
 
-test("Retour/Avancer sur une fiche Démarche ouverte depuis la liste", async t => {
-  const session = await openApp(t, { search: "?view=dossiers" });
+test("ancienne URL Démarche : repli sur l’accueil sans erreur ni page blanche", async t => {
+  const session = await openApp(t, { search: "?view=dossiers&id=nav-dossier" });
   if (!session) return;
   try {
-    await seedAndState(session.page);
-    await session.page.locator('[data-procedure-card="nav-dossier"]').click();
-    await session.page.waitForFunction(() => document.getElementById("procedureDetailDialog").open);
-    const opened = await session.page.evaluate(() => window.__navRestoreTest.state());
-    assert.equal(opened.search, "?view=dossiers&id=nav-dossier", "l’ouverture écrit l’identifiant de la démarche");
-
-    await session.page.goBack();
-    await session.page.waitForFunction(() => !document.getElementById("procedureDetailDialog").open);
-    const afterBack = await session.page.evaluate(() => window.__navRestoreTest.state());
-    assert.equal(afterBack.search, "?view=dossiers", "Retour referme la démarche");
-    assert.equal(afterBack.dossierOpen, false);
-
-    await session.page.goForward();
-    await session.page.waitForFunction(() => document.getElementById("procedureDetailDialog").open);
-    const afterForward = await session.page.evaluate(() => window.__navRestoreTest.state());
-    assert.equal(afterForward.search, "?view=dossiers&id=nav-dossier", "Avant rouvre la même démarche");
-    assert.equal(afterForward.dossierTitle, "Démarche de test");
+    const state = await seedAndState(session.page);
+    assert.equal(state.treeVisible, true, "l’arbre s’affiche après le repli");
+    assert.equal(state.directoryVisible, false, "aucune autre vue n’est ouverte par erreur");
+    assert.ok(!state.search.includes("dossiers"), `l’URL retirée de la vue supprimée : ${state.search}`);
     assertNoApplicationError(session.errors);
   } finally {
     await session.close();
@@ -299,7 +275,7 @@ test("Retour/Avancer sur une fiche Démarche ouverte depuis la liste", async t =
 });
 
 test("navigation mobile : les fiches se restaurent sans débordement horizontal", async t => {
-  for (const target of [TARGETS[0], TARGETS[1], TARGETS[4]]) {
+  for (const target of [TARGETS[0], TARGETS[1], TARGETS[3]]) {
     const session = await openApp(t, { search: target.search, viewport: { width: 390, height: 844 } });
     if (!session) return;
     try {
