@@ -288,6 +288,45 @@ test("fingerprint individuel change si l'appartenance ou les références d'un f
   assert.notEqual(first.fingerprint, changedFamily.fingerprint);
 });
 
+test("transfert individuel : aperçu complet et relecture transactionnelle du foyer gardent la même empreinte", () => {
+  const peopleFull = [
+    { id: "jean", firstName: "Jean", lastName: "Test", treeId: null },
+    { id: "marie", firstName: "Marie", lastName: "Test" },
+    { id: "paul", firstName: "Paul", lastName: "Test" },
+    { id: "sophie", firstName: "Sophie", lastName: "Giovannoni", treeId: "tree-giovannoni" },
+    { id: "lea", firstName: "Léa", lastName: "Giovannoni", treeId: "tree-giovannoni" }
+  ];
+  const family = {
+    id: "f-jean-marie-paul",
+    partnerIds: ["jean", "marie"],
+    childIds: ["paul"],
+    relationType: "marriage",
+    parentChildLinks: [{ parentId: "jean", childId: "paul", type: "biological" }]
+  };
+  const trees = [{ id: "tree-giovannoni", name: "Giovannoni Orino" }];
+
+  // L'aperçu utilise le cache complet ; l'entrée transactionnelle simule la
+  // relecture limitée aux personnes sélectionnées et aux membres du foyer.
+  const transactionPeople = [
+    { id: "paul", firstName: "Paul", lastName: "Test" },
+    { id: "jean", firstName: "Jean", lastName: "Test", treeId: null },
+    { id: "marie", firstName: "Marie", lastName: "Test" }
+  ];
+  const previewIds = peopleFull.map(person => person.id).sort();
+  const transactionIds = transactionPeople.map(person => person.id).sort();
+  assert.notDeepEqual(transactionIds, previewIds, "la transaction reçoit une liste people réellement limitée");
+  assert.deepEqual(transactionIds, ["jean", "marie", "paul"], "la liste transactionnelle couvre exactement le foyer transféré");
+
+  const preview = prepareIndividualTreeTransferPlan({
+    personId: "paul", people: peopleFull, families: [family], trees, destinationTreeId: "tree-giovannoni"
+  });
+  const transaction = prepareIndividualTreeTransferPlan({
+    personId: "paul", people: transactionPeople, families: [family], trees, destinationTreeId: "tree-giovannoni"
+  });
+  assert.deepEqual(preview.affectedFamilies[0].memberIds, transaction.affectedFamilies[0].memberIds, "les références du foyer restent identiques entre aperçu et relecture");
+  assert.equal(preview.fingerprint, transaction.fingerprint, "la différence de portée people ne crée pas un faux conflit de transfert");
+});
+
 /* ─── Ordre des propriétés des objets relationnels (correctif faux conflit) ─── */
 
 const orderPeople = [
