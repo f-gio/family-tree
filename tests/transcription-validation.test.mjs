@@ -268,8 +268,8 @@ test("la carte Document propose Ajouter quand la page ne contient aucune transcr
       return { text: node.textContent, action: node.querySelector("[data-transcribe-document]").textContent.trim() };
     });
     assert.match(card.text, /Aucune transcription/, "état vide explicite");
-    assert.match(card.text, /Passages\s*0/, "compteur nul affiché");
-    assert.equal(card.action, "Ajouter", "libellé court en l’absence de transcription");
+    assert.ok(/(?:^|[^0-9])0\s*passages/.test(card.text), "compteur nul affiché");
+    assert.equal(card.action, "Commencer une transcription", "libellé d’ouverture en l’absence de transcription");
     await page.evaluate(() => window.__inc2.transcribe());
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
     assert.equal(await page.locator("#workshopOfficialBadge").textContent(), "Brouillon", "l’ouverture de la carte ne crée pas de version officielle");
@@ -431,27 +431,25 @@ test("la carte Document propose Ajouter quand la page ne contient aucune transcr
     assert.equal(await page.locator("#workshopPassagePills [aria-current='step']").textContent(), "1", "clic sur une pastille sélectionne le premier passage");
     const passageIds = await passagePills.evaluateAll(buttons => buttons.map(button => button.dataset.workshopPassageSelect));
 
-    /* Suppression sur mobile : le bouton inline est masqué, l'action vit dans
-       le menu contextuel ⋯ du passage actif. */
+    /* Suppression sur mobile : le bouton inline reste masqué, l'action vit
+       dans la poubelle du bandeau des passages (aucun menu « … » au-dessus
+       des champs). */
     assert.equal(await page.locator("[data-workshop-delete-passage]").first().isVisible(), false, "bouton inline masqué sur mobile");
-    const selectedMenuSummary = page.locator(".transcription-workshop-passage.is-selected .transcription-workshop-passage-menu > summary");
-    assert.equal(await selectedMenuSummary.isVisible(), true, "menu ⋯ visible sur le passage actif en édition");
-    const openSelectedMenu = async () => {
-      const summary = page.locator(".transcription-workshop-passage.is-selected .transcription-workshop-passage-menu > summary");
-      if (!(await summary.evaluate(element => element.parentElement.open))) await summary.click();
-      await page.locator(".transcription-workshop-passage.is-selected [data-workshop-delete-passage-menu]").waitFor({ state: "visible" });
-    };
+    const deleteCta = page.locator("#workshopDeletePassageBtn");
+    assert.equal(await deleteCta.isVisible(), true, "poubelle du bandeau visible en édition mobile");
+    const deleteCtaBox = await deleteCta.boundingBox();
+    assert.ok(deleteCtaBox && deleteCtaBox.width >= 44 && deleteCtaBox.height >= 44, "poubelle ≥ 44 × 44 px");
+    assert.equal(await deleteCta.getAttribute("aria-label"), "Supprimer le passage", "libellé accessible de la poubelle");
+    assert.equal(await page.locator(".transcription-workshop-passage.is-selected .transcription-workshop-passage-menu").count(), 0, "aucun menu contextuel de passage au-dessus des champs");
     /* Confirmation annulée : rien n'est supprimé. */
-    await openSelectedMenu();
     page.removeAllListeners("dialog");
     page.on("dialog", dialog => dialog.dismiss().catch(() => {}));
-    await page.locator(".transcription-workshop-passage.is-selected [data-workshop-delete-passage-menu]").click();
+    await deleteCta.click();
     assert.deepEqual(await passagePills.evaluateAll(buttons => buttons.map(button => button.dataset.workshopPassageSelect)), passageIds, "annulation de la confirmation : aucun passage supprimé");
     /* Confirmation acceptée : le passage sort du brouillon. */
     page.removeAllListeners("dialog");
     page.on("dialog", dialog => dialog.accept().catch(() => {}));
-    await openSelectedMenu();
-    await page.locator(".transcription-workshop-passage.is-selected [data-workshop-delete-passage-menu]").click();
+    await deleteCta.click();
     await page.waitForFunction(expected => document.querySelectorAll("#workshopPassagePills [data-workshop-passage-select]").length === expected, passageIds.length - 1);
     const remainingIds = await page.locator("#workshopPassagePills [data-workshop-passage-select]").evaluateAll(buttons => buttons.map(button => button.dataset.workshopPassageSelect));
     assert.deepEqual(remainingIds, passageIds.slice(1), "suppression du brouillon uniquement : les dix-neuf autres passages sont conservés");
@@ -462,8 +460,7 @@ test("la carte Document propose Ajouter quand la page ne contient aucune transcr
        reste collé au dernier numéro visible à chaque étape. */
     let expectedCount = passageIds.length - 1;
     while (expectedCount > 1) {
-      await openSelectedMenu();
-      await page.locator(".transcription-workshop-passage.is-selected [data-workshop-delete-passage-menu]").click();
+      await deleteCta.click();
       expectedCount -= 1;
       await page.waitForFunction(count => document.querySelectorAll("#workshopPassagePills [data-workshop-passage-select]").length === count, expectedCount);
       const state = await page.evaluate(() => {
@@ -870,14 +867,17 @@ test("historique : versions listées avec auteur et date, consultation en lectur
     });
     assert.ok(mobileEditActions.cancel[3] >= 44 && mobileEditActions.validate[3] >= 44, "Annuler et Valider gardent des cibles tactiles ≥44 px");
     assert.ok(Math.abs(mobileEditActions.cancel[3] - mobileEditActions.validate[3]) <= 1, "Annuler et Valider de même hauteur calculée");
-    assert.ok(Math.abs(mobileEditActions.cancel[3] - consultationModeBox.height) <= 1, `hauteur identique à « Modifier » (${consultationModeBox.height} / ${mobileEditActions.cancel[3]})`);
+    /* §17 : hauteur cible 48 px sur mobile (le pied desktop reste à 44 px). */
+    assert.ok(mobileEditActions.cancel[3] >= 48 && mobileEditActions.validate[3] >= 48, `pied de validation mobile à 48 px (${mobileEditActions.cancel[3]}/${mobileEditActions.validate[3]})`);
     assert.notEqual(mobileEditActions.cancel[2], mobileEditActions.validate[2], "largeur des boutons adaptée à chaque libellé");
     assert.equal(mobileEditActions.cancel[1], mobileEditActions.validate[1], "boutons alignés sur le même axe");
     assert.ok(mobileEditActions.cancel[0] < mobileEditActions.validate[0], "ordre Annuler puis Valider sur mobile");
     assert.equal(mobileEditActions.cancelAlign, "center", "texte Annuler centré dans la capsule");
     assert.equal(mobileEditActions.validateAlign, "center", "texte Valider centré dans la capsule");
-    assert.equal(mobileEditActions.cancelBackground, "rgb(166, 66, 56)", "Annuler en rouge");
-    assert.equal(mobileEditActions.cancelColor, "rgb(255, 255, 255)", "Annuler en texte blanc");
+    /* §17 : « Abandonner » est une variante secondaire — fond clair, texte
+       vert foncé, aucune trace du rouge destructeur. */
+    assert.equal(mobileEditActions.cancelBackground, "rgb(255, 253, 248)", "Abandonner en variante secondaire");
+    assert.equal(mobileEditActions.cancelColor, "rgb(40, 75, 63)", "Abandonner en texte vert foncé");
     assert.equal(mobileEditActions.validateBackground, "rgb(40, 75, 63)", "Valider en vert de la charte");
     assert.equal(mobileEditActions.validateColor, "rgb(255, 255, 255)", "Valider en texte blanc");
     assert.equal(mobileEditActions.overflow, false, "groupe d’édition sans débordement mobile");

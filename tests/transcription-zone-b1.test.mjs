@@ -356,13 +356,14 @@ test("B1 mobile : tracé au doigt depuis l’onglet Original, poignées et A3 pr
             try {
               await openB1Workshop(page, { official: false });
               await waitForImage(page);
-              /* Onglet Italien : carte active et action de délimitation. */
+              /* Onglet Italien : sélection du passage, puis retour sur
+                 Original où vit la barre d'outils de délimitation. */
               await page.click("#workshopTabItalian");
               await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
-              assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="draw"]').count(), 1, "action de délimitation sur le passage actif");
-              /* Clic depuis Italien : bascule vers l'onglet Original pour le tracé. */
-              await page.click('.transcription-workshop-passage.is-selected [data-workshop-zone-action="draw"]');
-              assert.equal(await page.evaluate(() => document.getElementById("workshopLayout").dataset.activePanel), "original", "bascule automatique vers l’onglet Original");
+              await page.click("#workshopTabOriginal");
+              assert.equal(await page.locator('#workshopZoneToolbar [data-workshop-zone-action="draw"]').count(), 1, "action de délimitation sur le passage actif");
+              await page.click('#workshopZoneToolbar [data-workshop-zone-action="draw"]');
+              assert.equal(await page.evaluate(() => document.getElementById("workshopLayout").dataset.activePanel), "original", "bascule vers l’onglet Original pour le tracé");
               assert.equal(await page.evaluate(() => window.__b1.toolActive()), true, "mode de tracé actif");
               assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("workshopImageTools")).pointerEvents), "none", "gestes d’image neutralisés pendant le tracé");
               const actionsBox = await page.locator("#workshopZoneActions").boundingBox();
@@ -401,7 +402,8 @@ test("B1 mobile : tracé au doigt depuis l’onglet Original, poignées et A3 pr
               /* Ajustement : poignées tactiles visibles puis Annuler. */
               await page.click("#workshopTabItalian");
               await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
-              await page.click('.transcription-workshop-passage.is-selected [data-workshop-zone-action="adjust"]');
+              await page.click("#workshopTabOriginal");
+              await page.click('#workshopZoneToolbar [data-workshop-zone-action="adjust"]');
               assert.equal(await page.evaluate(() => document.getElementById("workshopLayout").dataset.activePanel), "original", "ajustement depuis l’onglet Original");
               await page.waitForFunction(() => {
                 const rect = document.getElementById("workshopZoneEditorRect");

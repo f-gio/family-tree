@@ -7364,8 +7364,10 @@ let transcriptionWorkshopCompare = false;
 let transcriptionWorkshopUnloadHandler = null;
 /* URL d'objet du JPEG chargé depuis Firestore pour l'affichage de l'atelier. */
 let transcriptionWorkshopObjectUrl = "";
-/* État de l'initialisation guidée d'une page JPEG (dialog de confirmation). */
-let transcriptionPageInitState = null;
+/* Initialisation automatique d'une page de transcription : identifiants des
+   documents en cours d'initialisation — un second clic est ignoré pendant
+   l'opération, jamais une seconde page. */
+let transcriptionInitializationInFlight = new Set();
 /* Vue dédiée de l'atelier : lecteur d'image, contexte d'origine et navigation. */
 let workshopImageViewer = null;
 let transcriptionWorkshopReturn = null;
@@ -8502,8 +8504,54 @@ function transcriptionWorkshopDisplayTextDiff(before, after) {
     || "<span class=\"transcription-workshop-diff-empty\">Texte absent</span>";
 }
 
+/* Disponibilité des onglets de version selon le PASSAGE sélectionné (§6) :
+   « Version officielle » et « Différences » n'existent que si la version
+   officielle de la page contient un passage portant le MÊME identifiant —
+   jamais déduit du rang ou du numéro, donc juste après une suppression ou une
+   réorganisation. Logique unique partagée par desktop et mobile. */
+function transcriptionWorkshopVersionTabState() {
+  const head = transcriptionWorkshopHead();
+  const selectedId = transcriptionWorkshopDraft?.selectedPassageId || null;
+  const official = head ? genealogyRecordData(head) : null;
+  const officialPassages = Array.isArray(official?.passages) ? official.passages : [];
+  const counterpart = Boolean(selectedId && officialPassages.some(passage => passage && passage.id === selectedId));
+  return { official: counterpart, diff: counterpart && officialPassages.length > 0 };
+}
+
+/* Applique la disponibilité aux trois onglets et ramène automatiquement à
+   « Mon brouillon » quand la vue active n'est plus légitime pour le passage
+   affiché (nouveau passage, passage sans version officielle). Renvoie true
+   lorsque la vue a changé — l'appelant doit alors re-rendre. */
+function syncWorkshopVersionTabs() {
+  const state = transcriptionWorkshopVersionTabState();
+  let changed = false;
+  if (!state.official && transcriptionWorkshopDisplayMode === "official") {
+    transcriptionWorkshopDisplayMode = "draft";
+    transcriptionWorkshopViewingOfficial = false;
+    changed = true;
+  }
+  if (!state.diff && transcriptionWorkshopDisplayMode === "diff") {
+    transcriptionWorkshopDisplayMode = "draft";
+    transcriptionWorkshopCompare = false;
+    applyWorkshopCompare();
+    changed = true;
+  }
+  for (const button of document.querySelectorAll("[data-workshop-mode]")) {
+    const mode = button.dataset.workshopMode;
+    const available = mode === "draft" || Boolean(state[mode]);
+    button.disabled = !available;
+    const active = mode === transcriptionWorkshopDisplayMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  return changed;
+}
+
 function setTranscriptionWorkshopDisplayMode(mode) {
   if (!transcriptionWorkshopDraft || !transcriptionWorkshopEditing || !["draft", "official", "diff"].includes(mode)) return;
+  /* Onglet indisponible pour le passage affiché : non cliquable, non activable
+     au clavier — l'état désactivé du Design System suffit. */
+  if (mode !== "draft" && !transcriptionWorkshopVersionTabState()[mode]) return;
   /* B1 : changement de mode hors brouillon = abandon propre du tracé. */
   cancelWorkshopZoneTool();
   /* Bascule purement visuelle : flush puis rendu — aucun contenu n'est écrit
@@ -9045,24 +9093,24 @@ function openTranscriptionWorkshop() {
   const initializable = sourceInitializableJpegDocuments(context.data);
   if (initializable.length === 1) return openTranscriptionWorkshopForDocument(initializable[0]);
   if (initializable.length > 1) {
-    return toast("Cette source est liée à plusieurs JPEG exploitables : choisissez « Transcrire » et le document correspondant depuis le menu ⋯ de la fiche.", "info");
+    return toast("Cette source est liée à plusieurs images ou PDF exploitables : choisissez « Transcrire » et le document correspondant depuis le menu ⋯ de la fiche.", "info");
   }
   const linkedDocuments = (context.data.documentIds || []).map(id => documents.find(value => value.id === id)).filter(Boolean);
   const consultable = linkedDocuments.find(documentItem => isDocumentConsultable(documentItem));
   if (linkedDocuments.length) {
     return showTranscriptionUnavailableDialog({
-      message: "Les documents JPEG liés à cette source ne peuvent pas être vérifiés localement (fichier distant ou non importé). Leur empreinte SHA-256 est exigée pour initialiser une page.",
+      message: "Les documents liés à cette source ne peuvent pas être vérifiés localement (fichier distant ou non importé). Leur empreinte SHA-256 est exigée pour initialiser une page.",
       ...(consultable ? { actionLabel: "Consulter le document", action: () => openStoredDocument(consultable, "archives") } : {})
     });
   }
   if (isAdminUser()) {
     return showTranscriptionUnavailableDialog({
-      message: "Aucun document n’est rattaché à cette source. Rattachez un document JPEG depuis sa fiche, puis relancez « Transcrire ».",
+      message: "Aucun document n’est rattaché à cette source. Rattachez une image ou un PDF depuis sa fiche, puis relancez « Transcrire ».",
       actionLabel: "Réviser la source",
       action: () => openGenealogyContribution({ official: true, reviseItem: activeGenealogyItem })
     });
   }
-  return toast("Aucun document n’est rattaché à cette source. Rattachez un document JPEG (action « Réviser » pour les administrateurs) avant de la transcrire.", "error");
+  return toast("Aucun document n’est rattaché à cette source. Rattachez une image ou un PDF (action « Réviser » pour les administrateurs) avant de la transcrire.", "error");
 }
 
 function buildTranscriptionWorkshopDocumentContext(documentItem, pages, linkedDocumentIds = []) {
@@ -9077,12 +9125,13 @@ function buildTranscriptionWorkshopDocumentContext(documentItem, pages, linkedDo
   };
 }
 
-/* Ouvre l'atelier depuis la fiche document unifiée pour un JPEG :
+/* Ouvre l'atelier depuis la fiche document unifiée pour une image (JPEG, PNG,
+   WebP) ou un PDF :
    - réutilise la page officielle qui référence déjà le fichier, si elle existe ;
-   - sinon propose une initialisation guidée et explicite (administrateurs,
-     validation par l'utilisateur) rattachant une page au document existant ;
+   - sinon initialise automatiquement la page (aucune confirmation
+     intermédiaire) puis ouvre l'atelier en mode création ;
    - aucune page fictive, aucun identifiant provisoire, aucun doublon de fichier. */
-function openTranscriptionWorkshopForDocument(documentItem, preferredPageId = "") {
+function openTranscriptionWorkshopForDocument(documentItem, preferredPageId = "", ctaButton = null) {
   const directPages = Array.isArray(documentItem.pages) ? documentItem.pages : [];
   if (directPages.length) {
     const targetPage = directPages.find(page => page.id === preferredPageId)
@@ -9094,10 +9143,10 @@ function openTranscriptionWorkshopForDocument(documentItem, preferredPageId = ""
   const linkedSources = genealogyCollectionErrors.has("sourceDocuments") ? [] : documentLinkedSources(documentItem.id);
   if (!linkedSources.length) {
     if (!isTranscriptionJpegDocument(documentItem) && !isTranscriptionPdfDocument(documentItem)) {
-      return toast("Seuls les documents JPEG ou PDF peuvent initialiser une nouvelle page de transcription.", "error");
+      return toast("Seuls les documents image (JPEG, PNG, WebP) ou PDF peuvent initialiser une nouvelle page de transcription.", "error");
     }
     if (!isAdminUser()) return toast("L’initialisation de la page de transcription est réservée aux administrateurs.", "error");
-    return openTranscriptionPageInitDialog(documentItem, []);
+    return initializeTranscriptionPage(documentItem, [], ctaButton);
   }
   /* Page existante : réutilisée quelle que soit la source liée qui la porte —
      aucun choix de source n'a lieu sur ce chemin. */
@@ -9121,16 +9170,16 @@ function openTranscriptionWorkshopForDocument(documentItem, preferredPageId = ""
   if (!activeSources.length) {
     return toast("Toutes les sources liées à ce document sont archivées. Restaurez-en une avant d’initialiser sa page de transcription.", "error");
   }
-  /* B2 correction : l'initialisation accepte les documents JPEG ET PDF
-     exploitables localement (octets vérifiables pour l'empreinte) — le reste
-     du parcours (dialogue, empreinte, page technique, atelier) est identique. */
+  /* B2 correction : l'initialisation accepte les images JPEG/PNG/WebP ET les
+     PDF exploitables localement (octets vérifiables pour l'empreinte) — le
+     reste du parcours (empreinte, page technique, atelier) est identique. */
   if (!isTranscriptionJpegDocument(documentItem) && !isTranscriptionPdfDocument(documentItem)) {
-    return toast("Seuls les documents JPEG ou PDF peuvent initialiser une nouvelle page de transcription.", "error");
+    return toast("Seuls les documents image (JPEG, PNG, WebP) ou PDF peuvent initialiser une nouvelle page de transcription.", "error");
   }
   if (!isAdminUser()) {
     return toast("L’initialisation de la page de transcription est réservée aux administrateurs. Faites rattacher une page à cette source via l’action « Réviser ».", "error");
   }
-  return openTranscriptionPageInitDialog(documentItem, activeSources);
+  return initializeTranscriptionPage(documentItem, activeSources, ctaButton);
 }
 
 async function computeLegacyDocumentSha256(item, localBytes = null) {
@@ -9151,181 +9200,120 @@ async function computeLegacyDocumentSha256(item, localBytes = null) {
   return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("");
 }
 
-function transcriptionPageInitSourceRecord() {
-  const selectedId = transcriptionPageInitState?.selectedSourceId;
-  if (!selectedId) return null;
-  return genealogyRecords.sourceDocuments.find(record => record.id === selectedId) || null;
-}
+/* ---- Initialisation automatique d'une page de transcription ---------------
+   Plus de confirmation intermédiaire : le clic sur « Commencer une
+   transcription » calcule l'empreinte, écrit la page par le mécanisme
+   existant (transaction Document ou révision admin de la Source) puis ouvre
+   l'atelier en mode création. Le fichier n'est jamais dupliqué : seule sa
+   référence vers le document existant et son empreinte SHA-256 sont
+   conservées. Les contrôles d'accès, les sécurités de création et le
+   contexte de navigation sont inchangés. */
 
-/* Sous-titre et faits du dialogue : le nom de la source cible est toujours
-   affiché (auto-sélection affichée ou choix encore attendu). */
-function renderTranscriptionPageInitDetails() {
-  const state = transcriptionPageInitState;
-  if (!state) return;
-  const sourceRecord = transcriptionPageInitSourceRecord();
-  const sourceData = sourceRecord ? genealogyRecordData(sourceRecord) : null;
-  const sourceTitle = state.directDocument ? "Document" : sourceData ? (sourceData.title || sourceData.cote || sourceData.category || "Source sans titre") : "Source à choisir";
-  $("transcriptionPageInitSubtitle").textContent = state.directDocument
-    ? `${documentDisplayLabel(state.documentItem)} · nouvelle page de transcription`
-    : `${documentDisplayLabel(state.documentItem)} vers « ${sourceTitle} »`;
-  $("transcriptionPageInitNotice").textContent = state.directDocument
-    ? "Une page sera ajoutée à la fiche Document existante. Le fichier ne sera pas dupliqué ; sa référence et son empreinte SHA-256 seront conservées."
-    : "Cette action crée une page officielle dans la source : le fichier du document n’est pas dupliqué, seule une référence vers le document existant et son empreinte SHA-256 sont enregistrées. Une nouvelle révision de la source sera écrite.";
-  const facts = $("transcriptionPageInitFacts");
-  if (!state.sha256) {
-    facts.innerHTML = `<p class="hint">Lecture du fichier et calcul de l’empreinte SHA-256…</p>`;
-    return;
-  }
-  facts.innerHTML = [
-    ...(!state.directDocument ? [["Source", sourceTitle]] : []),
-    ["Document", documentDisplayLabel(state.documentItem)],
-    ["Fichier", state.documentItem.fileName || "Non renseigné"],
-    ["Format", state.documentItem.mimeType || "Non renseigné"],
-    ["Taille", formatBytes(state.documentItem.fileSize ?? state.documentItem.storedSize ?? 0)],
-    ["Empreinte SHA-256", `${state.sha256.slice(0, 16)}…`]
-  ].map(([label, value]) => `<div class="document-unified-fact"><strong>${esc(label)}</strong><span>${esc(String(value))}</span></div>`).join("");
-}
-
-/* Dialog d'initialisation : affiche le résumé de la cible (Document ou Source)
-   et l'empreinte, puis attend la validation explicite de l'utilisateur. */
-async function openTranscriptionPageInitDialog(documentItem, activeSources) {
-  if (!isAdminUser()) return toast("L’initialisation de la page de transcription est réservée aux administrateurs.", "error");
-  const directDocument = !Array.isArray(activeSources) || !activeSources.length;
-  if (directDocument && !canInitializeLegacyJpegPage(documentItem)) return toast("Ce document ne peut pas initialiser une page de transcription sans source.", "error");
-  const errorBox = $("transcriptionPageInitError");
-  errorBox.hidden = true;
-  errorBox.textContent = "";
-  const confirmButton = $("transcriptionPageInitConfirmBtn");
-  confirmButton.disabled = true;
-  /* Une seule source active : sélection automatique, affichée dans le sous-titre
-     et les faits. Plusieurs : aucune option présélectionnée, choix obligatoire. */
-  const sourceField = $("transcriptionPageInitSourceField");
-  const sourceSelect = $("transcriptionPageInitSource");
-  const multipleSources = !directDocument && activeSources.length > 1;
-  sourceField.hidden = !multipleSources;
-  sourceSelect.innerHTML = (multipleSources ? `<option value="">Choisir la source…</option>` : "")
-    + (activeSources || []).map(record => {
-      const data = genealogyRecordData(record);
-      return `<option value="${esc(record.id)}">${esc(data.title || data.cote || data.category || "Source sans titre")}</option>`;
-    }).join("");
-  sourceSelect.value = directDocument || multipleSources ? "" : activeSources[0].id;
-  transcriptionPageInitState = {
-    documentItem,
-    selectedSourceId: directDocument || multipleSources ? null : activeSources[0].id,
-    directDocument,
-    sha256: null
-  };
-  renderTranscriptionPageInitDetails();
-  const dialog = $("transcriptionPageInitDialog");
-  if (!dialog.open) dialog.showModal();
-  try {
-    const sha256 = await computeLegacyDocumentSha256(documentItem);
-    if (!dialog.open || !transcriptionPageInitState) return;
-    transcriptionPageInitState.sha256 = sha256;
-    renderTranscriptionPageInitDetails();
-    confirmButton.disabled = !(sha256 && (transcriptionPageInitState.directDocument || transcriptionPageInitState.selectedSourceId));
-  } catch (error) {
-    transcriptionPageInitState = null;
-    if (dialog.open) close("transcriptionPageInitDialog");
-    toast(error.message || "La ressource du document est indisponible.", "error");
-  }
-}
-
-/* Écrit la page au Document ou via la révision admin de la Source, puis ouvre
-   l'atelier. Aucune écriture sans validation explicite de l'utilisateur. */
-async function confirmTranscriptionPageInit() {
-  const state = transcriptionPageInitState;
-  if (!state) return;
-  if (!isAdminUser()) return toast("L’initialisation de la page de transcription est réservée aux administrateurs.", "error");
-  const confirmButton = $("transcriptionPageInitConfirmBtn");
-  const errorBox = $("transcriptionPageInitError");
-  const fail = message => {
-    confirmButton.disabled = false;
-    errorBox.textContent = message;
-    errorBox.hidden = false;
-  };
-  /* Re-vérification de la source choisie et des droits au moment exact de la
-     confirmation : l'état affiché peut être périmé (archivage, retrait d'une
-     association, perte des droits pendant la session). */
-  if (!state.directDocument && !state.selectedSourceId) return fail("Choisissez la source qui recevra la page avant de confirmer.");
-  if (!state.sha256) return fail("L’empreinte du fichier n’est pas disponible. Fermez le dialogue et réessayez.");
-  confirmButton.disabled = true;
-  errorBox.hidden = true;
-  const { documentItem, sha256 } = state;
-  try {
-    if (state.directDocument) {
-      const documentRef = doc(db, "documents", documentItem.id);
-      const pageId = createGenealogyId(refs.documents);
-      const photographId = createGenealogyId(refs.documents);
-      let prepared;
-      await runTransaction(db, async transaction => {
-        const snapshot = await transaction.get(documentRef);
-        if (!snapshot.exists()) throw new Error("Ce document n’est plus disponible.");
-        const freshDocument = { id: snapshot.id, ...snapshot.data() };
-        if (Array.isArray(freshDocument.pages) && freshDocument.pages.length) {
-          throw new Error("Ce document possède maintenant des pages. Fermez le dialogue et relancez la transcription.");
-        }
-        prepared = prepareLegacyDocumentPageForDocument({
-          documentItem: freshDocument,
-          sha256,
-          pageId,
-          photographId,
-          importedAt: new Date().toISOString()
-        });
-        transaction.update(documentRef, { pages: prepared.document.pages, updatedAt: serverTimestamp() });
-      });
-      const currentDocument = documents.find(value => value.id === documentItem.id);
-      if (currentDocument) currentDocument.pages = prepared.document.pages;
-      close("transcriptionPageInitDialog");
-      transcriptionPageInitState = null;
-      toast("Page initialisée dans la fiche Document. L’atelier est prêt.");
-      return openTranscriptionWorkshopFor(
-        buildTranscriptionWorkshopDocumentContext({ ...documentItem, pages: prepared.document.pages }, prepared.document.pages),
-        prepared.page.id,
-        ""
-      );
+/* Écriture de la page portée par le Document : transaction idempotente — un
+   second appel échoue si la page existe déjà, ce qui interdit tout doublon. */
+async function commitTranscriptionPageOnDocument(documentItem, sha256) {
+  const documentRef = doc(db, "documents", documentItem.id);
+  const pageId = createGenealogyId(refs.documents);
+  const photographId = createGenealogyId(refs.documents);
+  let prepared;
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(documentRef);
+    if (!snapshot.exists()) throw new Error("Ce document n’est plus disponible.");
+    const freshDocument = { id: snapshot.id, ...snapshot.data() };
+    if (Array.isArray(freshDocument.pages) && freshDocument.pages.length) {
+      throw new Error("Ce document possède maintenant des pages. Relancez la transcription pour réutiliser la page existante.");
     }
-    const sourceRecord = genealogyRecords.sourceDocuments.find(record => record.id === state.selectedSourceId);
-    if (!sourceRecord) return fail("La source sélectionnée n’est plus disponible. Fermez le dialogue et réessayez.");
-    const sourceData = genealogyRecordData(sourceRecord);
-    if ((sourceData.status || "active") === "archived") {
-      return fail("La source sélectionnée a été archivée. Restaurez-la avant d’initialiser sa page.");
-    }
-    if (!(sourceData.documentIds || []).includes(state.documentItem.id)) {
-      return fail("La source sélectionnée n’est plus associée à ce document. Fermez le dialogue et réessayez.");
-    }
-    const pageId = createGenealogyId(refs.sourceDocuments);
-    const photographId = createGenealogyId(refs.sourceDocuments);
-    const prepared = prepareLegacyDocumentPage({
-      source: sourceData,
-      documentItem,
+    prepared = prepareLegacyDocumentPageForDocument({
+      documentItem: freshDocument,
       sha256,
       pageId,
       photographId,
       importedAt: new Date().toISOString()
     });
-    const data = createSourceDocument(prepared.source);
-    const revisionId = createGenealogyId(refs.sourceRevisions);
-    const eventId = createGenealogyId(refs.genealogyEvents);
-    await genealogyStore.reviseOfficial({
-      type: "source",
-      id: sourceRecord.id,
-      revisionId,
-      eventId,
-      data,
-      reason: `Page de transcription initialisée depuis le document « ${documentDisplayLabel(documentItem)} » : fichier référencé, non dupliqué`,
-      actorUid: auth.currentUser.uid
-    });
-    close("transcriptionPageInitDialog");
-    transcriptionPageInitState = null;
-    toast("Page initialisée dans une nouvelle révision de la source. L’atelier est prêt.");
-    return openTranscriptionWorkshopFor(
-      buildTranscriptionWorkshopDocumentContext(documentItem, data.pages, data.documentIds),
-      prepared.page.id,
-      ""
-    );
+    transaction.update(documentRef, { pages: prepared.document.pages, updatedAt: serverTimestamp() });
+  });
+  const currentDocument = documents.find(value => value.id === documentItem.id);
+  if (currentDocument) currentDocument.pages = prepared.document.pages;
+  return prepared;
+}
+
+/* Écriture de la page dans la Source : même révision admin que précédemment,
+   avec re-vérification des droits, de l'état et de l'association au moment
+   exact de l'écriture (l'état affiché peut être périmé). */
+async function commitTranscriptionPageOnSource(documentItem, activeSources, sha256) {
+  const candidates = (Array.isArray(activeSources) ? activeSources : [])
+    .map(record => genealogyRecords.sourceDocuments.find(value => value.id === record.id) || record)
+    .filter(record => record && (genealogyRecordData(record).status || "active") === "active");
+  const sourceRecord = candidates[0];
+  if (!sourceRecord) {
+    throw new Error("Toutes les sources liées à ce document sont archivées. Restaurez-en une avant d’initialiser sa page de transcription.");
+  }
+  const sourceData = genealogyRecordData(sourceRecord);
+  if (!(sourceData.documentIds || []).includes(documentItem.id)) {
+    throw new Error("La source sélectionnée n’est plus associée à ce document. Fermez et relancez la transcription.");
+  }
+  const pageId = createGenealogyId(refs.sourceDocuments);
+  const photographId = createGenealogyId(refs.sourceDocuments);
+  const prepared = prepareLegacyDocumentPage({
+    source: sourceData,
+    documentItem,
+    sha256,
+    pageId,
+    photographId,
+    importedAt: new Date().toISOString()
+  });
+  const data = createSourceDocument(prepared.source);
+  const revisionId = createGenealogyId(refs.sourceRevisions);
+  const eventId = createGenealogyId(refs.genealogyEvents);
+  await genealogyStore.reviseOfficial({
+    type: "source",
+    id: sourceRecord.id,
+    revisionId,
+    eventId,
+    data,
+    reason: `Page de transcription initialisée depuis le document « ${documentDisplayLabel(documentItem)} » : fichier référencé, non dupliqué`,
+    actorUid: auth.currentUser.uid
+  });
+  return { page: prepared.page, data };
+}
+
+/* Point d'unique d'initialisation : anti-double-clic (identifiant en cours),
+   état de chargement sur le CTA, échec explicite sans atelier ouvert et
+   réessai possible sans doublon. */
+async function initializeTranscriptionPage(documentItem, activeSources, ctaButton = null) {
+  const documentId = documentItem?.id;
+  if (!documentId || transcriptionInitializationInFlight.has(documentId)) return;
+  if (!isAdminUser()) return toast("L’initialisation de la page de transcription est réservée aux administrateurs.", "error");
+  const directDocument = !Array.isArray(activeSources) || !activeSources.length;
+  if (directDocument && !canInitializeLegacyJpegPage(documentItem)) {
+    return toast("Ce document ne peut pas initialiser une page de transcription sans source.", "error");
+  }
+  const cta = ctaButton || document.querySelector('#viewerDocumentDetails [data-transcribe-document]');
+  transcriptionInitializationInFlight.add(documentId);
+  try {
+    await withButtonPending(cta, async () => {
+      const sha256 = await computeLegacyDocumentSha256(documentItem);
+      if (directDocument) {
+        const prepared = await commitTranscriptionPageOnDocument(documentItem, sha256);
+        toast("Page initialisée dans la fiche Document. L’atelier est prêt.");
+        return openTranscriptionWorkshopFor(
+          buildTranscriptionWorkshopDocumentContext({ ...documentItem, pages: prepared.document.pages }, prepared.document.pages),
+          prepared.page.id,
+          ""
+        );
+      }
+      const prepared = await commitTranscriptionPageOnSource(documentItem, activeSources, sha256);
+      toast("Page initialisée dans une nouvelle révision de la source. L’atelier est prêt.");
+      return openTranscriptionWorkshopFor(
+        buildTranscriptionWorkshopDocumentContext(documentItem, prepared.data.pages, prepared.data.documentIds),
+        prepared.page.id,
+        ""
+      );
+    }, "Initialisation…");
   } catch (error) {
-    fail(error.message || "L’initialisation de la page a échoué.");
+    toast(error.message || "L’initialisation de la page a échoué : aucune page n’a été créée. Vous pouvez réessayer.", "error");
+  } finally {
+    transcriptionInitializationInFlight.delete(documentId);
   }
 }
 
@@ -9804,6 +9792,10 @@ function renderTranscriptionWorkshop() {
   const context = transcriptionWorkshopContext;
   const draft = transcriptionWorkshopDraft;
   if (!context || !draft) return;
+  /* Disponibilité des onglets de version selon le passage affiché : la vue
+     active est ramenée à « Mon brouillon » si elle n'est plus légitime, avant
+     tout calcul du contenu affiché. */
+  syncWorkshopVersionTabs();
   /* Lien « Retour » textuel du desktop : destination contextualisée par
      l'origine d'appel (« Retour au document », « Retour à la source », …). */
   setTranscriptionWorkshopBackLabel();
@@ -9846,6 +9838,7 @@ function renderTranscriptionWorkshop() {
   renderWorkshopFileMetadata(context);
   renderWorkshopPassageList(editable);
   refreshWorkshopZoneActions();
+  arrangeWorkshopPdfChrome();
   setWorkshopTab(transcriptionWorkshopView, { silent: true });
   applyWorkshopCompare();
   if (transcriptionWorkshopCompare) renderWorkshopCompareContent();
@@ -9972,6 +9965,7 @@ async function createWorkshopPdfViewer() {
   const message = $("workshopPdfMessage");
   surface.hidden = false;
   tools.hidden = false;
+  arrangeWorkshopPdfChrome();
   message.hidden = false;
   message.textContent = "Chargement du document…";
   /* Rendu PDF.js réutilisé : callbacks de page pour l'overlay B1/B2 et
@@ -9991,6 +9985,8 @@ async function createWorkshopPdfViewer() {
       zoomOutButton: $("workshopPdfZoomOutBtn"),
       zoomInButton: $("workshopPdfZoomInBtn"),
       fitModeButton: $("workshopPdfFitModeBtn"),
+      fullscreenButton: $("workshopPdfFullscreenBtn"),
+      fullscreenHost: $("workshopPanelOriginal"),
       bindingRoot: $("transcriptionWorkshopView"),
       keyZone: $("workshopPanelOriginal"),
       onPageRenderStart: ({ page }) => {
@@ -10032,9 +10028,40 @@ async function createWorkshopPdfViewer() {
       fallback.hidden = false;
     }
     if (result?.error) message.textContent = "Le lecteur PDF interactif n’est pas disponible pour cette ressource.";
+    arrangeWorkshopPdfChrome();
     return;
   }
   workshopPdfViewer = result;
+}
+
+/* Pagination PDF (§10) : sur mobile, les commandes de page quittent la barre
+   d'outils pour le bloc sous le document — le composant `.pdf-pagination` de
+   la fiche Document, mêmes éléments (les écouteurs du lecteur sont attachés
+   aux éléments, pas à leur position). Sur desktop, la barre reprend sa
+   composition d'origine. La pagination PDF reste strictement distincte de la
+   navigation entre passages transcrits. */
+function arrangeWorkshopPdfChrome() {
+  const pagination = $("workshopPdfPagination");
+  const tools = $("workshopPdfTools");
+  if (!pagination || !tools) return;
+  const narrow = window.matchMedia("(max-width: 760px)").matches;
+  const ids = ["workshopPdfPrevBtn", "workshopPdfStatus", "workshopPdfNextBtn"];
+  if (narrow) {
+    for (const id of ids) {
+      const element = $(id);
+      if (element && element.parentElement !== pagination) pagination.append(element);
+    }
+    pagination.hidden = tools.hidden;
+    return;
+  }
+  const anchor = tools.querySelector(".viewer-image-zoom-group")
+    || tools.querySelector("#workshopPdfFitModeBtn")
+    || tools.firstElementChild;
+  for (const id of ids) {
+    const element = $(id);
+    if (element && element.parentElement !== tools) tools.insertBefore(element, anchor);
+  }
+  pagination.hidden = true;
 }
 
 function destroyWorkshopPdfViewer({ keepSource = false } = {}) {
@@ -10045,6 +10072,7 @@ function destroyWorkshopPdfViewer({ keepSource = false } = {}) {
   if (surface) surface.hidden = true;
   const tools = $("workshopPdfTools");
   if (tools) tools.hidden = true;
+  arrangeWorkshopPdfChrome();
   const message = $("workshopPdfMessage");
   if (message) {
     message.hidden = true;
@@ -10095,17 +10123,6 @@ function workshopTranslationStateLabel(passage, draft) {
   return label;
 }
 
-/* B1 : délimitation de la zone du passage ACTIF, en édition du brouillon
-   uniquement — jamais en consultation, version officielle ou différences.
-   Sur desktop, ces actions ont été déplacées dans la barre d'outils de la
-   visionneuse : la carte de passage n'en porte plus (aucun doublon). */
-function workshopZoneEntryMarkup(passage, { selected = false, editable = false } = {}) {
-  if (!editable || !selected || !passage) return "";
-  return passage.anchor
-    ? `<button class="btn small" type="button" data-workshop-zone-action="adjust">Ajuster</button><button class="btn small danger" type="button" data-workshop-zone-action="delete">Supprimer la zone</button>`
-    : `<button class="btn small" type="button" data-workshop-zone-action="draw">Délimiter ce passage</button>`;
-}
-
 const WORKSHOP_ZONE_TOOLBAR_SEPARATOR = `<span class="transcription-workshop-band-separator" aria-hidden="true"></span>`;
 const WORKSHOP_ZONE_TOOLBAR_ICONS = { adjust: "icon-crosshair", delete: "icon-trash", draw: "icon-crosshair" };
 
@@ -10116,11 +10133,10 @@ function workshopZoneToolbarButton(action, label) {
 }
 
 /* Les actions de zone suivent la sélection sans réécriture complète de la
-   liste (la sélection de passage ne re-rend jamais les cartes). Sur desktop,
-   elles vivent dans la barre d'outils de la visionneuse — un seul CTA quand
-   aucune zone n'existe, « Ajuster la zone » + « Supprimer la zone » sinon ;
-   sur mobile, elles restent dans l'en-tête du passage (mode modification
-   mobile inchangé). Le balisage de la barre n'est reconstruit que lorsque sa
+   liste (la sélection de passage ne re-rend jamais les cartes). Elles vivent
+   dans la barre d'outils de la visionneuse, sur desktop comme sur mobile —
+   un seul CTA quand aucune zone n'existe, « Ajuster la zone » + « Supprimer
+   la zone » sinon. Le balisage de la barre n'est reconstruit que lorsque sa
    configuration change, pour ne jamais voler le focus. */
 function refreshWorkshopZoneActions() {
   const draft = transcriptionWorkshopDraft;
@@ -10128,38 +10144,27 @@ function refreshWorkshopZoneActions() {
   const editable = !transcriptionWorkshopEditorState() && !transcriptionWorkshopIsReadOnly();
   const displayedSelection = transcriptionWorkshopDisplayedSelectedPassageId();
   const selectedPassage = draft.passages.find(item => item.id === displayedSelection);
-  const desktop = window.matchMedia("(min-width: 761px)").matches;
   const toolbar = $("workshopZoneToolbar");
-  if (toolbar) {
-    const showToolbar = Boolean(editable && desktop && selectedPassage);
-    const signature = !showToolbar ? "" : selectedPassage.anchor ? "zone" : "draw";
-    toolbar.hidden = !showToolbar;
-    /* Position : juste après les commandes de visualisation réellement
-       utilisées — après l'outillage image ou après l'outillage PDF — afin que
-       le séparateur matérialise toujours la frontière entre les deux familles
-       d'actions et que le chevron reste en extrémité droite. */
-    const anchor = transcriptionWorkshopContext?.pdf ? $("workshopPdfTools") : $("workshopImageTools");
-    if (anchor && toolbar.previousElementSibling !== anchor) anchor.after(toolbar);
-    if (toolbar.dataset.zoneSignature !== signature) {
-      toolbar.dataset.zoneSignature = signature;
-      toolbar.innerHTML = signature === "zone"
-        ? `${WORKSHOP_ZONE_TOOLBAR_SEPARATOR}${workshopZoneToolbarButton("adjust", "Ajuster la zone")}${workshopZoneToolbarButton("delete", "Supprimer la zone")}`
-        : signature === "draw"
-          ? `${WORKSHOP_ZONE_TOOLBAR_SEPARATOR}${workshopZoneToolbarButton("draw", "Délimiter ce passage")}`
-          : "";
-    }
-  }
-  const list = $("workshopPassageList");
-  if (!list) return;
-  const headEditable = editable && !desktop;
-  for (const article of list.children) {
-    const box = article.querySelector(".transcription-workshop-zone-entry");
-    if (!box) continue;
-    const selected = article.dataset.workshopPassage === displayedSelection;
-    box.innerHTML = workshopZoneEntryMarkup(
-      draft.passages.find(item => item.id === article.dataset.workshopPassage),
-      { selected, editable: headEditable }
-    );
+  if (!toolbar) return;
+  /* Une seule famille d'actions de zone, dans la barre d'outils de la
+     visionneuse (desktop ET mobile, onglet Original) — jamais dans les onglets
+     Italien / Français, jamais en lecture seule. */
+  const showToolbar = Boolean(editable && selectedPassage);
+  const signature = !showToolbar ? "" : selectedPassage.anchor ? "zone" : "draw";
+  toolbar.hidden = !showToolbar;
+  /* Position : juste après les commandes de visualisation réellement
+     utilisées — après l'outillage image ou après l'outillage PDF — afin que
+     le séparateur matérialise toujours la frontière entre les deux familles
+     d'actions et que le chevron reste en extrémité droite. */
+  const anchor = transcriptionWorkshopContext?.pdf ? $("workshopPdfTools") : $("workshopImageTools");
+  if (anchor && toolbar.previousElementSibling !== anchor) anchor.after(toolbar);
+  if (toolbar.dataset.zoneSignature !== signature) {
+    toolbar.dataset.zoneSignature = signature;
+    toolbar.innerHTML = signature === "zone"
+      ? `${WORKSHOP_ZONE_TOOLBAR_SEPARATOR}${workshopZoneToolbarButton("adjust", "Ajuster la zone")}${workshopZoneToolbarButton("delete", "Supprimer la zone")}`
+      : signature === "draw"
+        ? `${WORKSHOP_ZONE_TOOLBAR_SEPARATOR}${workshopZoneToolbarButton("draw", "Délimiter ce passage")}`
+        : "";
   }
 }
 
@@ -10197,21 +10202,21 @@ function renderWorkshopPassageList(editable) {
     const deleteAction = editable
       ? `<button class="transcription-workshop-delete-passage" type="button" data-workshop-delete-passage="${esc(passage.id)}" aria-label="Supprimer le passage ${index + 1} du brouillon">Supprimer le passage</button>`
       : "";
-    /* Menu contextuel ⋯ du passage : seul point d'accès à la suppression sur
-       mobile (le bouton inline est masqué ≤ 760 px), même confirmation et même
-       logique de révision. Masqué en consultation : aucun destructif inutile. */
-    const deleteMenu = editable
-      ? `<details class="transcription-workshop-passage-menu"><summary aria-label="Plus d’actions du passage ${index + 1}" title="Plus d’actions">⋯</summary><div class="transcription-workshop-passage-menu-panel"><button class="btn danger" type="button" data-workshop-delete-passage-menu="${esc(passage.id)}">Supprimer le passage</button></div></details>`
-      : "";
-    const zoneActions = workshopZoneEntryMarkup(passage, { selected, editable: editable && !window.matchMedia("(min-width: 761px)").matches });
     const translationState = workshopTranslationStateLabel(passage, draft);
     /* État vide de la traduction en lecture seule : le message vit dans le
        bloc beige lui-même (placeholder du champ désactivé), jamais au-dessus. */
     const translationPlaceholder = !editable && !String(passage.translationFr ?? "").trim()
       ? ' placeholder="Aucune traduction disponible."'
       : "";
+    /* Ni action de zone ni menu « … » au-dessus des champs : la délimitation
+       vit dans l'onglet Original et la suppression dans le bandeau des
+       passages. Le sr-only reste porté par l'article (hors flux : aucun espace
+       parasite) et l'en-tête n'affiche que de réelles informations — masqué
+       dès qu'il n'y a aucun état à montrer. */
+    const badgesMarkup = transcriptionWorkshopViewingOfficial ? "" : workshopPassageBadges(passage, draft);
     return `<article class="transcription-workshop-passage${selected ? " is-selected" : ""}${changed ? " is-modified" : ""}" data-workshop-passage="${esc(passage.id)}"${selected ? ' aria-current="true"' : ""}>
-<div class="transcription-workshop-passage-head"><span class="sr-only">Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</span><div class="transcription-workshop-badges">${transcriptionWorkshopViewingOfficial ? "" : workshopPassageBadges(passage, draft)}</div><div class="transcription-workshop-passage-actions"><span class="transcription-workshop-zone-entry">${zoneActions}</span>${deleteAction}${deleteMenu}</div></div>
+<span class="sr-only">Passage ${index + 1}${passage.lineLabel ? ` · ${esc(passage.lineLabel)}` : ""}</span>
+<div class="transcription-workshop-passage-head"><div class="transcription-workshop-badges">${badgesMarkup}</div><div class="transcription-workshop-passage-actions">${deleteAction}</div></div>
 <div class="transcription-workshop-field-block workshop-field-it"><label class="transcription-workshop-field-label" for="${esc(itId)}"><span>Transcription italienne</span><span class="transcription-workshop-desktop-passage-number"> — Passage ${index + 1}</span></label><textarea id="${esc(itId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="textIt"${editable ? "" : " disabled"}>${esc(passage.textIt ?? "")}</textarea>${hypotheses}</div>
 <div class="transcription-workshop-field-block workshop-field-fr"><label class="transcription-workshop-field-label" for="${esc(frId)}"><span>Traduction française</span><span class="transcription-workshop-desktop-passage-number"> — Passage ${index + 1}</span></label><textarea id="${esc(frId)}" rows="4" data-workshop-passage="${esc(passage.id)}" data-workshop-field="translationFr"${editable ? "" : " disabled"}${translationPlaceholder}>${esc(passage.translationFr ?? "")}</textarea><p class="transcription-workshop-meta transcription-workshop-fr-state"${translationState ? "" : " hidden"}>${esc(translationState)}</p></div>
 </article>`;
@@ -10666,6 +10671,14 @@ function selectWorkshopPassage(passageId, { scroll = true } = {}) {
       renderWorkshopPhotoNav();
     }
   }
+  /* Onglets de version : le passage sélectionné peut ne plus posséder de
+     version officielle — la vue revient alors à « Mon brouillon » et le
+     contenu affiché est re-rendu (la sélection est déjà enregistrée). */
+  if (syncWorkshopVersionTabs()) {
+    renderTranscriptionWorkshop();
+    if (scroll) scrollWorkshopSelectionIntoView(passageId);
+    return;
+  }
   /* Consultation : le corps affiche uniquement le passage actif (masquage CSS),
      la sélection reste donc synchronisée sur la liste complète. */
   syncWorkshopSelectionClasses();
@@ -10967,13 +10980,16 @@ function updateWorkshopNavigation() {
     }
   }
   /* Version affichée à gauche du pied de navigation : uniquement une
-     information réellement pertinente — jamais « Consultation officielle »
-     pendant une session de brouillon. */
+     information réellement pertinente, et seulement lorsque le pied est
+     intégré à la carte de modification desktop — jamais dans le pied de
+     consultation (le statut porte déjà l'information) ni sur mobile, où la
+     grille du pied ne compte que trois colonnes. */
   const versionBox = $("workshopFooterVersion");
   if (versionBox) {
+    const inCard = Boolean(versionBox.closest("#workshopNavSlot"));
     const head = transcriptionWorkshopHead();
     const version = head && Number.isSafeInteger(head.version) && head.version >= 1 ? head.version : 1;
-    versionBox.textContent = transcriptionWorkshopViewingOfficial
+    versionBox.textContent = inCard && transcriptionWorkshopViewingOfficial
       ? (head ? `Version officielle · v${version}` : "Aucune version officielle")
       : "";
   }
@@ -11073,7 +11089,16 @@ function updateWorkshopDraftIndicators() {
   const modeSwitch = document.querySelector(".transcription-workshop-mode");
   if (modeSwitch) modeSwitch.hidden = !inEditSession;
   const cancelEditButton = $("workshopCancelEditBtn");
-  if (cancelEditButton) cancelEditButton.hidden = !inEditSession;
+  if (cancelEditButton) {
+    cancelEditButton.hidden = !inEditSession;
+    /* Libellé du pied : « Abandonner » sur les vues mobiles concernées,
+       « Annuler » sur desktop — le pied de validation desktop est inchangé. */
+    const narrow = window.matchMedia("(max-width: 760px)").matches;
+    const cancelLabel = narrow ? "Abandonner" : "Annuler";
+    if (cancelEditButton.textContent.trim() !== cancelLabel) cancelEditButton.textContent = cancelLabel;
+    const cancelAria = narrow ? "Abandonner la révision" : "Annuler la révision";
+    if (cancelEditButton.getAttribute("aria-label") !== cancelAria) cancelEditButton.setAttribute("aria-label", cancelAria);
+  }
   const helpButton = $("workshopHelpBtn");
   if (helpButton) helpButton.hidden = officialReadOnly;
   const autoSaveHint = $("workshopAutosaveHint");
@@ -11167,28 +11192,21 @@ function confirmTranscriptionWorkshopClose() {
 function closeTranscriptionWorkshopMenu() {
   const menu = $("workshopActionsMenu");
   if (menu?.open) menu.open = false;
-  for (const passageMenu of document.querySelectorAll(".transcription-workshop-passage-menu[open]")) passageMenu.open = false;
 }
 
 function onTranscriptionWorkshopMenuOutside(event) {
   if (!isTranscriptionWorkshopActive()) return;
   const menu = $("workshopActionsMenu");
   if (menu?.open && !menu.contains(event.target)) menu.open = false;
-  /* Les menus ⋯ de passage se ferment au premier clic ailleurs. */
-  for (const passageMenu of document.querySelectorAll(".transcription-workshop-passage-menu[open]")) {
-    if (!passageMenu.contains(event.target)) passageMenu.open = false;
-  }
 }
 
 function onTranscriptionWorkshopMenuKeydown(event) {
   if (event.key !== "Escape" || !isTranscriptionWorkshopActive()) return;
   const menu = $("workshopActionsMenu");
-  const openPassageMenus = [...document.querySelectorAll(".transcription-workshop-passage-menu[open]")];
-  if (!menu?.open && !openPassageMenus.length) return;
+  if (!menu?.open) return;
   event.preventDefault();
   event.stopPropagation();
-  if (menu?.open) menu.open = false;
-  for (const passageMenu of openPassageMenus) passageMenu.open = false;
+  menu.open = false;
 }
 
 function bindTranscriptionWorkshopMenu() {
@@ -11408,6 +11426,10 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
       addTranscriptionWorkshopPassage(draft, { id, textIt: "", translationFr: null, lineLabel: "" });
     } catch (error) { return toast(error.message || "Ajout du passage impossible.", "error"); }
     if (transcriptionWorkshopView === "original") transcriptionWorkshopView = "italian";
+    /* Un passage créé n'a pas de version officielle : la vue repasse
+       systématiquement à « Mon brouillon » (les onglets sont désactivés). */
+    transcriptionWorkshopDisplayMode = "draft";
+    transcriptionWorkshopViewingOfficial = false;
     transcriptionWorkshopCompare = false;
     scheduleTranscriptionWorkshopDraftSave(draft);
     renderTranscriptionWorkshop();
@@ -11416,17 +11438,15 @@ $("transcriptionWorkshopView").addEventListener("click", event => {
     toast("Passage ajouté au brouillon.");
     return;
   }
-  const deleteButton = event.target.closest("[data-workshop-delete-passage], [data-workshop-delete-passage-menu], [data-workshop-delete-current-passage]");
+  const deleteButton = event.target.closest("[data-workshop-delete-passage], [data-workshop-delete-current-passage]");
   if (deleteButton) {
     const draft = transcriptionWorkshopDraft;
     if (!draft || transcriptionWorkshopIsReadOnly()) return;
-    /* Le CTA du bandeau cible toujours le passage affiché ; les boutons des
-       cartes conservent leur identifiant explicite. */
+    /* Le CTA du bandeau cible toujours le passage affiché ; le bouton inline
+       conserve son identifiant explicite. */
     const passageId = deleteButton.hasAttribute("data-workshop-delete-current-passage")
       ? transcriptionWorkshopDisplayedSelectedPassageId()
-      : deleteButton.dataset.workshopDeletePassage || deleteButton.dataset.workshopDeletePassageMenu;
-    /* Le menu ⋯ se ferme quel que soit le choix (confirmation ou annulation). */
-    for (const passageMenu of document.querySelectorAll(".transcription-workshop-passage-menu[open]")) passageMenu.open = false;
+      : deleteButton.dataset.workshopDeletePassage;
     const passageIndex = draft.passages.findIndex(passage => passage.id === passageId);
     if (passageIndex < 0) return toast("Ce passage n’existe plus dans le brouillon.", "error");
     if (!confirm(`Supprimer le passage ${passageIndex + 1} du brouillon ? La zone associée sera supprimée avec lui ; la version officielle et les autres passages resteront inchangés.`)) return;
@@ -11651,16 +11671,17 @@ setupWorkshopPassageCarouselInput();
 window.matchMedia("(min-width: 761px)").addEventListener("change", () => {
   if (isTranscriptionWorkshopActive()) renderTranscriptionWorkshop();
 });
+/* Bascule mobile/desktop de la barre d'outils : la pagination PDF quitte la
+   barre supérieure pour le bloc sous le document sur mobile, et l'inverse sur
+   desktop — les éléments sont déplacés, jamais dupliqués. */
+window.matchMedia("(max-width: 760px)").addEventListener("change", () => {
+  if (isTranscriptionWorkshopActive()) {
+    arrangeWorkshopPdfChrome();
+    refreshWorkshopZoneActions();
+    renderTranscriptionWorkshop();
+  }
+});
 
-$("transcriptionPageInitConfirmBtn").onclick = () => { void confirmTranscriptionPageInit(); };
-$("transcriptionPageInitSource").onchange = () => {
-  const state = transcriptionPageInitState;
-  if (!state) return;
-  state.selectedSourceId = $("transcriptionPageInitSource").value || null;
-  renderTranscriptionPageInitDetails();
-  $("transcriptionPageInitConfirmBtn").disabled = !(state.selectedSourceId && state.sha256);
-};
-$("transcriptionPageInitDialog").addEventListener("close", () => { transcriptionPageInitState = null; });
 $("transcriptionUnavailableActionBtn").onclick = () => {
   const action = pendingUnavailableAction;
   pendingUnavailableAction = null;
@@ -17350,7 +17371,7 @@ $("viewerDocumentDetails").addEventListener("click", event => {
   if (transcribeDocument) {
     const documentItem = documents.find(value => value.id === transcribeDocument.dataset.transcribeDocument);
     if (!documentItem) return toast("Ce document n’est plus disponible.", "error");
-    return openTranscriptionWorkshopForDocument(documentItem, transcribeDocument.dataset.transcriptionPageId || "");
+    return openTranscriptionWorkshopForDocument(documentItem, transcribeDocument.dataset.transcriptionPageId || "", transcribeDocument);
   }
   const manageSources = event.target.closest("[data-manage-sources-from-document]");
   if (manageSources) return renderDocumentSourceManager(manageSources.dataset.manageSourcesFromDocument);

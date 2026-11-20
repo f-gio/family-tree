@@ -251,7 +251,7 @@ test("l’accès à l’atelier couvre toute source et tout document consultable
   const app = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
   assert.match(app, /const workshopCompatible = kind === "transcription"\s*\|\| kind === "source/, "toute source propose Transcrire, même sans pages rattachées");
   assert.match(app, /data-transcribe-document=/, "action Transcrire dans la fiche document unifiée");
-  assert.match(app, /function openTranscriptionWorkshopForDocument\(documentItem, preferredPageId = ""\)/, "ouverture depuis la fiche du document sur la page de transcription sélectionnée");
+  assert.match(app, /function openTranscriptionWorkshopForDocument\(documentItem, preferredPageId = "", ctaButton = null\)/, "ouverture depuis la fiche du document sur la page de transcription sélectionnée");
   assert.match(app, /transcriptionWorkshopNoPagesMessage/, "état explicite quand les pages sont absentes");
   assert.match(app, /rattachez d’abord ses pages et photographies à la source officielle via l’action « Réviser »/, "solution cohérente sans invention de données officielles");
   assert.match(app, /linkedDocumentIds/, "résolution élargie du contexte");
@@ -267,10 +267,16 @@ const jpegDocument = {
   chunkVersion: 1
 };
 
-test("un JPEG est identifié et une page existante est réutilisée", () => {
+test("une image (JPEG, PNG, WebP) est identifiée et une page existante est réutilisée", () => {
   assert.equal(isTranscriptionJpegDocument(jpegDocument), true, "mimeType image/jpeg");
   assert.equal(isTranscriptionJpegDocument({ id: "d", fileName: "scan.JPG" }), true, "extension .JPG");
-  assert.equal(isTranscriptionJpegDocument({ id: "d", fileName: "registre.png", mimeType: "image/png" }), false, "PNG hors périmètre de l’étape");
+  assert.equal(isTranscriptionJpegDocument({ id: "d", fileName: "registre.png", mimeType: "image/png" }), true, "PNG accepté au même titre que le JPEG");
+  assert.equal(isTranscriptionJpegDocument({ id: "d", fileName: "scan.webp", mimeType: "image/webp" }), true, "WebP accepté");
+  /* Fichier converti à l'import : le nom ou le type MIME stocké peut différer
+     du fichier d'origine — les trois signaux sont examinés. */
+  assert.equal(isTranscriptionJpegDocument({ id: "d", fileName: "scan.png", mimeType: "image/webp" }), true, "PNG devenu WebP après import");
+  assert.equal(isTranscriptionJpegDocument({ id: "d", fileName: "sans-type", fileData: "data:image/png;base64,AAAA" }), true, "PNG détecté par la data-URL");
+  assert.equal(isTranscriptionJpegDocument({ id: "d", fileName: "notes.txt", mimeType: "text/plain" }), false, "autre format refusé");
   assert.equal(isTranscriptionJpegDocument(null), false, "entrée invalide");
   assert.equal(legacyDocumentResourceRef("doc-jpeg"), "legacy-document:doc-jpeg");
 
@@ -308,9 +314,11 @@ test("un PDF est identifié par son type ou son extension, jamais par une image"
   assert.equal(isTranscriptionPdfDocument(null), false, "entrée invalide");
 });
 
-test("l’initialisation locale accepte les PDF en plus des JPEG, jamais un distant", () => {
+test("l’initialisation locale accepte les images (JPEG, PNG, WebP) et les PDF, jamais un distant", () => {
   assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "scan.jpg", mimeType: "image/jpeg", chunkCount: 1, chunkVersion: "v1" }), true, "JPEG en chunks inchangé");
   assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "scan.jpg", mimeType: "image/jpeg", fileData: "data:image/jpeg;base64,AAAA" }), true, "JPEG en data-URL inchangé");
+  assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "registre.png", mimeType: "image/png", chunkCount: 1, chunkVersion: "v1" }), true, "PNG en chunks accepté, sans conversion");
+  assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "scan.webp", mimeType: "image/webp", chunkCount: 1, chunkVersion: "v1" }), true, "WebP en chunks accepté");
   assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "registre.pdf", mimeType: "application/pdf", chunkCount: 2, chunkVersion: "v1" }), true, "PDF en chunks accepté");
   assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "registre.pdf", mimeType: "application/pdf", fileData: "data:application/pdf;base64,AAAA" }), true, "PDF en data-URL accepté");
   assert.equal(canInitializeLegacyJpegPage({ id: "d", fileName: "registre.pdf", mimeType: "application/pdf", externalUrl: "https://exemple.test/registre.pdf" }), false, "PDF distant sans octets locaux refusé (pas d’empreinte)");
@@ -409,53 +417,44 @@ test("l’initialisation refuse une ressource non vérifiable et les entrées in
   assert.throws(() => prepareLegacyDocumentPage({ source: { id: "s" }, documentItem: jpegDocument, sha256: "f".repeat(64), pageId: "p", photographId: "ph" }), /source\.pages/, "source sans pages refusée");
 });
 
-test("l’accès direct aux JPEG applique les portes JPEG, admin et révision explicite", async () => {
+test("l’accès direct aux images et PDF initialise sans modale, avec les portes d’accès", async () => {
   const [app, html, workshop] = await Promise.all([
     readFile(new URL("../js/app.js", import.meta.url), "utf8"),
     readFile(new URL("../index.html", import.meta.url), "utf8"),
     readFile(new URL("../js/transcription-workshop.js", import.meta.url), "utf8")
   ]);
-  // Porte JPEG/PDF : seuls ces deux formats sont initialisables (empreinte locale exigée).
-  assert.match(app, /if \(!isTranscriptionJpegDocument\(documentItem\) && !isTranscriptionPdfDocument\(documentItem\)\)/, "gate JPEG/PDF avant tout traitement");
-  assert.match(app, /Seuls les documents JPEG ou PDF peuvent initialiser une nouvelle page de transcription/, "une page existante reste consultable quel que soit le format, l’initialisation reste limitée aux formats à empreinte locale");
+  // Porte image/PDF : seuls ces formats sont initialisables (empreinte locale exigée).
+  assert.match(app, /if \(!isTranscriptionJpegDocument\(documentItem\) && !isTranscriptionPdfDocument\(documentItem\)\)/, "gate image/PDF avant tout traitement");
+  assert.match(app, /Seuls les documents image \(JPEG, PNG, WebP\) ou PDF peuvent initialiser une nouvelle page de transcription/, "une page existante reste consultable quel que soit le format, l’initialisation reste limitée aux formats à empreinte locale");
   // Réutilisation d'une page existante (aucune sélection de source sur ce chemin).
   assert.match(app, /const existingPage = findSourcePageForDocument\(data, documentItem\.id\)/, "réutilisation de la page existante");
-  // Sources : actives seulement, jamais la « première » trouvée.
+  // Sources : actives seulement.
   assert.match(app, /const activeSources = linkedSources\.filter\(/, "filtrage des seules sources actives");
   assert.match(app, /Toutes les sources liées à ce document sont archivées/, "blocage explicite si toutes archivées");
-  assert.match(app, /if \(!linkedSources\.length\) \{[\s\S]{0,500}openTranscriptionPageInitDialog\(documentItem, \[\]\)/, "initialisation directe sans source associée");
-  assert.doesNotMatch(app, /\|\| linkedSources\[0\]/, "aucun repli silencieux sur la première source");
-  assert.doesNotMatch(app, /const sourceRecord = linkedSources\.find/, "aucune pré-sélection silencieuse d'une source");
-  // Une seule source active → auto-sélection affichée ; plusieurs → choix exigé.
-  assert.match(app, /const multipleSources = !directDocument && activeSources\.length > 1/, "détection du nombre de sources actives");
-  assert.match(app, /selectedSourceId: directDocument \|\| multipleSources \? null : activeSources\[0\]\.id/, "choix de source omis sur le chemin Document direct");
-  assert.match(html, /id="transcriptionPageInitSourceField"/, "champ de sélection de source présent");
-  assert.match(html, /id="transcriptionPageInitSource"/, "sélecteur de source présent");
-  assert.match(app, /Choisir la source…/, "aucune option présélectionnée si plusieurs sources");
-  assert.match(app, /\$\("transcriptionPageInitSource"\)\.onchange/, "choix explicite de l'utilisateur");
-  assert.match(app, /function renderTranscriptionPageInitDetails\(\)/, "affichage du nom de la source cible");
-  assert.match(app, /!state\.directDocument \? \[\["Source", sourceTitle\]\] : \[\]/, "source affichée uniquement lorsque la page va dans une source");
-  assert.match(app, /confirmButton\.disabled = !\(sha256 && \(transcriptionPageInitState\.directDocument \|\| transcriptionPageInitState\.selectedSourceId\)\)/, "confirmation directe sans source après calcul de l’empreinte");
-  // Re-vérification source + droits au moment de la confirmation.
-  assert.match(app, /async function confirmTranscriptionPageInit[\s\S]{0,800}if \(!state\.directDocument && !state\.selectedSourceId\) return fail\(/, "choix re-vérifié uniquement pour le parcours Source");
-  assert.match(app, /La source sélectionnée n’est plus disponible/, "source disparue détectée");
-  assert.match(app, /La source sélectionnée a été archivée/, "archivage pendant la session détecté");
-  assert.match(app, /La source sélectionnée n’est plus associée à ce document/, "retrait d'association détecté");
-  assert.match(app, /Choisissez la source qui recevra la page avant de confirmer/, "confirmation sans choix refusée");
-  // Ressource indisponible.
+  assert.match(app, /if \(!linkedSources\.length\) \{[\s\S]{0,600}initializeTranscriptionPage\(documentItem, \[\], ctaButton\)/, "initialisation directe sans source associée");
+  // §4 : plus aucune confirmation intermédiaire.
+  assert.doesNotMatch(html, /id="transcriptionPageInitDialog"/, "aucune modale d’initialisation dans le balisage");
+  assert.doesNotMatch(app, /openTranscriptionPageInitDialog|confirmTranscriptionPageInit|transcriptionPageInitState/, "aucun gestionnaire résiduel de l’ancienne modale");
+  assert.match(app, /async function initializeTranscriptionPage\(documentItem, activeSources, ctaButton = null\)/, "point unique d’initialisation automatique");
+  // Anti double-clic, état de chargement et réinitialisation du CTA.
+  assert.match(app, /transcriptionInitializationInFlight\.has\(documentId\)/, "second clic ignoré pendant l’opération");
+  assert.match(app, /await withButtonPending\(cta, async \(\) => \{/, "état de chargement pendant l’opération");
+  assert.match(app, /finally \{\s*transcriptionInitializationInFlight\.delete\(documentId\)/, "état réinitialisé en cas d’échec comme de succès");
+  // Échec : message explicite, aucun atelier incomplet, réessai possible.
+  assert.match(app, /L’initialisation de la page a échoué : aucune page n’a été créée\. Vous pouvez réessayer\./, "échec explicite sans atelier ouvert");
   assert.match(app, /Cette ressource ne peut pas être vérifiée localement/, "ressource non vérifiable explicitement refusée");
-  // Utilisateur non autorisé.
-  assert.match(app, /if \(!isAdminUser\(\)\) \{\s*return toast\("L’initialisation de la page de transcription est réservée aux administrateurs/, "porte admin avant le dialog");
-  assert.match(app, /if \(!isAdminUser\(\)\) return toast\("L’initialisation de la page de transcription est réservée aux administrateurs\.", "error"\);\s*const confirmButton/, "re-vérification admin à la confirmation");
-  // Validation explicite de l'utilisateur.
-  assert.match(html, /id="transcriptionPageInitDialog"/, "dialog d'initialisation présent");
-  assert.match(html, /id="transcriptionPageInitConfirmBtn">Créer la page et transcrire</, "bouton de confirmation explicite");
-  assert.match(html, /fichier du document n’est pas dupliqué/, "notice de non-duplication, neutre vis-à-vis du format");
-  assert.match(html, /aria-label="Fermer"[^>]*data-close="transcriptionPageInitDialog"|data-close="transcriptionPageInitDialog"[^>]*aria-label="Fermer"/, "fermeture conforme à la convention");
+  // Droits d'accès.
+  assert.match(app, /if \(!isAdminUser\(\)\) return toast\("L’initialisation de la page de transcription est réservée aux administrateurs\.", "error"\);\s*const directDocument/, "porte admin avant tout calcul");
+  // Sécurité de création : jamais deux pages pour le même document.
+  assert.match(app, /Ce document possède maintenant des pages/, "seconde écriture refusée si la page existe déjà");
+  // Source : re-vérification au moment exact de l'écriture.
+  assert.match(app, /async function commitTranscriptionPageOnSource/, "écriture de la source isolée et ré-explicitée");
+  assert.match(app, /Toutes les sources liées à ce document sont archivées\. Restaurez-en une/, "source archivée détectée à l’écriture");
+  assert.match(app, /La source sélectionnée n’est plus associée à ce document/, "retrait d'association détecté");
   // Écriture uniquement par la révision admin existante.
   assert.match(app, /await genealogyStore\.reviseOfficial\(\{[\s\S]{0,280}fichier référencé, non dupliqué/, "écriture via reviseOfficial avec justification");
   assert.match(app, /prepareLegacyDocumentPage\(\{[\s\S]{0,220}sha256/, "préparation de la page avec empreinte calculée");
-  // Affichage du JPEG sans duplication de fichier.
+  // Affichage de l'image sans duplication de fichier.
   assert.match(app, /LEGACY_DOCUMENT_IMAGE_PREFIX/, "résolution d'image par référence");
   assert.match(app, /async function resolveWorkshopImageSource\(\)/, "chargement de l'image à l'ouverture de l'atelier");
   assert.match(app, /void resolveWorkshopImageSource\(\);/, "résolution appelée à chaque rendu");
@@ -630,7 +629,7 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.ok(workshopMobileA3.includes(".transcription-workshop-passage:not(.is-selected) { display: none; }"), "un seul passage visible à la fois sur mobile");
   assert.ok(workshopMobileA3.includes("padding-bottom: max(var(--space-1), env(safe-area-inset-bottom, 0px))"), "safe area inférieure respectée sans cumul d'espace superflu");
   assert.ok(workshopMobileA3.includes("scroll-snap-type: x mandatory"), "aimantation stricte des pastilles sur mobile : aucun numéro coupé à l'arrêt");
-  assert.ok(workshopMobileA3.includes(".transcription-workshop-passage-menu { display: block; }"), "menu ⋯ du passage visible sur mobile");
+  assert.ok(css.includes("#transcriptionWorkshopView.is-edit-session .transcription-workshop-delete-cta .transcription-workshop-delete-cta-icon"), "poubelle de suppression du passage en icône sur mobile");
   assert.ok(workshopMobileA3.includes(".transcription-workshop-delete-passage { display: none;"), "bouton inline masqué sur mobile au profit du menu ⋯");
   assert.ok(workshopMobileA3.includes("min-height: 100dvh"), "corps de l'atelier en pleine hauteur de viewport : le pied touche le bas, aucune estimation en rem");
   assert.ok(workshopMobileA3.includes("#transcriptionWorkshopView.is-keyboard-open .transcription-workshop-layout { flex: 0 0 auto;"), "layout figé au clavier ouvert, pied au-dessus du clavier");
@@ -644,9 +643,9 @@ test("l’atelier est déclaré sans écriture des collections officielles", asy
   assert.match(css, /\.transcription-workshop-passage\.is-selected \{ flex: 1 0 auto; min-height: 0;/, "le passage actif utilise la hauteur disponible");
   assert.match(css, /\.transcription-workshop-passage textarea \{ width: 100%; flex: 1 1 auto; min-height: clamp\(8rem, 24dvh, 16rem\)[^}]*field-sizing: content/, "champs de hauteur adaptée au contenu avec plafond anti-scroll imbriqué");
   assert.match(app, /class="transcription-workshop-delete-passage"[^>]*data-workshop-delete-passage/, "suppression de passage visible dans son contexte");
-  assert.match(app, /data-workshop-delete-passage-menu=/, "menu ⋯ du passage : suppression accessible sur mobile");
-  assert.match(app, /closest\("\[data-workshop-delete-passage\], \[data-workshop-delete-passage-menu\], \[data-workshop-delete-current-passage\]"\)/, "inline, menu ⋯ et bandeau partagent la même confirmation");
-  assert.match(css, /\.transcription-workshop-passage-menu-panel \{/, "panneau d’actions rattaché au passage");
+  assert.doesNotMatch(app, /transcription-workshop-passage-menu/, "ancien menu ⋯ du passage retiré des onglets de langue");
+  assert.match(app, /closest\("\[data-workshop-delete-passage\], \[data-workshop-delete-current-passage\]"\)/, "bouton inline et bandeau partagent la même confirmation");
+  assert.doesNotMatch(css, /\.transcription-workshop-passage-menu \{/, "aucun style résiduel du menu ⋯ du passage");
   assert.match(css, /max-width: calc\(var\(--control-touch\)/, "carrousel à largeur maximale stable");
   assert.doesNotMatch(css, /\.transcription-workshop-passage-pills \{[^}]*; width: calc/, "la bande suit le contenu : aucune case vide avant le bouton +");
   assert.match(app, /function transcriptionWorkshopHasRealChanges\(draft = transcriptionWorkshopDraft\)/, "comparaison de contenu réel pour la validation");
@@ -792,7 +791,7 @@ test("les brouillons sont persistés localement et repris sans toucher aux modul
   // Menu « … » : fermeture extérieure, Échap, action, sortie — périmètre strict.
   assert.match(app, /function onTranscriptionWorkshopMenuOutside\(event\)/, "écouteur de clic extérieur dédié");
   assert.match(app, /if \(menu\?\.open && !menu\.contains\(event\.target\)\) menu\.open = false;/, "seul un clic hors du menu le ferme");
-  assert.match(app, /function onTranscriptionWorkshopMenuKeydown\(event\) \{[\s\S]{0,400}if \(menu\?\.open\) menu\.open = false;/, "Échap ferme le menu et rien d'autre");
+  assert.match(app, /function onTranscriptionWorkshopMenuKeydown\(event\) \{[\s\S]{0,400}if \(!menu\?\.open\) return;/, "Échap ferme le menu et rien d'autre");
   assert.match(app, /bindTranscriptionWorkshopMenu\(\);/, "écouteurs vivant pendant l'atelier actif");
   assert.match(app, /unbindTranscriptionWorkshopMenu\(\);\s*\n\s*transcriptionWorkshopDraft = null;/, "écouteurs détachés à la sortie de l'atelier");
   assert.match(app, /closeTranscriptionWorkshopMenu\(\);\s*\n\s*if \(!transcriptionWorkshopHasUnsavedChanges\(\)\) return;/, "menu fermé après sélection d'une action");
@@ -1340,7 +1339,9 @@ test("atelier mobile : en-tête lisible sans débordement et ouverture en haut",
               assert.equal(footerState.cancelHidden, false, "« Annuler » visible en mode édition");
               assert.ok(footerState.cancelHeight >= 44 && footerState.validateHeight >= 44, `actions d’édition ≥ 44 px (${footerState.cancelHeight}/${footerState.validateHeight})`);
               assert.ok(footerState.cancelLeft < footerState.validateLeft, "ordre Annuler puis Valider");
-              assert.ok(footerState.footerHeight <= 56, `footer mobile intrinsèque sur une ligne (${footerState.footerHeight}px)`);
+              /* §17 : le pied est vertical en deux parties — indicateur de
+                 sauvegarde sur sa ligne, puis les deux CTA pleine largeur. */
+              assert.ok(footerState.footerHeight >= 64 && footerState.footerHeight <= 140, `pied mobile en deux lignes (${footerState.footerHeight}px)`);
               assert.equal(footerState.panel.bottom, footerState.footerBottom, "aucun espace libre sous le footer dans son panneau");
               assert.equal(footerState.layout.bottom, footerState.footerBottom, "footer au bas de la zone mobile mesurée");
               assert.equal(footerState.view.bottom, footerState.footerBottom, "aucune réserve vide sous l’atelier en mode footer");

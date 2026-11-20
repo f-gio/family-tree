@@ -441,12 +441,21 @@ export function isLegacyDocumentPhotograph(photograph, documentId = null) {
   return resourceRef === legacyDocumentResourceRef(documentId);
 }
 
-/** Périmètre lot 2B.1 : JPEG uniquement (mimeType ou extension). */
+/** Formats image acceptés par l'atelier (mimeType, data-URL ou extension) :
+    JPEG à l'origine, PNG et WebP depuis la prise en charge des images déjà
+    importées — un fichier converti à l'import peut porter un nom ou un type
+    MIME différent de celui du fichier d'origine, les trois signaux sont donc
+    examinés. Aucune conversion ni migration n'est déduite de cette liste. */
+const TRANSCRIPTION_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
+const TRANSCRIPTION_IMAGE_DATA_URL = /^data:image\/(?:jpeg|jpg|png|webp);/i;
+const TRANSCRIPTION_IMAGE_EXTENSION = /\.(?:jpe?g|png|webp)$/i;
+
 export function isTranscriptionJpegDocument(documentItem) {
   if (!documentItem || typeof documentItem !== "object" || Array.isArray(documentItem)) return false;
-  const mimeType = String(documentItem.mimeType || "").trim().toLowerCase();
-  if (mimeType === "image/jpeg" || mimeType === "image/jpg") return true;
-  return /\.jpe?g$/i.test(String(documentItem.fileName || "").trim());
+  const mimeType = String(documentItem.mimeType || "").trim().toLowerCase().split(";", 1)[0];
+  if (TRANSCRIPTION_IMAGE_MIME_TYPES.has(mimeType)) return true;
+  if (TRANSCRIPTION_IMAGE_DATA_URL.test(String(documentItem.fileData || ""))) return true;
+  return TRANSCRIPTION_IMAGE_EXTENSION.test(String(documentItem.fileName || "").trim());
 }
 
 /** Lot B2 : document PDF (mimeType ou extension), comme le JPEG ci-dessus. */
@@ -457,10 +466,11 @@ export function isTranscriptionPdfDocument(documentItem) {
   return /\.pdf$/i.test(String(documentItem.fileName || "").trim());
 }
 
-/** JPEG ou PDF exploitables localement (empreinte exigée) : fichier importé
-    en chunks ou encodé en data-URL — un lien distant ne l'est pas. Le PDF
-    rejoint le JPEG pour l'initialisation d'une transcription (lot B2) : même
-    mécanisme de page technique, même vérification d'identité du fichier. */
+/** Image (JPEG/PNG/WebP) ou PDF exploitables localement (empreinte exigée) :
+    fichier importé en chunks ou encodé en data-URL — un lien distant ne
+    l'est pas. L'atelier n'impose aucune conversion : les octets du fichier
+    stocké sont ceux dont l'empreinte est calculée (transparence PNG
+    conservée). */
 export function canInitializeLegacyJpegPage(documentItem) {
   if (!isTranscriptionJpegDocument(documentItem) && !isTranscriptionPdfDocument(documentItem)) return false;
   const hasChunks = Boolean(documentItem.chunkCount && documentItem.chunkVersion);

@@ -666,31 +666,38 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
       assert.equal(state.categoryBadgeRowHidden, width > 760, `${width}px : seule la ligne du CTA est conservée sur mobile`);
       if (width > 760) assert.equal(state.categoryBadgeRowRect.height, 0, `${width}px : aucun espace réservé sans catégorie sur desktop`);
     }
-    /* Document autonome : sans Source ni Preuve, l'initialisation propose une
-       page portée par le Document; une page directe existante ouvre l'atelier. */
+    /* Document autonome : sans Source ni Preuve, « Commencer une
+       transcription » initialise automatiquement la page portée par le
+       Document — plus aucune confirmation intermédiaire. L'écriture Firestore
+       est bloquée par le harnais : le parcours doit échouer proprement, sans
+       modale, sans atelier ouvert et avec le CTA réarmé pour un nouvel essai. */
     await page.evaluate(() => window.__documentPageTest.standalone(false));
     await page.click("#viewerDocumentDetails [data-transcribe-document]");
-    await page.waitForSelector("#transcriptionPageInitDialog[open]");
-    assert.equal(await page.locator("#transcriptionPageInitSourceField").isHidden(), true, "aucune Source à choisir pour un Document autonome");
-    assert.equal(await page.locator("#transcriptionPageInitConfirmBtn").isDisabled(), false, "initialisation directe disponible après calcul de l’empreinte");
-    assert.match(await page.locator("#transcriptionPageInitNotice").textContent(), /ajoutée à la fiche Document/);
-    assert.equal((await page.evaluate(() => window.__documentPageTest.state())).documentPageCount, 0, "l’ouverture du dialogue ne modifie rien avant confirmation");
-    const mobileInitGeometry = await page.locator("#transcriptionPageInitDialog").evaluate(dialog => {
-      const rect = dialog.getBoundingClientRect();
-      return { width: rect.width, right: rect.right, viewport: innerWidth, contentHeight: dialog.querySelector(".transcription-page-init-content").clientHeight, footerHeight: dialog.querySelector(".modal-actions").getBoundingClientRect().height, footerBottom: dialog.querySelector(".modal-actions").getBoundingClientRect().bottom, dialogBottom: rect.bottom };
-    });
-    assert.ok(mobileInitGeometry.width <= mobileInitGeometry.viewport + 1, "modale mobile sans débordement horizontal");
-    assert.ok(mobileInitGeometry.contentHeight > 0 && mobileInitGeometry.footerHeight >= 44, "contenu défilant et actions tactiles visibles sur mobile");
-    assert.ok(mobileInitGeometry.footerBottom <= mobileInitGeometry.dialogBottom + 1, "footer ancré dans la modale mobile");
-    await page.click('[data-close="transcriptionPageInitDialog"]');
+    assert.equal(await page.locator("#transcriptionPageInitDialog").count(), 0, "aucune modale d’initialisation dans le balisage");
+    /* État de chargement visible pendant l'opération, puis réarmement du CTA
+       à l'échec de l'écriture (Firestore bloqué par le harnais). */
+    await page.waitForFunction(() => document.querySelector("#viewerDocumentDetails [data-transcribe-document]")?.getAttribute("aria-busy") === "true", undefined, { timeout: 5000 });
+    await page.waitForFunction(() => !document.querySelector("#viewerDocumentDetails [data-transcribe-document]")?.getAttribute("aria-busy"), undefined, { timeout: 15000 });
+    const initOutcome = await page.evaluate(() => ({
+      workshopHidden: document.getElementById("transcriptionWorkshopView").hidden,
+      ctaText: document.querySelector("#viewerDocumentDetails [data-transcribe-document]")?.textContent.trim() || "",
+      ctaDisabled: document.querySelector("#viewerDocumentDetails [data-transcribe-document]")?.disabled ?? null,
+      documentPageCount: window.__documentPageTest.state().documentPageCount
+    }));
+    assert.equal(initOutcome.workshopHidden, true, "aucun atelier ouvert sur un échec d’initialisation");
+    assert.equal(initOutcome.documentPageCount, 0, "aucune page créée localement sans écriture confirmée");
+    assert.equal(initOutcome.ctaDisabled, false, "CTA réarmé pour une nouvelle tentative");
+    assert.match(initOutcome.ctaText, /Commencer une transcription/, "libellé du CTA restauré après l’échec");
+    /* Parcours nominal : une page directe existante ouvre l'atelier sans
+       passer par la moindre confirmation. */
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.evaluate(() => window.__documentPageTest.standalone(false));
+    await page.evaluate(() => window.__documentPageTest.standalone(true));
     await page.click("#viewerDocumentDetails [data-transcribe-document]");
-    await page.waitForSelector("#transcriptionPageInitDialog[open]");
-    const desktopInitWidth = await page.locator("#transcriptionPageInitDialog").evaluate(dialog => dialog.getBoundingClientRect().width);
-    assert.ok(desktopInitWidth >= 560 && desktopInitWidth <= 600, `modale desktop entre 560 et 600px (${desktopInitWidth}px)`);
-    assert.equal(await page.locator("#transcriptionPageInitFacts").evaluate(element => getComputedStyle(element).gridTemplateColumns.split(" ").length), 2, "informations réparties sur deux colonnes desktop");
-    await page.click('[data-close="transcriptionPageInitDialog"]');
+    await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
+    assert.equal(await page.evaluate(() => window.__documentPageTest.state().workshopVisible), true, "page existante : ouverture directe de l’atelier");
+    assert.equal(await page.locator("#transcriptionPageInitDialog").count(), 0, "aucune modale pendant l’ouverture de l’atelier");
+    await page.click("#workshopBackBtn");
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => window.__documentPageTest.standalone(true));
     await page.click("#viewerDetailsBtn");
@@ -698,6 +705,7 @@ test("la page Document restitue ses origines et conserve les parcours métier", 
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden);
     const standaloneState = await page.evaluate(() => window.__documentPageTest.state());
     assert.deepEqual([standaloneState.sourceCount, standaloneState.proofCount], [0, 0], "l’atelier fonctionne sans Source ni Preuve");
+    assert.equal(await page.locator("#transcriptionPageInitDialog").count(), 0, "toujours aucune modale d’initialisation sur mobile");
     assert.deepEqual(errors, [], `erreurs JavaScript : ${errors.join(" | ")}`);
   } finally {
     await context.close();

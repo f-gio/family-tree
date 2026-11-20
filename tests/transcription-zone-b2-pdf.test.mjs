@@ -89,43 +89,37 @@ window.__b2 = {
     }];
   },
   preparePdfInit() {
-    /* Déclenche le chemin d'initialisation : le document PDF n'a aucune page
-       de transcription et seulement une source liée. Aucune écriture réseau
-       ici — la partie locale de la confirmation est rejouée par le hook
-       completeInitLocally (le magasin Firestore est inaccessible dans les
-       tests, cf. le paragraphe non-régression du lot). */
+    /* Déclenche le chemin d'initialisation automatique : le document PDF n'a
+       aucune page de transcription et seulement une source liée. L'écriture
+       réseau est neutralisée par stubInitWrite (magasin Firestore inaccessible
+       dans les tests) — la préparation locale et l'ouverture de l'atelier
+       suivent le parcours de production. */
     const documentWithoutPages = { ...documents[0] };
     delete documentWithoutPages.pages;
     documents = [documentWithoutPages];
     genealogyRecords.sourceDocuments = [createSourceDocument({ id: "src-b2", title: "Source B2", documentIds: ["doc-b2"] })];
   },
-  /* Rejoue la séquence LOCALE de confirmTranscriptionPageInit (préparation de
-     la page technique + ouverture de l'atelier) — la partie réseau est couverte
-     par le test de confirmation réelle ci-dessus, impossible à faire aboutir
-     sans serveur Firestore dans les tests. */
-  completeInitLocally() {
-    const state = transcriptionPageInitState;
-    const sourceRecord = transcriptionPageInitSourceRecord();
-    if (!state || !sourceRecord) throw new Error("dialogue d’initialisation non actif");
-    const sourceData = genealogyRecordData(sourceRecord);
-    const { documentItem, sha256 } = state;
-    const pageId = createGenealogyId(refs.sourceDocuments);
-    const photographId = createGenealogyId(refs.sourceDocuments);
-    const prepared = prepareLegacyDocumentPage({
-      source: sourceData,
-      documentItem,
-      sha256,
-      pageId,
-      photographId,
-      importedAt: new Date().toISOString()
-    });
-    close("transcriptionPageInitDialog");
-    transcriptionPageInitState = null;
-    return openTranscriptionWorkshopFor(
-      buildTranscriptionWorkshopDocumentContext(documentItem, prepared.source.pages, prepared.source.documentIds),
-      prepared.page.id,
-      ""
-    );
+  /* Neutralise UNIQUEMENT l'écriture distante : la préparation locale de la
+     page technique (empreinte, référence, non-duplication) et l'ouverture de
+     l'atelier suivent le parcours de production. */
+  stubInitWrite() {
+    if (this.originalCommit === undefined) this.originalCommit = commitTranscriptionPageOnSource;
+    commitTranscriptionPageOnSource = async (documentItem, activeSources, sha256) => {
+      const record = (Array.isArray(activeSources) ? activeSources : [])[0];
+      if (!record) throw new Error("aucune source active");
+      const prepared = prepareLegacyDocumentPage({
+        source: genealogyRecordData(record),
+        documentItem,
+        sha256,
+        pageId: createGenealogyId(refs.sourceDocuments),
+        photographId: createGenealogyId(refs.sourceDocuments),
+        importedAt: new Date().toISOString()
+      });
+      return { page: prepared.page, data: createSourceDocument(prepared.source) };
+    };
+  },
+  restoreInitWrite() {
+    if (this.originalCommit) commitTranscriptionPageOnSource = this.originalCommit;
   },
   openDoc() { setView("directory"); openStoredDocument(documents[0], "directory"); },
   transcribe() { const button = document.querySelector("#viewerDocumentDetails [data-transcribe-document]"); if (button) button.click(); },
@@ -293,10 +287,22 @@ async function clickZoneAction(page, action) {
   await page.click(`[data-workshop-zone-action="${action}"]:visible`);
 }
 
+/** Poignée tactile réellement mesurable : un re-rendu du lecteur peut masquer
+    transitoirement l'éditeur entre deux relevés — on réessaie jusqu'à obtenir
+    une boîte stable. */
+async function zoneHandleBox(page) {
+  const locator = page.locator('#workshopPdfZoneEditorRect [data-zone-handle="se"]');
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const box = await locator.boundingBox().catch(() => null);
+    if (box && box.width >= 16 && box.height >= 16) return box;
+    await page.waitForTimeout(60);
+  }
+  return null;
+}
+
 /** Rectangle d'édition visible et dimensionné (les re-rendus PDF peuvent
     masquer transitoirement l'éditeur — on attend l'état stable). */
-async function waitForZoneEditorRect(page) {
-  try {
+async function waitForZoneEditorRect(page) {  try {
     await page.waitForFunction(() => {
       const rect = document.getElementById("workshopPdfZoneEditorRect");
       return rect && !rect.hidden && rect.getBoundingClientRect().width > 4;
@@ -347,12 +353,18 @@ async function zoneGroupMetrics(page) {
     const cancel = document.getElementById("workshopZoneCancelBtn").getBoundingClientRect();
     const confirm = document.getElementById("workshopZoneConfirmBtn").getBoundingClientRect();
     /* Le groupe est collé sous le document : l'écart se mesure au-dessus du
-       groupe, depuis la surface de lecture réellement affichée. */
+       groupe, depuis la dernière surface réellement affichée — la lecture PDF
+       ou, depuis le déplacement de la pagination (§10), le bloc de pagination
+       qui lui succède immédiatement. */
     const surface = [...document.querySelectorAll("#workshopPanelOriginal .transcription-workshop-pdf-viewport:not([hidden]), #workshopPanelOriginal .transcription-workshop-image-viewport:not([hidden]), #workshopPanelOriginal .transcription-workshop-pdf-fallback:not([hidden])")]
       .find(element => element.getClientRects().length);
     const surfaceBottom = surface ? surface.getBoundingClientRect().bottom : panel.bottom;
+    const pagination = document.getElementById("workshopPdfPagination");
+    const paginationBottom = pagination && pagination.getClientRects().length
+      ? pagination.getBoundingClientRect().bottom : 0;
+    const baseBottom = Math.max(surfaceBottom, paginationBottom);
     return {
-      panelGap: Math.round(actions.top - surfaceBottom),
+      panelGap: Math.round(actions.top - baseBottom),
       textToActions: Math.round(cancel.top - hint.bottom),
       hintClipped: hintEl.scrollWidth > hintEl.clientWidth + 1 || hintEl.scrollHeight > hintEl.clientHeight + 1,
       hintText: hintEl.textContent,
@@ -374,7 +386,7 @@ async function assertZoneGroupCompact(page, label = "") {
   assert.equal(group.sameRow, true, `Annuler et Confirmer sur une ligne compacte${label}`);
 }
 
-test("B2 initialisation : un PDF sans transcription ouvre le dialogue puis l’atelier", { timeout: 120000 }, async t => {
+test("B2 initialisation : un PDF sans transcription ouvre directement l’atelier, sans modale", { timeout: 120000 }, async t => {
   let browser;
   try { browser = await chromium.launch({ headless: true }); }
   catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
@@ -396,22 +408,19 @@ test("B2 initialisation : un PDF sans transcription ouvre le dialogue puis l’a
       }
       return Boolean(document.querySelector("#viewerDocumentDetails [data-transcribe-document]"));
     }, undefined, { timeout: 8000 });
-    assert.match(await page.locator("#viewerDocumentDetails [data-transcribe-document]").textContent(), /Ajouter/, "aucune page de transcription : action Ajouter");
-    await page.evaluate(() => { window.__b2.useAdminProfile(); window.__b2.transcribe(); });
-    /* Le refus JPEG est levé : le dialogue d'initialisation s'ouvre. */
-    await page.waitForFunction(() => document.getElementById("transcriptionPageInitDialog").open, undefined, { timeout: 8000 });
-    await page.waitForFunction(() => !document.getElementById("transcriptionPageInitConfirmBtn").disabled, undefined, { timeout: 8000 });
-    assert.match(await page.locator("#transcriptionPageInitNotice").textContent(), /fichier du document n’est pas dupliqué/, "notice de non-duplication neutre");
-    assert.match(await page.locator("#transcriptionPageInitFacts").textContent(), /application\/pdf/, "format PDF affiché dans les faits du dialogue");
-    /* Partie locale de l'initialisation (préparation de la page technique +
-       ouverture de l'atelier) : mêmes fonctions que la confirmation réelle ;
-       seule l'écriture Firestore, indisponible dans les tests, est omise. */
-    await page.evaluate(() => window.__b2.completeInitLocally());
+    assert.match(await page.locator("#viewerDocumentDetails [data-transcribe-document]").textContent(), /Commencer une transcription/, "aucune page de transcription : action « Commencer une transcription »");
+    assert.equal(await page.locator("#transcriptionPageInitDialog").count(), 0, "aucune modale d’initialisation dans le balisage");
+    /* Initialisation automatique : empreinte, page technique puis ouverture
+       directe de l’atelier — aucune confirmation intermédiaire. Seule
+       l’écriture Firestore est neutralisée (magasin inaccessible en test). */
+    await page.evaluate(() => { window.__b2.useAdminProfile(); window.__b2.stubInitWrite(); window.__b2.transcribe(); });
     await page.waitForFunction(() => !document.getElementById("transcriptionWorkshopView").hidden, undefined, { timeout: 8000 });
+    assert.equal(await page.locator("#transcriptionPageInitDialog").count(), 0, "toujours aucune modale après l’initialisation");
     await waitForPdfReady(page);
     assert.equal(await page.evaluate(() => window.__b2.pdfState().hash), fixturePdfSha256, "atelier PDF sur la page initialisée, empreinte du fichier conservée");
     assert.equal(await page.evaluate(() => document.getElementById("workshopOfficialBadge").textContent), "Brouillon", "page technique neuve : brouillon, aucune version officielle");
     assert.equal(await page.locator("#workshopAddPassageBtn").isVisible(), true, "prêt à transcrire : ajout de passage disponible");
+    await page.evaluate(() => window.__b2.restoreInitWrite());
     assertNoB2PageErrors(pageErrors);
   } finally {
     await context.close().catch(() => {});
@@ -716,8 +725,10 @@ test("B2 mobile : tracé tactile depuis l’onglet Original, poignées et comman
               /* Onglet Italien : carte active et action de délimitation. */
               await page.click("#workshopTabItalian");
               await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
-              assert.equal(await page.locator('.transcription-workshop-passage.is-selected [data-workshop-zone-action="draw"]').count(), 1, "action de délimitation sur le passage actif");
-              /* Depuis Italien : bascule automatique vers l'onglet Original. */
+              /* Les actions de délimitation vivent dans la barre d'outils de
+                 l'onglet Original (aucun doublon au-dessus des champs). */
+              await page.click("#workshopTabOriginal");
+              assert.equal(await page.locator('#workshopZoneToolbar [data-workshop-zone-action="draw"]').count(), 1, "action de délimitation sur le passage actif");
               await clickZoneAction(page, "draw");
               assert.equal(await page.evaluate(() => document.getElementById("workshopLayout").dataset.activePanel), "original", "bascule vers l’onglet Original");
               assert.equal(await page.evaluate(() => window.__b2.toolActive()), true, "mode de tracé actif");
@@ -735,10 +746,13 @@ test("B2 mobile : tracé tactile depuis l’onglet Original, poignées et comman
               /* Ajustement au doigt : poignées tactiles visibles. */
               await page.click("#workshopTabItalian");
               await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
+              await page.click("#workshopTabOriginal");
               await clickZoneAction(page, "adjust");
               await waitForZoneEditorRect(page);
               await assertZoneGroupCompact(page, ` à ${width}px`);
-              const handleBox = await page.locator('#workshopPdfZoneEditorRect [data-zone-handle="se"]').boundingBox();
+              /* L'éditeur peut être masqué transitoirement par un re-rendu du
+                 lecteur : on attend une poignée réellement mesurable. */
+              const handleBox = await zoneHandleBox(page);
               assert.ok(handleBox && handleBox.width >= 16 && handleBox.height >= 16, `poignée tactile visible (${handleBox?.width}px)`);
               await page.click("#workshopZoneCancelBtn");
               assert.equal(await page.evaluate(() => window.__b2.toolActive()), false, "annulation propre sur mobile");

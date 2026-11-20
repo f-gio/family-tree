@@ -3837,18 +3837,6 @@ body:has(#sourceDetailView:not([hidden])) .topbar .brand p,
 body:has(#proofDetailView:not([hidden])) .topbar .brand p,
 body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 .modal-md { width: min(var(--modal-md), calc(100% - var(--space-8))); }
-#transcriptionPageInitDialog { max-height: min(42rem, calc(100dvh - var(--space-8))); }
-#transcriptionPageInitDialog .modal-head { align-items: center; }
-#transcriptionPageInitDialog .modal-head h3 { font-size: var(--text-xl); }
-#transcriptionPageInitDialog .modal-body { display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; }
-.transcription-page-init-content { display: grid; gap: var(--space-3); min-width: 0; }
-#transcriptionPageInitFacts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-#transcriptionPageInitFacts .document-unified-fact { min-width: 0; }
-#transcriptionPageInitFacts .document-unified-fact span { min-width: 0; overflow-wrap: anywhere; }
-#transcriptionPageInitNotice { margin: 0; overflow-wrap: anywhere; }
-#transcriptionPageInitDialog .modal-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex: 0 0 auto; margin-top: auto; }
-#transcriptionPageInitDialog .modal-actions .right { display: flex; justify-content: flex-end; margin-inline-start: auto; }
-#transcriptionPageInitConfirmBtn { min-height: var(--control-touch); white-space: normal; }
 /* Pied d'atelier : le statut vit en bas du panneau de transcription, à droite
    du séparateur sur desktop et après la zone de saisie sur mobile — jamais au
    dessus du document, jamais en position fixe ou flottante. */
@@ -3867,7 +3855,6 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 /* Annulations et fermetures de dialogue : action textuelle compacte, distincte
    des choix de résolution et des confirmations réellement importantes. */
 #transcriptionUnavailableDialog .modal-actions > [data-close],
-#transcriptionPageInitDialog .modal-actions > [data-close],
 #transcriptionValidationDialog .modal-actions > [data-close],
 #transcriptionDraftConflictDialog .modal-actions > [data-close],
 #transcriptionHistoryDialog .modal-actions .right > [data-close] {
@@ -3887,10 +3874,8 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 #transcriptionUnavailableDialog .modal-actions > [data-close],
 #transcriptionDraftConflictDialog .modal-actions > [data-close],
 #transcriptionHistoryDialog .modal-actions .right > [data-close] { color: var(--color-text); }
-#transcriptionPageInitDialog .modal-actions > [data-close],
 #transcriptionValidationDialog .modal-actions > [data-close] { color: var(--color-danger); }
 #transcriptionUnavailableDialog .modal-actions > [data-close]:hover,
-#transcriptionPageInitDialog .modal-actions > [data-close]:hover,
 #transcriptionValidationDialog .modal-actions > [data-close]:hover,
 #transcriptionDraftConflictDialog .modal-actions > [data-close]:hover,
 #transcriptionHistoryDialog .modal-actions .right > [data-close]:hover { border-color: transparent; background: var(--color-surface-soft); box-shadow: none; }
@@ -4130,6 +4115,9 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 .transcription-workshop-header-status .document-detail-category { flex: 0 1 auto; min-width: 0; }
 .transcription-workshop-header-status .transcription-workshop-badge { flex: 0 0 auto; min-width: 0; }
 .transcription-workshop-passage-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+/* Sans état à montrer, l'en-tête disparaît du flux : ni conteneur vide ni
+   espace vertical parasite devant le titre de langue (§15). */
+.transcription-workshop-passage-head:not(:has(.transcription-workshop-badges > *)) { display: none; }
 .transcription-workshop-passage-head strong { flex: 0 0 auto; font-size: var(--text-md); }
 .transcription-workshop-passage textarea { width: 100%; flex: 1 1 auto; min-height: clamp(8rem, 24dvh, 16rem); max-height: 52dvh; overflow: auto; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-muted); color: var(--color-text); font-family: var(--font-display); font-size: 16px; line-height: var(--leading-body); resize: vertical; field-sizing: content; }
 .transcription-workshop-passage textarea:focus { border-color: var(--color-brand); outline: none; box-shadow: var(--shadow-focus); }
@@ -4177,16 +4165,19 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 .transcription-workshop-zone-cta.btn.danger:hover { border-color: var(--color-border-strong); background: var(--color-surface-raised); color: var(--color-danger-hover); }
 .transcription-workshop-delete-cta { display: none; align-items: center; justify-content: center; min-height: var(--control-touch); padding-inline: var(--space-2); white-space: nowrap; color: var(--color-danger); }
 .transcription-workshop-delete-cta:disabled { opacity: 0.55; cursor: not-allowed; }
+/* Desktop : libellé texte ; mobile : icône poubelle seule (cf. bloc mobile). */
+.transcription-workshop-delete-cta-icon { display: none; }
 .transcription-workshop-footer-version { flex: 1 1 auto; min-width: 0; color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Jamais de colonne fantôme dans la grille du pied de navigation (mobile,
+   consultation) : un span vide ne doit pas faire passer le compteur sur une
+   seconde ligne. */
+.transcription-workshop-footer-version:empty { display: none; }
 /* Adaptation compacte de la barre d'outils : sous 1440 px, les libellés des
    actions de zone se réduisent à leur icône (aria-label conservé) — aucune
    action n'est rendue inaccessible et le document n'est jamais rogné. */
 @media (max-width: 1439px) {
   .transcription-workshop-zone-cta .transcription-workshop-zone-cta-label { display: none; }
   .transcription-workshop-zone-cta { width: var(--control-touch); min-width: var(--control-touch); padding-inline: 0; }
-}
-@media (max-width: 760px) {
-  .transcription-workshop-zone-toolbar { display: none; }
 }
 /* Chevron de repli du volet : toujours en extrémité droite de la barre
    d'outils, sans perturber la navigation des pages lorsqu'elle est présente. */
@@ -4218,25 +4209,6 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   #transcriptionWorkshopView.is-edit-session .transcription-workshop-passage.is-modified { border-inline-start: 0; }
   /* Les actions de zone et la suppression quittent la carte de passage. */
   #transcriptionWorkshopView.is-edit-session .transcription-workshop-passage-head { display: none; }
-  /* Onglets repris de la fiche Personne : pleine largeur, trois entrées
-     égales, fond beige, actif en vert clair arrondi, séparateurs fins. */
-  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode {
-    display: flex; flex: 0 0 auto; align-self: stretch; gap: 0; padding: var(--space-1);
-    border: 0; border-bottom: var(--border-subtle); border-radius: 0; background: var(--color-surface-muted);
-  }
-  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button {
-    position: relative; flex: 1 1 0; min-width: 0; min-height: var(--control-touch); padding-inline: var(--space-3);
-    border: 0; border-radius: var(--radius-md); background: transparent; color: var(--color-text-label);
-    font-size: var(--text-sm); font-weight: var(--weight-medium); white-space: nowrap;
-  }
-  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button:hover { background: var(--color-surface-soft); color: var(--color-text); }
-  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button.is-active { background: var(--color-brand-soft); color: var(--color-brand); }
-  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button.is-active:hover { background: var(--color-brand-soft); color: var(--color-brand); }
-  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button:not(:last-child)::after {
-    content: ""; position: absolute; top: 25%; right: 0; bottom: 25%; width: 1px; background: var(--color-border-subtle);
-  }
-  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button.is-active::after { background: transparent; }
-  #transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button.is-active + .transcription-workshop-mode-button::after { background: transparent; }
   /* Pied de navigation intégré à la carte, après le contenu du passage. */
   #transcriptionWorkshopView.is-edit-session .transcription-workshop-nav-slot {
     display: flex; align-items: center; flex: 0 0 auto; min-width: 0;
@@ -4255,13 +4227,120 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   #transcriptionWorkshopView.is-edit-session .transcription-workshop-edit-cta.btn.danger { border-color: var(--color-border); background: var(--color-surface); color: var(--color-brand); }
   #transcriptionWorkshopView.is-edit-session .transcription-workshop-edit-cta.btn.danger:hover { border-color: var(--color-border-strong); background: var(--color-surface-raised); color: var(--color-brand-hover); }
   /* Indicateur d'actualisation de la traduction : aligné à droite du titre
-     français, sur la même ligne — jamais un numéro de passage redondant. */
+     français, sur la même ligne — jamais un numéro de passage redondant.
+     L'espacement titre → champ du français (12 px, mesure de référence) est
+     appliqué à l'italien : mêmes titres, même hauteur de ligne, même
+     structure, même alignement horizontal. */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-field-block { gap: var(--space-3); }
   #transcriptionWorkshopView.is-edit-session .workshop-field-fr {
     display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3);
   }
   #transcriptionWorkshopView.is-edit-session .workshop-field-fr .transcription-workshop-field-label { grid-column: 1; grid-row: 1; }
   #transcriptionWorkshopView.is-edit-session .workshop-field-fr .transcription-workshop-fr-state { grid-column: 2; grid-row: 1; justify-self: end; align-self: center; }
   #transcriptionWorkshopView.is-edit-session .workshop-field-fr textarea { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* ---- Onglets de version (§6 / §14) --------------------------------------
+   Même présentation que les onglets de la fiche Personne, en création et en
+   modification, sur desktop comme sur mobile : pleine largeur, trois entrées
+   égales, fond beige, actif en vert clair arrondi, séparateurs fins. Les
+   entrées sans version officielle pour le passage affiché restent visibles
+   mais désactivées (état désactivé du Design System, aucun survol). */
+#transcriptionWorkshopView.is-edit-session .transcription-workshop-mode {
+  display: flex; flex: 0 0 auto; align-self: stretch; gap: 0; padding: var(--space-1);
+  border: 0; border-bottom: var(--border-subtle); border-radius: 0; background: var(--color-surface-muted);
+}
+#transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button {
+  position: relative; flex: 1 1 0; min-width: 0; min-height: var(--control-touch); padding-inline: var(--space-3);
+  border: 0; border-radius: var(--radius-md); background: transparent; color: var(--color-text-label);
+  font-size: var(--text-sm); font-weight: var(--weight-medium); white-space: nowrap;
+}
+#transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button:hover { background: var(--color-surface-soft); color: var(--color-text); }
+#transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button.is-active { background: var(--color-brand-soft); color: var(--color-brand); }
+#transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button.is-active:hover { background: var(--color-brand-soft); color: var(--color-brand); }
+#transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button:not(:last-child)::after {
+  content: ""; position: absolute; top: 25%; right: 0; bottom: 25%; width: 1px; background: var(--color-border-subtle);
+}
+#transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button.is-active::after { background: transparent; }
+#transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button.is-active + .transcription-workshop-mode-button::after { background: transparent; }
+#transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button:disabled {
+  opacity: 0.48; cursor: not-allowed; background: transparent; color: var(--color-text-label);
+}
+#transcriptionWorkshopView.is-edit-session .transcription-workshop-mode-button:disabled:hover { background: transparent; color: var(--color-text-label); }
+
+/* ---- Mobile : barre d'outils, bandeau, carte et pied (§10 à §17) -------- */
+@media (max-width: 760px) {
+  /* §10 : pagination PDF indépendante sous le document — composant de la
+     fiche Document, jamais présenté pour une image. */
+  #workshopPdfPagination {
+    margin-top: var(--space-2); padding: var(--space-1);
+    border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface);
+  }
+  #workshopPdfPagination .btn { border: 0; border-radius: var(--radius-sm); background: transparent; }
+  #workshopPdfPagination .btn:hover:not(:disabled),
+  #workshopPdfPagination .btn:focus-visible { background: var(--color-surface-muted); }
+  /* §11.1 : l'ouverture dans un nouvel onglet disparaît de l'atelier mobile
+     (tous modes) ; la fiche Document conserve la sienne. */
+  #workshopExternalBtn { display: none; }
+  /* §11.5 : la barre d'outils tient sur une seule ligne à 320 px — les
+     espaces se resserrent avant tout retour à ligne ni débordement. */
+  #workshopPanelOriginal .transcription-workshop-panel-head { gap: var(--space-1); }
+  /* §13 : poubelle de suppression du passage à droite du bandeau, même
+     hauteur que les pastilles numérotées. Le séparateur de bandeau et la zone
+     de fin de bandeau (badge déjà monté dans l'en-tête, compteur masqué)
+     cèdent la place. */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-panel-head > .transcription-workshop-band-separator { display: none; }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-head-end { display: none; }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-delete-cta {
+    display: inline-flex; align-items: center; justify-content: center;
+    flex: 0 0 auto; width: var(--control-touch); min-width: var(--control-touch);
+    height: var(--control-touch); min-height: var(--control-touch);
+    margin-inline-start: auto; padding: 0;
+    border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+    background: var(--color-surface); color: var(--color-danger);
+  }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-delete-cta .transcription-workshop-delete-cta-label { display: none; }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-delete-cta .transcription-workshop-delete-cta-icon { display: block; width: 1.25rem; height: 1.25rem; }
+  /* §15 : la sélection n'est plus signalée par un cadre vert — le bouton
+     numéroté vert suffit ; bordure beige discrète du Design System. */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-passage.is-selected { border-color: var(--color-border-subtle); box-shadow: none; }
+  /* §16 : mêmes espacements de titres pour l'italien et le français —
+     16 px au-dessus (paddings et gaps déjà présents compris) et 8 px entre le
+     titre et son champ beige. */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-field-block { gap: var(--space-2); }
+  #transcriptionWorkshopView.is-edit-session .workshop-field-it { margin-top: var(--space-1); }
+  #transcriptionWorkshopView.is-edit-session .workshop-field-fr { margin-top: var(--space-2); }
+  /* §17 : indicateur de sauvegarde sur sa propre ligne, puis pied de
+     validation clair à séparateur supérieur et deux CTA pleine largeur. */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-footer {
+    display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2);
+    padding: var(--space-2) var(--space-3) max(var(--space-2), env(safe-area-inset-bottom, 0px));
+    border-top: var(--border-subtle); background: var(--color-surface);
+  }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-footer-status { flex: 0 0 auto; justify-content: flex-start; min-width: 0; }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-footer-actions {
+    display: flex; flex-wrap: nowrap; flex: 0 0 auto; gap: var(--space-2);
+    width: 100%; min-width: 0; margin-inline-start: 0;
+  }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-footer-actions .transcription-workshop-edit-cta {
+    min-width: 0; min-height: 48px; padding-inline: var(--space-2);
+  }
+  #transcriptionWorkshopView.is-edit-session #workshopCancelEditBtn { flex: 42 1 0; }
+  #transcriptionWorkshopView.is-edit-session #workshopValidateBtn { flex: 58 1 0; }
+  /* « Abandonner » : variante secondaire, sans fond rouge (le pied desktop
+     conserve, lui, le libellé « Annuler »). */
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-edit-cta.btn.danger { border-color: var(--color-border); background: var(--color-surface); color: var(--color-brand); }
+  #transcriptionWorkshopView.is-edit-session .transcription-workshop-edit-cta.btn.danger:hover { border-color: var(--color-border-strong); background: var(--color-surface-raised); color: var(--color-brand-hover); }
+  #transcriptionWorkshopView.is-edit-session.is-keyboard-open .transcription-workshop-footer { padding-bottom: max(var(--space-1), env(safe-area-inset-bottom, 0px)); }
+}
+/* §11.5 : à 320 px, les deux commandes de zone (Ajuster + Supprimer) font
+   déborder la barre — les espaces internes se resserrent d'abord (padding,
+   gaps, séparateur), jamais le nombre d'outils ni leurs cibles 44 px. */
+@media (max-width: 360px) {
+  #workshopPanelOriginal .transcription-workshop-panel-head { gap: 2px; padding-inline: var(--space-1); }
+  #workshopPanelOriginal .transcription-workshop-tools { gap: 2px; }
+  #workshopPanelOriginal .transcription-workshop-zone-toolbar { gap: 2px; }
+  #workshopPanelOriginal .transcription-workshop-zone-toolbar .transcription-workshop-band-separator { margin-inline: 2px; }
 }
 /* Historique des versions : lignes compactes et texte officiel en lecture
    seule, consultables sans quitter l'atelier ni perdre le brouillon. */
@@ -4306,14 +4385,6 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
 .transcription-workshop-delete-passage { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; min-width: 0; min-height: var(--control-md); margin: 0; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-danger); font: 600 var(--text-xs)/var(--leading-tight) var(--font-ui); white-space: nowrap; cursor: pointer; }
 .transcription-workshop-delete-passage:hover { background: var(--color-danger-soft); color: var(--color-danger-hover); }
 .transcription-workshop-delete-passage:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
-/* Menu contextuel ⋯ du passage : action de suppression unique, accessible sur
-   mobile quand le bouton inline est masqué. Desktop : panneau masqué (le bouton
-   inline suffit). */
-.transcription-workshop-passage-menu { position: relative; display: none; }
-.transcription-workshop-passage-menu > summary { display: inline-flex; align-items: center; justify-content: center; min-width: var(--control-touch); min-height: var(--control-touch); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); cursor: pointer; list-style: none; }
-.transcription-workshop-passage-menu > summary::-webkit-details-marker { display: none; }
-.transcription-workshop-passage-menu-panel { position: absolute; inset-inline-end: 0; top: calc(100% + var(--space-1)); z-index: 30; min-width: 13rem; padding: var(--space-1); border: var(--border-default); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-medium); }
-.transcription-workshop-passage-menu-panel .btn { justify-content: flex-start; width: 100%; min-height: var(--control-touch); }
 .transcription-workshop-field-block { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--space-1); min-width: 0; min-height: 0; }
 .transcription-workshop-field-label { color: var(--color-text-label); font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: .05em; }
 .transcription-workshop-meta { margin: 0; color: var(--color-text-muted); font-size: var(--text-sm); white-space: pre-wrap; }
@@ -4455,7 +4526,6 @@ body:has(#personDetailView:not([hidden])) .topbar .brand p { display: none; }
   .transcription-workshop-footer-actions .transcription-workshop-edit-cta { padding-inline: var(--space-2); }
   .transcription-workshop-zone-actions .btn { padding-inline: var(--space-2); }
   .transcription-workshop-delete-passage { display: none; min-height: var(--control-touch); padding-inline: var(--space-1); }
-  .transcription-workshop-passage-menu { display: block; }
   /* B1 mobile : poignées tactiles ≥ 44 px et commandes de zone au doigt. */
   .transcription-workshop-zone-handle { width: 20px; height: 20px; margin: -11px; }
   .transcription-workshop-zone-handle::before { inset: -12px; }
@@ -7220,10 +7290,17 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 /* Page Document dédiée (lot D) : en-tête compact, deux panneaux sur desktop,
    onglets Original/Informations sur mobile. Reprend le lecteur existant. */
 .document-detail-shell { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+/* Alignement exact de l'en-tête Document sur l'en-tête de l'atelier de
+   transcription (mesuré, même viewport et même zoom) : 0 px entre le lien
+   Retour et le titre, 8 px entre le séparateur inférieur et la visionneuse —
+   l'atelier est la référence et n'est pas modifié. Mobile inchangé. */
+@media (min-width: 761px) {
+  .document-detail-shell { gap: var(--space-2); }
+}
 #documentDetailView { min-height: calc(100dvh - 8rem); padding-bottom: max(var(--space-5), calc(var(--space-5) + env(safe-area-inset-bottom))); }
 .document-detail-header { margin-bottom: 0; }
 .document-detail-heading { min-width: 0; }
-.document-detail-header { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); padding-bottom: var(--space-2); }
+.document-detail-header { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding-bottom: var(--space-2); }
 .document-detail-heading-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); min-width: 0; }
 /* Retour desktop : rangée compacte en haut à gauche, au-dessus du titre —
    même format que le lien Retour de l'atelier de transcription.
@@ -7298,17 +7375,6 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 #documentDetailView.is-viewer-fullscreen .document-detail-layout { flex: 1 1 auto; height: auto !important; min-height: 0; }
 @media (max-width: 760px) {
   .dedicated-page-header { gap: var(--space-2); }
-  dialog#transcriptionPageInitDialog.modal-mobile-sheet[open] { display: flex; flex-direction: column; height: min(86dvh, calc(100dvh - env(safe-area-inset-top))); max-height: 86dvh; overflow: hidden; padding-bottom: env(safe-area-inset-bottom); }
-  dialog#transcriptionPageInitDialog > .modal-head { align-items: flex-start; gap: var(--space-2); padding: var(--space-3) var(--space-4); }
-  dialog#transcriptionPageInitDialog .modal-head h3 { font-size: var(--text-lg); line-height: var(--leading-tight); }
-  dialog#transcriptionPageInitDialog > .modal-body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; gap: var(--space-2); padding: var(--space-3) var(--space-4) 0; }
-  #transcriptionPageInitDialog .transcription-page-init-content { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-bottom: var(--space-2); }
-  #transcriptionPageInitFacts { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
-  #transcriptionPageInitDialog .modal-actions { display: grid; grid-template-columns: minmax(5rem, .65fr) minmax(0, 1.65fr); align-items: stretch; gap: var(--space-2); margin: 0 calc(-1 * var(--space-4)); padding: var(--space-3) var(--space-4) max(var(--space-3), env(safe-area-inset-bottom)); border-top: var(--border-subtle); background: var(--color-surface); }
-  #transcriptionPageInitDialog .modal-actions .right { display: contents; }
-  #transcriptionPageInitDialog .modal-actions > .btn,
-  #transcriptionPageInitDialog .modal-actions .right .btn { width: 100%; min-width: 0; min-height: var(--control-touch); padding-inline: var(--space-2); white-space: normal; line-height: var(--leading-tight); }
-  #transcriptionPageInitDialog .modal-actions > [data-close] { align-self: stretch; justify-self: stretch; }
   .consultation-breadcrumb { gap: 3px; }
   .dedicated-page-header .dedicated-page-back { gap: 2px; padding-inline: 2px; }
   .dedicated-page-back-arrow { font-size: var(--text-md); }
