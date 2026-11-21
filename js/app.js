@@ -10421,7 +10421,10 @@ function updateWorkshopZoneToolUi() {
 function cancelWorkshopZoneTool() {
   if (!workshopZoneTool && $("workshopZoneActions")?.hidden) return;
   /* Abandon propre : aucune coordonnée temporaire n'est conservée ni écrite. */
+  const drag = workshopZoneTool?.drag;
+  if (workshopZoneTool) workshopZoneTool.drag = null;
   workshopZoneTool = null;
+  releaseWorkshopZonePointer(drag);
   $("workshopPanelOriginal")?.classList.remove("is-zone-editing");
   const actions = $("workshopZoneActions");
   if (actions) actions.hidden = true;
@@ -10438,8 +10441,10 @@ function cancelWorkshopZoneTool() {
 function resetWorkshopZoneToolForPage(page) {
   const tool = workshopZoneTool;
   if (!tool) return;
-  tool.rect = null;
+  const drag = tool.drag;
   tool.drag = null;
+  releaseWorkshopZonePointer(drag);
+  tool.rect = null;
   if (transcriptionWorkshopContext?.pdf) tool.page = page;
   tool.phase = "drawing";
   updateWorkshopZoneToolUi();
@@ -10575,26 +10580,80 @@ function deleteWorkshopZone() {
   syncWorkshopZone();
 }
 
-function workshopZonePointerPoint(event) {
-  const bounds = workshopZoneElements().editor.getBoundingClientRect();
-  if (!bounds.width || !bounds.height) return null;
+function workshopZonePointerFrame() {
+  const elements = workshopZoneElements();
+  /* Le PDF continue d'exister et de fournir son repère CSS lorsque son
+     éditeur est temporairement masqué par onPageRenderStart. Pour les photos,
+     l'éditeur reste le support de coordonnées historique. */
+  const support = transcriptionWorkshopContext?.pdf ? elements.media : elements.editor;
+  const bounds = support?.getBoundingClientRect();
+  if (!bounds || !bounds.width || !bounds.height) return null;
+  return { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height };
+}
+
+function workshopZonePointerPoint(event, frame) {
+  if (!frame?.width || !frame?.height) return null;
   return {
-    x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
-    y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height))
+    x: Math.max(0, Math.min(1, (event.clientX - frame.left) / frame.width)),
+    y: Math.max(0, Math.min(1, (event.clientY - frame.top) / frame.height))
   };
+}
+
+function releaseWorkshopZonePointer(drag) {
+  const target = drag?.captureTarget;
+  if (!target || drag.pointerId == null) return;
+  try {
+    if (target.hasPointerCapture(drag.pointerId)) target.releasePointerCapture(drag.pointerId);
+  } catch { /* Le navigateur peut avoir déjà libéré la capture. */ }
+}
+
+function workshopZoneDragTargetsCurrentDocument(tool, drag) {
+  const context = transcriptionWorkshopContext;
+  if (!context || context.documentId !== drag.documentId || context.pageId !== drag.pageId) return false;
+  if (!drag.isPdf) return true;
+  return context.pdf?.fileSha256 === drag.fileSha256
+    && tool.page === drag.pdfPage
+    && workshopPdfViewer?.getState().currentPage === drag.pdfPage;
+}
+
+function cancelWorkshopZoneDrag(tool, drag) {
+  if (tool?.drag !== drag) return;
+  tool.drag = null;
+  tool.rect = drag.base ? { ...drag.base } : null;
+  tool.phase = drag.phase;
+  releaseWorkshopZonePointer(drag);
+  renderWorkshopZoneEditor();
+  updateWorkshopZoneToolUi();
 }
 
 function onWorkshopZonePointerDown(event) {
   const tool = workshopZoneTool;
-  if (!tool || (event.button != null && event.button !== 0)) return;
-  const point = workshopZonePointerPoint(event);
-  if (!point) return;
+  if (!tool || tool.drag || (event.button != null && event.button !== 0)) return;
+  const frame = workshopZonePointerFrame();
+  const point = workshopZonePointerPoint(event, frame);
+  if (!frame || !point) return;
   const handle = event.target.closest?.("[data-zone-handle]");
   const onRect = Boolean(event.target.closest?.("#workshopZoneEditorRect, #workshopPdfZoneEditorRect"));
   event.preventDefault();
   event.stopPropagation();
-  try { workshopZoneElements().editor.setPointerCapture(event.pointerId); } catch { /* capture best effort */ }
-  const common = { start: point, startX: event.clientX, startY: event.clientY, base: tool.rect ? { ...tool.rect } : null };
+  const context = transcriptionWorkshopContext;
+  const editor = workshopZoneElements().editor;
+  try { editor.setPointerCapture(event.pointerId); } catch { /* capture best effort */ }
+  const common = {
+    pointerId: event.pointerId,
+    captureTarget: editor,
+    documentId: context.documentId,
+    pageId: context.pageId,
+    isPdf: Boolean(context.pdf),
+    fileSha256: context.pdf?.fileSha256 || null,
+    pdfPage: context.pdf ? tool.page : null,
+    frame,
+    phase: tool.phase,
+    start: point,
+    startX: event.clientX,
+    startY: event.clientY,
+    base: tool.rect ? { ...tool.rect } : null
+  };
   if (handle && tool.rect) tool.drag = { ...common, action: handle.dataset.zoneHandle };
   else if (onRect && tool.rect) tool.drag = { ...common, action: "move" };
   else tool.drag = { ...common, action: "draw" };
@@ -10602,36 +10661,52 @@ function onWorkshopZonePointerDown(event) {
 
 function onWorkshopZonePointerMove(event) {
   const tool = workshopZoneTool;
-  if (!tool?.drag) return;
-  const point = workshopZonePointerPoint(event);
+  const drag = tool?.drag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  if (!workshopZoneDragTargetsCurrentDocument(tool, drag)) return cancelWorkshopZoneTool();
+  const frame = workshopZonePointerFrame();
+  if (frame) drag.frame = frame;
+  const point = workshopZonePointerPoint(event, drag.frame);
   if (!point) return;
   event.preventDefault();
   event.stopPropagation();
-  const dx = point.x - tool.drag.start.x;
-  const dy = point.y - tool.drag.start.y;
-  if (tool.drag.action === "draw") tool.rect = workshopZoneRectFromDrag(tool.drag.start, point);
-  else if (tool.drag.action === "move") tool.rect = workshopZoneMoveRect(tool.drag.base, dx, dy);
-  else tool.rect = workshopZoneResizeRect(tool.drag.base, tool.drag.action, dx, dy);
+  const dx = point.x - drag.start.x;
+  const dy = point.y - drag.start.y;
+  if (drag.action === "draw") tool.rect = workshopZoneRectFromDrag(drag.start, point);
+  else if (drag.action === "move") tool.rect = workshopZoneMoveRect(drag.base, dx, dy);
+  else tool.rect = workshopZoneResizeRect(drag.base, drag.action, dx, dy);
   renderWorkshopZoneEditor();
   updateWorkshopZoneToolUi();
 }
 
 function onWorkshopZonePointerEnd(event) {
   const tool = workshopZoneTool;
-  if (!tool?.drag) return;
-  const drag = tool.drag;
+  const drag = tool?.drag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  if (event.type !== "pointerup") return cancelWorkshopZoneDrag(tool, drag);
+  if (!workshopZoneDragTargetsCurrentDocument(tool, drag)) return cancelWorkshopZoneTool();
+  const frame = workshopZonePointerFrame();
+  if (frame) drag.frame = frame;
+  const point = workshopZonePointerPoint(event, drag.frame);
+  if (!point) return cancelWorkshopZoneDrag(tool, drag);
+
+  tool.drag = null;
+  releaseWorkshopZonePointer(drag);
   const moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 6;
-  if (drag.action === "draw") {
+  if (!moved) {
+    tool.rect = drag.base ? { ...drag.base } : null;
+    tool.phase = drag.phase;
+  } else if (drag.action === "draw") {
     /* Un simple clic ne crée rien (ou restaure le rectangle précédent) ;
        un glisser réel valide le tracé et passe à l'ajustement. */
-    if (moved) {
-      tool.rect = workshopZoneRectFromDrag(drag.start, workshopZonePointerPoint(event) || drag.start);
-      tool.phase = "adjusting";
-    } else {
-      tool.rect = drag.base;
-    }
+    tool.rect = workshopZoneRectFromDrag(drag.start, point);
+    tool.phase = "adjusting";
+  } else {
+    const dx = point.x - drag.start.x;
+    const dy = point.y - drag.start.y;
+    if (drag.action === "move") tool.rect = workshopZoneMoveRect(drag.base, dx, dy);
+    else tool.rect = workshopZoneResizeRect(drag.base, drag.action, dx, dy);
   }
-  tool.drag = null;
   renderWorkshopZoneEditor();
   updateWorkshopZoneToolUi();
 }
@@ -11634,6 +11709,7 @@ for (const editorId of ["workshopZoneEditor", "workshopPdfZoneEditor"]) {
   editor.addEventListener("pointermove", onWorkshopZonePointerMove);
   editor.addEventListener("pointerup", onWorkshopZonePointerEnd);
   editor.addEventListener("pointercancel", onWorkshopZonePointerEnd);
+  editor.addEventListener("lostpointercapture", onWorkshopZonePointerEnd);
 }
 /* Alignement de la zone et de l'éditeur sur tout redimensionnement de fenêtre
    (le lecteur recalcule son ajustement via ResizeObserver). */

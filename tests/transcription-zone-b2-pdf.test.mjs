@@ -139,6 +139,31 @@ window.__b2 = {
   },
   status() { return $("workshopSaveStatus").textContent; },
   toolActive() { return Boolean(workshopZoneTool); },
+  armPdfRerenderDuringZoneDrag(targetPage = null) {
+    const drag = workshopZoneTool?.drag;
+    const currentPage = workshopPdfViewer?.getState().currentPage;
+    const page = targetPage ?? currentPage;
+    if (!drag || !currentPage || !page) throw new Error("Geste PDF actif requis pour le scénario de rerendu");
+    const editor = workshopZoneElements().editor;
+    const listener = event => {
+      if (event.buttons !== 1 || !workshopZoneTool?.drag) return;
+      document.removeEventListener("pointermove", listener, true);
+      void workshopPdfViewer.selectPage(page);
+      this.renderInterruption = {
+        eventButtons: event.buttons,
+        page: workshopPdfRenderedPage,
+        currentPage: workshopPdfViewer.getState().currentPage,
+        editorHidden: editor.hidden,
+        pointerCaptured: drag.captureTarget.hasPointerCapture(drag.pointerId),
+        pointerId: event.pointerId,
+        dragPage: workshopZoneTool?.page,
+        dragActive: Boolean(workshopZoneTool?.drag)
+      };
+    };
+    document.addEventListener("pointermove", listener, true);
+    this.renderInterruption = null;
+  },
+  renderInterruptionState() { return this.renderInterruption; },
   appState() {
     return {
       readOnly: transcriptionWorkshopIsReadOnly(),
@@ -148,6 +173,16 @@ window.__b2 = {
       viewer: Boolean(workshopPdfViewer),
       editorState: transcriptionWorkshopEditorState(),
       active: isTranscriptionWorkshopActive()
+    };
+  },
+  zoneGestureState() {
+    const tool = workshopZoneTool;
+    const drag = tool?.drag;
+    return {
+      active: Boolean(drag),
+      pointerId: drag?.pointerId ?? null,
+      captured: Boolean(drag?.captureTarget?.hasPointerCapture(drag.pointerId)),
+      rect: tool?.rect ? { ...tool.rect } : null
     };
   },
   pdfState() {
@@ -250,7 +285,7 @@ async function waitForPdfReady(page) {
   }
 }
 
-async function dragOnCanvas(page, fromX, fromY, toX, toY) {
+async function dragOnCanvas(page, fromX, fromY, toX, toY, { duringDrag = null } = {}) {
   /* L'éditeur rejoint la position du canvas après la bascule d'onglet (double
      rAF du lecteur) : on attend l'alignement avant de tracer, sinon le pointeur
      atteindrait le canvas nu (neutralisé par la garde de tracé). */
@@ -273,6 +308,7 @@ async function dragOnCanvas(page, fromX, fromY, toX, toY) {
   const y1 = box.y + box.height * toY;
   await page.mouse.move(x0, y0);
   await page.mouse.down();
+  if (duringDrag) await duringDrag(page);
   await page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 4 });
   await page.mouse.move(x1, y1, { steps: 4 });
   await page.mouse.up();
@@ -769,5 +805,143 @@ test("B2 mobile : tracé tactile depuis l’onglet Original, poignées et comman
     if (!ranAny) t.skip("Aucun navigateur disponible");
   } finally {
     await server.close().catch(() => {});
+  }
+});
+
+async function assertZoneGestureSurvivesRerender(engine) {
+  const server = await startStaticServer(ROOT);
+  const browser = await engine.launch({ headless: true });
+  const { context, page, pageErrors } = await createB2Page(browser, server, { width: 320, height: 780 });
+  try {
+    await openB2Workshop(page, { official: false });
+    await waitForPdfReady(page);
+    await page.click("#workshopTabItalian");
+    await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
+    await page.click("#workshopTabOriginal");
+    await clickZoneAction(page, "draw");
+
+    await dragOnCanvas(page, 0.2, 0.3, 0.6, 0.7, {
+      duringDrag: targetPage => targetPage.evaluate(() => window.__b2.armPdfRerenderDuringZoneDrag())
+    });
+    const interruption = await page.evaluate(() => window.__b2.renderInterruptionState());
+    assert.deepEqual(interruption && {
+      eventButtons: interruption.eventButtons,
+      page: interruption.page,
+      currentPage: interruption.currentPage,
+      editorHidden: interruption.editorHidden,
+      pointerCaptured: interruption.pointerCaptured,
+      dragPage: interruption.dragPage,
+      dragActive: interruption.dragActive
+    }, {
+      eventButtons: 1,
+      page: null,
+      currentPage: 1,
+      editorHidden: true,
+      pointerCaptured: true,
+      dragPage: 1,
+      dragActive: true
+    }, "rerendu de la même page déclenché pendant un déplacement natif, capture toujours active");
+
+    await waitForPdfReady(page);
+    await waitForZoneEditorRect(page);
+    const canvasBox = await page.locator("#workshopPdfCanvas").boundingBox();
+    const zoneBox = await page.locator("#workshopPdfZoneEditorRect").boundingBox();
+    assert.ok(canvasBox && zoneBox
+      && zoneBox.width >= canvasBox.width * 0.25
+      && zoneBox.height >= canvasBox.height * 0.25,
+    `zone temporaire significative après rerendu (${zoneBox?.width}×${zoneBox?.height}px / ${canvasBox?.width}×${canvasBox?.height}px)`);
+
+    assert.equal(await page.locator("#workshopZoneConfirmBtn").isEnabled(), true, "confirmation disponible après le geste interrompu par le rendu");
+    await page.click("#workshopZoneConfirmBtn");
+    await page.waitForFunction(() => Boolean(window.__b2.anchors()["p-2"]));
+    const anchor = await page.evaluate(() => window.__b2.anchors()["p-2"]);
+    assert.equal(anchor.pdfPage, 1, "la zone reste liée à la page capturée");
+    assert.equal(anchor.fileSha256, fixturePdfSha256, "l'empreinte du document reste liée à la zone");
+    assert.ok(anchor.width >= 0.25 && anchor.height >= 0.25, `ancre normalisée significative (${anchor.width}×${anchor.height})`);
+
+    /* Une annulation de pointeur et une perte de capture restaurent la zone
+       confirmée, ne laissent pas de geste actif et ne changent pas l'ancre. */
+    await page.click("#workshopTabItalian");
+    await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
+    await page.click("#workshopTabOriginal");
+    await clickZoneAction(page, "adjust");
+    await waitForZoneEditorRect(page);
+    const confirmedAnchor = await page.evaluate(() => window.__b2.anchors()["p-2"]);
+    for (const cancelKind of ["pointercancel", "lostpointercapture"]) {
+      const handle = await zoneHandleBox(page);
+      assert.ok(handle && handle.width >= 16, `${cancelKind} : poignée réellement disponible`);
+      const startX = handle.x + handle.width / 2;
+      const startY = handle.y + handle.height / 2;
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX + 10, startY + 10);
+      const active = await page.evaluate(() => window.__b2.zoneGestureState());
+      assert.equal(active.active, true, `${cancelKind} : glissement actif`);
+      assert.equal(active.captured, true, `${cancelKind} : capture du pointeur active`);
+      if (cancelKind === "pointercancel") {
+        await page.evaluate(pointerId => {
+          document.getElementById("workshopPdfZoneEditor").dispatchEvent(new PointerEvent("pointercancel", {
+            bubbles: true, cancelable: true, pointerId, pointerType: "mouse", button: 0, buttons: 0
+          }));
+        }, active.pointerId);
+      } else {
+        await page.evaluate(pointerId => document.getElementById("workshopPdfZoneEditor").releasePointerCapture(pointerId), active.pointerId);
+      }
+      await page.mouse.up();
+      await page.waitForFunction(() => !window.__b2.zoneGestureState().active);
+      const restored = await page.evaluate(() => ({ tool: window.__b2.zoneGestureState(), anchor: window.__b2.anchors()["p-2"] }));
+      assert.deepEqual(restored.tool.rect, {
+        x: confirmedAnchor.x, y: confirmedAnchor.y,
+        width: confirmedAnchor.width, height: confirmedAnchor.height
+      }, `${cancelKind} : le rectangle temporaire revient à la zone confirmée`);
+      assert.deepEqual(restored.anchor, confirmedAnchor, `${cancelKind} : aucune modification de l'ancre confirmée`);
+      assert.equal(restored.tool.captured, false, `${cancelKind} : capture libérée`);
+    }
+
+    /* Un changement de page pendant une capture abandonne le rectangle
+       temporaire et la capture, sans appliquer le glissement à la page 2. */
+    await page.click("#workshopTabItalian");
+    await page.locator("#workshopPassagePills [data-workshop-passage-select]").nth(1).click();
+    await page.click("#workshopTabOriginal");
+    await clickZoneAction(page, "adjust");
+    await waitForZoneEditorRect(page);
+    await dragOnCanvas(page, 0.25, 0.3, 0.65, 0.7, {
+      duringDrag: targetPage => targetPage.evaluate(() => window.__b2.armPdfRerenderDuringZoneDrag(2))
+    });
+    const pageChange = await page.evaluate(() => window.__b2.renderInterruptionState());
+    assert.deepEqual(pageChange && {
+      eventButtons: pageChange.eventButtons,
+      page: pageChange.page,
+      currentPage: pageChange.currentPage,
+      editorHidden: pageChange.editorHidden,
+      pointerCaptured: pageChange.pointerCaptured,
+      dragPage: pageChange.dragPage,
+      dragActive: pageChange.dragActive
+    }, {
+      eventButtons: 1,
+      page: null,
+      currentPage: 2,
+      editorHidden: true,
+      pointerCaptured: false,
+      dragPage: 2,
+      dragActive: false
+    }, "changement de page pendant la capture : geste annulé, ancre redirigée vers la nouvelle page interdite");
+    await waitForPdfReady(page);
+    const afterPageChange = await page.evaluate(() => ({ tool: window.__b2.zoneGestureState(), anchor: window.__b2.anchors()["p-2"] }));
+    assert.equal(afterPageChange.tool.active, false, "le geste ancien est nettoyé après navigation");
+    assert.equal(afterPageChange.tool.rect, null, "aucun rectangle ancien réutilisé sur la nouvelle page");
+    assert.deepEqual(afterPageChange.anchor, confirmedAnchor, "l'ancre de la page 1 reste inchangée");
+    assert.equal(await page.locator("#workshopZoneConfirmBtn").isDisabled(), true, "aucune confirmation avant un nouveau tracé page 2");
+    assertNoB2PageErrors(pageErrors);
+  } finally {
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    await server.close().catch(() => {});
+  }
+}
+
+test("B2 PDF 320×780 : le tracé reste valide pendant le rerendu de la page capturée", { timeout: 180000 }, async t => {
+  for (const [engineName, engine] of [["WebKit", webkit], ["Chromium", chromium]]) {
+    await t.test(engineName, () => assertZoneGestureSurvivesRerender(engine));
   }
 });
