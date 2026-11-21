@@ -7,7 +7,6 @@
 
 export const PROOF_RELATIONS = Object.freeze(["supports", "contradicts", "mentions", "ambiguous"]);
 export const PROOF_STATUSES = Object.freeze(["active", "suspended", "historical"]);
-export const REFERENCE_STATES = Object.freeze(["valid", "missing", "mismatch", "not_checked", "not_applicable", "historical"]);
 
 function nonEmpty(value, label) {
   if (typeof value !== "string" || !value.trim()) throw new TypeError(`${label} doit être une chaîne non vide`);

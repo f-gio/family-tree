@@ -148,17 +148,3 @@ export function filterAndSortDirectory(people = [], filters = {}) {
   });
   return filtered;
 }
-
-export const directoryFilterGroups = [{
-  id: "identity",
-  label: "Identité",
-  fields: ["firstName", "marriedName", "gender", "branch"]
-}, {
-  id: "birth",
-  label: "Naissance",
-  fields: ["birthPlace", "birthYearFrom", "birthYearTo"]
-}, {
-  id: "death",
-  label: "Décès",
-  fields: ["deathPlace", "deathYearFrom", "deathYearTo", "deathInfo"]
-}];
