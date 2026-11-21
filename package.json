@@ -7,9 +7,13 @@
   "scripts": {
     "build:recette": "node scripts/build-recette.mjs",
     "build:production": "node scripts/build-production.mjs",
+    "test:unit": "node scripts/run-tests.mjs unit",
+    "test:browser": "node scripts/run-tests.mjs browser",
     "test:responsive": "node tests/responsive-real.mjs",
     "test:firestore": "firebase emulators:exec --only firestore,auth \"npm run test:firestore:run\"",
-    "test:firestore:run": "node --test tests/firestore-emulator.mjs"
+    "test:firestore:run": "node --test tests/firestore-emulator.mjs",
+    "check:assets": "node scripts/bump-asset-release.mjs --check",
+    "bump:assets": "node scripts/bump-asset-release.mjs"
   },
   "devDependencies": {
     "firebase": "12.2.1",
