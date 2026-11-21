@@ -7,6 +7,10 @@ export function assertFirestoreRulesSafety(rules) {
   assert.match(rules, /function signedIn\(\)\s*\{\s*return request\.auth != null;/);
   assert.match(rules, /function isApproved\(\)/);
   assert.match(rules, /function isAdmin\(\)/);
+  assert.match(rules, /function validUpdatedBy\(\)/, "validUpdatedBy reste disponible pour les collections qui l'utilisent");
+  assert.doesNotMatch(rules, /function validProcedure(?:Action)?\(\)/, "validateurs Démarches retirés");
+  assert.doesNotMatch(rules, /match\s+\/procedures(?:\/|\s|\{)/, "aucun match Démarches ne subsiste");
+  assert.doesNotMatch(rules, /match\s+\/actions\/\{actionId\}/, "aucun match actions générique ne subsiste");
   const familyValidationStart = rules.indexOf("function validFamily()");
   const chunkValidationStart = rules.indexOf("function validChunk()");
   const familyValidation = rules.slice(familyValidationStart, chunkValidationStart);
@@ -30,11 +34,13 @@ export function assertFirestoreRulesSafety(rules) {
   const documentsStart = rules.indexOf("match /documents/{documentId}");
   const chunksStart = rules.indexOf("match /documentChunks/{chunkId}");
   const tasksStart = rules.indexOf("match /tasks/{taskId}");
-  const proceduresStart = rules.indexOf("match /procedures/{dossierId}");
   const catchAllStart = rules.indexOf("match /{document=**}");
-  for (const [name, index] of Object.entries({ settingsStart, usersStart, peopleStart, treesStart, familiesStart, documentsStart, chunksStart, tasksStart, proceduresStart, catchAllStart })) {
+  const orderedBlocks = [settingsStart, usersStart, peopleStart, treesStart, familiesStart, documentsStart, chunksStart, tasksStart, catchAllStart];
+  for (const [name, index] of Object.entries({ settingsStart, usersStart, peopleStart, treesStart, familiesStart, documentsStart, chunksStart, tasksStart, catchAllStart })) {
     assert.ok(index >= 0, `Bloc Firestore manquant : ${name}`);
   }
+  assert.deepEqual(orderedBlocks, [...orderedBlocks].sort((a, b) => a - b), "blocs des collections conservés dans l'ordre attendu");
+  assert.equal((rules.match(/^\s*match\s+\/[^\n]*=\*\*[^\n]*$/gm) || []).length, 1, "le catch-all de refus reste le seul match récursif");
 
   const settings = rules.slice(settingsStart, usersStart);
   assert.match(settings, /allow update, delete: if false;/, "settings/access reste immuable après bootstrap");
@@ -89,11 +95,6 @@ export function assertFirestoreRulesSafety(rules) {
   assert.match(trees, /resource\.data\.lifecycleState == 'deleting'/);
   assert.match(rules, /function activeTreeAfter\(treeId\)[\s\S]*?lifecycleState == 'active'/,
     "les nouvelles destinations secondaires doivent rester actives");
-
-  const procedures = rules.slice(proceduresStart, catchAllStart);
-  assert.match(procedures, /allow read: if isApproved\(\);/);
-  assert.match(procedures, /validProcedure\(\)/);
-  assert.match(procedures, /validProcedureAction\(\)/);
 
   assert.match(rules.slice(catchAllStart), /allow read, write: if false;/, "le catch-all continue de refuser l'accès");
 }

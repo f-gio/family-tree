@@ -55,6 +55,13 @@ async function expectDenied(promise) {
   });
 }
 
+async function expectPermissionDenied(promise) {
+  await assert.rejects(promise, error => {
+    assert.match(error.code || "", /permission-denied|PERMISSION_DENIED/i, `Refus Firestore attendu, reçu : ${error.code} — ${error.message}`);
+    return true;
+  });
+}
+
 function deferred() {
   let resolve;
   const promise = new Promise(done => { resolve = done; });
@@ -493,193 +500,87 @@ test("catch-all : écriture dans une collection inconnue refusée", async () => 
   await expectDenied(setDoc(doc(db, "inconnue", "doc"), { nimporte: 1 }));
 });
 
-// ─── DÉMARCHES : DOSSIERS (procedures) ─────────────────────────────────────
-// Dossier valide produit par l'UI : titre, type/statut whitelistés,
-// personIds facultatif (absent, [] ou plusieurs), champs texte facultatifs.
-const DOSSIER_VALIDE = {
-  title: "Acte de décès de Rosa Conti",
-  type: "correspondence",
-  status: "progress"
-};
-const NON_APPROUVE_EMAIL = "nonapprouve-emulator@test-fictif.fr";
-const NON_APPROUVE_PASSWORD = "nonappro-fictif-123";
+// ─── Anciennes collections Démarches : refus par catch-all ──────────────────
+const LEGACY_DOSSIER_ID = "legacy-procedure-emulator-test";
+const LEGACY_ABSENT_DOSSIER_ID = "legacy-procedure-parent-absent-test";
+const LEGACY_ACTION_ID = "legacy-action-emulator-test";
+const LEGACY_ORPHAN_ACTION_ID = "legacy-orphan-action-emulator-test";
+const LEGACY_DOSSIER_FIELDS = { title: "Dossier émulateur", type: "research", status: "prepare" };
+const LEGACY_ACTION_FIELDS = { type: "note", date: "2026-01-02", text: "Action émulateur" };
 
-test("procedures : non authentifié — read/create/update/delete refusés", async () => {
-  await signOutAll();
-  await expectDenied(getDoc(doc(db, "procedures", "dossier-anonyme")));
-  await expectDenied(getDocs(collection(db, "procedures")));
-  await expectDenied(setDoc(doc(db, "procedures", "dossier-anonyme"), DOSSIER_VALIDE));
-  await expectDenied(updateDoc(doc(db, "procedures", "dossier-anonyme"), { status: "done" }));
-  await expectDenied(deleteDoc(doc(db, "procedures", "dossier-anonyme")));
-});
-
-test("procedures : authentifié non approuvé — read/create/update/delete refusés", async () => {
-  await signOutAll();
-  const nonApprouve = await createUserWithEmailAndPassword(auth, NON_APPROUVE_EMAIL, NON_APPROUVE_PASSWORD);
-  await setDoc(doc(db, "users", nonApprouve.user.uid), { email: NON_APPROUVE_EMAIL, displayName: "Non Approuvé", photo: "", role: "member", status: "pending" });
-  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
-  const parent = doc(db, "procedures", "dossier-parent-existant");
-  await setDoc(parent, DOSSIER_VALIDE);
-  await signOutAll();
-  await signIn(nonApprouve.user.uid, NON_APPROUVE_EMAIL, NON_APPROUVE_PASSWORD);
-  await expectDenied(getDoc(parent));
-  await expectDenied(getDocs(collection(db, "procedures")));
-  await expectDenied(setDoc(doc(db, "procedures", "dossier-nonapprouve"), DOSSIER_VALIDE));
-  await expectDenied(updateDoc(parent, { status: "done" }));
-  await expectDenied(deleteDoc(parent));
-  await signOutAll();
-});
-
-test("procedures : admin — read/create/update/delete autorisés", async () => {
-  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
-  const ref = doc(db, "procedures", "dossier-admin");
-  await setDoc(ref, { ...DOSSIER_VALIDE, personIds: [] });
-  assert.equal((await getDoc(ref)).data().status, "progress");
-  await updateDoc(ref, { status: "done", updatedBy: adminUid });
-  assert.equal((await getDoc(ref)).data().status, "done");
-  await deleteDoc(ref);
-  assert.equal((await getDoc(ref)).exists(), false);
-});
-
-test("procedures : primary admin (mêmes droits, compte de bootstrap)", async () => {
-  // Le compte de bootstrap EST le primary admin dans cette suite (settings/access.primaryAdminUid = adminUid).
-  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
-  const ref = doc(db, "procedures", "dossier-primary-admin");
-  await setDoc(ref, DOSSIER_VALIDE);
-  assert.equal((await getDoc(ref)).exists(), true);
-  await deleteDoc(ref);
-});
-
-test("procedures : membre approuvé ordinaire — read/create/update/delete autorisés", async () => {
-  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
-  const ref = doc(db, "procedures", "dossier-membre");
-  await setDoc(ref, { ...DOSSIER_VALIDE, place: "Salle de lecture, Varese" });
-  assert.equal((await getDoc(ref)).data().place, "Salle de lecture, Varese");
-  await updateDoc(ref, { status: "waiting", updatedBy: memberUid });
-  assert.equal((await getDoc(ref)).data().status, "waiting");
-  await deleteDoc(ref);
-  assert.equal((await getDoc(ref)).exists(), false);
-});
-
-test("procedures : validProcedure — refus des données invalides", async () => {
-  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
-  const refuse = (id, data) => expectDenied(setDoc(doc(db, "procedures", id), data));
-  await refuse("dossier-titre-manquant", { type: "research", status: "prepare" });
-  await refuse("dossier-titre-vide", { ...DOSSIER_VALIDE, title: "" });
-  await refuse("dossier-titre-long", { ...DOSSIER_VALIDE, title: "A".repeat(161) });
-  await refuse("dossier-type-inconnu", { ...DOSSIER_VALIDE, type: "numerologie" });
-  await refuse("dossier-statut-inconnu", { ...DOSSIER_VALIDE, status: "mystere" });
-  await refuse("dossier-pids-string", { ...DOSSIER_VALIDE, personIds: "p1" });
-  await refuse("dossier-pids-doublons", { ...DOSSIER_VALIDE, personIds: ["p1", "p1"] });
-  // LIMITATION CEL : sans lambda (.every), le type de chaque élément de la
-  // liste ne peut pas être validé — pas de faux test « [42] → DENY ».
-  await refuse("dossier-pids-trop-long", { ...DOSSIER_VALIDE, personIds: Array.from({ length: 51 }, (_, i) => `p${i}`) });
-  await refuse("dossier-next-date-slash", { ...DOSSIER_VALIDE, nextActionDate: "2026/10/02" });
-  await refuse("dossier-next-date-malformee", { ...DOSSIER_VALIDE, nextActionDate: "le 25 septembre" });
-});
-
-test("procedures : validProcedure — personIds facultatif et polyvalent", async () => {
-  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
-  const cree = (id, data) => setDoc(doc(db, "procedures", id), data).then(() => deleteDoc(doc(db, "procedures", id)));
-  // personIds absent : ALLOW (zéro personne autorisé)
-  await cree("dossier-pids-absent", { title: "Codice fiscale", type: "administrative", status: "prepare" });
-  // personIds [] : ALLOW
-  await cree("dossier-pids-vide", { ...DOSSIER_VALIDE, personIds: [] });
-  // un ID puis plusieurs IDs : ALLOW
-  await cree("dossier-pids-un", { ...DOSSIER_VALIDE, personIds: ["p1"] });
-  await cree("dossier-pids-plusieurs", { ...DOSSIER_VALIDE, personIds: ["p1", "p2", "p3"] });
-  // nextActionDate : absent → ALLOW ; "" → ALLOW ; date valide → ALLOW
-  await cree("dossier-date-absente", { ...DOSSIER_VALIDE, objective: "sans échéance" });
-  await cree("dossier-date-vide", { ...DOSSIER_VALIDE, nextActionDate: "" });
-  await cree("dossier-date-valide", { ...DOSSIER_VALIDE, nextActionDate: "2026-10-02" });
-});
-
-// ─── DÉMARCHES : ACTIONS (sous-collection) ─────────────────────────────────
-const ACTION_VALIDE = { type: "email-sent", date: "2026-09-18", direction: "none", title: "Demande d’informations", text: "Bonjour, …" };
-
-test("actions : non authentifié — read/create/update/delete refusés", async () => {
-  await signOutAll();
-  await expectDenied(setDoc(doc(db, "procedures", "dossier-parent-existant", "actions", "a1"), ACTION_VALIDE));
-  await expectDenied(getDoc(doc(db, "procedures", "dossier-parent-existant", "actions", "a1")));
-  await expectDenied(deleteDoc(doc(db, "procedures", "dossier-parent-existant", "actions", "a1")));
-});
-
-test("actions : authentifié non approuvé — read/create refusés", async () => {
-  await signOutAll();
-  const autre = await createUserWithEmailAndPassword(auth, "np2-emulator@test-fictif.fr", "np2-fictif-123");
-  await setDoc(doc(db, "users", autre.user.uid), { email: "np2-emulator@test-fictif.fr", displayName: "Autre NP", photo: "", role: "member", status: "pending" });
-  await signIn(autre.user.uid, "np2-emulator@test-fictif.fr", "np2-fictif-123");
-  await expectDenied(getDoc(doc(db, "procedures", "dossier-parent-existant", "actions", "aa")));
-  await expectDenied(setDoc(doc(db, "procedures", "dossier-parent-existant", "actions", "aa"), ACTION_VALIDE));
-  await signOutAll();
-});
-
-test("actions : création sous un dossier parent inexistant — refusée (pas d’action orpheline)", async () => {
-  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
-  await expectDenied(setDoc(doc(db, "procedures", "dossier-inexistant-123", "actions", "a-orpheline"), ACTION_VALIDE));
-});
-
-test("actions : membre approuvé — read/create/update/delete autorisés (dossier existant)", async () => {
-  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
-  const ref = doc(db, "procedures", "dossier-parent-existant", "actions", "a-membre");
-  await setDoc(ref, ACTION_VALIDE);
-  assert.equal((await getDoc(ref)).data().type, "email-sent");
-  await updateDoc(ref, { title: "Relance", updatedBy: memberUid });
-  assert.equal((await getDoc(ref)).data().title, "Relance");
-  await deleteDoc(ref);
-  assert.equal((await getDoc(ref)).exists(), false);
-});
-
-test("actions : validProcedureAction — emails additifs et whitelist des types", async () => {
-  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
-  const sous = (...segments) => doc(db, "procedures", "dossier-parent-existant", "actions", ...segments);
-  // Email envoyé enrichi (time + expéditeur + destinataire + objet + contenu complet) : ALLOW
-  await setDoc(sous("mail-envoye"), {
-    type: "email-sent", date: "2026-09-18", time: "09:15", direction: "none",
-    emailFrom: "François Giovannoni", emailTo: "Mairie de Turin <mairie@fictif.fr>",
-    emailSubject: "Demande d’acte de décès", emailFull: "Madame, Monsieur, …"
+async function seedLegacyDocument(pathSegments, fields) {
+  const url = `http://${HOST}:${EMULATOR_PORT}/v1/projects/${EMULATOR_PROJECT_ID}/databases/(default)/documents/${pathSegments.map(encodeURIComponent).join("/")}`;
+  const typedFields = Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, { stringValue: value }]));
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: { Authorization: "Bearer owner", "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: typedFields })
   });
-  // Email reçu enrichi : ALLOW
-  await setDoc(sous("mail-recu"), {
-    type: "email-received", date: "2026-09-22", time: "10:30", direction: "none",
-    emailFrom: "Archivio di Stato di Varese", emailTo: "François Giovannoni",
-    emailSubject: "Re: consultation des registres militaires", emailFull: "La consultation est confirmée…"
-  });
-  // Email sans time ni emailSubject : ALLOW (champs additifs facultatifs)
-  await setDoc(sous("mail-minimal"), { type: "email-sent", date: "2026-09-24", emailFull: "sans objet" });
-  // Ancienne action (écrite avant l’ajout des champs email) : ALLOW
-  await setDoc(sous("mail-legacy"), { type: "email-received", date: "2026-08-01", text: "réponse du 1er août" });
-  // Note sans aucun champ email : ALLOW
-  await setDoc(sous("note-1"), { type: "note", date: "2026-09-25", text: "À revoir" });
-  // Rendez-vous sans champs email : ALLOW
-  await setDoc(sous("rdv-1"), { type: "appointment-confirmed", date: "2026-09-26" });
-  // time : "" → ALLOW (UI peut écrire l'heure vide) ; "09:30" / "09:30:15" → ALLOW
-  await setDoc(sous("mail-sans-time"), { type: "email-sent", date: "2026-09-24", time: "" });
-  await setDoc(sous("mail-time-hm"), { type: "email-sent", date: "2026-09-24", time: "09:30" });
-  await setDoc(sous("mail-time-hms"), { type: "email-sent", date: "2026-09-24", time: "09:30:15" });
-  // date : absent → ALLOW (déjà couvert plus haut) ; "" → ALLOW (UI écrit toujours le champ) ;
-  // date valide → ALLOW ; formats invalides → DENY ; type non-string → DENY.
-  await setDoc(sous("action-sans-date"), { type: "note" });
-  await setDoc(sous("action-date-vide"), { type: "note", date: "" });
-  await setDoc(sous("action-date-valide"), { type: "note", date: "2026-10-02" });
-  // type hors whitelist : DENY
-  await expectDenied(setDoc(sous("type-inconnu"), { type: "telepathie", date: "2026-09-25" }));
-  // champ email de mauvais type : DENY
-  await expectDenied(setDoc(sous("mail-type-invalide"), { type: "email-sent", date: "2026-09-25", emailFull: 42 }));
-  // date mal formée : DENY
-  await expectDenied(setDoc(sous("date-malformee"), { type: "note", date: "le 25 septembre" }));
-  // date avec slash : DENY
-  await expectDenied(setDoc(sous("date-slash"), { type: "note", date: "2026/10/02" }));
-  // date non-string : DENY
-  await expectDenied(setDoc(sous("date-non-string"), { type: "note", date: 20261002 }));
-  // direction hors liste : DENY
-  await expectDenied(setDoc(sous("direction-invalide"), { type: "note", direction: "x" }));
-  // time mal formé : DENY
-  await expectDenied(setDoc(sous("time-malforme"), { type: "email-sent", time: "trente" }));
-  // nettoyage
-  for (const id of ["mail-envoye", "mail-recu", "mail-minimal", "mail-legacy", "note-1", "rdv-1", "mail-sans-time", "mail-time-hm", "mail-time-hms", "action-sans-date", "action-date-vide", "action-date-valide"]) {
-    await deleteDoc(doc(db, "procedures", "dossier-parent-existant", "actions", id));
+  assert.equal(response.ok, true, `fixture Démarches créée dans l'émulateur local : HTTP ${response.status}`);
+}
+
+async function removeLegacyDocument(pathSegments) {
+  const url = `http://${HOST}:${EMULATOR_PORT}/v1/projects/${EMULATOR_PROJECT_ID}/databases/(default)/documents/${pathSegments.map(encodeURIComponent).join("/")}`;
+  const response = await fetch(url, { method: "DELETE", headers: { Authorization: "Bearer owner" } });
+  assert.equal(response.ok, true, `fixture Démarches nettoyée dans l'émulateur local : HTTP ${response.status}`);
+}
+
+async function assertLegacyPathsDeniedForCurrentUser() {
+  const dossierRef = doc(db, "procedures", LEGACY_DOSSIER_ID);
+  const actionRef = doc(db, "procedures", LEGACY_DOSSIER_ID, "actions", LEGACY_ACTION_ID);
+  const orphanActionRef = doc(db, "procedures", LEGACY_ABSENT_DOSSIER_ID, "actions", LEGACY_ORPHAN_ACTION_ID);
+  const newDossierRef = doc(db, "procedures", `${LEGACY_DOSSIER_ID}-new`);
+  const newActionRef = doc(db, "procedures", `${LEGACY_DOSSIER_ID}-new`, "actions", `${LEGACY_ACTION_ID}-new`);
+
+  await expectPermissionDenied(getDoc(dossierRef));
+  await expectPermissionDenied(getDocs(collection(db, "procedures")));
+  await expectPermissionDenied(getDoc(actionRef));
+  await expectPermissionDenied(getDocs(collection(db, "procedures", LEGACY_DOSSIER_ID, "actions")));
+  await expectPermissionDenied(getDoc(orphanActionRef));
+  await expectPermissionDenied(getDocs(collection(db, "procedures", LEGACY_ABSENT_DOSSIER_ID, "actions")));
+
+  await expectPermissionDenied(setDoc(newDossierRef, LEGACY_DOSSIER_FIELDS));
+  await expectPermissionDenied(updateDoc(dossierRef, { status: "done" }));
+  await expectPermissionDenied(deleteDoc(dossierRef));
+  await expectPermissionDenied(setDoc(newActionRef, LEGACY_ACTION_FIELDS));
+  await expectPermissionDenied(updateDoc(actionRef, { text: "mise à jour interdite" }));
+  await expectPermissionDenied(deleteDoc(actionRef));
+  await expectPermissionDenied(setDoc(orphanActionRef, LEGACY_ACTION_FIELDS));
+  await expectPermissionDenied(updateDoc(orphanActionRef, { text: "mise à jour orpheline interdite" }));
+  await expectPermissionDenied(deleteDoc(orphanActionRef));
+}
+
+test("anciens chemins Démarches : lecture, liste, création, mise à jour et suppression refusées sans connexion", async () => {
+  await signOutAll();
+  await assertLegacyPathsDeniedForCurrentUser();
+});
+
+test("anciens chemins Démarches : accès refusé à un utilisateur en attente", async () => {
+  await signOutAll();
+  const email = "legacy-pending-emulator@test-fictif.fr";
+  const credential = await createUserWithEmailAndPassword(auth, email, "legacy-pending-fictif-123");
+  await setDoc(doc(db, "users", credential.user.uid), { email, displayName: "Legacy pending", photo: "", role: "member", status: "pending" });
+  await assertLegacyPathsDeniedForCurrentUser();
+});
+
+test("anciens chemins Démarches : accès refusé même à l'admin principal", async () => {
+  await signIn(adminUid, ADMIN_EMAIL, ADMIN_PASSWORD);
+  try {
+    await seedLegacyDocument(["procedures", LEGACY_DOSSIER_ID], LEGACY_DOSSIER_FIELDS);
+    await seedLegacyDocument(["procedures", LEGACY_DOSSIER_ID, "actions", LEGACY_ACTION_ID], LEGACY_ACTION_FIELDS);
+    await seedLegacyDocument(["procedures", LEGACY_ABSENT_DOSSIER_ID, "actions", LEGACY_ORPHAN_ACTION_ID], LEGACY_ACTION_FIELDS);
+    await assertLegacyPathsDeniedForCurrentUser();
+  } finally {
+    await signOutAll();
+    await removeLegacyDocument(["procedures", LEGACY_DOSSIER_ID, "actions", LEGACY_ACTION_ID]);
+    await removeLegacyDocument(["procedures", LEGACY_ABSENT_DOSSIER_ID, "actions", LEGACY_ORPHAN_ACTION_ID]);
+    await removeLegacyDocument(["procedures", LEGACY_DOSSIER_ID]);
   }
+});
+
+test("anciens chemins Démarches : accès refusé à un membre approuvé", async () => {
+  await signIn(memberUid, MEMBER_EMAIL, MEMBER_PASSWORD);
+  await assertLegacyPathsDeniedForCurrentUser();
 });
 
 // ─── USERS — LISTE POUR LE SÉLECTEUR RESPONSABLE ──────────────────────────
