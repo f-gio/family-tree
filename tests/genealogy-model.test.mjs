@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { formatGenealogyDate, genealogyDateMatchesYear, genealogyDateSortValue, normalizeGenealogyDate } from "../js/genealogy-date.js";
 import { childLineType, normalizedParentChildLinks, parentChildLinkType } from "../js/family-relations.js";
-import { filterAndSortDirectory } from "../js/directory-utils.js";
+/* Implémentation runtime (directory-advanced) : même tri, filtres par bornes. */
+import { filterAndSortDirectory } from "../js/directory-advanced.js";
 import { isValidStoredDate } from "../js/backup-utils.js";
 
 assert.equal(formatGenealogyDate({ type: "exact", value: "1869-03-14" }), "14 mars 1869");
@@ -62,7 +63,7 @@ const people = [
   { id: "d", lastName: "Inconnu" }
 ];
 assert.deepEqual(filterAndSortDirectory(people, { sort: "birth-asc" }).map(item => item.id), ["a", "b", "c", "d"]);
-assert.deepEqual(filterAndSortDirectory(people, { birthYear: "1805" }).map(item => item.id), ["a"]);
+assert.deepEqual(filterAndSortDirectory(people, { birthYearFrom: "1805", birthYearTo: "1805" }).map(item => item.id), ["a"]);
 
 const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map(match => match[1]);

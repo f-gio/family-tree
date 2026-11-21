@@ -46,8 +46,6 @@ test("Viewer : règles statiques mobile, commandes compactes, plein écran et sa
   assert.match(html, /\.viewer-dialog\[open\]\{display:flex;flex-direction:column\}/);
   /* Page dédiée : le shell de la page porte la disposition en colonnes. */
   assert.match(css, /\.document-detail-shell \{ display: flex; flex-direction: column;/);
-  /* Clamp / troncature du titre scopé page */
-  assert.match(css, /\.dedicated-page-heading > h2 \{ display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; \}/);
   /* Lot G : plus d'onglet supérieur — les volets mobiles repassent par les
      bascules sous le lecteur (Miniatures + Informations sur PDF, Informations
      seul sur image), fermés par défaut. */

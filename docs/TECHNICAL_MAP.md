@@ -45,8 +45,8 @@
 
 ### 5. Documents et preuves
 - **Entrée** : `index.html` (`documentsView`, `documentDialog`, zone visionneuse) ; `genealogyView` pour les preuves.
-- **Modules** : `document-types.js`, `document-utils.js`, `document-delete.js`, `document-deletion-guard.js`, `genealogy-proofs.js`, `genealogy-proof-form.js`, `genealogy-identities.js`, `fact-conclusions.js`, `photograph-storage.js` / `photograph-preview.js` (**fondation non branchée** en runtime — rapport 6A J-01/J-02).
-- **Tests** : `document-types`, `document-deletion-guard`, `document-people-picker`, `document-menu-edit-mobile`, `document-detail-page`, `photograph-storage`, `genealogy-proofs`, `genealogy-proof-form`, `genealogy-identities`, `fact-conclusions`, `proof-detail-page`, `proof-association-removal`, `proof-guided-creation` (nécessite l'émulateur, se saute sinon).
+- **Modules** : `document-types.js`, `document-utils.js`, `document-delete.js`, `document-deletion-guard.js`, `genealogy-proofs.js`, `genealogy-proof-form.js`, `genealogy-identities.js`, `fact-conclusions.js`.
+- **Tests** : `document-types`, `document-deletion-guard`, `document-people-picker`, `document-menu-edit-mobile`, `document-detail-page`, `genealogy-proofs`, `genealogy-proof-form`, `genealogy-identities`, `fact-conclusions`, `proof-detail-page`, `proof-association-removal`, `proof-guided-creation` (nécessite l'émulateur, se saute sinon).
 - **Précautions** : suppression de document conditionnée par `documentDeletionBlockers` (liens personnes/sources/preuves) ; fichiers en chunks Firestore (700 Ko) ; modèles de preuve immuables avec révisions.
 
 ### 6. Sources officielles
@@ -111,7 +111,7 @@
 
 *Précision [V]* : seuls `final-qa.test.mjs` compare les modules cœur aux fixtures ; `interaction-language` et `responsive-accessibility` vérifient les **invariants** de règles (leur commentaire de fixture est ancien).
 
-**Éléments conservés sur décision documentée (rapports 6A/6B.1)** : `directoryEventYear` (gel du module `directory-utils`), les 21 exports « superflus » dont `family-relations`/`genealogy-date` sont sous contrat, `photograph-storage`/`photograph-preview` (fondation non branchée), `vendor/pdfjs` (référencé par des tests).
+**Éléments conservés sur décision documentée (rapports 6A/6B.1)** : `directoryEventYear` (gel du module `directory-utils`), les 21 exports « superflus » dont `family-relations`/`genealogy-date` sont sous contrat, `vendor/pdfjs` (référencé par des tests). *(Les modules `photograph-storage`/`photograph-preview`, fondation non branchée, ont été retirés en lot 6B final avec leur test unique.)*
 
 ## D. Hypothèses à confirmer [H]
 

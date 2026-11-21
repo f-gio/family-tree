@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { documentDisplayLabel } from "../js/document-utils.js";
-import { filterAndSortDirectory, formatDirectoryDate } from "../js/directory-utils.js";
+/* Migré vers l'implémentation réellement utilisée par l'application
+   (directory-advanced) : le runtime n'envoie que les clés avancées —
+   « Nom / prénom » = firstName, « Lieu » = birthPlace, années en bornes
+   De/À. Les attentes des cas restent inchangées. */
+import { filterAndSortDirectory } from "../js/directory-advanced.js";
+import { formatDirectoryDate } from "../js/directory-utils.js";
 import { formatGenealogyDate, genealogyDateMatchesYear, normalizeGenealogyDate } from "../js/genealogy-date.js";
 import { childLineType, normalizeEndType, normalizeRelationType, normalizedParentChildLinks, parentChildLinkType } from "../js/family-relations.js";
 import { calculateTreeLayout } from "../js/tree-layout.js";
@@ -49,10 +54,10 @@ staticCheck(18, "Vue Liste", () => includes('data-mode="list"', "list-mode"));
 staticCheck(19, "Vue Cartes", () => includes('data-mode="cards"', "cards-mode"));
 staticCheck(20, "Bascule Liste/Cartes", () => includes("setContentMode", "familyTreeViewModes"));
 automatic(21, "Recherche instantanée", () => assert.deepEqual(filterAndSortDirectory(people, { query: "maria" }).map(p => p.id), ["p1"]));
-automatic(22, "Filtre Nom", () => assert.deepEqual(filterAndSortDirectory(people, { name: "cerini" }).map(p => p.id), ["p2"]));
-automatic(23, "Filtre Lieu", () => assert.deepEqual(filterAndSortDirectory(people, { place: "orino" }).map(p => p.id), ["p1"]));
-automatic(24, "Filtre Naissance", () => assert.deepEqual(filterAndSortDirectory(people, { birthYear: "1870" }).map(p => p.id), ["p2"]));
-automatic(25, "Filtre Décès", () => assert.deepEqual(filterAndSortDirectory(people, { deathYear: "1932" }).map(p => p.id), ["p1", "p2"]));
+automatic(22, "Filtre Nom", () => assert.deepEqual(filterAndSortDirectory(people, { firstName: "cerini" }).map(p => p.id), ["p2"]));
+automatic(23, "Filtre Lieu", () => assert.deepEqual(filterAndSortDirectory(people, { birthPlace: "orino" }).map(p => p.id), ["p1"]));
+automatic(24, "Filtre Naissance", () => assert.deepEqual(filterAndSortDirectory(people, { birthYearFrom: "1870", birthYearTo: "1870" }).map(p => p.id), ["p2"]));
+automatic(25, "Filtre Décès", () => assert.deepEqual(filterAndSortDirectory(people, { deathYearFrom: "1932", deathYearTo: "1932" }).map(p => p.id), ["p1", "p2"]));
 automatic(26, "Tri A → Z", () => assert.deepEqual(filterAndSortDirectory(people, { sort: "name-asc" }).map(p => p.lastName), ["Alberti", "Cerini", "Giovannoni"]));
 automatic(27, "Tri Z → A", () => assert.deepEqual(filterAndSortDirectory(people, { sort: "name-desc" }).map(p => p.lastName), ["Giovannoni", "Cerini", "Alberti"]));
 automatic(28, "Tri plus ancien", () => assert.deepEqual(filterAndSortDirectory(people, { sort: "birth-asc" }).map(p => p.id), ["p1", "p2", "p3"]));
