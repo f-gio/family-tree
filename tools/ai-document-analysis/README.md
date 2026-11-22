@@ -1,22 +1,23 @@
 # Prototype local — transcription historique
 
-Prototype Windows expérimental, indépendant de La Nostra Storia, Firebase et du navigateur. Il conserve les images à leur emplacement d’origine, journalise localement les propositions et références, et calcule CER/WER quand une référence humaine existe. Florence-2-base est branché comme moteur OCR **local/CPU expérimental** ; cette intégration ne prouve pas sa qualité paléographique.
+Prototype Windows expérimental, indépendant de La Nostra Storia, Firebase et du navigateur. Il conserve les images à leur emplacement d’origine, journalise localement les propositions et références, et calcule CER/WER quand une référence humaine existe. **Aucun moteur IA n’est actuellement actif** : Florence-2-base a été abandonné après évaluation utilisateur.
 
-> `fixture-text` reste un moteur de test déterministe : il enregistre le texte saisi par l’opérateur et ne lit pas l’image. `florence-2-base` analyse réellement les pixels avec la tâche OCR, mais reste un modèle vision/OCR généraliste, pas un HTR entraîné pour la paléographie italienne. Toute sortie est une proposition non validée ; la confiance reste `unknown`.
+> `fixture-text` est le seul moteur sélectionnable : c’est une fixture déterministe qui enregistre le texte saisi par l’opérateur et **ne lit pas l’image**. Elle sert à vérifier le pipeline, l’interface, la traçabilité et les métriques. Elle ne produit pas une transcription et ne doit jamais être présentée comme une lecture de manuscrit. Les propositions déjà produites par Florence-2 restent consultables dans SQLite, marquées `florence-2-base`, sans pouvoir être rejouées.
 
 ## Architecture
 
 ```text
 Tkinter + Pillow (interface desktop locale)
      ├─ sélection/validation d’images JPEG/PNG → documents.py (chemin + SHA-256)
-     ├─ contrat TranscriptionEngine → fixture-text (non-IA) ou florence-2-base (OCR CPU)
-     ├─ florence_engine.py → Transformers/Torch CPU, révision et fichiers vérifiés
+     ├─ contrat TranscriptionEngine → registre available_engines() (engines.py)
      ├─ runner.py → validation de l’empreinte avant exécution
      ├─ storage.py → SQLite local (documents, exécutions, propositions, références, évaluations)
      └─ evaluation.py → CER/WER avec normalisation NFC + espaces uniquement
 ```
 
-Les références humaines sont append-only, numérotées par révision ; une nouvelle correction ne remplace pas les anciennes. Original, proposition et référence restent des enregistrements distincts. Les échecs et exécutions restées `running` au redémarrage sont conservés (`failed`/`interrupted`). L’inférence n’utilise pas le réseau ; seul le script explicite de téléchargement du modèle contacte Hugging Face pour des fichiers publics épinglés, sans envoyer d’image.
+Le registre `available_engines()` est le point d’extension : il ne contient aujourd’hui que `fixture-text`, et accueillera un futur moteur HTR sans toucher à l’interface, au runner ni au stockage.
+
+Les références humaines sont append-only, numérotées par révision ; une nouvelle correction ne remplace pas les anciennes. Original, proposition et référence restent des enregistrements distincts. Les échecs et exécutions restées `running` au redémarrage sont conservés (`failed`/`interrupted`). Le prototype n’établit aucune connexion réseau.
 
 ## Prérequis Windows
 
@@ -42,42 +43,43 @@ $basePython = "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe"
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Pillow (`requirements.txt`) est suffisant pour l’interface et fixture-text. Florence-2 s’exécute dans un **venv dédié** (`.venv-florence`) avec ses versions CPU épinglées dans `requirements-florence.txt` ; l’installation ne touche ni le Python système ni `.venv`.
+Pillow (`requirements.txt`) est la seule dépendance Python tierce nécessaire : interface, fixture et tests tournent dans `.venv`.
 
-## Installer Florence-2 (CPU, une seule fois)
+## Rejets locaux de Florence-2 (conservés, non exécutés)
 
-Depuis PowerShell, à la racine du dépôt :
+Florence-2-base a été retiré du code et des dépendances du dépôt après évaluation utilisateur. Les artefacts déjà présents sur ce PC restent **en place** et sont toujours ignorés par Git. Leur suppression est volontairement laissée à l’opérateur.
+
+| Élément | Emplacement | Taille relevée |
+|---|---|---|
+| Venv dédié Florence | `tools/ai-document-analysis/.venv-florence/` | 840 Mio (29 533 fichiers) |
+| Poids du checkpoint | `tools/ai-document-analysis/model-cache/` | 444 Mio (10 fichiers) |
+| Venv actif du prototype | `tools/ai-document-analysis/.venv/` | 26 Mio (1 118 fichiers) — **à conserver** |
+
+Le venv Florence contenait Python 3.13.17, Torch 2.14.1+cpu, torchvision 0.29.1+cpu, Transformers 4.46.3, Accelerate 1.16.0, timm 1.0.31, einops 0.8.2, Pillow 12.3.0 et psutil 7.2.2. Le cache contenait le snapshot `microsoft/Florence-2-base` révision `5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac`.
+
+Commandes de nettoyage **proposées, jamais exécutées par le projet** — à lancer manuellement depuis `tools/ai-document-analysis` si l’opérateur décide de récupérer ≈1,25 Go :
 
 ```powershell
-Set-Location "tools/ai-document-analysis"
-$basePython = "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe"
-if (!(Test-Path -LiteralPath .venv-florence)) { & $basePython -m venv .venv-florence }
-.\.venv-florence\Scripts\python.exe -m pip install -r requirements-florence.txt
-.\.venv-florence\Scripts\python.exe .\download_florence_model.py
+# À décider et exécuter manuellement ; aucune commande automatique n’est branchée.
+Remove-Item -LiteralPath .\.venv-florence -Recurse -Force
+Remove-Item -LiteralPath .\model-cache -Recurse -Force
 ```
 
-Les wheels PyTorch/torchvision installées sont CPU uniquement (Torch 2.14.1+cpu, torchvision 0.29.1+cpu). Les versions directes sont épinglées dans `requirements-florence.txt` et l’environnement résolu est figé dans `requirements-florence.lock.txt` : Transformers 4.46.3, Accelerate 1.16.0, timm 1.0.31, einops 0.8.2, Pillow 12.3.0 et psutil 7.2.2. Pas de CUDA, pilote, WSL ou Docker.
-
-`download_florence_model.py` télécharge uniquement les fichiers autorisés du dépôt Microsoft épinglé à `5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac`, vérifie leurs tailles/SHA-256 et n’est jamais appelé automatiquement par le programme. Le checkpoint safetensors fait 463 221 266 octets ; les fichiers `.bin` redondants ne sont pas téléchargés. Les poids et fichiers de modèle restent dans `model-cache/`, ignoré par Git.
-
-La fiche du modèle indique MIT pour le dépôt/checkpoint ; les fichiers Python personnalisés portent aussi des en-têtes Apache-2.0. Ils ont été inspectés à la révision épinglée avant chargement. Le chemin natif de Transformers 5.24 échouait sur le processeur de ce snapshot ; le venv Florence fixe Transformers 4.46.3, sous lequel le processeur personnalisé a passé le smoke test. Cette version exige `trust_remote_code=True` pour son processeur/modèle personnalisé ; le prototype ne l’autorise que sur ces fichiers locaux épinglés, après vérification des empreintes, avec `local_files_only=True` et mode Transformers/Hub hors ligne. Aucun code ou poids n’est récupéré depuis une révision mouvante à l’inférence.
-
-Le chargement est refusé si moins de 1 024 Mio de RAM physique sont disponibles avant de commencer. Ce seuil est un garde-fou initial pour préserver une marge pour Windows, et non une garantie d’absence d’épuisement de la mémoire : des applications concurrentes ou une page plus complexe peuvent encore épuiser la RAM. Fermer les applications lourdes puis réessayer si le contrôle bloque ; interrompre et relancer si Windows signale une pression mémoire.
+Ne pas supprimer `.venv` : il porte l’interface, la fixture et les tests. Supprimer `.venv-florence` et `model-cache` n’affecte ni SQLite, ni les documents référencés, ni les propositions historiques.
 
 ## Démarrer l’interface locale
 
 ```powershell
-.\.venv-florence\Scripts\python.exe .\run.py
+.\.venv\Scripts\python.exe .\run.py
 ```
 
 Dans l’interface :
 
 1. **Référencer des images…** ouvre un sélecteur JPEG/PNG. Les fichiers ne sont pas copiés ni modifiés ; SQLite conserve leur chemin, SHA-256, format et dimensions. Le chemin est relu à chaque ouverture/exécution.
 2. Sélectionner un document, faire défiler l’image et utiliser `+ Zoom` / `− Zoom` ou Ctrl+molette.
-3. Choisir `florence-2-base` dans la liste **Moteur** puis lancer : le modèle lit les pixels en CPU. Le chargement/inférence se fait dans un worker pour garder l’interface réactive ; l’image reste affichée.
-4. `fixture-text` demande un texte saisi par l’opérateur et l’enregistre comme proposition d’essai ; cette fonction ne transcrit pas les pixels.
-5. Sélectionner les propositions dans la liste pour les comparer visuellement à la référence et voir CER/WER s’ils sont calculables.
-6. Corriger le champ de référence puis **Enregistrer nouvelle référence humaine**. Le nom/ID de la personne qui relit et une confirmation explicite sont requis ; une nouvelle révision est ajoutée, jamais écrite à la place de la précédente.
+3. La liste **Moteur** ne propose aujourd’hui que `fixture-text` : choisir un texte, lancer, et l’enregistrement se fait dans un worker pour garder l’interface réactive. Cette fonction ne transcrit pas les pixels.
+4. Sélectionner les propositions dans la liste — y compris les propositions historiques `florence-2-base` — pour les comparer visuellement à la référence et voir CER/WER s’ils sont calculables.
+5. Corriger le champ de référence puis **Enregistrer nouvelle référence humaine**. Le nom/ID de la personne qui relit et une confirmation explicite sont requis ; une nouvelle révision est ajoutée, jamais écrite à la place de la précédente.
 
 Ne jamais enregistrer comme référence humaine un texte que personne n’a vérifié sur l’image.
 
@@ -89,7 +91,6 @@ Le même programme accepte ces commandes depuis le répertoire du prototype :
 .\.venv\Scripts\python.exe .\run.py import "C:\Archives\Registro è\pagina 1.jpg"
 .\.venv\Scripts\python.exe .\run.py list
 .\.venv\Scripts\python.exe .\run.py run-fixture "sha256:<empreinte affichée par list>" --text "texte d’essai saisi"
-.\.venv-florence\Scripts\python.exe .\run.py run-florence "sha256:<empreinte affichée par list>"
 .\.venv\Scripts\python.exe .\run.py reference "sha256:<empreinte>" --reviewer "initiales" --text "transcription relue"
 .\.venv\Scripts\python.exe .\run.py evaluate "sha256:<empreinte>"
 .\.venv\Scripts\python.exe .\run.py summary
@@ -97,7 +98,7 @@ Le même programme accepte ces commandes depuis le répertoire du prototype :
 
 `--text` doit être fourni explicitement pour l’adaptateur de fixture. Les arguments CLI peuvent être conservés dans l’historique du terminal ; pour des transcriptions privées, préférer l’interface ou un fichier protégé, et ne pas employer une machine partagée.
 
-`run-florence` nécessite `.venv-florence` et le cache modèle déjà vérifié. Il ne télécharge rien et échoue explicitement si le modèle est absent.
+La commande `run-florence` a été retirée : `run.py run-florence …` est désormais refusé par argparse (code 2). Les exécutions Florence passées restent lisibles via `list`, `evaluate` et `summary`.
 
 ## Données locales et configuration
 
@@ -132,35 +133,29 @@ Depuis ce dossier :
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Les fixtures sont générées en mémoire/répertoire temporaire (images synthétiques sans donnée d’archive). Les tests ne configurent ni réseau ni Firebase.
+Les fixtures sont générées en mémoire/répertoire temporaire (images synthétiques sans donnée d’archive). Les tests ne configurent ni réseau ni Firebase, ne chargent aucun modèle et n’utilisent que `.venv`.
 
-Les tests unitaires sans modèle utilisent `.venv`. Le test d’inférence réelle est isolé et opt-in (`.venv-florence`, cache vérifié, image synthétique uniquement) :
+## Ajouter un moteur ultérieur
 
-```powershell
-$env:FLORENCE_RUN_INTEGRATION = "1"
-\.venv-florence\Scripts\python.exe -m unittest discover -s tests_integration -v
-Remove-Item Env:FLORENCE_RUN_INTEGRATION
-```
+Tout moteur futur implémente le contrat `TranscriptionEngine` (`document_analysis/contracts.py`) et s’enregistre dans `available_engines()` (`document_analysis/engines.py`). L’interface Tkinter, la CLI, le runner et SQLite n’ont pas besoin d’être modifiés : le registre pilote la liste **Moteur**, et la configuration est vide par défaut (seule `fixture-text` demande un texte à l’opérateur).
 
-## Adaptateur Florence-2 et remplacement ultérieur
+Un adaptateur doit retourner un `EngineResult` complet (texte, référence de modèle, durée, coût ou `None` + `cost_status`, confiance, provenance structurée) sans jamais écraser les propositions ni les références humaines existantes. La durée de chargement `model_load_ms` reste dans le contrat et dans SQLite : elle est conservée pour les exécutions Florence historiques.
 
-`document_analysis/florence_engine.py` implémente `TranscriptionEngine`, utilise le prompt OCR officiel `<OCR>`, conserve le texte décodé brut dans la provenance et restitue la sortie post-traitée séparément. L’inférence est CPU (`float16`), sans appel web ; le coût de service est 0 EUR (énergie électrique non comptée), confiance `unknown`. Si un autre moteur est ajouté, il doit respecter le même contrat dans `document_analysis/contracts.py`/`engines.py`, sans remplacer les sorties brutes ni les références humaines.
+Avant d’ajouter un moteur : examiner licence, taille du modèle, matériel, provenance, confidentialité, tarifs et possibilité hors ligne. Ne pas mettre de clé dans Git ou le client, ne pas activer automatiquement une API et ne pas faire de seconde lecture « indépendante » avec la même sortie. Évaluer tout moteur selon le [protocole du lot 9](../../docs/ai-document-analysis/EVALUATION_PROTOCOL.md).
 
-Avant d’ajouter un autre moteur : examiner licence, taille du modèle, matériel, provenance, confidentialité, tarifs et possibilité hors ligne. Ne pas mettre de clé dans Git ou le client, ne pas activer automatiquement une API et ne pas faire de seconde lecture « indépendante » avec la même sortie. Évaluer tout moteur selon le [protocole du lot 9](../../docs/ai-document-analysis/EVALUATION_PROTOCOL.md).
+**Prochaine piste retenue : un moteur HTR spécialisé en écritures italiennes anciennes**, et non un modèle de vision généraliste. Aucun téléchargement ni installation d’un autre moteur n’est engagé pour l’instant.
 
 ## Limites actuelles
 
-- Aucun moteur HTR entraîné spécifiquement pour l’italien historique n’est intégré ; Florence-2-base est un OCR vision généraliste.
-- Le modèle peut traiter une page complète sans détecteur de lignes séparé, mais il peut coller les lignes en sortie et ne fournit pas de confiance calibrée. La sortie brute est conservée pour contrôle.
+- **Aucun moteur IA réel n’est actif** : seul `fixture-text` (non-IA) est sélectionnable ; il ne lit pas les pixels.
+- Florence-2-base a été abandonné après évaluation utilisateur : transcription largement incohérente sur une lettre manuscrite italienne, inférence CPU d’environ 97 secondes, forte pression sur la RAM et difficultés de chargement d’une nouvelle image.
+- Pas de moteur HTR entraîné spécifiquement pour l’italien historique ; c’est la prochaine piste à évaluer.
 - Pas de PDF, multipage, segmentation de lignes/colonnes, ancres, variantes de lecture ou édition structurée diplomatique dans le prototype actuel.
-- L’OCR sur page peut fusionner des lignes (constaté sur la page synthétique). Ne pas inférer l’ordre des colonnes ou annoter des marges sans contrôle humain.
 - La correction humaine est un texte diplomatique brut versionné ; le champ note est disponible dans la base, mais pas encore exposé à l’interface.
 - L’interface est desktop locale Tkinter, non une page web et non l’atelier de La Nostra Storia.
 - Le registre SQLite n’est ni une base officielle ni synchronisé avec Firestore ; aucune donnée généalogique n’y est intégrée.
 - Les références de fichiers pointent sur l’emplacement original. Si le fichier est déplacé ou changé, il faut le sélectionner/importer à nouveau ; si son contenu a changé, l’exécution est bloquée par la comparaison SHA-256.
 
-Le premier essai réel a utilisé une page **synthétique imprimée**, pas un manuscrit historique. Il produit une sortie issue des pixels, mais aucune mesure CER/WER n’est présentée faute de référence humaine ; les CER catalogue d’autres moteurs ne s’appliquent pas à Florence. Les durées et la mémoire mesurées lors du test d’intégration sont reportées dans `docs/ai-document-analysis/ENGINE_EVALUATION_11.md`.
-
 ### Évaluation moteur IA — lot 11
 
-La comparaison documentaire et le test réel de Florence sont consignés dans [`ENGINE_EVALUATION_11.md`](../../docs/ai-document-analysis/ENGINE_EVALUATION_11.md). Transkribus `Italian Administrative Hands, 1550–1700` (`htrId=48299`) reste le candidat plus spécialisé, mais son API exige un plan Scholar (99 €/an), un compte et un DPA avant toute donnée personnelle ; il n’est pas branché. Florence-2-base est le moteur OCR local expérimental intégré. Les images familiales restent locales.
+L’évaluation comparative, le test synthétique et les mesures Florence sont archivés dans [`ENGINE_EVALUATION_11.md`](../../docs/ai-document-analysis/ENGINE_EVALUATION_11.md), qui porte désormais la mention d’abandon. Les propositions Florence déjà enregistrées restent dans SQLite avec leur provenance d’origine. Transkribus `Italian Administrative Hands, 1550–1700` (`htrId=48299`) demeure le candidat HTR le plus spécialisé, mais son API exige un plan Scholar (99 €/an), un compte et un DPA avant toute donnée personnelle : il n’est pas branché. Les images familiales restent locales.

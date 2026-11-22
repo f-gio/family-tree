@@ -46,9 +46,6 @@ def run_cli() -> int:
     run = commands.add_parser("run-fixture", help="Lancer la fixture déterministe non-IA")
     run.add_argument("document_id")
     run.add_argument("--text", required=True, help="Texte fourni explicitement ; aucune lecture d’image")
-    florence = commands.add_parser("run-florence", help="Transcrire réellement une image avec Florence-2 en local/CPU")
-    florence.add_argument("document_id")
-    florence.add_argument("--max-new-tokens", type=int, default=512)
     reference = commands.add_parser("reference", help="Ajouter une nouvelle révision de référence humaine")
     reference.add_argument("document_id")
     reference.add_argument("--text", required=True)
@@ -75,19 +72,6 @@ def run_cli() -> int:
             run_id, result = run_engine(local_store, args.document_id, available_engines()["fixture-text"], {"text": args.text}, maximum_image_bytes=CONFIG["maximum_image_bytes"])
             print(f"Exécution {run_id} — moteur fixture-text (non IA) — coût local : 0 EUR.")
             print("Proposition fixture :")
-            print(result.text)
-            return 0
-        if args.command == "run-florence":
-            run_id, result = run_engine(
-                local_store,
-                args.document_id,
-                available_engines()["florence-2-base"],
-                {"max_new_tokens": args.max_new_tokens},
-                maximum_image_bytes=CONFIG["maximum_image_bytes"],
-            )
-            print(f"Exécution {run_id} — Florence-2-base en CPU — coût de service : 0 EUR.")
-            print(f"Chargement modèle : {result.model_load_ms} ms · inférence : {result.duration_ms} ms")
-            print("Proposition OCR non validée :")
             print(result.text)
             return 0
         if args.command == "reference":
@@ -134,7 +118,7 @@ def launch_gui() -> None:
 
     toolbar = ttk.Frame(root, padding=8)
     toolbar.pack(fill="x")
-    ttk.Label(toolbar, text="Prototype local — Florence-2 OCR expérimental, sorties non validées", foreground="#8a4f17").pack(side="left", padx=(0, 16))
+    ttk.Label(toolbar, text="Prototype local — aucun moteur IA actif, sorties non validées", foreground="#8a4f17").pack(side="left", padx=(0, 16))
     status = tk.StringVar(value=f"Données locales : {local_store.database_path}")
     ttk.Label(root, textvariable=status, padding=(8, 0)).pack(fill="x")
     panes = ttk.Panedwindow(root, orient="horizontal")
@@ -275,28 +259,26 @@ def launch_gui() -> None:
             messagebox.showinfo("Document requis", "Importez puis sélectionnez une image locale.")
             return
         engine_id = engine_choice.get()
+        engine = engine_registry.get(engine_id)
+        if engine is None:
+            messagebox.showerror("Moteur indisponible", "Choisissez un moteur proposé dans la liste.")
+            return
         configuration = {}
         if engine_id == "fixture-text":
             text = simpledialog.askstring("Fixture locale non-IA", "Texte fixture à enregistrer comme proposition de démonstration :", parent=root)
             if text is None:
                 return
             configuration["text"] = text
-        elif engine_id == "florence-2-base":
-            configuration["max_new_tokens"] = 512
-        else:
-            messagebox.showerror("Moteur indisponible", "Choisissez un moteur proposé dans la liste.")
-            return
 
         document_id = selected_id
         run_engine_button.configure(state="disabled")
-        status.set(f"{engine_id} : chargement/inférence en cours sur CPU…")
+        status.set(f"{engine_id} : exécution en cours…")
 
         def complete_success(_run_id, result):
             if root.winfo_exists():
                 show_document()
                 status.set(
-                    f"{engine_id} : chargement {result.model_load_ms} ms · "
-                    f"inférence {result.duration_ms} ms · proposition à vérifier"
+                    f"{engine_id} : exécution {result.duration_ms} ms · proposition à vérifier"
                 )
                 run_engine_button.configure(state="normal")
 
@@ -311,7 +293,7 @@ def launch_gui() -> None:
                 run_id, result = run_engine(
                     local_store,
                     document_id,
-                    engine_registry[engine_id],
+                    engine,
                     configuration,
                     DEFAULT_INSTRUCTIONS,
                     CONFIG["maximum_image_bytes"],
@@ -327,7 +309,7 @@ def launch_gui() -> None:
                 except RuntimeError:
                     pass
 
-        threading.Thread(target=worker, name=f"{engine_id}-inference", daemon=True).start()
+        threading.Thread(target=worker, name=f"{engine_id}-run", daemon=True).start()
 
     def import_images() -> None:
         paths = filedialog.askopenfilenames(

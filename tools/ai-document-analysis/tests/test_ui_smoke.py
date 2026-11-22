@@ -40,8 +40,12 @@ class LocalUiSmokeTests(unittest.TestCase):
                 window.update()
                 engine_menu = next(
                     widget for widget in children(window)
-                    if widget.winfo_class() == "TCombobox" and "florence-2-base" in widget.cget("values")
+                    if widget.winfo_class() == "TCombobox" and "fixture-text" in widget.cget("values")
                 )
+                if list(engine_menu.cget("values")) != ["fixture-text"]:
+                    raise AssertionError(
+                        f"Seul fixture-text doit rester sélectionnable : {engine_menu.cget('values')}"
+                    )
                 engine_menu.set("fixture-text")
                 run_button = next(button for button in children(window) if button.winfo_class() == "TButton" and "Lancer le moteur choisi" in button.cget("text"))
                 run_button.invoke()
@@ -80,22 +84,22 @@ class LocalUiSmokeTests(unittest.TestCase):
             finally:
                 app.DATABASE = previous_database
 
-    def test_selection_florence_branche_le_moteur_mock_sans_affirmer_une_inference_reelle(self):
+    def test_selection_d_un_moteur_le_branche_en_arriere_plan_sans_bloquer_l_interface(self):
         with tempfile.TemporaryDirectory() as folder:
             root_folder = Path(folder)
             image_path = root_folder / "page-test.png"
             Image.new("RGB", (24, 20), "white").save(image_path)
-            database_path = root_folder / "private" / "smoke-florence.sqlite3"
+            database_path = root_folder / "private" / "smoke-engine.sqlite3"
             previous_database = app.DATABASE
 
-            class FlorenceWiringDouble:
-                engine_id = "florence-2-base"
+            class LongRunningEngineDouble:
+                engine_id = "moteur-factice-long"
 
                 def transcribe(self, request):
                     return EngineResult(
                         engine_id=self.engine_id,
-                        model_reference="mock-ui-routing-test",
-                        text="OCR double de câblage (pas une inférence)",
+                        model_reference="double-de-cablage-unitaire",
+                        text="Sortie du moteur de test (pas une inférence réelle)",
                         duration_ms=1,
                         cost_eur=0.0,
                         cost_status="known",
@@ -119,12 +123,12 @@ class LocalUiSmokeTests(unittest.TestCase):
                         window.withdraw()
                         button = next(widget for widget in children(window) if widget.winfo_class() == "TButton" and "Référencer des images" in widget.cget("text"))
                         button.invoke()
-                        engine_menu = next(widget for widget in children(window) if widget.winfo_class() == "TCombobox" and "florence-2-base" in widget.cget("values"))
-                        engine_menu.set("florence-2-base")
+                        engine_menu = next(widget for widget in children(window) if widget.winfo_class() == "TCombobox" and "moteur-factice-long" in widget.cget("values"))
+                        engine_menu.set("moteur-factice-long")
                         run_button = next(widget for widget in children(window) if widget.winfo_class() == "TButton" and "Lancer le moteur choisi" in widget.cget("text"))
                         start = time.monotonic()
                         run_button.invoke()
-                        self.assertLess(time.monotonic() - start, 0.5, "L’interface doit rendre la main pendant l’inférence.")
+                        self.assertLess(time.monotonic() - start, 0.5, "L’interface doit rendre la main pendant l’exécution.")
                         document_id = app.store().list_documents()[0]["document_id"]
                         deadline = time.monotonic() + 10
 
@@ -132,12 +136,12 @@ class LocalUiSmokeTests(unittest.TestCase):
                             try:
                                 rows = app.store().list_results(document_id)
                                 text_widgets = [widget for widget in children(window) if isinstance(widget, tk.Text)]
-                                if rows and rows[0]["status"] == "succeeded" and "OCR double de câblage" in text_widgets[0].get("1.0", "end-1c"):
-                                    self.assertEqual(rows[0]["engine_id"], "florence-2-base")
+                                if rows and rows[0]["status"] == "succeeded" and "Sortie du moteur de test" in text_widgets[0].get("1.0", "end-1c"):
+                                    self.assertEqual(rows[0]["engine_id"], "moteur-factice-long")
                                     window.destroy()
                                     return
                                 if time.monotonic() >= deadline:
-                                    raise AssertionError("Le moteur mock n’a pas terminé son parcours UI.")
+                                    raise AssertionError("Le moteur factice n’a pas terminé son parcours UI.")
                                 window.after(20, poll_result)
                             except Exception as error:
                                 failures.append(str(error))
@@ -153,7 +157,7 @@ class LocalUiSmokeTests(unittest.TestCase):
 
             app.DATABASE = database_path
             try:
-                with patch("document_analysis.app.available_engines", return_value={"florence-2-base": FlorenceWiringDouble()}), \
+                with patch("document_analysis.app.available_engines", return_value={"moteur-factice-long": LongRunningEngineDouble()}), \
                      patch("tkinter.filedialog.askopenfilenames", return_value=[str(image_path)]), \
                      patch("tkinter.messagebox.showerror", side_effect=lambda _title, message: failures.append(message)), \
                      patch.object(tk.Misc, "mainloop", mainloop_automatique):

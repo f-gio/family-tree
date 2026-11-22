@@ -1,6 +1,13 @@
 # Lot 11 — évaluation préalable des moteurs de transcription
 
-**État après autorisation utilisateur :** le checkpoint Florence-2-base de Microsoft/Hugging Face est présent dans le cache local, sa révision et son empreinte sont vérifiées, et il est intégré au prototype comme OCR local CPU expérimental. Une inférence réelle a été exécutée hors ligne sur une image synthétique ; aucun compte, API, service cloud, archive familiale ou coût de service n’a été utilisé. Le candidat HTR Transkribus reste non activé.
+> **Décision finale : Florence-2-base abandonné.** À la suite de l’évaluation utilisateur sur une lettre manuscrite italienne, le moteur a été retiré du prototype (interface Tkinter et CLI) pour **qualité paléographique insuffisante** : transcription largement incohérente, inférence CPU d’environ 97 secondes, forte pression sur la RAM et difficultés rencontrées lors du chargement d’une nouvelle image.
+>
+> - **Aucun moteur IA réel n’est actuellement actif** dans `tools/ai-document-analysis` : seul `fixture-text`, fixture déterministe non-IA, reste sélectionnable.
+> - **Prochaine piste : un moteur HTR spécialisé** en écritures italiennes anciennes, et non un modèle de vision généraliste. Aucun téléchargement ni installation d’un autre moteur n’est engagé.
+> - **Données préservées** : les exécutions et propositions Florence déjà enregistrées dans SQLite restent intactes, avec leur provenance d’origine ; elles sont consultables mais non rejouables. Le venv `.venv-florence` et le cache `model-cache` n’ont pas été supprimés — emplacements, tailles et commandes de nettoyage manuelles dans le [README du prototype](../../tools/ai-document-analysis/README.md).
+> - Le reste de ce document constitue l’**archive de l’évaluation du lot 11**, conservée telle quelle.
+
+**État initial après autorisation utilisateur :** le checkpoint Florence-2-base de Microsoft/Hugging Face est présent dans le cache local, sa révision et son empreinte sont vérifiées, et il avait été intégré au prototype comme OCR local CPU expérimental. Une inférence réelle a été exécutée hors ligne sur une image synthétique ; aucun compte, API, service cloud, archive familiale ou coût de service n’a été utilisé. Le candidat HTR Transkribus reste non activé.
 
 ## 1. PC local — constat vérifié
 
@@ -16,7 +23,7 @@ Diagnostic Windows local, sans changement des paramètres système :
 | Disque C: | 495 343 104 000 octets, dont 82 769 305 600 libres au relevé (≈ 77,1 Gio) |
 | Python prototype | 3.13.17 x64 ; venv et Tkinter 8.6 ; Pillow 12.3.0 |
 | Python de base (`.venv`) | Pillow 12.3.0 ; pas de paquet ML |
-| Venv dédié `.venv-florence` | Python 3.13.17 x64, Torch 2.14.1+cpu, torchvision 0.29.1+cpu, Transformers 4.46.3, Accelerate 1.16.0, timm 1.0.31, einops 0.8.2, Pillow 12.3.0, psutil 7.2.2 ; versions complètes dans `requirements-florence.lock.txt` |
+| Venv dédié `.venv-florence` (toujours présent sur le PC, ignoré par Git) | Python 3.13.17 x64, Torch 2.14.1+cpu, torchvision 0.29.1+cpu, Transformers 4.46.3, Accelerate 1.16.0, timm 1.0.31, einops 0.8.2, Pillow 12.3.0, psutil 7.2.2 ; le fichier de versions `requirements-florence.lock.txt` a été retiré du dépôt lors de l’abandon |
 
 L’installation Python a été faite en mode utilisateur au lot précédent. Le PATH utilisateur contient le répertoire Python mais la session PowerShell héritée ne l’avait pas rechargé ; les commandes du prototype emploient le chemin explicite. Aucun pilote, CUDA, WSL ou autre composant système n’a été installé ici.
 
@@ -38,27 +45,31 @@ L’installation Python a été faite en mode utilisateur au lot précédent. Le
 
 Les CER ci-dessus sont des chiffres réellement publiés par les fiches/catalogues cités, mais les corpus sont différents, certains jeux sont non divulgués, et les conditions d’annotation/test ne sont pas nécessairement comparables. **Aucun de ces nombres n’est une mesure sur les documents de l’utilisateur.** La fiche `Italian Administrative Hands` fournit validation 12,2 % (33 pages), pas un résultat indépendant/scellé. Florence a produit une transcription sur une image imprimée synthétique, mais aucun CER/WER n’est calculable faute de référence humaine et ce résultat ne démontre rien sur la cursive historique.
 
-## 3. Décision moteur et options
+## 3. Décision initiale du lot (caduque après évaluation utilisateur)
 
-Le moteur local effectivement branché est **Florence-2-base**, l’unique exécution qui respecte localité des images et budget nul après autorisation du checkpoint. Sa pertinence paléographique reste à établir. Le candidat spécialisé le plus proche du corpus demeure **Transkribus Italian Administrative Hands 1550–1700 (`htrId=48299`)** : la fiche documente notamment des fonds de Milan et un usage partiel du latin, mais il reste une piste externe à autoriser, pas un moteur de cette intégration.
+> Les paragraphes de cette section décrivent la décision prise au moment du lot 11. Elle est **remplacée par l’abandon de Florence-2-base** consigné en tête de document : le moteur n’est plus sélectionnable, et aucun autre moteur IA n’est actif.
+
+Le moteur local qui avait été branché est **Florence-2-base**, l’unique exécution qui respectait localité des images et budget nul après autorisation du checkpoint. Sa pertinence paléographique n’a pas été établie et s’est révélée insuffisante en évaluation utilisateur. Le candidat spécialisé le plus proche du corpus demeure **Transkribus Italian Administrative Hands 1550–1700 (`htrId=48299`)** : la fiche documente notamment des fonds de Milan et un usage partiel du latin, mais il reste une piste externe à autoriser, pas un moteur de cette intégration.
 
 Conclusions demandées :
 
-A. **Meilleure option locale gratuite :** Florence-2-base, maintenant installé et réellement exécutable sur CPU. Son checkpoint modèle est MIT, avec sources personnalisées sous en-têtes Apache-2.0. Le fonctionnement OCR est démontré sur texte imprimé synthétique uniquement ; il n’est pas prouvé qu’il lise correctement les cursives anciennes. Le PC lit la génération CPU, mais la lenteur mesurée rend le traitement en lot coûteux en temps.
+A. **Meilleure option locale gratuite à l’époque :** Florence-2-base, alors installé et réellement exécutable sur CPU. Son checkpoint modèle est MIT, avec sources personnalisées sous en-têtes Apache-2.0. Le fonctionnement OCR n’était démontré que sur texte imprimé synthétique ; il n’a jamais été prouvé qu’il lise correctement les cursives anciennes, et l’évaluation sur manuscrit a échoué. Le PC lit la génération CPU, mais la lenteur mesurée rendait le traitement en lot coûteux en temps.
 
 B. **Meilleure option gratuite externe :** essai manuel Transkribus Free (50 crédits/mois affichés, reconnaissance texte à 1 crédit/page). Il faut un compte et l’image est transférée au fournisseur ; ce n’est pas l’API utilisable par le prototype. Utilisation uniquement sur une image non personnelle, librement utilisable, après autorisation expresse.
 
 C. **Option la plus spécialisée pour l’archive ancienne italienne :** Transkribus `Italian Administrative Hands 1550–1700` (`48299`), mais inférence via service/compte, sans poids local publiés identifiés, API Scholar payante, transfert d’image et condition DPA pour données personnelles. Modèle à tester sur un petit échantillon licite avant toute conclusion de qualité.
 
-**Pour la première intégration qui reste strictement locale et gratuite, Florence-2-base est le seul moteur retenu dans ce lot.** Ce choix permet le test technique sans service externe, pas une affirmation qu’il est le meilleur paléographe. Pour une reconnaissance véritablement spécialisée, `48299` reste à évaluer ultérieurement sous autorisation/coûts/DPA distincts.
+**Pour la première intégration qui reste strictement locale et gratuite, Florence-2-base avait été le seul moteur retenu dans ce lot.** Ce choix permettait le test technique sans service externe, pas une affirmation qu’il est le meilleur paléographe — l’évaluation sur manuscrit a confirmé l’inverse. Pour une reconnaissance véritablement spécialisée, `48299` reste à évaluer ultérieurement sous autorisation/coûts/DPA distincts.
 
 Il n’y a pas d’intégration API Transkribus ni d’essai de transcription externe. L’accès programmatique est réservé au plan Scholar ou supérieur, affiché à **99 €/an**, au-dessus du budget de travail de 3 €/mois. Le plan Free (50 crédits/mois) permet l’usage du site mais pas l’API ; il ne satisfait donc pas le besoin d’un moteur directement branché au prototype.
 
 Le fournisseur indique que les jobs API utilisent l’image transmise, acceptent une seule image par requête (max. 20 Mo), produisent texte/lignes/coordonnées, et conservent les résultats 24 h. La page de confidentialité READ-COOP précise aussi une exigence de DPA avant transfert de données personnelles et l’interdiction de documents contenant des données personnelles sans cet accord. La politique générale et le flux API ont des formulations de rétention différentes ; il faut obtenir une confirmation/DPA écrite avant d’envoyer une archive personnelle. Aucun document n’a été transmis pour l’évaluation.
 
-### Vérification reproductible du moteur local et conditions pour la suite
+### Vérification reproductible du moteur local (désormais retirée du dépôt)
 
-**Florence-2-base en local :** le checkpoint safetensors de **463 221 266 octets (~442 Mio)** est présent dans le cache local et son SHA-256 a été vérifié : `03075d2d2d2bbd3e180b9ba0afae4aa8563226e2d32911656966e05b2f2ee060`. Il correspond à la révision `5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac`. Le script explicite `python download_florence_model.py` vérifie les fichiers épinglés et ne les retélécharge pas si le cache est déjà complet.
+> **Ces commandes ne sont plus exécutables** : `download_florence_model.py`, `requirements-florence.txt`, `requirements-florence.lock.txt`, `florence_engine.py` et la suite `tests_integration/` ont été retirés du dépôt lors de l’abandon. Elles sont conservées ci-dessous comme archive de la procédure du lot 11. Le venv `.venv-florence` et le cache `model-cache` existent toujours localement ; leur suppression manuelle est documentée dans le [README du prototype](../../tools/ai-document-analysis/README.md).
+
+**Florence-2-base en local (état du lot 11) :** le checkpoint safetensors de **463 221 266 octets (~442 Mio)** est présent dans le cache local et son SHA-256 avait été vérifié : `03075d2d2d2bbd3e180b9ba0afae4aa8563226e2d32911656966e05b2f2ee060`. Il correspond à la révision `5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac`. Le script explicite `python download_florence_model.py` (retiré) vérifiait les fichiers épinglés et ne les retéléchargeait pas si le cache était complet.
 
 ```powershell
 cd tools\ai-document-analysis
@@ -70,7 +81,7 @@ $env:TRANSFORMERS_OFFLINE = "1"
 .\.venv-florence\Scripts\python.exe -m unittest discover -s tests_integration -v
 ```
 
-Ces commandes sont exécutées avec le venv dédié `.venv-florence`, sans CUDA ni service externe durant l’inférence. Le jeu de dépendances est figé dans `requirements-florence.lock.txt` ; le dépôt complet vaut environ 1,94 Go parce qu’il contient aussi un checkpoint `.bin` redondant qui n’est pas nécessaire. Le test d’intégration emploie une image synthétique et interdit les sockets. La fiche du dépôt indique MIT ; les sources personnalisées de configuration/modèle/processeur portent des en-têtes Apache-2.0. Le cache du modèle et les venv sont locaux et exclus de Git.
+Ces commandes étaient exécutées avec le venv dédié `.venv-florence`, sans CUDA ni service externe durant l’inférence. Le jeu de dépendances était figé dans `requirements-florence.lock.txt` ; le dépôt complet vaut environ 1,94 Go parce qu’il contient aussi un checkpoint `.bin` redondant qui n’est pas nécessaire. Le test d’intégration employait une image synthétique et interdisait les sockets. La fiche du dépôt indique MIT ; les sources personnalisées de configuration/modèle/processeur portent des en-têtes Apache-2.0. Le cache du modèle et les venv sont locaux et exclus de Git.
 
 **Résultat réel sur image synthétique imprimée :** texte de référence dessiné : `ATTO DI NASCITA\nGiovanni Bianchi - 1902` ; proposition Florence : `ATTO DI NASCITAGiovanni Bianchi - 1902`. Lors de la dernière exécution d’intégration : chargement 1 407 ms, génération 97 007 ms, transcription totale 97 054 ms. RAM disponible : 1 148,2 Mio avant chargement, 929,0 Mio après chargement, 537,4 Mio après inférence ; RSS du processus : 354,8 Mio puis 818,8 Mio. Mesure ponctuelle, sans CER/WER humain ; la sortie a fusionné les lignes. Le moteur refuse désormais de démarrer si moins de 1 024 Mio de RAM sont disponibles avant le chargement, pour préserver une marge système.
 
@@ -81,7 +92,7 @@ Ces commandes sont exécutées avec le venv dédié `.venv-florence`, sans CUDA 
 3. Avant toute image contenant des informations relatives à des personnes, obtenir et signer le DPA requis par READ-COOP. Pour un premier essai sans DPA, fournir une image synthétique ou librement utilisable, sans données personnelles, et autoriser explicitement son transfert au service en Autriche.
 4. Après ces étapes seulement, une intégration API nécessiterait une autorisation séparée sur le token et les images nominativement sélectionnées. Les identifiants seraient conservés hors Git, dans les variables d’environnement ou un stockage local protégé. Aucun secret ou original ne sera ajouté au dépôt.
 
-Florence-2-base est le seul moteur réel effectivement intégré ; `fixture-text` demeure disponible comme fixture déterministe non-IA. Le résultat Florence confirme seulement le bon fonctionnement technique sur texte imprimé synthétique. Aucun moteur alternatif purement local suffisamment adapté et officiellement supporté sur ce PC n’a été confirmé.
+**Conclusion du lot 11 après évaluation utilisateur :** Florence-2-base est abandonné et retiré du prototype ; `fixture-text` demeure la seule option, fixture déterministe non-IA qui ne lit pas les pixels. **Aucun moteur IA réel n’est actuellement actif.** Le résultat Florence n’a établi que le bon fonctionnement technique sur un texte imprimé synthétique, pas une qualité paléographique : sur une lettre manuscrite italienne, la transcription a été largement incohérente, pour ~97 s d’inférence CPU et une forte pression mémoire. **Prochaine piste : un moteur HTR spécialisé** en écritures italiennes anciennes (le candidat `48299` reste à évaluer sous autorisation/coûts/DPA distincts), car aucun moteur alternatif purement local suffisamment adapté et officiellement supporté sur ce PC n’a été confirmé.
 
 ## 4. Sources officielles consultées (2026-11-22)
 

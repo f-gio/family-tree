@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import time
-from pathlib import Path
 
 from .contracts import EngineRequest, EngineResult, TranscriptionEngine
-from .florence_engine import Florence2Engine
 
 DEFAULT_INSTRUCTIONS = """Transcription diplomatique : conserver graphies, accents, abréviations et ponctuation visibles.
 Ne pas normaliser les noms, compléter les lacunes ni inventer les passages illisibles.
@@ -40,8 +38,11 @@ class FixtureTextEngine:
         )
 
 
-def available_engines(model_dir: str | Path | None = None) -> dict[str, TranscriptionEngine]:
-    """Adaptateurs disponibles ; l’import des dépendances ML reste différé."""
-    engines: dict[str, TranscriptionEngine] = {FixtureTextEngine.engine_id: FixtureTextEngine()}
-    engines[Florence2Engine.engine_id] = Florence2Engine(model_dir=model_dir)
-    return engines
+def available_engines() -> dict[str, TranscriptionEngine]:
+    """Adaptateurs sélectionnables dans l’interface et la CLI.
+
+    Aucun moteur IA n’est actif : Florence-2-base a été abandonné après
+    évaluation utilisateur. Le registre reste le point d’extension pour un
+    futur moteur HTR respectant le contrat TranscriptionEngine.
+    """
+    return {FixtureTextEngine.engine_id: FixtureTextEngine()}

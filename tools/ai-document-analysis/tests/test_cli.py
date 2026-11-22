@@ -1,20 +1,16 @@
 from __future__ import annotations
 
 import json
-import io
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
 from PIL import Image
 
-from document_analysis import app
+from document_analysis.engines import available_engines
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -71,22 +67,24 @@ class CliWorkflowTests(unittest.TestCase):
             self.assertEqual(counts["evaluations"], 1)
             self.assertEqual(counts["documents_evaluated"], 1)
 
-    def test_commande_florence_affiche_une_proposition_et_les_durees(self):
-        fake_result = SimpleNamespace(
-            model_load_ms=1450, duration_ms=98700, text="OCR local de démonstration",
-        )
-        output = io.StringIO()
-        with patch.object(sys, "argv", ["run.py", "run-florence", "sha256:synthetique"]), \
-             patch("document_analysis.app.store", return_value=object()), \
-             patch("document_analysis.app.available_engines", return_value={"florence-2-base": object()}), \
-             patch("document_analysis.app.run_engine", return_value=("run-factice-test", fake_result)) as run:
-            with redirect_stdout(output):
-                self.assertEqual(app.run_cli(), 0)
-        self.assertEqual(run.call_args.args[1], "sha256:synthetique")
-        self.assertIn("Florence-2-base en CPU", output.getvalue())
-        self.assertIn("1450 ms", output.getvalue())
-        self.assertIn("98700 ms", output.getvalue())
-        self.assertIn("OCR local de démonstration", output.getvalue())
+    def test_florence_n_est_plus_un_moteur_disponible(self):
+        self.assertEqual(set(available_engines()), {"fixture-text"})
+
+    def test_commande_run_florence_a_ete_retiree_de_la_cli(self):
+        with tempfile.TemporaryDirectory() as folder:
+            environment = os.environ.copy()
+            environment["DOCUMENT_ANALYSIS_DATA_DIR"] = str(Path(folder) / "data")
+            environment["DOCUMENT_ANALYSIS_CONFIG"] = str(ROOT / "config.example.json")
+            rejected = subprocess.run(
+                [sys.executable, str(ROOT / "run.py"), "run-florence", "sha256:synthetique"],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        self.assertEqual(rejected.returncode, 2, rejected.stderr)
+        self.assertIn("run-florence", rejected.stderr)
 
 
 if __name__ == "__main__":
