@@ -123,3 +123,7 @@ Avant ajout : examiner licence, taille du modèle, matériel, provenance, traite
 - L’interface est desktop locale Tkinter, non une page web et non l’atelier de La Nostra Storia.
 - Le registre SQLite n’est ni une base officielle ni synchronisé avec Firestore ; aucune donnée généalogique n’y est intégrée.
 - Les références de fichiers pointent sur l’emplacement original. Si le fichier est déplacé ou changé, il faut le sélectionner/importer à nouveau ; si son contenu a changé, l’exécution est bloquée par la comparaison SHA-256.
+
+### Évaluation moteur IA — lot 11
+
+Une comparaison documentaire locale est consignée dans [`ENGINE_EVALUATION_11.md`](../../docs/ai-document-analysis/ENGINE_EVALUATION_11.md). Elle recommande Transkribus `Italian Administrative Hands, 1550–1700` (`htrId=48299`) pour l’adéquation paléographique, mais son API exige un plan Scholar (99 €/an), un compte et un DPA avant traitement de données personnelles. Florence-2-base est le meilleur candidat local gratuit à évaluer, mais son poids (≈442 Mio) et ses dépendances n’ont pas été installés, et sa qualité sur ces écritures n’est pas établie. Aucun modèle n’a été téléchargé, aucune archive transmise ; `fixture-text` reste le seul moteur réellement disponible et n’effectue aucune reconnaissance.
