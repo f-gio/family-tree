@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.py[cod]
+.local-data/
+results/
+private-data/
+model-cache/
+.env
+config.json
+*.sqlite
+*.sqlite3
+*.db

@@ -1,0 +1,6 @@
+{
+  "data_dir": ".local-data",
+  "maximum_image_bytes": 52428800,
+  "budget_monthly_eur": 3.0,
+  "external_calls_enabled": false
+}
