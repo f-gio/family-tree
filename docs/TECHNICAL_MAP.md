@@ -8,7 +8,7 @@
 
 | Élément | Référence [V] |
 |---|---|
-| Page unique | `index.html` (~890 lignes) : import map (50 entrées), sprite SVG (71 symboles), markup de toutes les vues, bloc `<style>` court |
+| Page unique | `index.html` (~890 lignes) : import map (51 entrées), sprite SVG (71 symboles), markup de toutes les vues, bloc `<style>` court |
 | Points d'entrée JS | `js/form-ui.js` (validation globale des formulaires, autonome, sans import) + `js/app.js` (~17 400 lignes, orchestrateur) |
 | Styles | `css/design-system.css` (feuille générale, aucun `@import`) + `css/print-sheet.css` (**chargée juste après** — impression, contrat d'ordre de cascade) ; tokens `--color-* / --space-* / --radius-*` |
 | Version des assets | meta `asset-release` dans `index.html` + toutes les refs `?v=` (voir AGENTS.md §Build) |

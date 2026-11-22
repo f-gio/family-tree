@@ -2,7 +2,7 @@
 
 > Objectif : choisir le bon test sans redécouvrir la structure du dépôt à chaque intervention.
 > Complète `docs/TECHNICAL_MAP.md` (domaine → fichiers) et `AGENTS.md` (règles).
-> **109 fichiers** `tests/*.test.mjs` au total : **57 sans Playwright** (famille `unit`), **52 avec Playwright** (famille `browser`).
+> **110 fichiers** `tests/*.test.mjs` au total : **58 sans Playwright** (famille `unit`), **52 avec Playwright** (famille `browser`).
 
 ## 1. Commandes
 
