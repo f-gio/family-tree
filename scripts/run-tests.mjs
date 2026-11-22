@@ -10,7 +10,19 @@
          tests/*.test.mjs AVEC Playwright
      --filter <texte>  ne retient que les fichiers dont le nom contient
                        <texte> (insensible à la casse) — ex. --filter person
+     --concurrency <n> fichiers de test exécutés en parallèle (n >= 1).
+                       Défaut : 1 pour la famille browser, concurrence native
+                       de Node pour la famille unit.
      --list            liste les fichiers retenus sans exécuter
+
+   Pourquoi browser = 1 par défaut : sous concurrence native (8 cœurs → 7
+   fichiers simultanés), la campagne complète échoue de façon non reproductible
+   sur des assertions de visibilité ou de délai (3 campagnes sur 3 : 2 à 5
+   échecs, toujours des tests différents, tous verts en exécution isolée).
+   Exécutée séquentiellement, la même campagne est verte (408 tests, 0 échec,
+   ≈18 min). La cause démontrée est la charge, pas le code : aucun test n'est
+   désactivé et aucun délai n'est relevé. --concurrency accélère une session
+   locale au prix de cette stabilité.
 
    Le code de sortie du sous-processus est propagé tel quel (aucun échec masqué).
    Aucun accès réseau ni Firebase : les garde-fous des tests s'appliquent. */
@@ -32,8 +44,18 @@ if (filterIndex >= 0 && !filter) {
   console.error("--filter exige un texte");
   process.exit(2);
 }
+const concurrencyIndex = process.argv.indexOf("--concurrency");
+const concurrency = concurrencyIndex >= 0 ? process.argv[concurrencyIndex + 1] : null;
+if (concurrencyIndex >= 0 && !concurrency) {
+  console.error("--concurrency exige un entier >= 1");
+  process.exit(2);
+}
+if (concurrency && !/^[1-9]\d*$/.test(concurrency)) {
+  console.error(`--concurrency invalide : « ${concurrency} » (entier >= 1 attendu)`);
+  process.exit(2);
+}
 if (!families.includes(family)) {
-  console.error("usage : node scripts/run-tests.mjs <unit|browser> [--filter <texte>] [--list]");
+  console.error("usage : node scripts/run-tests.mjs <unit|browser> [--filter <texte>] [--concurrency <n>] [--list]");
   process.exit(2);
 }
 
@@ -49,14 +71,18 @@ if (selected.length === 0) {
   console.error(`run-tests : aucun fichier dans la famille ${family}${filter ? ` (filter: ${filter})` : ""}`);
   process.exit(1);
 }
-console.log(`Famille ${family}${filter ? ` / filtre « ${filter} »` : ""} : ${selected.length} fichier(s) sur ${all.length}`);
+const workers = concurrency ?? (family === "browser" ? "1" : null);
+console.log(`Famille ${family}${filter ? ` / filtre « ${filter} »` : ""} : ${selected.length} fichier(s) sur ${all.length} · concurrence : ${workers ?? "native Node"}`);
 
 if (listOnly) {
   for (const name of selected) console.log(`  tests/${name}`);
   process.exit(0);
 }
 
-const result = spawnSync(process.execPath, ["--test", ...selected.map(name => `tests/${name}`)], {
+const nodeArgs = ["--test"];
+if (workers) nodeArgs.push(`--test-concurrency=${workers}`);
+nodeArgs.push(...selected.map(name => `tests/${name}`));
+const result = spawnSync(process.execPath, nodeArgs, {
   cwd: ROOT,
   stdio: "inherit"
 });

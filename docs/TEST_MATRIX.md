@@ -10,8 +10,9 @@
 |---|---|---|---|
 | `npm run test:unit` | Tous les tests **sans Playwright** (57 fichiers) | Aucune | **594 tests / ≈3 s** (mesuré) |
 | `npm run test:unit -- --filter <texte>` | Sous-groupe unitaire : noms de fichiers contenant `<texte>` (ex. `person`, `tree`, `directory`) | Aucune | instantané |
-| `npm run test:browser` | Tous les tests **avec Playwright** (52 fichiers) | Navigateurs Playwright installés | non mesuré dans ce lot |
+| `npm run test:browser` | Tous les tests **avec Playwright** (52 fichiers), **1 fichier à la fois** | Navigateurs Playwright installés | **408 tests / ≈18 min** (mesuré) |
 | `npm run test:browser -- --filter <texte>` | Sous-groupe navigateur (ex. `person` → 7 fichiers) | Navigateurs | idem |
+| `npm run test:browser -- --concurrency <n>` | Jeu navigateur exécuté en parallèle (`n >= 1`) — **plus rapide mais instable** | Navigateurs | voir §3 |
 | `npm run test:firestore` | Règles + intégration Firestore (**78 tests**) | Émulateurs locaux auto-lancés (JAVA requis) ; projet fictif `family-tree-emulator-test` | **≈25–40 s** (mesuré) |
 | `npm run test:responsive` | Suite responsive historique (viewports réels) | Navigateurs | — |
 | `node --test tests/<fichier>.test.mjs` | Un fichier précis | Selon le fichier | <1 s (unitaire) |
@@ -20,7 +21,7 @@
 | `npm run bump:assets -- <jeton>` | Bump déterministe du jeton dans `index.html` (62 occurrences) | Aucune | instantané |
 | `npm run build:recette` / `npm run build:production` | Artefacts locaux **non déployés** (`dist-*`, gitignorés) | `node_modules` | quelques secondes (258 / 274 fichiers) |
 
-Règles d'usage : le code de sortie est propagé (aucun échec masqué) ; les familles ne contactent jamais Firebase distant ; privilégier `test:unit` + le `--filter` de la zone avant toute campagne plus large.
+Règles d'usage : le code de sortie est propagé (aucun échec masqué) ; les familles ne contactent jamais Firebase distant ; privilégier `test:unit` + le `--filter` de la zone avant toute campagne plus large. **Lancer `test:browser` sans `--concurrency`** : la concurrence 1 est la valeur validée pour une campagne complète stable (voir §3).
 
 ## 2. Matrice zone → fichiers → commandes
 
@@ -51,6 +52,7 @@ Règles d'usage : le code de sortie est propagé (aucun échec masqué) ; les fa
 | `document-viewer-pdf-production.test.mjs` | Playwright **Chromium + WebKit** et serveur local requis. |
 | `emulator-guard.test.mjs` | Pur : valide les gardes avec des environnements factices, aucun émulateur. |
 | `helpers.mjs` | Non un test : serveur statique + garde réseau partagés par les tests navigateur. |
+| `scripts/run-tests.mjs` | Sélecteur de familles + option `--concurrency`. **La famille `browser` tourne avec `--test-concurrency=1` par défaut** : en concurrence native (7 fichiers simultanés sur 8 cœurs), 3 campagnes complètes sur 3 ont échoué (2 à 5 échecs, toujours des tests différents, tous verts isolément). À 1 worker, la même campagne est verte : 408 tests / 0 échec / ≈18 min. La cause est la charge, pas le code — aucun test désactivé, aucun délai relevé. |
 | Fixtures `tests/fixtures/v16-v18` | **Jamais exécutées, jamais modifiées** (snapshots historiques, §C de la carte). |
 | Tests qui lisent des fichiers vivants | `final-qa`, `interaction-language`, `responsive-accessibility` : relisent `index.html`, `design-system.css`, `app.js`, `firestore.rules` — un changement de ces fichiers les concerne. |
 
