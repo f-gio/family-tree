@@ -33,7 +33,7 @@ class FixtureEngineTests(unittest.TestCase):
     def test_contrat_refuse_un_cout_inconnu_presenté_comme_zero(self):
         result = SimpleNamespace(
             engine_id="candidate", text="lecture", duration_ms=1, cost_status="unknown",
-            cost_eur=0, confidence="unknown", provenance={}, errors=(),
+            cost_eur=0, confidence="unknown", model_load_ms=0, provenance={}, errors=(),
         )
         with self.assertRaisesRegex(ValueError, "doit rester nul"):
             validate_engine_result(result, "candidate")

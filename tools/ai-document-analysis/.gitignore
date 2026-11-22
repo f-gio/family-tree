@@ -1,4 +1,5 @@
 .venv/
+.venv-florence/
 __pycache__/
 *.py[cod]
 .local-data/

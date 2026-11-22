@@ -13,6 +13,8 @@ def validate_engine_result(result, expected_engine_id: str) -> None:
         raise TypeError("Le texte moteur doit être une chaîne.")
     if not isinstance(result.duration_ms, int) or isinstance(result.duration_ms, bool) or result.duration_ms < 0:
         raise ValueError("La durée moteur doit être un entier positif ou nul.")
+    if not isinstance(result.model_load_ms, int) or isinstance(result.model_load_ms, bool) or result.model_load_ms < 0:
+        raise ValueError("La durée de chargement du modèle doit être un entier positif ou nul.")
     if result.confidence not in {"high", "medium", "low", "unknown"}:
         raise ValueError("La confiance doit être high, medium, low ou unknown.")
     if result.cost_status not in {"known", "unknown", "not-applicable"}:

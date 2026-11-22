@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import tempfile
+import sqlite3
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from PIL import Image
@@ -80,6 +82,44 @@ class StorageTests(unittest.TestCase):
         reopened = LocalStore(self.store.database_path)
         self.assertEqual(reopened.list_results(self.document.document_id)[0]["status"], "interrupted")
         self.assertEqual(reopened.list_results(self.document.document_id)[0]["run_id"], run_id)
+
+    def test_migration_locale_ajoute_la_duree_de_chargement_sans_perdre_les_runs(self):
+        database = self.root / "old" / "prototype.sqlite3"
+        database.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(database)) as connection:
+            with connection as db:
+                db.executescript("""
+                    CREATE TABLE documents (
+                        document_id TEXT PRIMARY KEY, path TEXT NOT NULL, sha256 TEXT NOT NULL UNIQUE,
+                        mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL,
+                        width INTEGER NOT NULL, height INTEGER NOT NULL, added_at TEXT NOT NULL
+                    );
+                    CREATE TABLE runs (
+                        run_id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(document_id),
+                        engine_id TEXT NOT NULL, model_reference TEXT, configuration_json TEXT NOT NULL,
+                        configuration_sha256 TEXT NOT NULL, instructions TEXT NOT NULL,
+                        instructions_sha256 TEXT NOT NULL, status TEXT NOT NULL,
+                        started_at TEXT NOT NULL, completed_at TEXT, duration_ms INTEGER,
+                        cost_eur REAL, cost_status TEXT NOT NULL, error_json TEXT
+                    );
+                """)
+                db.execute("INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+                    self.document.document_id, str(self.image_path), self.document.sha256,
+                    self.document.mime_type, self.document.size_bytes, self.document.width,
+                    self.document.height, "2026-11-22T10:00:00+00:00",
+                ))
+                db.execute("INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (
+                    "old-run", self.document.document_id, "fixture-text", "fixture-v1", "{}", "config-hash",
+                    "instructions", "instructions-hash", "succeeded", "2026-11-22T10:00:00+00:00",
+                    "2026-11-22T10:00:01+00:00", 1000, 0.0, "known", None,
+                ))
+        migrated = LocalStore(database)
+        row = migrated.list_results(self.document.document_id)[0]
+        self.assertEqual(row["run_id"], "old-run")
+        self.assertEqual(row["engine_id"], "fixture-text")
+        self.assertEqual(row["status"], "succeeded")
+        self.assertEqual(row["duration_ms"], 1000)
+        self.assertEqual(row["model_load_ms"], 0)
 
 
 if __name__ == "__main__":

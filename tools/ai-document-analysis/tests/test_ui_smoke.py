@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -9,6 +10,7 @@ import tkinter as tk
 from PIL import Image
 
 from document_analysis import app
+from document_analysis.contracts import EngineResult
 from document_analysis.storage import LocalStore
 
 
@@ -36,9 +38,20 @@ class LocalUiSmokeTests(unittest.TestCase):
                 import_button = next(button for button in buttons if "Référencer des images" in button.cget("text"))
                 import_button.invoke()
                 window.update()
-                fixture_button = next(button for button in children(window) if button.winfo_class() == "TButton" and "Adapter fixture" in button.cget("text"))
-                fixture_button.invoke()
+                engine_menu = next(
+                    widget for widget in children(window)
+                    if widget.winfo_class() == "TCombobox" and "florence-2-base" in widget.cget("values")
+                )
+                engine_menu.set("fixture-text")
+                run_button = next(button for button in children(window) if button.winfo_class() == "TButton" and "Lancer le moteur choisi" in button.cget("text"))
+                run_button.invoke()
+                deadline = time.monotonic() + 10
+                while app.store().summary()["runs"] == 0 and time.monotonic() < deadline:
+                    window.update()
+                    time.sleep(0.01)
                 window.update()
+                if app.store().summary()["runs"] != 1:
+                    raise AssertionError("La fixture UI n’a pas terminé son exécution en arrière-plan.")
                 text_widgets = [child for child in children(window) if isinstance(child, tk.Text)]
                 text_widgets[-1].insert("1.0", "Trascrizione di prova")
                 save_button = next(button for button in children(window) if button.winfo_class() == "TButton" and "Enregistrer nouvelle référence humaine" in button.cget("text"))
@@ -64,6 +77,88 @@ class LocalUiSmokeTests(unittest.TestCase):
                 self.assertEqual(state.summary()["documents"], 1)
                 self.assertEqual(state.summary()["runs"], 1)
                 self.assertEqual(state.summary()["references"], 1)
+            finally:
+                app.DATABASE = previous_database
+
+    def test_selection_florence_branche_le_moteur_mock_sans_affirmer_une_inference_reelle(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root_folder = Path(folder)
+            image_path = root_folder / "page-test.png"
+            Image.new("RGB", (24, 20), "white").save(image_path)
+            database_path = root_folder / "private" / "smoke-florence.sqlite3"
+            previous_database = app.DATABASE
+
+            class FlorenceWiringDouble:
+                engine_id = "florence-2-base"
+
+                def transcribe(self, request):
+                    return EngineResult(
+                        engine_id=self.engine_id,
+                        model_reference="mock-ui-routing-test",
+                        text="OCR double de câblage (pas une inférence)",
+                        duration_ms=1,
+                        cost_eur=0.0,
+                        cost_status="known",
+                        confidence="unknown",
+                        provenance={"kind": "unit-test-double", "run_id": request.run_id},
+                    )
+
+            def children(parent):
+                result = []
+                for child in parent.winfo_children():
+                    result.append(child)
+                    result.extend(children(child))
+                return result
+
+            failures = []
+            original_mainloop = tk.Misc.mainloop
+
+            def mainloop_automatique(window, *args, **kwargs):
+                def drive_window():
+                    try:
+                        window.withdraw()
+                        button = next(widget for widget in children(window) if widget.winfo_class() == "TButton" and "Référencer des images" in widget.cget("text"))
+                        button.invoke()
+                        engine_menu = next(widget for widget in children(window) if widget.winfo_class() == "TCombobox" and "florence-2-base" in widget.cget("values"))
+                        engine_menu.set("florence-2-base")
+                        run_button = next(widget for widget in children(window) if widget.winfo_class() == "TButton" and "Lancer le moteur choisi" in widget.cget("text"))
+                        start = time.monotonic()
+                        run_button.invoke()
+                        self.assertLess(time.monotonic() - start, 0.5, "L’interface doit rendre la main pendant l’inférence.")
+                        document_id = app.store().list_documents()[0]["document_id"]
+                        deadline = time.monotonic() + 10
+
+                        def poll_result():
+                            try:
+                                rows = app.store().list_results(document_id)
+                                text_widgets = [widget for widget in children(window) if isinstance(widget, tk.Text)]
+                                if rows and rows[0]["status"] == "succeeded" and "OCR double de câblage" in text_widgets[0].get("1.0", "end-1c"):
+                                    self.assertEqual(rows[0]["engine_id"], "florence-2-base")
+                                    window.destroy()
+                                    return
+                                if time.monotonic() >= deadline:
+                                    raise AssertionError("Le moteur mock n’a pas terminé son parcours UI.")
+                                window.after(20, poll_result)
+                            except Exception as error:
+                                failures.append(str(error))
+                                window.destroy()
+
+                        window.after(20, poll_result)
+                    except Exception as error:
+                        failures.append(str(error))
+                        window.destroy()
+
+                window.after_idle(drive_window)
+                return original_mainloop(window, *args, **kwargs)
+
+            app.DATABASE = database_path
+            try:
+                with patch("document_analysis.app.available_engines", return_value={"florence-2-base": FlorenceWiringDouble()}), \
+                     patch("tkinter.filedialog.askopenfilenames", return_value=[str(image_path)]), \
+                     patch("tkinter.messagebox.showerror", side_effect=lambda _title, message: failures.append(message)), \
+                     patch.object(tk.Misc, "mainloop", mainloop_automatique):
+                    app.launch_gui()
+                self.assertEqual(failures, [])
             finally:
                 app.DATABASE = previous_database
 

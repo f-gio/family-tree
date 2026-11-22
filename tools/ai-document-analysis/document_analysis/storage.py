@@ -53,6 +53,7 @@ class LocalStore:
                     configuration_sha256 TEXT NOT NULL, instructions TEXT NOT NULL,
                     instructions_sha256 TEXT NOT NULL, status TEXT NOT NULL,
                     started_at TEXT NOT NULL, completed_at TEXT, duration_ms INTEGER,
+                    model_load_ms INTEGER NOT NULL DEFAULT 0,
                     cost_eur REAL, cost_status TEXT NOT NULL, error_json TEXT
                 );
                 CREATE TABLE IF NOT EXISTS proposals (
@@ -73,6 +74,9 @@ class LocalStore:
                     UNIQUE(proposal_id, reference_id)
                 );
             """)
+            run_columns = {row["name"] for row in db.execute("PRAGMA table_info(runs)")}
+            if "model_load_ms" not in run_columns:
+                db.execute("ALTER TABLE runs ADD COLUMN model_load_ms INTEGER NOT NULL DEFAULT 0")
             db.execute(
                 """UPDATE runs SET status='interrupted', completed_at=?,
                    error_json=? WHERE status='running'""",
@@ -119,10 +123,10 @@ class LocalStore:
     def finish_run(self, run_id: str, result: EngineResult) -> None:
         with self._connect() as db:
             db.execute(
-                """UPDATE runs SET status = ?, model_reference = ?, completed_at = ?, duration_ms = ?,
+                """UPDATE runs SET status = ?, model_reference = ?, completed_at = ?, duration_ms = ?, model_load_ms = ?,
                    cost_eur = ?, cost_status = ?, error_json = ? WHERE run_id = ?""",
                 ("failed" if result.errors else "succeeded", result.model_reference, utc_now(),
-                 result.duration_ms, result.cost_eur, result.cost_status,
+                 result.duration_ms, result.model_load_ms, result.cost_eur, result.cost_status,
                  json.dumps(result.errors, ensure_ascii=False), run_id),
             )
             if not result.errors:

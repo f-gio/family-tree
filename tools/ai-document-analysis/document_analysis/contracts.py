@@ -23,6 +23,7 @@ class EngineResult:
     cost_eur: float | None
     cost_status: str
     confidence: str
+    model_load_ms: int = 0
     errors: tuple[dict[str, Any], ...] = ()
     provenance: dict[str, Any] = field(default_factory=dict)
 
