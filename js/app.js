@@ -12,6 +12,7 @@ import { computeBranchView, DEFAULT_ANCESTOR_DEPTH, ALL_ANCESTORS } from "./tree
 import { computeLineageScope, normalizeLineageName } from "./family-lineage.js";
 import { MAIN_TREE_ID, UNASSIGNED_TREE_STATE, UNASSIGNED_TREE_CHOICE, TREE_LIFECYCLE_ACTIVE, TREE_LIFECYCLE_DELETING, MAX_MULTI_TREE_TRANSFER_PEOPLE, MAX_MULTI_TREE_TRANSFER_READS, getTreeLifecycleState, getTreeDeletionMemberReport, getPersonTreeId, getPersonTreeMembership, getTreePeople, getTreeFamilies, isValidTreeId, familyPersonIds, prepareIndividualTreeTransferPlan, prepareMultipleTreeTransferPlan } from "./tree-model.js";
 import { documentDisplayLabel } from "./document-utils.js";
+import { createDocumentFileStore } from "./document-file-storage.js";
 import { documentTypeOptionsMarkup, documentTypeFilterOptionsMarkup, documentTypeHistoricalValues } from "./document-types.js";
 import { deleteDocumentAndChunks } from "./document-delete.js";
 import { documentDeletionBlockers } from "./document-deletion-guard.js";
@@ -164,6 +165,17 @@ const refs = {
   genealogyEvents: collection(db, "genealogyEvents"),
   genealogyNotifications: collection(db, "genealogyNotifications")
 };
+const documentFileStore = createDocumentFileStore({
+  chunkReference: (documentId, version, index) => doc(db, "documentChunks", documentChunkId(documentId, version, index)),
+  setDoc, deleteDoc, getDoc, Bytes, splitBytesIntoChunks, collectChunkParts, concatByteArrays, base64ToBytes,
+  chunkSize: FILE_CHUNK_BYTES
+});
+const { writeFileChunks: writeFileChunksInStore, deleteFileChunks, readChunkedFile } = documentFileStore;
+function writeFileChunks(documentId, version, fileBlob) {
+  return writeFileChunksInStore(documentId, version, fileBlob, percent => {
+    $("documentProgress").textContent = `Envoi du fichier… ${percent} %`;
+  });
+}
 const genealogyStore = createGenealogyCollaborationStore(db, { doc, runTransaction, serverTimestamp, collection, query, where, getDocs });
 
 let people = [], families = [], documents = [], tasks = [];
@@ -12693,55 +12705,6 @@ async function optimizeFile(file) {
     console.warn("Optimisation d’image ignorée", error);
     return unchanged;
   }
-}
-
-function chunkReference(documentId, version, index) {
-  return doc(db, "documentChunks", documentChunkId(documentId, version, index));
-}
-
-async function writeFileChunks(documentId, version, fileBlob) {
-  const bytes = new Uint8Array(await fileBlob.arrayBuffer());
-  const parts = splitBytesIntoChunks(bytes, FILE_CHUNK_BYTES);
-  const count = parts.length;
-  let written = 0;
-  try {
-    for (let index = 0; index < count; index++) {
-      const part = parts[index];
-      await setDoc(chunkReference(documentId, version, index), {
-        documentId,
-        version,
-        index,
-        data: Bytes.fromUint8Array(part),
-        encoding: "bytes"
-      });
-      written++;
-      $("documentProgress").textContent = `Envoi du fichier… ${Math.round(written / count * 100)} %`;
-    }
-    return count;
-  } catch (error) {
-    await deleteFileChunks({ id: documentId, chunkVersion: version, chunkCount: written });
-    throw error;
-  }
-}
-
-async function deleteFileChunks(item) {
-  if (!item?.id || !item?.chunkVersion || !item?.chunkCount) return;
-  for (let index = 0; index < item.chunkCount; index++) {
-    await deleteDoc(chunkReference(item.id, item.chunkVersion, index)).catch(console.warn);
-  }
-}
-
-async function readChunkedFile(item) {
-  const reads = [];
-  for (let index = 0; index < item.chunkCount; index++) reads.push(getDoc(chunkReference(item.id, item.chunkVersion, index)));
-  const snapshots = await Promise.all(reads);
-  const parts = collectChunkParts(index => {
-    const snapshot = snapshots[index];
-    if (!snapshot.exists()) return null;
-    const data = snapshot.data().data;
-    return typeof data === "string" ? base64ToBytes(data) : data.toUint8Array();
-  }, item.chunkCount);
-  return new Blob([concatByteArrays(parts)], { type: item.mimeType || "application/octet-stream" });
 }
 
 async function zipLibrary() {

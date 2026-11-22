@@ -9,7 +9,7 @@
 | Élément | Référence [V] |
 |---|---|
 | Page unique | `index.html` (~890 lignes) : import map (50 entrées), sprite SVG (71 symboles), markup de toutes les vues, bloc `<style>` court |
-| Points d'entrée JS | `js/form-ui.js` (validation globale des formulaires, autonome, sans import) + `js/app.js` (~17 450 lignes, orchestrateur) |
+| Points d'entrée JS | `js/form-ui.js` (validation globale des formulaires, autonome, sans import) + `js/app.js` (~17 400 lignes, orchestrateur) |
 | Styles | `css/design-system.css` (feuille générale, aucun `@import`) + `css/print-sheet.css` (**chargée juste après** — impression, contrat d'ordre de cascade) ; tokens `--color-* / --space-* / --radius-*` |
 | Version des assets | meta `asset-release` dans `index.html` + toutes les refs `?v=` (voir AGENTS.md §Build) |
 | CDN / local | SDK Firebase `gstatic` 12.2.1 (import direct), JSZip (import dynamique CDN), `vendor/pdfjs/` (local, régénéré par le build depuis `pdfjs-dist`) |
@@ -45,7 +45,7 @@
 
 ### 5. Documents et preuves
 - **Entrée** : `index.html` (`documentsView`, `documentDialog`, zone visionneuse) ; `genealogyView` pour les preuves.
-- **Modules** : `document-types.js`, `document-utils.js`, `document-delete.js`, `document-deletion-guard.js`, `genealogy-proofs.js`, `genealogy-proof-form.js`, `genealogy-identities.js`, `fact-conclusions.js`.
+- **Modules** : `document-types.js`, `document-utils.js`, `document-delete.js`, `document-deletion-guard.js`, `document-file-storage.js` (chunks Firestore, dépendances injectées et aucune UI), `genealogy-proofs.js`, `genealogy-proof-form.js`, `genealogy-identities.js`, `fact-conclusions.js`.
 - **Tests** : `document-types`, `document-deletion-guard`, `document-people-picker`, `document-menu-edit-mobile`, `document-detail-page`, `genealogy-proofs`, `genealogy-proof-form`, `genealogy-identities`, `fact-conclusions`, `proof-detail-page`, `proof-association-removal`, `proof-guided-creation` (nécessite l'émulateur, se saute sinon).
 - **Précautions** : suppression de document conditionnée par `documentDeletionBlockers` (liens personnes/sources/preuves) ; fichiers en chunks Firestore (700 Ko) ; modèles de preuve immuables avec révisions.
 
@@ -79,7 +79,7 @@
 ### 10. Firebase et stockage (persistance)
 - **Entrée** : objet `refs` et abonnements dans `js/app.js`.
 - **Modules** : `backup-utils.js` (validation, chunks 700 Ko / 20 Mo, constantes), `backup-archive.js` (archive ZIP v5, SHA-256, vérification).
-- **Contraintes** : Spark uniquement — **pas de Storage, pas de Cloud Functions** ; fichiers = chunks Firestore.
+- **Contraintes** : Spark uniquement — **pas de Storage, pas de Cloud Functions** ; fichiers = chunks Firestore. `document-file-storage.js` isole les primitives de lecture/écriture/suppression ; `app.js` conserve le callback de progression d’interface.
 - **Tests** : `backup-archive`, `backup-restore`, sections persistance de `firestore-emulator`.
 - **Précautions** : archives privées conservées **hors dépôt** (voir `TECH_DEBT_*_5B*`) ; jamais d'écriture sur les projets réels dans les tests.
 
