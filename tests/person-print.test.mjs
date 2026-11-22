@@ -6,10 +6,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const root = new URL("../", import.meta.url);
-const [html, css, app] = await Promise.all([
+/* Lot 7 : le gabarit imprimé et ses règles CSS ont été extraits vers
+   js/person-print-sheet.js et css/print-sheet.css — les assertions
+   statiques suivent le code déplacé (mêmes regex, mêmes intentions). */
+const [html, css, app, printSrc, printCss] = await Promise.all([
   readFile(new URL("index.html", root), "utf8"),
   readFile(new URL("css/design-system.css", root), "utf8"),
-  readFile(new URL("js/app.js", root), "utf8")
+  readFile(new URL("js/app.js", root), "utf8"),
+  readFile(new URL("js/person-print-sheet.js", root), "utf8"),
+  readFile(new URL("css/print-sheet.css", root), "utf8")
 ]);
 
 test("A. point d'accès : bouton discret dans la modale Personne", () => {
@@ -27,44 +32,44 @@ test("B. aperçu dédié : dialogue + gabarit + portail d'impression", () => {
 });
 
 test("C. en-tête : marque + « Fiche individuelle », sans info technique", () => {
-  assert.match(app, /<span class="print-brand">La Nostra Storia<\/span><span class="print-kicker">Fiche individuelle<\/span>/);
+  assert.match(printSrc, /<span class="print-brand">La Nostra Storia<\/span><span class="print-kicker">Fiche individuelle<\/span>/);
   assert.doesNotMatch(html, /print-.*firebase|print-.*uid/i);
 });
 
 test("D. dates : formateur généalogique existant, aucune fabrication", () => {
-  assert.match(app, /function printLifeEvent\(symbol, title, dateInfo, legacyDate, placeText, placeInfo\) \{[\s\S]{0,300}formatGenealogyDate\(dateInfo, legacyDate\)/);
-  assert.match(app, /function printLifePeriod\(item = \{\}\) \{[\s\S]{0,300}formatGenealogyDate\(item\.birthDateInfo, item\.birthDate\)/);
-  const builder = app.match(/function buildPersonPrintSheet\(item, scope = null\) \{[\s\S]{0,9000}\n\}/)?.[0] || "";
+  assert.match(printSrc, /function printLifeEvent\(symbol, title, dateInfo, legacyDate, placeText, placeInfo\) \{[\s\S]{0,300}formatGenealogyDate\(dateInfo, legacyDate\)/);
+  assert.match(printSrc, /function printLifePeriod\(item = \{\}\) \{[\s\S]{0,300}formatGenealogyDate\(item\.birthDateInfo, item\.birthDate\)/);
+  const builder = printSrc.match(/function buildPersonPrintSheet\(item, scope = null, datasets = null\) \{[\s\S]{0,9000}\n\}/)?.[0] || "";
   assert.ok(builder.length > 500, "constructeur fiche présent");
   assert.doesNotMatch(builder, /new Date\(/);
   assert.doesNotMatch(builder, /formatCompactPlace/);
 });
 
 test("E. lieux compacts : formatCompactPlace commun, texte legacy repris tel quel", () => {
-  assert.match(app, /function printPlaceDetail\(text, placeInfo = null\) \{\r?\n\s*return esc\(formatCompactPlace\(text, placeInfo\)\);\r?\n\}/);
-  const printPlace = app.match(/function printPlaceDetail\(text, placeInfo = null\) \{[\s\S]*?\r?\n\}/)?.[0] || "";
+  assert.match(printSrc, /function printPlaceDetail\(text, placeInfo = null\) \{\r?\n\s*return esc\(formatCompactPlace\(text, placeInfo\)\);\r?\n\}/);
+  const printPlace = printSrc.match(/function printPlaceDetail\(text, placeInfo = null\) \{[\s\S]*?\r?\n\}/)?.[0] || "";
   assert.ok(printPlace, "formateur dédié aux lieux imprimés présent");
   assert.doesNotMatch(printPlace, /\|\s*00\b|\btoIsoAlpha3\s*\(/, "le formateur imprimé n'ajoute pas de code technique après le lieu compact");
   assert.doesNotMatch(html, /print-.*undefined/i);
 });
 
 test("F. réutilisation de l'existant : relationRole, filiation discrète, labels", () => {
-  assert.match(app, /relationRole\(parent, "parent"\)/);
-  assert.match(app, /parentChildLinkType\(family, parentId, item\.id\)/);
-  assert.match(app, /RELATION_TYPE_LABELS\[relationType\]/);
-  assert.match(app, /END_TYPE_LABELS\[endType\]/);
-  assert.match(app, /function printFiliationLabel\(filiationType\) \{[^}]*\["adoptive", "uncertain"\]/);
+  assert.match(printSrc, /relationRole\(parent, "parent"\)/);
+  assert.match(printSrc, /parentChildLinkType\(family, parentId, item\.id\)/);
+  assert.match(printSrc, /RELATION_TYPE_LABELS\[relationType\]/);
+  assert.match(printSrc, /END_TYPE_LABELS\[endType\]/);
+  assert.match(printSrc, /function printFiliationLabel\(filiationType\) \{[^}]*\["adoptive", "uncertain"\]/);
   assert.match(app, /documentDisplayLabel\(documentItem\)/);
-  assert.doesNotMatch(app, /function buildPersonPrintSheet\(item, scope = null\) \{[\s\S]{0,9000}\n\}[\s\S]{0,400}?documentDisplayLabel/);
+  assert.doesNotMatch(printSrc, /function buildPersonPrintSheet\(item, scope = null, datasets = null\) \{[\s\S]{0,9000}\n\}[\s\S]{0,400}?documentDisplayLabel/);
 });
 
 test("G0. géométrie mobile : sheet interactive 92dvh, print/UI séparés", () => {
   assert.match(css, /dialog#personPrintDialog\.modal-mobile-sheet--form \{\r?\n\s*height: 92dvh;\r?\n\s*max-height: 92dvh;\r?\n\s*\}/);
   /* Le fullscreen historique ne venait pas du mécanisme d'impression :
      @media print masque les dialogs et n'imprime que #printPortal. */
-  assert.match(css, /body\.is-printing-person dialog,\r?\n\s*body\.is-printing-person dialog::backdrop \{ display: none !important; \}/);
-  assert.match(css, /#printPortal \{\r?\n\s*display: block !important;/);
-  assert.match(css, /\.print-preview \{ max-height: calc\(100dvh - 11rem\); overflow: auto;/);
+  assert.match(printCss, /body\.is-printing-person dialog,\r?\n\s*body\.is-printing-person dialog::backdrop \{ display: none !important; \}/);
+  assert.match(printCss, /#printPortal \{\r?\n\s*display: block !important;/);
+  assert.match(printCss, /\.print-preview \{ max-height: calc\(100dvh - 11rem\); overflow: auto;/);
 });
 
 test("G1. navigateur mobile : #personPrintDialog en sheet 92dvh, impression intacte", async t => {
@@ -183,23 +188,23 @@ test("G1. navigateur mobile : #personPrintDialog en sheet 92dvh, impression inta
 });
 
 test("G. mise en page A4 static : colonnes, ruptures, portail, fond, aperçu mobile", () => {
-  assert.match(css, /\.print-events \{[^}]*grid-template-columns: 1fr 1fr/);
-  assert.match(css, /@media print \{[\s\S]{0,2000}size: A4;/);
-  assert.match(css, /\.print-sec \{ break-inside: avoid; page-break-inside: avoid; \}/);
-  assert.match(css, /\.print-sec-title \{ break-after: avoid; page-break-after: avoid;[^}]*\}/);
-  assert.match(css, /\.print-union,\r?\n\s*\.print-parent \{ break-inside: avoid; page-break-inside: avoid; \}/);
+  assert.match(printCss, /\.print-events \{[^}]*grid-template-columns: 1fr 1fr/);
+  assert.match(printCss, /@media print \{[\s\S]{0,2000}size: A4;/);
+  assert.match(printCss, /\.print-sec \{ break-inside: avoid; page-break-inside: avoid; \}/);
+  assert.match(printCss, /\.print-sec-title \{ break-after: avoid; page-break-after: avoid;[^}]*\}/);
+  assert.match(printCss, /\.print-union,\r?\n\s*\.print-parent \{ break-inside: avoid; page-break-inside: avoid; \}/);
   /* Isolation print : dialogs, backdrops, portail statique, fond blanc */
-  assert.match(css, /body\.is-printing-person dialog,\r?\n\s*body\.is-printing-person dialog::backdrop \{ display: none !important; \}/);
-  assert.match(css, /#printPortal \{\r?\n\s*display: block !important;\r?\n\s*position: static;/);
-  assert.match(css, /body\.is-printing-person > \*:not\(#printPortal\) \{ display: none !important; \}/);
-  assert.match(css, /\.print-sheet \{[\s\S]{0,600}background: var\(--color-surface\);[\s\S]{0,600}color: var\(--color-text\);/);
-  assert.match(css, /\.print-head \{[^}]*padding: 0 0 var\(--space-2\); border-bottom: 1px solid var\(--color-border-strong\); \}/);
-  assert.match(css, /@media \(max-width: 560px\) \{[\s\S]{0,400}\.print-events \{[^}]*grid-template-columns: 1fr;/);
-  assert.match(css, /\.print-preview \{ max-height: calc\(100dvh - 11rem\); overflow: auto;/);
+  assert.match(printCss, /body\.is-printing-person dialog,\r?\n\s*body\.is-printing-person dialog::backdrop \{ display: none !important; \}/);
+  assert.match(printCss, /#printPortal \{\r?\n\s*display: block !important;\r?\n\s*position: static;/);
+  assert.match(printCss, /body\.is-printing-person > \*:not\(#printPortal\) \{ display: none !important; \}/);
+  assert.match(printCss, /\.print-sheet \{[\s\S]{0,600}background: var\(--color-surface\);[\s\S]{0,600}color: var\(--color-text\);/);
+  assert.match(printCss, /\.print-head \{[^}]*padding: 0 0 var\(--space-2\); border-bottom: 1px solid var\(--color-border-strong\); \}/);
+  assert.match(printCss, /@media \(max-width: 560px\) \{[\s\S]{0,400}\.print-events \{[^}]*grid-template-columns: 1fr;/);
+  assert.match(printCss, /\.print-preview \{ max-height: calc\(100dvh - 11rem\); overflow: auto;/);
 });
 
 test("G2. protection des données : lecture seule, sans écriture Firestore", () => {
-  const printBuilder = app.match(/function buildPersonPrintSheet\(item, scope = null\) \{[\s\S]*?^\}/m)?.[0] || "";
+  const printBuilder = printSrc.match(/function buildPersonPrintSheet\(item, scope = null, datasets = null\) \{[\s\S]*?^\}/m)?.[0] || "";
   const printOpener = app.match(/function openPersonPrint\(scope = personPrintScopeOverride\) \{[\s\S]*?^\}/m)?.[0] || "";
   const printAction = app.match(/\$\("personPrintGoBtn"\)\.onclick = \(\) => \{[\s\S]*?^\};/m)?.[0] || "";
   assert.ok(printBuilder.length > 500, "constructeur de fiche imprimée présent");

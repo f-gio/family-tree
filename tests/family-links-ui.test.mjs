@@ -3,12 +3,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const root = new URL("../", import.meta.url);
-const [html, css, app, relations, rules] = await Promise.all([
+const [html, css, app, relations, rules, ui] = await Promise.all([
   readFile(new URL("index.html", root), "utf8"),
   readFile(new URL("css/design-system.css", root), "utf8"),
   readFile(new URL("js/app.js", root), "utf8"),
   readFile(new URL("js/family-relations.js", root), "utf8"),
-  readFile(new URL("firestore.rules", root), "utf8")
+  readFile(new URL("firestore.rules", root), "utf8"),
+  readFile(new URL("js/ui-components.js", root), "utf8")
 ]);
 
 test("l’onglet présente une seule action d’ajout et trois catégories lisibles", () => {
@@ -26,7 +27,7 @@ test("les informations inconnues sont retirées des résumés synthétiques", ()
   assert.match(app, /value !== "Non précisé"/);
   assert.match(app, /relationType === "unknown" \? ""/);
   assert.match(app, /unionDate === "—" \? ""/);
-  assert.match(app, /item\?\.gender === "F" \? "Mère"/);
+  assert.match(ui, /item\?\.gender === "F" \? "Mère"/);
 });
 
 test("le parcours d’ajout révèle uniquement le formulaire choisi", () => {

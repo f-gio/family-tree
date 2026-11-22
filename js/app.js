@@ -23,7 +23,8 @@ import { normalizeGenealogyDate, formatGenealogyDate, genealogyDateSearchText, g
 import { RELATION_TYPE_LABELS, END_TYPE_LABELS, FILIATION_TYPE_LABELS, normalizeRelationType, normalizeEndType, normalizeFiliationType, normalizedParentChildLinks, parentChildLinkType } from "./family-relations.js";
 import { planParentDissociation, dissociationConfirmationMessage } from "./family-dissociation.js";
 import { planSecondParentAddition } from "./family-parent-addition.js";
-import { icon, emptyState, setButtonPending, withButtonPending } from "./ui-components.js";
+import { icon, emptyState, setButtonPending, withButtonPending, esc, personInitials, relationRole } from "./ui-components.js";
+import { buildPersonPrintSheet, printPlaceDetail } from "./person-print-sheet.js";
 import { createLocationAutocomplete, geoNamesEndpointFromDocument, geoNamesUsernameFromDocument } from "./location-autocomplete.js";
 import { createNavigationContextStore, GENEALOGY_VIEW_CONTEXT_KEY } from "./navigation-context.js";
 import { detailBaseView, historyAction, isDetailTarget, navigationUrl, readNavigationTarget, RESTORABLE_VIEWS } from "./navigation-state.js";
@@ -79,7 +80,10 @@ import {
   readTranscriptionDraft,
   writeTranscriptionDraft,
   removeTranscriptionDraft,
-  transcriptionDraftWriteBlockReason
+  transcriptionDraftWriteBlockReason,
+  storeTranscriptionDraftRemoteBase,
+  storeTranscriptionDraftSyncedSnapshot,
+  ensureTranscriptionDraftBaseLoaded
 } from "./transcription-draft-storage.js";
 import {
   TRANSCRIPTION_DRAFT_REMOTE_COLLECTION,
@@ -415,12 +419,6 @@ function readDirectorySort() {
 function saveDirectorySort(value) {
   try { localStorage.setItem("familyTreeDirectorySort", value); }
   catch { /* Le tri courant reste appliqué sans stockage local. */ }
-}
-
-function esc(value = "") {
-  const node = document.createElement("div");
-  node.textContent = value;
-  return node.innerHTML;
 }
 
 function searchable(value = "") {
@@ -1542,7 +1540,10 @@ const fitTreeToViewport = camera.fit.bind(camera);
 camera.fit = (padding = 64) => {
   fitTreeToViewport(padding);
   const scale = camera.getState().scale;
-  if (scale < minimumTreeFitScale) camera.zoomBy(minimumTreeFitScale / scale);
+  if (scale < minimumTreeFitScale) {
+    camera.zoomBy(minimumTreeFitScale / scale);
+    camera.recenter();
+  }
 };
 
 const treeViewportElement = $("treeViewport");
@@ -4256,12 +4257,6 @@ function relationAvatarMarkup(item) {
   return item?.photoUrl ? `<img src="${esc(item.photoUrl)}" alt="">` : esc(personInitials(item));
 }
 
-function relationRole(item, kind) {
-  if (kind === "parent") return item?.gender === "F" ? "Mère" : item?.gender === "M" ? "Père" : "Parent";
-  if (kind === "child") return item?.gender === "F" ? "Fille" : item?.gender === "M" ? "Fils" : "Enfant";
-  return "Partenaire";
-}
-
 function relationMetadata(parts = []) {
   const values = parts.filter(value => value && value !== "—" && value !== "Non précisé" && value !== "Non précisée");
   return values.length ? `<p class="relation-person-meta">${values.map(value => esc(value)).join(" <span aria-hidden=\"true\">·</span> ")}</p>` : "";
@@ -4893,10 +4888,6 @@ async function saveFamilyDetails(event) {
   } catch (error) { toast(error.message || "Enregistrement impossible", "error"); }
 }
 
-function personInitials(item) {
-  return `${item?.firstName?.[0] || ""}${item?.lastName?.[0] || ""}`.toUpperCase() || "?";
-}
-
 function directoryDisplayName(item) {
   return directoryPersonName(item);
 }
@@ -5144,153 +5135,10 @@ function openDirectoryDocuments(personId) {
 }
 
 /* ---------- Fiche individuelle imprimable / PDF ----------
-   Lecture seule : assemblage à la volée depuis people/families/documents,
-   réutilise les lecteurs et formateurs existants (aucune transformation de
-   données, aucune écriture Firestore, aucun enrichissement legacy). */
+   L'assemblage du gabarit a été extrait dans js/person-print-sheet.js
+   (lot 7) : app.js garde l'ouverture de la boîte, le scope de test et
+   le passage des jeux people/families. */
 let personPrintScopeOverride = null;
-/* Lieux compact pour la fiche imprimée : réutilise la fonction commune
-   (Orino, IT → « Orino (ITA) ») ; texte legacy repris tel quel, jamais enrichi. */
-function printPlaceDetail(text, placeInfo = null) {
-  return esc(formatCompactPlace(text, placeInfo));
-}
-
-/* Filiation : la biologie / non précisée ne s'imprime pas ; seules les
-   indications discrètes « Adoptive » / « Incertaine » sont conservées. */
-function printFiliationLabel(filiationType) {
-  if (!["adoptive", "uncertain"].includes(filiationType)) return "";
-  return FILIATION_TYPE_LABELS[filiationType];
-}
-
-function printLifeEvent(symbol, title, dateInfo, legacyDate, placeText, placeInfo) {
-  const date = formatGenealogyDate(dateInfo, legacyDate);
-  const place = printPlaceDetail(placeText, placeInfo);
-  return `<div class="print-event"><span class="print-symbol" aria-hidden="true">${esc(symbol)}</span><div><strong>${esc(title)}</strong><span class="print-date">${esc(date)}</span>${place ? `<span class="print-place">${place}</span>` : ""}</div></div>`;
-}
-
-function printLifePeriod(item = {}) {
-  const birth = formatGenealogyDate(item.birthDateInfo, item.birthDate);
-  const death = formatGenealogyDate(item.deathDateInfo, item.deathDate);
-  return `<span class="print-symbol" aria-hidden="true">✦</span> ${esc(birth)} <span class="print-divider" aria-hidden="true">·</span> <span class="print-symbol" aria-hidden="true">†</span> ${esc(death)}`;
-}
-
-/* Date de dernière modification : uniquement la donnée réellement enregistrée
-   (champ `updatedAt` Firestore). Aucun fallback sur la date actuelle. */
-function printModificationDate(item = {}) {
-  const stamp = item.updatedAt;
-  if (!stamp) return "";
-  let date = null;
-  if (typeof stamp === "object" && Number.isFinite(Number(stamp.seconds))) {
-    date = new Date(Number(stamp.seconds) * 1000);
-  } else if (typeof stamp === "string") {
-    const parsed = new Date(stamp);
-    if (!Number.isNaN(parsed.getTime())) date = parsed;
-  }
-  if (!date || Number.isNaN(date.getTime())) return "";
-  return "Dernière modification : " + new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric" }).format(date);
-}
-
-/* Année seule pour période de vie synthétique ; entre deux années → borne.
-   Formats inconnus → « — » (aucune date complète fabriquée). */
-function printYear(info, legacy = "", position = "first") {
-  const years = genealogyDateYears(normalizeGenealogyDate(info, legacy));
-  if (!years.length) return "—";
-  return String(position === "last" ? Math.max(...years) : Math.min(...years));
-}
-
-function printLifeSpan(item = {}) {
-  const birth = printYear(item.birthDateInfo, item.birthDate, "first");
-  const death = printYear(item.deathDateInfo, item.deathDate, "last");
-  if (birth === "—" && death === "—") return "";
-  return `${esc(birth)} <span class="print-divider" aria-hidden="true">—</span> ${esc(death)}`;
-}
-
-/* Nom d'affichage généalogique pour l'impression : prénom + second prénom
-   (typographie secondaire) + nom de naissance, jamais « Nom Prénom ». */
-function printFullName(item = {}) {
-  const middle = item.middleName ? ` <span class="print-middle-name">${esc(item.middleName)}</span>` : "";
-  return `${esc(item.firstName || "—")}${middle} ${esc(item.lastName || "")}`.replace(/\s+$/, "");
-}
-
-function buildPersonPrintSheet(item, scope = null) {
-  const sourcePeople = scope?.people || people;
-  const sourceFamilies = scope?.families || families;
-  const personOf = id => sourcePeople.find(candidate => candidate.id === id) || null;
-  const parentFamilies = sourceFamilies.filter(family => (family.childIds || []).includes(item.id));
-  const ownFamilies = sourceFamilies.filter(family => (family.partnerIds || []).includes(item.id));
-
-  const eventHasData = (dateInfo, legacyDate, placeText, placeInfo) =>
-    formatGenealogyDate(dateInfo, legacyDate) !== "—" || !!printPlaceDetail(placeText, placeInfo);
-  const birthKnown = eventHasData(item.birthDateInfo, item.birthDate, item.place, item.birthPlaceInfo);
-  const deathKnown = eventHasData(item.deathDateInfo, item.deathDate, item.deathPlace, item.deathPlaceInfo);
-
-  const photo = item.photoUrl
-    ? `<span class="print-avatar"><img src="${esc(item.photoUrl)}" alt=""></span>`
-    : `<span class="print-avatar" aria-hidden="true">${esc(personInitials(item))}</span>`;
-  const usage = item.marriedName ? `<p class="print-usage">Nom d’usage : ${esc(item.marriedName)}</p>` : "";
-
-  const birthEvent = printLifeEvent("✦", "Naissance", item.birthDateInfo, item.birthDate, item.place, item.birthPlaceInfo);
-  const deathEvent = printLifeEvent("†", "Décès", item.deathDateInfo, item.deathDate, item.deathPlace, item.deathPlaceInfo);
-
-  const parentRows = parentFamilies.flatMap(family => (family.partnerIds || []).map(parentId => {
-    const parent = personOf(parentId);
-    if (!parent) return "";
-    const filiationType = parentChildLinkType(family, parentId, item.id);
-    const filiation = printFiliationLabel(filiationType);
-    return `<div class="print-parent"><span class="print-role">${esc(relationRole(parent, "parent"))}</span><span class="print-parent-name">${printFullName(parent)}</span><span class="print-meta">${printLifePeriod(parent)}</span>${filiation ? `<span class="print-meta print-filiation">${esc(filiation)}</span>` : ""}</div>`;
-  }));
-
-  /* Unions : uniquement lorsqu'un véritable partenaire différent de la
-     personne courante est résolu, aligné sur renderRelations() (aucun faux
-     bloc pour une family mono-parentale/technique/orpheline) ; les enfants
-     de ces dernières restent affichés dans une section neutre « Enfants ». */
-  const unionBlocks = [];
-  const extraChildRows = [];
-  const printedChildIds = new Set();
-  ownFamilies.forEach(family => {
-    const partner = personOf((family.partnerIds || []).find(id => id !== item.id) || "");
-    const relationType = normalizeRelationType(family.relationType);
-    const endType = normalizeEndType(family.endType);
-    const unionDate = formatGenealogyDate(family.unionDateInfo, family.marriageDate || family.unionDate);
-    const unionPlace = printPlaceDetail(family.unionPlace, family.unionPlaceInfo);
-    const endLabel = ["none", "unknown"].includes(endType) ? "" : END_TYPE_LABELS[endType];
-    const endDate = formatGenealogyDate(family.endDateInfo, family.separationDate || family.divorceDate);
-    const endPlace = printPlaceDetail(family.endPlace, family.endPlaceInfo);
-    const childRows = (family.childIds || []).map(childId => {
-      const child = personOf(childId);
-      if (!child || printedChildIds.has(child.id)) return "";
-      printedChildIds.add(child.id);
-      const filiationType = parentChildLinkType(family, item.id, childId);
-      const filiation = printFiliationLabel(filiationType);
-      const filiationMarkup = filiation ? `<span class="print-meta print-filiation">${esc(filiation)}</span>` : "";
-      return `<li><span class="print-child-marker" aria-hidden="true">—</span><span class="print-child-body"><strong>${printFullName(child)}</strong><span class="print-meta">${printLifePeriod(child)}</span>${filiationMarkup}</span></li>`;
-    }).filter(Boolean);
-    if (!partner) {
-      extraChildRows.push(...childRows);
-      return;
-    }
-    unionBlocks.push(`<article class="print-union">
-<div class="print-union-head"><strong>${esc(directoryPersonName(partner))}</strong>${relationType === "unknown" ? "" : `<span class="print-union-type">${esc(RELATION_TYPE_LABELS[relationType])}</span>`}</div>
-${unionDate === "—" && !unionPlace ? "" : `<p class="print-union-meta">${unionDate === "—" ? "—" : esc(unionDate)}${unionPlace ? ` · ${unionPlace}` : ""}</p>`}
-${!endLabel ? "" : `<p class="print-union-meta">${esc(endLabel)}${endDate === "—" ? "" : ` · ${esc(endDate)}`}${endPlace ? ` · ${endPlace}` : ""}</p>`}
-${childRows.length ? `<p class="print-union-subtitle">Enfants issus de cette union · ${childRows.length}</p><ul class="print-children">${childRows.join("")}</ul>` : ""}
-</article>`);
-  });
-
-  const sections = [];
-  sections.push(`<header class="print-head"><span class="print-brand">La Nostra Storia</span><span class="print-kicker">Fiche individuelle</span></header>`);
-  const lifeSpan = printLifeSpan(item);
-  sections.push(`<section class="print-sec print-identity">${photo}<div><h2 class="print-name">${printFullName(item)}</h2>${usage}${lifeSpan ? `<p class="print-life">${lifeSpan}</p>` : ""}</div></section>`);
-  if (birthKnown || deathKnown) {
-    sections.push(`<section class="print-sec"><h3 class="print-sec-title">Naissance et décès</h3><div class="print-events">${birthEvent}${deathEvent}</div></section>`);
-  }
-  if (parentRows.filter(Boolean).length) sections.push(`<section class="print-sec"><h3 class="print-sec-title">Parents</h3><div class="print-parents">${parentRows.join("")}</div></section>`);
-  if (unionBlocks.length) sections.push(`<section class="print-sec print-unions"><h3 class="print-sec-title">Unions et descendance</h3>${unionBlocks.join("")}</section>`);
-  if (extraChildRows.length) sections.push(`<section class="print-sec"><h3 class="print-sec-title">Enfants</h3><ul class="print-children">${extraChildRows.join("")}</ul></section>`);
-  if (item.notes?.trim()) sections.push(`<section class="print-sec"><h3 class="print-sec-title">Informations complémentaires</h3><p class="print-notes">${esc(item.notes)}</p></section>`);
-  const footer = printModificationDate(item);
-  if (footer) sections.push(`<footer class="print-foot">${esc(footer)}</footer>`);
-  return `<article class="print-sheet">${sections.join("")}</article>`;
-}
 
 function openPersonPrint(scope = personPrintScopeOverride) {
   const effectiveScope = scope || null;
@@ -5301,7 +5149,7 @@ function openPersonPrint(scope = personPrintScopeOverride) {
     return;
   }
   try {
-    $("personPrintSheet").innerHTML = buildPersonPrintSheet(item, effectiveScope);
+    $("personPrintSheet").innerHTML = buildPersonPrintSheet(item, effectiveScope, { people, families });
   } catch (error) {
     console.error(error);
     toast("La fiche n’a pas pu être préparée pour l’impression.", "error");
@@ -5312,7 +5160,7 @@ function openPersonPrint(scope = personPrintScopeOverride) {
 
 if (typeof window !== "undefined") {
   window.__personPrint = {
-    build: buildPersonPrintSheet,
+    build: (item, scope = null) => buildPersonPrintSheet(item, scope, { people, families }),
     placeDetail: printPlaceDetail,
     /* Sonde de test à la convention __treeProbe : applique uniquement le vrai
        chemin utilisateur (openPerson puis clic réel du bouton) ; scope
@@ -7394,8 +7242,10 @@ function transcriptionWorkshopHasUnsavedLocalChanges() {
   return false;
 }
 
-/** localStorage peut être refusé (mode privé, politique de stockage) : l'absence
-    de stockage rend une sauvegarde impossible sans jamais planter l'atelier. */
+/** Signale un échec de sauvegarde (ou de retrait) une seule fois par brouillon :
+    l'état reste visible sur le badge et les données restent en mémoire. */
+/** localStorage peut être refusé (mode privé, politique de stockage) : l’absence
+    de stockage rend une sauvegarde impossible sans jamais planter l’atelier. */
 function transcriptionWorkshopDraftStorage() {
   try {
     return window.localStorage || null;
@@ -7403,9 +7253,6 @@ function transcriptionWorkshopDraftStorage() {
     return null;
   }
 }
-
-/** Signale un échec de sauvegarde (ou de retrait) une seule fois par brouillon :
-    l'état reste visible sur le badge et les données restent en mémoire. */
 function markTranscriptionWorkshopDraftSaveFailure(key, status, message) {
   const previous = transcriptionDraftSaveStates.get(key);
   const state = { ...(previous || {}), status };
@@ -7557,8 +7404,6 @@ let transcriptionDraftSyncTimers = new Map();
 let transcriptionDraftSyncInFlight = new Set();
 /* Clé du conflit dont le dialogue est ouvert (résolution en cours). */
 let transcriptionDraftOpenConflictKey = null;
-const TRANSCRIPTION_DRAFT_REMOTE_BASE_PREFIX = "familyTreeTranscriptionDraftRemote:";
-const TRANSCRIPTION_DRAFT_SYNCED_PREFIX = "familyTreeTranscriptionDraftSynced:";
 const TRANSCRIPTION_DRAFT_SYNC_FAILURE_MESSAGE = "La synchronisation entre appareils a échoué. Vos modifications restent conservées sur cet appareil.";
 const TRANSCRIPTION_DRAFT_SYNC_CONFLICT_MESSAGE = "Conflit de brouillon : deux versions existent. Choisissez celle à conserver — rien n’est effacé.";
 const TRANSCRIPTION_DRAFT_SYNC_UNREADABLE_MESSAGE = "Le brouillon distant n’a pas pu être relu : rien n’a été remplacé, ni sur cet appareil ni sur le compte.";
@@ -7614,77 +7459,6 @@ function ensureTranscriptionDraftRemoteStateOwner(key, ownerUid) {
 
 function transcriptionDraftRemoteTarget(ownerUid, documentId, pageId) {
   return validateTranscriptionDraftTarget({ ownerUid, documentId, pageId });
-}
-
-/* Référence de version ET dernier contenu publié, conservés entre les sessions
-   (localStorage, par propriétaire) : la version évite un faux conflit après
-   rechargement, le snapshot prouve qu'une copie locale est inchangée depuis
-   notre dernier envoi (adoption de la version distante plus récente au lieu
-   d'un conflit). Rien de ces deux marqueurs n'autorise un écrasement : seule la
-   comparaison avec l'état réel de la base décide, dans la transaction. */
-function transcriptionDraftRemoteBaseStorageKey(target) {
-  return `${TRANSCRIPTION_DRAFT_REMOTE_BASE_PREFIX}${encodeURIComponent(target.ownerUid)}|${target.documentId}|${target.pageId}`;
-}
-
-function readTranscriptionDraftRemoteBase(target) {
-  const storage = transcriptionWorkshopDraftStorage();
-  if (!storage) return null;
-  try {
-    const version = Number.parseInt(storage.getItem(transcriptionDraftRemoteBaseStorageKey(target)) ?? "", 10);
-    return Number.isSafeInteger(version) && version >= 1 ? version : null;
-  } catch {
-    return null;
-  }
-}
-
-function storeTranscriptionDraftRemoteBase(target, version) {
-  const storage = transcriptionWorkshopDraftStorage();
-  if (!storage) return;
-  try {
-    const key = transcriptionDraftRemoteBaseStorageKey(target);
-    if (version == null) storage.removeItem(key);
-    else storage.setItem(key, String(version));
-  } catch {
-    /* Best effort : sans stockage, la base reste en mémoire pour la session. */
-  }
-}
-
-function transcriptionDraftSyncedStorageKey(target) {
-  return `${TRANSCRIPTION_DRAFT_SYNCED_PREFIX}${encodeURIComponent(target.ownerUid)}|${target.documentId}|${target.pageId}`;
-}
-
-function readTranscriptionDraftSyncedSnapshot(target) {
-  const storage = transcriptionWorkshopDraftStorage();
-  if (!storage) return null;
-  try {
-    const raw = storage.getItem(transcriptionDraftSyncedStorageKey(target));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function storeTranscriptionDraftSyncedSnapshot(target, snapshot) {
-  const storage = transcriptionWorkshopDraftStorage();
-  if (!storage) return;
-  try {
-    const key = transcriptionDraftSyncedStorageKey(target);
-    if (snapshot == null) storage.removeItem(key);
-    else storage.setItem(key, JSON.stringify(snapshot));
-  } catch {
-    /* Best effort : sans stockage, le dernier contenu publié reste en mémoire. */
-  }
-}
-
-function ensureTranscriptionDraftBaseLoaded(target, remoteState) {
-  if (remoteState.baseLoaded) return;
-  remoteState.baseLoaded = true;
-  remoteState.baseVersion = readTranscriptionDraftRemoteBase(target);
-  if (remoteState.lastSyncedSnapshot == null) {
-    remoteState.lastSyncedSnapshot = readTranscriptionDraftSyncedSnapshot(target);
-  }
 }
 
 function transcriptionDraftRemoteRef(target) {
@@ -7765,7 +7539,7 @@ function scheduleTranscriptionDraftRemoteSync(draft, { delay = TRANSCRIPTION_DRA
   const remoteState = ensureTranscriptionDraftRemoteStateOwner(key, ownerUid);
   if (remoteState.status === "conflict") return;
   const target = transcriptionDraftRemoteTarget(ownerUid, draft.documentId, draft.pageId);
-  ensureTranscriptionDraftBaseLoaded(target, remoteState);
+  ensureTranscriptionDraftBaseLoaded(transcriptionWorkshopDraftStorage(), target, remoteState);
   const snapshot = transcriptionDraftSnapshotFromDraft(draft);
   if (snapshot != null && remoteState.lastSyncedSnapshot && transcriptionDraftSnapshotsEqual(remoteState.lastSyncedSnapshot, snapshot)) return;
   if (snapshot == null && remoteState.baseVersion == null) return;
@@ -7833,7 +7607,7 @@ async function syncTranscriptionDraftNow(draft, { reason = "auto" } = {}) {
   const currentDraft = transcriptionWorkshopDrafts.get(key) || draft;
   const snapshot = transcriptionDraftSnapshotFromDraft(currentDraft);
   const target = transcriptionDraftRemoteTarget(ownerUid, draft.documentId, draft.pageId);
-  ensureTranscriptionDraftBaseLoaded(target, remoteState);
+  ensureTranscriptionDraftBaseLoaded(transcriptionWorkshopDraftStorage(), target, remoteState);
   if (snapshot == null && remoteState.baseVersion == null) return;
   if (snapshot != null && remoteState.lastSyncedSnapshot && transcriptionDraftSnapshotsEqual(remoteState.lastSyncedSnapshot, snapshot)) return;
   transcriptionDraftSyncInFlight.add(key);
@@ -7857,7 +7631,7 @@ async function syncTranscriptionDraftNow(draft, { reason = "auto" } = {}) {
          choix explicite de republication passe réellement. */
       if (!result.remote) {
         remoteState.lastSyncedSnapshot = null;
-        storeTranscriptionDraftSyncedSnapshot(target, null);
+        storeTranscriptionDraftSyncedSnapshot(transcriptionWorkshopDraftStorage(), target, null);
       }
       updateWorkshopDraftIndicators();
       if (!remoteState.notifiedConflict) {
@@ -7872,10 +7646,10 @@ async function syncTranscriptionDraftNow(draft, { reason = "auto" } = {}) {
     const remote = result.remote;
     if (remote) {
       remoteState.baseVersion = remote.version;
-      storeTranscriptionDraftRemoteBase(target, remote.version);
+      storeTranscriptionDraftRemoteBase(transcriptionWorkshopDraftStorage(), target, remote.version);
     } else {
       remoteState.baseVersion = null;
-      storeTranscriptionDraftRemoteBase(target, null);
+      storeTranscriptionDraftRemoteBase(transcriptionWorkshopDraftStorage(), target, null);
     }
     remoteState.baseLoaded = true;
     const settled = transcriptionDraftSnapshotFromDraft(transcriptionWorkshopDrafts.get(key) || currentDraft);
@@ -7884,7 +7658,7 @@ async function syncTranscriptionDraftNow(draft, { reason = "auto" } = {}) {
     if (settled != null && snapshot != null && !transcriptionDraftSnapshotsEqual(settled, snapshot)) {
       if (remote) {
         remoteState.lastSyncedSnapshot = snapshot;
-        storeTranscriptionDraftSyncedSnapshot(target, snapshot);
+        storeTranscriptionDraftSyncedSnapshot(transcriptionWorkshopDraftStorage(), target, snapshot);
       }
       remoteState.status = "pending";
       updateWorkshopDraftIndicators();
@@ -7896,7 +7670,7 @@ async function syncTranscriptionDraftNow(draft, { reason = "auto" } = {}) {
        — il distingue une copie locale inchangée d'une véritable modification
        concurrente (adoption au lieu de conflit). */
     remoteState.lastSyncedSnapshot = remote ? remote.snapshot : null;
-    storeTranscriptionDraftSyncedSnapshot(target, remoteState.lastSyncedSnapshot);
+    storeTranscriptionDraftSyncedSnapshot(transcriptionWorkshopDraftStorage(), target, remoteState.lastSyncedSnapshot);
     remoteState.status = remote ? "synced" : "idle";
     remoteState.conflictRemote = null;
     remoteState.conflictLocalSnapshot = null;
@@ -7956,7 +7730,7 @@ async function loadTranscriptionDraftRemote(documentId, pageId, draftAtOpen) {
      version était connue, c'est une suppression observée (conflit explicite),
      jamais une migration silencieuse. La référence est conservée (mémoire et
      localStorage) pour que le conflit survive à un rechargement. */
-  ensureTranscriptionDraftBaseLoaded(target, remoteState);
+  ensureTranscriptionDraftBaseLoaded(transcriptionWorkshopDraftStorage(), target, remoteState);
   const knownBase = remoteState.baseVersion;
   const plan = reconcileTranscriptionDraftOnOpen({
     localSnapshot,
@@ -7966,7 +7740,7 @@ async function loadTranscriptionDraftRemote(documentId, pageId, draftAtOpen) {
   });
   remoteState.baseLoaded = true;
   remoteState.baseVersion = remote ? remote.version : knownBase;
-  storeTranscriptionDraftRemoteBase(target, remote ? remote.version : knownBase);
+  storeTranscriptionDraftRemoteBase(transcriptionWorkshopDraftStorage(), target, remote ? remote.version : knownBase);
   if (plan.operation === "none") {
     remoteState.status = "idle";
     updateWorkshopDraftIndicators();
@@ -7982,7 +7756,7 @@ async function loadTranscriptionDraftRemote(documentId, pageId, draftAtOpen) {
   }
   if (plan.operation === "confirm") {
     remoteState.lastSyncedSnapshot = localSnapshot;
-    storeTranscriptionDraftSyncedSnapshot(target, localSnapshot);
+    storeTranscriptionDraftSyncedSnapshot(transcriptionWorkshopDraftStorage(), target, localSnapshot);
     remoteState.status = "synced";
     updateWorkshopDraftIndicators();
     return;
@@ -8021,7 +7795,7 @@ async function loadTranscriptionDraftRemote(documentId, pageId, draftAtOpen) {
       return;
     }
     remoteState.lastSyncedSnapshot = remote.snapshot;
-    storeTranscriptionDraftSyncedSnapshot(target, remote.snapshot);
+    storeTranscriptionDraftSyncedSnapshot(transcriptionWorkshopDraftStorage(), target, remote.snapshot);
     remoteState.status = "synced";
     applyTranscriptionDraftRemoteVersion(key, remote, ownerUid);
     if (plan.operation === "upgrade") {
@@ -8037,7 +7811,7 @@ async function loadTranscriptionDraftRemote(documentId, pageId, draftAtOpen) {
     remoteState.conflictTarget = { documentId, pageId };
     if (!remote) {
       remoteState.lastSyncedSnapshot = null;
-      storeTranscriptionDraftSyncedSnapshot(target, null);
+      storeTranscriptionDraftSyncedSnapshot(transcriptionWorkshopDraftStorage(), target, null);
     }
     updateWorkshopDraftIndicators();
     if (!stillLoaded) {
@@ -8142,7 +7916,7 @@ function resolveTranscriptionDraftConflict(choice) {
       remoteState.baseVersion = null;
       remoteState.baseLoaded = true;
       remoteState.lastSyncedSnapshot = null;
-      storeTranscriptionDraftSyncedSnapshot(target, null);
+      storeTranscriptionDraftSyncedSnapshot(transcriptionWorkshopDraftStorage(), target, null);
       remoteState.conflictRemote = null;
       remoteState.conflictLocalSnapshot = null;
       remoteState.conflictTarget = null;
@@ -8169,10 +7943,10 @@ function resolveTranscriptionDraftConflict(choice) {
     }
     remoteState.baseVersion = remote.version;
     remoteState.baseLoaded = true;
-    storeTranscriptionDraftRemoteBase(target, remote.version);
+    storeTranscriptionDraftRemoteBase(transcriptionWorkshopDraftStorage(), target, remote.version);
     const restoredSnapshot = transcriptionDraftSnapshotFromDraft(restored);
     remoteState.lastSyncedSnapshot = restoredSnapshot;
-    storeTranscriptionDraftSyncedSnapshot(target, restoredSnapshot);
+    storeTranscriptionDraftSyncedSnapshot(transcriptionWorkshopDraftStorage(), target, restoredSnapshot);
     remoteState.status = "synced";
     remoteState.conflictRemote = null;
     remoteState.conflictLocalSnapshot = null;
@@ -8195,7 +7969,7 @@ function resolveTranscriptionDraftConflict(choice) {
      nettoyage local est reporté à distance), sur la base observée. */
   remoteState.baseVersion = remote ? remote.version : null;
   remoteState.baseLoaded = true;
-  storeTranscriptionDraftRemoteBase(target, remote ? remote.version : null);
+  storeTranscriptionDraftRemoteBase(transcriptionWorkshopDraftStorage(), target, remote ? remote.version : null);
   remoteState.conflictRemote = null;
   remoteState.conflictLocalSnapshot = null;
   remoteState.conflictTarget = null;

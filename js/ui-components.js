@@ -44,3 +44,22 @@ export async function withButtonPending(button, action, pendingLabel = "Enregist
   try { return await action(); }
   finally { setButtonPending(button, false); }
 }
+
+/* Helpers de présentation partagés (extraits de app.js en lot 7) :
+   échappement HTML, initiales d'avatar et libellés de relation. */
+
+export function esc(value = "") {
+  const node = document.createElement("div");
+  node.textContent = value;
+  return node.innerHTML;
+}
+
+export function personInitials(item) {
+  return `${item?.firstName?.[0] || ""}${item?.lastName?.[0] || ""}`.toUpperCase() || "?";
+}
+
+export function relationRole(item, kind) {
+  if (kind === "parent") return item?.gender === "F" ? "Mère" : item?.gender === "M" ? "Père" : "Parent";
+  if (kind === "child") return item?.gender === "F" ? "Fille" : item?.gender === "M" ? "Fils" : "Enfant";
+  return "Partenaire";
+}

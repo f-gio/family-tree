@@ -8,9 +8,9 @@
 
 | Élément | Référence [V] |
 |---|---|
-| Page unique | `index.html` (~890 lignes) : import map (51 entrées), sprite SVG (71 symboles), markup de toutes les vues, bloc `<style>` court |
-| Points d'entrée JS | `js/form-ui.js` (validation globale des formulaires, autonome, sans import) + `js/app.js` (~17 670 lignes, orchestrateur) |
-| Styles | `css/design-system.css` (feuille unique, aucun `@import`), tokens `--color-* / --space-* / --radius-*` |
+| Page unique | `index.html` (~890 lignes) : import map (50 entrées), sprite SVG (71 symboles), markup de toutes les vues, bloc `<style>` court |
+| Points d'entrée JS | `js/form-ui.js` (validation globale des formulaires, autonome, sans import) + `js/app.js` (~17 450 lignes, orchestrateur) |
+| Styles | `css/design-system.css` (feuille générale, aucun `@import`) + `css/print-sheet.css` (**chargée juste après** — impression, contrat d'ordre de cascade) ; tokens `--color-* / --space-* / --radius-*` |
 | Version des assets | meta `asset-release` dans `index.html` + toutes les refs `?v=` (voir AGENTS.md §Build) |
 | CDN / local | SDK Firebase `gstatic` 12.2.1 (import direct), JSZip (import dynamique CDN), `vendor/pdfjs/` (local, régénéré par le build depuis `pdfjs-dist`) |
 | Builds | `scripts/build-recette.mjs` → `dist-recette/` (gitignoré) ; `scripts/build-production.mjs` → `dist-production/` (gitignoré, lit `firebase.production.json`) |
@@ -21,7 +21,7 @@
 
 ### 1. Gestion des personnes
 - **Entrée** : `index.html` (`personDialog`, panneaux identité/famille/documents) ; rendu et persistance dans `js/app.js`.
-- **Modules** : `person-multiselect.js`, `person-name-variants.js`, `family-relations.js`, `family-dissociation.js`, `family-parent-addition.js`, `family-lineage.js`, `document-deletion-guard.js` (blocage de suppression par liens).
+- **Modules** : `person-multiselect.js`, `person-name-variants.js`, `family-relations.js`, `family-dissociation.js`, `family-parent-addition.js`, `family-lineage.js`, `document-deletion-guard.js` (blocage de suppression par liens), `person-print-sheet.js` (**gabarit imprimable** — markup pur, datasets injectés ; styles dans `css/print-sheet.css`).
 - **Tests** : `person-detail-page`, `person-dialog-actions`, `person-modal-layout`, `person-print`, `person-updatedby`, `person-name-variants`, `person-mobile-sheet`, `person-empty-tree-button`, `person-tree-assignment-ui`, `person-tree-transfer-ui`, `identity-ui`, `family-links-lot3`, `family-links-ui`, `family-modals-lot2`, `family-dissociation-ui`, `family-parent-addition`(+`-ui`), `family-lineage`, `multiple-tree-transfer-ui`, `transfer-diagnostic`, `bounded-dates`.
 - **Précautions** : `family-relations.js` est **gelé** (comparaison octet, §C) ; champs legacy `birthDate`/`deathDate`/`partnerIds` obligatoires (compatibilité données anciennes) ; affectation `treeId` régie par les règles Firestore.
 
@@ -64,7 +64,7 @@
 
 ### 8. Transcription et traduction
 - **Entrée** : `index.html` (`transcriptionWorkshopView`) ; pilotage dans `js/app.js`.
-- **Modules** : `transcription-workshop.js` (atelier), `document-transcription.js` (modèle/passage), `transcription-draft-sync.js` (synchronisation), `transcription-draft-storage.js` (localStorage — **local, pas une sauvegarde**).
+- **Modules** : `transcription-workshop.js` (atelier), `document-transcription.js` (modèle/passage), `transcription-draft-sync.js` (synchronisation), `transcription-draft-storage.js` (localStorage — **local, pas une sauvegarde** ; reçoit le storage **injecté**, contient aussi les marqueurs de version/snapshot de sync — ni DOM ni fenêtre dans ce module).
 - **Firestore** : `transcriptionHeads`, `transcriptionRevisions` (immuables), `transcriptionDrafts/{uid}/documents/{doc}/pages/{page}` (espace privé par propriétaire).
 - **Tests** : `transcription-workshop`, `transcription-validation`, `transcription-draft-storage`, `transcription-draft-sync`, `transcription-draft-remote`, `transcription-zone-b1`, `transcription-zone-b2-pdf`, `document-transcription`.
 - **Précautions** : contrôle « italien non vide » sur les revisions officielles ; immuabilité des révisions ; brouillons locaux ≠ synchronisés.
@@ -91,7 +91,7 @@
 
 ### 12. Interfaces mobile et desktop
 - **Entrée** : `index.html` (markup sémantique + `hidden`), media queries dans `design-system.css`.
-- **Modules** : `navigation-state.js` (URL, repli des vues retirées dont `?view=dossiers`), `navigation-context.js`, `ui-components.js` (icônes/emptyState/attente), `form-ui.js` (2ᵉ point d'entrée, validation), `location-autocomplete.js` (GeoNames optionnel).
+- **Modules** : `navigation-state.js` (URL, repli des vues retirées dont `?view=dossiers`), `navigation-context.js`, `ui-components.js` (icônes/emptyState/attente **+ helpers partagés `esc`/`personInitials`/`relationRole`**), `form-ui.js` (2ᵉ point d'entrée, validation), `location-autocomplete.js` (GeoNames optionnel).
 - **Tests** : `navigation-state`, `navigation-detail-restore`, `navigation-context`, `modals-forms-ui`, `mobile-modal-sheets-lot1|lot2|lot3a`, `ios-webapp-header`, `mobile-fullscreen-header`, `interaction-language`, `responsive-accessibility`, `design-system-foundation`, `page-headings`, `tile-interactions`, `tile-context-menu-responsive`, `tasks-ui`, `tasks-tile-visual`, `evolution-final-qa`, `interaction-responsive-smoke` (env var, skip silencieux).
 - **Précautions** : classes générées dynamiquement dans les templates JS — vérifier les motifs `${…}` avant de conclure à un sélecteur CSS orphelin ; cibles tactiles ≥ 44 px (tests dédiés) ; `#icon-procedures` partagé.
 

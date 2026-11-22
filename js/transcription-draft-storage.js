@@ -148,3 +148,76 @@ export function transcriptionDraftWriteBlockReason(storage, documentId, pageId, 
   if (typeof baselineSavedAt !== "string" || !baselineSavedAt) return "unknown-baseline";
   return stored.record.savedAt > baselineSavedAt ? "newer" : null;
 }
+
+/* Marqueurs de synchronisation localStorage (extraits de app.js en lot 7).
+   Le storage est injecté par l’application : ni DOM, ni fenêtre dans ce module. */
+
+const TRANSCRIPTION_DRAFT_REMOTE_BASE_PREFIX = "familyTreeTranscriptionDraftRemote:";
+const TRANSCRIPTION_DRAFT_SYNCED_PREFIX = "familyTreeTranscriptionDraftSynced:";
+
+/* Référence de version ET dernier contenu publié, conservés entre les sessions
+   (localStorage, par propriétaire) : la version évite un faux conflit après
+   rechargement, le snapshot prouve qu'une copie locale est inchangée depuis
+   notre dernier envoi (adoption de la version distante plus récente au lieu
+   d'un conflit). Rien de ces deux marqueurs n'autorise un écrasement : seule la
+   comparaison avec l'état réel de la base décide, dans la transaction. */
+export function transcriptionDraftRemoteBaseStorageKey(target) {
+  return `${TRANSCRIPTION_DRAFT_REMOTE_BASE_PREFIX}${encodeURIComponent(target.ownerUid)}|${target.documentId}|${target.pageId}`;
+}
+
+export function readTranscriptionDraftRemoteBase(storage, target) {
+  if (!storage) return null;
+  try {
+    const version = Number.parseInt(storage.getItem(transcriptionDraftRemoteBaseStorageKey(target)) ?? "", 10);
+    return Number.isSafeInteger(version) && version >= 1 ? version : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeTranscriptionDraftRemoteBase(storage, target, version) {
+  if (!storage) return;
+  try {
+    const key = transcriptionDraftRemoteBaseStorageKey(target);
+    if (version == null) storage.removeItem(key);
+    else storage.setItem(key, String(version));
+  } catch {
+    /* Best effort : sans stockage, la base reste en mémoire pour la session. */
+  }
+}
+
+export function transcriptionDraftSyncedStorageKey(target) {
+  return `${TRANSCRIPTION_DRAFT_SYNCED_PREFIX}${encodeURIComponent(target.ownerUid)}|${target.documentId}|${target.pageId}`;
+}
+
+export function readTranscriptionDraftSyncedSnapshot(storage, target) {
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(transcriptionDraftSyncedStorageKey(target));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeTranscriptionDraftSyncedSnapshot(storage, target, snapshot) {
+  if (!storage) return;
+  try {
+    const key = transcriptionDraftSyncedStorageKey(target);
+    if (snapshot == null) storage.removeItem(key);
+    else storage.setItem(key, JSON.stringify(snapshot));
+  } catch {
+    /* Best effort : sans stockage, le dernier contenu publié reste en mémoire. */
+  }
+}
+
+export function ensureTranscriptionDraftBaseLoaded(storage, target, remoteState) {
+  if (remoteState.baseLoaded) return;
+  remoteState.baseLoaded = true;
+  remoteState.baseVersion = readTranscriptionDraftRemoteBase(storage, target);
+  if (remoteState.lastSyncedSnapshot == null) {
+    remoteState.lastSyncedSnapshot = readTranscriptionDraftSyncedSnapshot(storage, target);
+  }
+}
