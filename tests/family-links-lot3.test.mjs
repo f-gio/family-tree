@@ -364,7 +364,7 @@ test("lot 3 : deux parents avec union renseignée s'enregistrent une fois, sans 
       await page.waitForSelector("#personAttestationDialog[open]");
       await page.fill("#journeyAttComment", "Acte familial préparé");
       await page.locator("#personAttestationDialog [data-journey-documents-toggle]").click();
-      await page.locator('[data-journey-document-pick="builder-doc"]').check();
+      await page.locator('[data-journey-document-pick="builder-doc"]').click();
       await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
       await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);
       let pending = (await page.evaluate(() => window.__parentBuilderTest.state())).pendingParentAttestations;
@@ -540,7 +540,7 @@ test("correction finale : création d'un partenaire enregistre union, fin et att
       await page.waitForSelector("#personAttestationDialog[open]");
       await page.fill("#journeyAttComment", "Acte d’union préparé");
       await page.locator("#personAttestationDialog [data-journey-documents-toggle]").click();
-      await page.locator('[data-journey-document-pick="builder-doc"]').check();
+      await page.locator('[data-journey-document-pick="builder-doc"]').click();
       await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
       await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);
       const prepared = await page.evaluate(() => window.__parentBuilderTest.state().pendingPartnerAttestations);

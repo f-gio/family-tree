@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { enumerateJustificationTargets, JUSTIFICATION_TARGETS_SCHEMA_VERSION } from "../js/justification-targets.js";
+import { enumerateJustificationTargets, justificationTargetCategory, JUSTIFICATION_CATEGORIES, JUSTIFICATION_TARGETS_SCHEMA_VERSION } from "../js/justification-targets.js";
 import { buildFactIdentityId, buildLegacyParentChildIdentityId } from "../js/genealogy-identities.js";
 
 function target(result, targetType, ownerId, memberId = null) {
@@ -229,4 +229,116 @@ test("les filiations stockées en doublon ou hors des membres courants sont excl
   assert.equal(result.targets.some(item => item.targetType === "family.parentChild.relationship"), false);
   assert.ok(result.excluded.some(item => item.reason.includes("lien stocké en double")));
   assert.ok(result.excluded.some(item => item.reason.includes("hors des partnerIds/childIds")));
+});
+
+/* ---- Lot attestations : relations précises et états de vie à une date ---- */
+
+function vitalAndRelationFixture() {
+  const people = [
+    { id: "p-pere", firstName: "Giuseppe", lastName: "Benati", gender: "M" },
+    { id: "p-mere", firstName: "Teresa", lastName: "Pianezza", gender: "F" },
+    { id: "p-enfant", firstName: "Carlo", lastName: "Benati", gender: "M" },
+    { id: "p-frere", firstName: "Luigi", lastName: "Benati", gender: "M" },
+    { id: "p-conjoint", firstName: "Anna", lastName: "Rossi", gender: "F" }
+  ];
+  const families = [
+    {
+      id: "fam-1", partnerIds: ["p-pere", "p-mere"], childIds: ["p-enfant", "p-frere"],
+      parentChildLinks: [
+        { parentId: "p-pere", childId: "p-enfant", type: "biological" },
+        { parentId: "p-pere", childId: "p-frere", type: "biological" },
+        { parentId: "p-mere", childId: "p-enfant", type: "biological" },
+        { parentId: "p-mere", childId: "p-frere", type: "biological" }
+      ]
+    },
+    { id: "fam-2", partnerIds: ["p-enfant", "p-conjoint"], childIds: [], parentChildLinks: [] },
+    { id: "fam-3", partnerIds: ["p-pere"], childIds: ["p-enfant"], parentChildLinks: [] }
+  ];
+  return { people, families };
+}
+
+test("les états de vie à une date existent sans aucune valeur de décès sur la Personne", () => {
+  const { people, families } = vitalAndRelationFixture();
+  const snapshot = JSON.stringify({ people, families });
+  const result = enumerateJustificationTargets({ people, families });
+
+  for (const type of ["person.death.aliveAt", "person.death.deceasedAt"]) {
+    const alive = result.targets.filter(item => item.targetType === type);
+    assert.equal(alive.length, people.length, `${type} : une cible par personne`);
+    const first = alive.find(item => item.owner.id === "p-pere");
+    assert.equal(first.category, "death", "catégorie « Décès et état de vie »");
+    assert.equal(first.value, null, "aucune valeur n’est lue sur la Personne");
+    assert.equal(first.valueState, "absent", "aucune date n’est inventée");
+    assert.equal(first.path.fields.length, 0, "aucun champ de décès n’est référencé");
+    assert.equal(first.factId, first.id, "identité de fait stable et dérivée de la Personne");
+  }
+  assert.ok(result.targets.some(item => item.targetType === "person.death.date"),
+    "le fait « Date de décès » existant est conservé");
+  assert.equal(JSON.stringify({ people, families }), snapshot, "aucune Personne ni Foyer n’est muté");
+});
+
+test("les relations familiales sont explicites, nommées et sans ambiguïté de Foyer", () => {
+  const { people, families } = vitalAndRelationFixture();
+  const snapshot = JSON.stringify({ people, families });
+  const result = enumerateJustificationTargets({ people, families });
+  const forPerson = id => result.targets.filter(item => item.owner.kind === "person" && item.owner.id === id);
+
+  const father = forPerson("p-pere").filter(item => item.targetType === "family.parentChild.parent");
+  assert.deepEqual(father.map(item => item.label).sort(),
+    ["Est le père de Carlo Benati", "Est le père de Luigi Benati"],
+    "libellés en langage naturel, sans identifiant technique");
+  const mother = forPerson("p-mere").find(item => item.targetType === "family.parentChild.parent");
+  assert.equal(mother.label, "Est la mère de Carlo Benati", "rôle déduit du sexe enregistré, sans le fabriquer");
+
+  const child = forPerson("p-enfant").filter(item => item.targetType === "family.parentChild.child");
+  assert.deepEqual(child.map(item => item.label).sort(),
+    ["Est l’enfant de Giuseppe Benati", "Est l’enfant de Teresa Pianezza"]);
+
+  const sibling = forPerson("p-enfant").find(item => item.targetType === "family.sibling");
+  assert.equal(sibling.label, "Est le frère ou la sœur de Luigi Benati");
+
+  const spouse = forPerson("p-enfant").find(item => item.targetType === "family.union.spouse");
+  assert.equal(spouse.label, "Est le conjoint de Anna Rossi");
+  assert.equal(spouse.value.familyId, "fam-2", "l’union reste rattachée à son Foyer pour les participants");
+
+  /* Le même lien (p-pere → p-enfant) existe dans deux Foyers : une seule
+     cible, car l’identité encode les extrêmes et pas le Foyer. */
+  const duplicated = forPerson("p-pere")
+    .filter(item => item.targetType === "family.parentChild.parent" && item.value.childId === "p-enfant");
+  assert.equal(duplicated.length, 1, "aucune duplication quand un même lien apparaît dans deux Foyers");
+  assert.equal(JSON.stringify({ people, families }), snapshot, "aucune relation n’est créée ni modifiée");
+});
+
+test("les identifiants de relation distinguent les directions, les personnes et les catégories", () => {
+  const { people, families } = vitalAndRelationFixture();
+  const result = enumerateJustificationTargets({ people, families });
+  const ids = result.targets.map(item => item.id);
+  assert.equal(new Set(ids).size, ids.length, "toutes les cibles restent uniques");
+
+  const parent = result.targets.find(item => item.targetType === "family.parentChild.parent" && item.value.childId === "p-enfant");
+  const child = result.targets.find(item => item.targetType === "family.parentChild.child" && item.owner.id === "p-enfant");
+  assert.notEqual(parent.id, child.id, "« père de » et « enfant de » sont deux faits distincts");
+
+  const siblingA = result.targets.find(item => item.targetType === "family.sibling" && item.owner.id === "p-enfant");
+  const siblingB = result.targets.find(item => item.targetType === "family.sibling" && item.owner.id === "p-frere");
+  assert.notEqual(siblingA.id, siblingB.id, "chaque sujet porte sa propre relation de fratrie");
+
+  for (const item of result.targets) {
+    assert.ok(Object.hasOwn(item, "category"), `catégorie manquante pour ${item.targetType}`);
+    assert.ok(JUSTIFICATION_CATEGORIES.some(entry => entry.key === item.category), `catégorie inconnue : ${item.category}`);
+  }
+  assert.equal(justificationTargetCategory("person.death.aliveAt"), "death");
+  assert.equal(justificationTargetCategory("family.union.spouse"), "family");
+  assert.equal(justificationTargetCategory("person.residence.place"), "residence");
+});
+
+test("les cibles de Foyer peuvent être exclues sans perdre les relations de la Personne", () => {
+  const { people, families } = vitalAndRelationFixture();
+  const result = enumerateJustificationTargets({ people: [people[2]], families, includeFamilyTargets: false });
+  assert.ok(result.targets.length > 0, "les cibles de la Personne restent publiées");
+  assert.equal(result.targets.some(item => item.owner.kind === "family"), false, "aucune cible de Foyer");
+  assert.ok(result.targets.some(item => item.targetType === "family.parentChild.child"),
+    "les relations précises restent disponibles pour la Personne");
+  assert.ok(result.targets.some(item => item.targetType === "person.death.aliveAt"),
+    "les états de vie à une date restent disponibles");
 });

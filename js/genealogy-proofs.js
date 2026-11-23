@@ -8,6 +8,17 @@
 export const PROOF_RELATIONS = Object.freeze(["supports", "contradicts", "mentions", "ambiguous"]);
 export const PROOF_STATUSES = Object.freeze(["active", "suspended", "historical"]);
 
+import { GENEALOGY_DATE_TYPES } from "./genealogy-date.js";
+
+/* Date de référence d'une information documentaire (lot attestations) :
+   elle appartient à l'association, jamais à la Personne. Elle reste distincte
+   de la date du Document, de la date de décès et de toute conclusion. */
+function validReferenceDateInfo(value) {
+  if (value === null || value === undefined) return true;
+  if (typeof value !== "object" || Array.isArray(value)) return false;
+  return GENEALOGY_DATE_TYPES.includes(value.type);
+}
+
 function nonEmpty(value, label) {
   if (typeof value !== "string" || !value.trim()) throw new TypeError(`${label} doit être une chaîne non vide`);
   return value;
@@ -72,7 +83,8 @@ export function createGenealogyProof({
   relation,
   interpretation = "",
   authorUid = null,
-  createdAt = null
+  createdAt = null,
+  referenceDateInfo = null
 } = {}) {
   nonEmpty(id, "proof.id");
   nonEmpty(factId, "proof.factId");
@@ -97,6 +109,9 @@ export function createGenealogyProof({
   if (zone !== null && photographId !== zone.photographId) throw new TypeError("La zone et la preuve doivent référencer la même photographie");
   if (!Array.isArray(personIds) || personIds.some(personId => typeof personId !== "string" || !personId.trim())) {
     throw new TypeError("proof.personIds doit être un tableau d'identifiants de personnes ; le tableau peut être vide");
+  }
+  if (!validReferenceDateInfo(referenceDateInfo)) {
+    throw new TypeError("referenceDateInfo doit être une date structurée reconnue ou null");
   }
   if (new Set(personIds).size !== personIds.length) throw new TypeError("proof.personIds ne peut pas contenir de doublons");
   if (citationIt !== null && typeof citationIt !== "string") throw new TypeError("citationIt doit être une chaîne ou null");
@@ -125,6 +140,7 @@ export function createGenealogyProof({
     zone: zone == null ? null : cloneValue(zone),
     citation: { textIt: citationIt, translationFr: citationFr },
     sourceValue: cloneValue(sourceValue),
+    referenceDateInfo: cloneValue(referenceDateInfo ?? null),
     relation,
     interpretation,
     authorUid,
@@ -155,6 +171,7 @@ export function validateGenealogyProof(proof) {
   if (proof.familyId != null && (typeof proof.familyId !== "string" || !proof.familyId.trim())) errors.push("familyId doit être une chaîne non vide ou null");
   if (proof.photographId != null && (typeof proof.photographId !== "string" || !proof.photographId.trim())) errors.push("photographId doit être une chaîne non vide ou null");
   if (!Object.prototype.hasOwnProperty.call(proof, "sourceValue")) errors.push("sourceValue doit être présent ; null représente une valeur inconnue");
+  if (!validReferenceDateInfo(proof.referenceDateInfo ?? null)) errors.push("referenceDateInfo doit être une date structurée reconnue ou null");
   if (!PROOF_RELATIONS.includes(proof.relation)) errors.push("relation non reconnue");
   if (!PROOF_STATUSES.includes(proof.technicalStatus)) errors.push("technicalStatus non reconnu");
   if (typeof proof.interpretation !== "string") errors.push("interpretation doit être une chaîne");

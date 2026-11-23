@@ -593,6 +593,16 @@ export function createJustificationAssociation(input = {}) {
   }
   const relationshipId = isValidId(input.relationshipId) ? input.relationshipId.trim() : null;
   if (relationshipId && !familyId) throw new TypeError("Une relation familiale exige un Foyer.");
+  /* Date de référence d'une information documentaire : structurée, portée par
+     l'association, jamais déduite d'une date de décès. */
+  let referenceDateInfo = null;
+  if (input.referenceDateInfo != null) {
+    if (typeof input.referenceDateInfo !== "object" || Array.isArray(input.referenceDateInfo)
+      || typeof input.referenceDateInfo.type !== "string" || !input.referenceDateInfo.type.trim()) {
+      throw new TypeError("La date de référence doit être une date structurée.");
+    }
+    referenceDateInfo = { ...input.referenceDateInfo };
+  }
   return {
     documentId: documentId,
     factId: factId,
@@ -603,6 +613,7 @@ export function createJustificationAssociation(input = {}) {
     familyId: familyId,
     relationshipId: relationshipId,
     relation: input.relation,
+    referenceDateInfo,
     factLabel: typeof input.factLabel === "string" && input.factLabel.trim() ? input.factLabel.trim() : factType
   };
 }

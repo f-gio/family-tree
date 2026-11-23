@@ -61,8 +61,52 @@ const NAME_VARIANT_TARGET_LABELS = Object.freeze({
 
 const AD_HOC_TARGET_LABELS = Object.freeze({
   "family.union.partners": "Partenaires de l’union",
-  "family.parentChild.relationship": "Lien parent-enfant"
+  "family.parentChild.relationship": "Lien parent-enfant",
+  /* Relations précises (lot attestations) : le libellé dynamique du registre
+     porte le nom de l'autre personne ; ces libellés servent de repli
+     d'affichage d'un `factType` persisté. */
+  "family.parentChild.parent": "Est le parent de…",
+  "family.parentChild.child": "Est l’enfant de…",
+  "family.sibling": "Frère ou sœur de…",
+  "family.union.spouse": "Conjoint de…",
+  "person.death.aliveAt": "Vivant à cette date",
+  "person.death.deceasedAt": "Déjà décédé à cette date"
 });
+
+/* Catégories d'affichage du sélecteur d'information. Elles organisent le
+   choix sans jamais être des faits cliquables. */
+export const JUSTIFICATION_CATEGORIES = Object.freeze([
+  { key: "identity", label: "Identité" },
+  { key: "birth", label: "Naissance" },
+  { key: "death", label: "Décès et état de vie" },
+  { key: "family", label: "Famille et filiation" },
+  { key: "residence", label: "Résidence" },
+  { key: "profession", label: "Profession" },
+  { key: "journey", label: "Parcours" }
+]);
+
+const TARGET_CATEGORY_RULES = Object.freeze([
+  ["person.birth", "birth"],
+  ["person.death", "death"],
+  ["person.residence", "residence"],
+  ["person.profession", "profession"],
+  ["person.lifeEvent", "journey"],
+  ["person.name", "identity"],
+  ["person.gender", "identity"],
+  ["family.union", "family"],
+  ["family.parentChild", "family"],
+  ["family.sibling", "family"]
+]);
+
+/** Catégorie d'affichage d'un type de cible. Aucune catégorie n'est une
+    affirmation : elles servent uniquement à organiser les choix. */
+export function justificationTargetCategory(targetType) {
+  const type = typeof targetType === "string" ? targetType : "";
+  for (const [prefix, category] of TARGET_CATEGORY_RULES) {
+    if (type.startsWith(prefix)) return category;
+  }
+  return "identity";
+}
 
 /**
  * Libellé français par type de cible. Il sert à présenter un `factType` de
@@ -255,7 +299,140 @@ function addTarget(targets, exclusions, target) {
   }
 }
 
-function addPersonTargets(person, targets, exclusions) {
+/* ---- Décès et état de vie à une date (lot attestations) ----
+   Ces deux cibles n'ont aucune valeur sur la Personne : la date de référence
+   appartient à l'association documentaire et reste stockée sur la Preuve.
+   Aucun champ de décès n'est lu, proposé ni modifié ici. */
+function addVitalStatusTargets(owner, person, targets, exclusions) {
+  for (const definition of [
+    { factKind: "death.aliveAt", type: "person.death.aliveAt", label: "Vivant à cette date" },
+    { factKind: "death.deceasedAt", type: "person.death.deceasedAt", label: "Déjà décédé à cette date" }
+  ]) {
+    const factId = buildFactIdentityId("person", person.id, definition.factKind);
+    addTarget(targets, exclusions, {
+      id: factId,
+      targetType: definition.type,
+      label: definition.label,
+      valueType: "reference-date",
+      owner,
+      path: { collection: "people", documentId: person.id, fields: [] },
+      value: null,
+      valueState: "absent",
+      factId,
+      factIdentityCompatibility: "exact",
+      legacyFactCandidates: [],
+      identityStrategy: "owner-and-claim-kind"
+    });
+  }
+}
+
+/* ---- Relations familiales précises ----
+   L'identité encode les deux extrêmes dans l'ordre (sujet d'abord) et le type
+   de relation : aucune ambiguité de Foyer, aucune collision entre « A est le
+   père de C » et « C est l'enfant de A », ni entre « A est sœur de B » et
+   « B est sœur de A ». Aucune relation n'est créée ni modifiée : le registre
+   décrit les liens déjà présents dans l'arbre. */
+function relationTargetId(kind, endpoints, targetType) {
+  return buildFactIdentityId(`relation.${kind}.r1`, JSON.stringify(endpoints), targetType);
+}
+
+function parentRoleLabel(gender) {
+  return gender === "F" ? "la mère" : gender === "M" ? "le père" : "le parent";
+}
+
+function addRelationTargets(person, families, peopleById, targets, exclusions) {
+  const owner = makeOwner("person", person);
+  const seen = new Set();
+  const push = target => {
+    if (seen.has(target.id)) return;
+    seen.add(target.id);
+    addTarget(targets, exclusions, target);
+  };
+  const nameOf = id => {
+    const other = peopleById.get(id);
+    return other ? fullName(other) : id;
+  };
+  const makeRelationTarget = ({ id, type, label, family, value, pathFields }) => ({
+    id,
+    targetType: type,
+    label,
+    valueType: "relationship",
+    owner,
+    path: { collection: "families", documentId: family.id, fields: pathFields },
+    value,
+    valueState: "present",
+    factId: id,
+    factIdentityCompatibility: "exact",
+    legacyFactCandidates: [],
+    identityStrategy: "relation-endpoints"
+  });
+
+  for (const family of families) {
+    if (!family || typeof family !== "object" || Array.isArray(family)) continue;
+    const partners = Array.isArray(family.partnerIds) ? family.partnerIds.filter(id => typeof id === "string" && id.trim()) : [];
+    const children = Array.isArray(family.childIds) ? family.childIds.filter(id => typeof id === "string" && id.trim()) : [];
+    if (!partners.includes(person.id) && !children.includes(person.id)) continue;
+    const familyId = typeof family.id === "string" && family.id.trim() ? family.id.trim() : null;
+    if (!familyId) continue;
+    const linkType = (parentId, childId) => {
+      const explicit = (Array.isArray(family.parentChildLinks) ? family.parentChildLinks : [])
+        .find(link => link?.parentId === parentId && link?.childId === childId);
+      return explicit && ["biological", "adoptive", "uncertain", "unknown"].includes(explicit.type) ? explicit.type : "unknown";
+    };
+
+    if (partners.includes(person.id)) {
+      for (const childId of children) {
+        if (childId === person.id) continue;
+        push(makeRelationTarget({
+          id: relationTargetId("parentchild", [person.id, childId], "family.parentChild.parent"),
+          type: "family.parentChild.parent",
+          label: `Est ${parentRoleLabel(person.gender)} de ${nameOf(childId)}`,
+          family,
+          value: { familyId, parentId: person.id, childId, type: linkType(person.id, childId) },
+          pathFields: ["partnerIds", person.id, "childIds", childId]
+        }));
+      }
+      for (const partnerId of partners) {
+        if (partnerId === person.id) continue;
+        push(makeRelationTarget({
+          id: relationTargetId("spouse", [person.id, partnerId], "family.union.spouse"),
+          type: "family.union.spouse",
+          label: `Est le conjoint de ${nameOf(partnerId)}`,
+          family,
+          value: { familyId, partnerIds: [...partners].sort() },
+          pathFields: ["partnerIds"]
+        }));
+      }
+    }
+
+    if (children.includes(person.id)) {
+      for (const parentId of partners) {
+        if (parentId === person.id) continue;
+        push(makeRelationTarget({
+          id: relationTargetId("parentchild", [person.id, parentId], "family.parentChild.child"),
+          type: "family.parentChild.child",
+          label: `Est l’enfant de ${nameOf(parentId)}`,
+          family,
+          value: { familyId, parentId, childId: person.id, type: linkType(parentId, person.id) },
+          pathFields: ["childIds", person.id, "partnerIds", parentId]
+        }));
+      }
+      for (const siblingId of children) {
+        if (siblingId === person.id) continue;
+        push(makeRelationTarget({
+          id: relationTargetId("sibling", [person.id, siblingId], "family.sibling"),
+          type: "family.sibling",
+          label: `Est le frère ou la sœur de ${nameOf(siblingId)}`,
+          family,
+          value: { familyId, personIds: [person.id, siblingId].sort() },
+          pathFields: ["childIds"]
+        }));
+      }
+    }
+  }
+}
+
+function addPersonTargets(person, families = [], peopleById = new Map(), targets, exclusions) {
   if (!person || typeof person !== "object" || Array.isArray(person) || typeof person.id !== "string" || !person.id.trim()) {
     exclusions.push({ owner: { kind: "person", id: person?.id ?? null }, path: ["people"], reason: "identifiant Personne absent ou invalide" });
     return;
@@ -307,6 +484,8 @@ function addPersonTargets(person, targets, exclusions) {
   repeatedRecords(owner, "residences", person, targets, exclusions, PERSON_RESIDENCE_TARGETS);
   repeatedRecords(owner, "professions", person, targets, exclusions, PERSON_PROFESSION_TARGETS);
   repeatedRecords(owner, "lifeEvents", person, targets, exclusions, PERSON_LIFE_EVENT_TARGETS);
+  addVitalStatusTargets(owner, person, targets, exclusions);
+  addRelationTargets(person, families, peopleById, targets, exclusions);
 }
 
 function addFamilyTargets(family, targets, exclusions) {
@@ -447,14 +626,19 @@ function removeCollidingTargets(targets, exclusions) {
  * Les affirmations libres, attestations et objets documentaires ne sont pas des
  * cibles ici : ils ont des responsabilités distinctes à arbitrer ultérieurement.
  */
-export function enumerateJustificationTargets({ people = [], families = [] } = {}) {
+export function enumerateJustificationTargets({ people = [], families = [], includeFamilyTargets = true } = {}) {
   if (!Array.isArray(people)) throw new TypeError("people doit être un tableau");
   if (!Array.isArray(families)) throw new TypeError("families doit être un tableau");
   const targets = [];
   const excluded = [];
-  for (const person of people) addPersonTargets(person, targets, excluded);
-  for (const family of families) addFamilyTargets(family, targets, excluded);
+  const peopleById = new Map();
+  for (const person of people) {
+    if (person && typeof person === "object" && typeof person.id === "string") peopleById.set(person.id, person);
+  }
+  for (const person of people) addPersonTargets(person, families, peopleById, targets, excluded);
+  if (includeFamilyTargets) for (const family of families) addFamilyTargets(family, targets, excluded);
   const safeTargets = removeCollidingTargets(targets, excluded);
+  for (const target of safeTargets) target.category = justificationTargetCategory(target.targetType);
   excluded.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   return { schemaVersion: JUSTIFICATION_TARGETS_SCHEMA_VERSION, targets: safeTargets, excluded };
 }

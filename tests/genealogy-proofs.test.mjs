@@ -280,3 +280,29 @@ test("associations facultatives : preuves sans personne et/ou sans document", ()
   assert.ok(orphanValidation.errors.some(error => error.includes("exigent un document d'origine")), "erreur de cohérence explicite");
   assert.throws(() => makeProof({ personIds: [], documentId: null, pageId: "page-1", passageId: null, transcriptionRevisionId: null }), /document d'origine/);
 });
+
+test("la date de référence d'une information reste structurée et distincte de la date du Document", () => {
+  const base = makeProof({});
+  const withReference = createGenealogyProof({
+    ...base,
+    id: "preuve-reference",
+    referenceDateInfo: { type: "exact", value: "1884-06-12" }
+  });
+  assert.deepEqual(withReference.referenceDateInfo, { type: "exact", value: "1884-06-12" },
+    "la date de référence est persistée sous forme structurée");
+  assert.deepEqual(withReference.sourceValue, base.sourceValue,
+    "la valeur relevée dans le Document reste une donnée distincte");
+  assert.equal(validateGenealogyProof(withReference).valid, true, "preuve avec date de référence valide");
+
+  const withoutReference = createGenealogyProof({ ...base, id: "preuve-sans-reference" });
+  assert.equal(withoutReference.referenceDateInfo, null, "absence de date de référence explicite");
+  assert.equal(validateGenealogyProof(withoutReference).valid, true);
+
+  assert.throws(() => createGenealogyProof({ ...base, referenceDateInfo: "1884" }),
+    /referenceDateInfo/, "une date libre n'est pas acceptée");
+  assert.throws(() => createGenealogyProof({ ...base, referenceDateInfo: { type: "someday" } }),
+    /referenceDateInfo/, "un type de date inconnu est refusé");
+  const invalid = validateGenealogyProof({ ...withoutReference, referenceDateInfo: 1884 });
+  assert.equal(invalid.valid, false, "validation refusant une date de référence non structurée");
+  assert.ok(invalid.errors.some(error => error.includes("referenceDateInfo")));
+});

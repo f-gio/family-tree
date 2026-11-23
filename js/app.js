@@ -40,7 +40,7 @@ import { createGenealogyCollaborationStore } from "./genealogy-collaboration-fir
 import { createGenealogyProof, transitionProofStatus, validateGenealogyProof } from "./genealogy-proofs.js";
 import { createConclusionRevision, createConclusionHead } from "./fact-conclusions.js";
 import { createSourceDocument, mergeSourceDocumentGuidedData, resolveSourceDocumentLinks, searchLinkedDocuments, SOURCE_DOCUMENT_PICKER_PAGE_SIZE } from "./source-document-model.js";
-import { enumerateJustificationTargets, JUSTIFICATION_TARGET_LABELS } from "./justification-targets.js";
+import { enumerateJustificationTargets, justificationTargetCategory, JUSTIFICATION_CATEGORIES, JUSTIFICATION_TARGET_LABELS } from "./justification-targets.js";
 import {
   createJustificationAssociation,
   justificationAssociationKey,
@@ -298,6 +298,13 @@ let journeyAttestationDialogReturnFocus = null;
 let journeyAttestationDialogReturnSelector = "";
 let journeyAttestationDialogScrollSnapshot = null;
 const pendingRelationAttestations = { parent: [], partner: [], addParent: [] };
+/* Associations d'attestation encore en brouillon (§14.3). Tant que
+   l'événement parent n'est pas définitivement enregistré, aucune Preuve n'est
+   créée : les associations restent ici, identifiées par l'attestation qu'elles
+   concernent. L'annulation du parent vide simplement la table, sans preuve
+   orpheline ; les Preuves persistantes ne sont écrites qu'après le succès de
+   l'écriture parent. */
+const journeyDraftAssociations = new Map();
 let pendingRelationAttestationContext = null;
 const journeyExpanded = new Set();
 let journeyLocationControl = null;
@@ -2841,8 +2848,8 @@ function journeyAttestationFormMarkup(item, entry, attestation, { pendingEntry =
       <div class="attestation-form-panel">
         <div class="attestation-document-selection" id="journeyDocumentSelection">${journeyDocumentSelectionMarkup()}</div>
         <div class="attestation-proof-controls attestation-document-actions">
-          <button class="btn small" type="button" data-journey-documents-toggle aria-expanded="${journeyAttestationDraft.documentsOpen ? "true" : "false"}" aria-controls="journeyDocumentPicker">${journeyAttestationDraft.documentsOpen ? "Masquer la liste" : "Choisir des documents"}</button>
-          <button class="btn small tertiary" type="button" data-journey-document-create>${icon("plus")}<span>Ajouter un document</span></button>
+          <button class="btn small" type="button" data-journey-documents-toggle aria-expanded="${journeyAttestationDraft.documentsOpen ? "true" : "false"}" aria-controls="journeyDocumentPicker">${esc(journeyDocumentCountLabel())}</button>
+          <button class="btn small tertiary" type="button" data-journey-document-create>${icon("plus")}<span>Ajouter un nouveau document</span></button>
         </div>
         <div id="journeyDocumentPicker"${journeyAttestationDraft.documentsOpen ? "" : " hidden"}>${journeyAttestationDraft.documentsOpen ? journeyDocumentPickerMarkup(item) : ""}</div>
       </div>
@@ -2850,8 +2857,9 @@ function journeyAttestationFormMarkup(item, entry, attestation, { pendingEntry =
     <section class="attestation-form-section" aria-labelledby="journeyAttestationInformationsTitle" data-journey-informations-section>
       <h4 id="journeyAttestationInformationsTitle">Informations concernées</h4>
       <div class="attestation-form-panel">
-        <div class="attestation-association-list" id="journeyAssociationList">${journeyAssociationListMarkup(item)}</div>
-        ${journeyAssociationComposerMarkup(item)}
+        <div id="journeyAssociationList">${journeyAssociationListMarkup()}</div>
+        <div id="journeyPanelActions">${journeyPanelActionsMarkup()}</div>
+        <div id="journeyAssociationPanelHost">${journeyAssociationPanelsMarkup(item)}</div>
       </div>
     </section>
     <section class="attestation-form-section" aria-labelledby="journeyAttestationCommentTitle">
@@ -2881,7 +2889,14 @@ const journeyAttestationDraft = {
   documentsOpen: false,
   documentQuery: "",
   documentPage: 1,
+  /* Panneau intégré de la section « Informations concernées » :
+     "" = aucun panneau ouvert, "info" = Ajouter une information,
+     "person" = Ajouter une autre personne. Les deux ne sont jamais ouverts
+     en même temps. */
+  panel: "",
   subjectQuery: "",
+  personQuery: "",
+  personPreviewId: "",
   composerSubject: "",
   composerSubjectLabel: "",
   composerFactId: "",
@@ -2923,7 +2938,10 @@ function resetJourneyAttestationDraft(source = {}) {
   draft.documentsOpen = Boolean(source.documentsOpen);
   draft.documentQuery = typeof source.documentQuery === "string" ? source.documentQuery : "";
   draft.documentPage = Number(source.documentPage) > 0 ? Number(source.documentPage) : 1;
+  draft.panel = source.panel === "info" || source.panel === "person" ? source.panel : "";
   draft.subjectQuery = typeof source.subjectQuery === "string" ? source.subjectQuery : "";
+  draft.personQuery = typeof source.personQuery === "string" ? source.personQuery : "";
+  draft.personPreviewId = typeof source.personPreviewId === "string" ? source.personPreviewId : "";
   draft.composerSubject = source.composerSubject || "";
   draft.composerSubjectLabel = source.composerSubjectLabel || "";
   draft.composerFactId = source.composerFactId || "";
@@ -2976,24 +2994,75 @@ function journeySubjectLabel(key) {
   return journeyPersonLabel(person(subject.id)) || subject.id;
 }
 
-/** Suggestions de sujet : la fiche courante en tête, puis le reste de l'arbre. */
+/** Relations naturelles réellement connues avec la Personne de la fiche.
+    Aucune relation n'est inventée : seules les unions et filiations
+    présentes dans l'arbre sont proposées, avec leur libellé naturel. */
+function journeyKinshipSuggestions(item) {
+  const currentId = item?.id || "";
+  const suggestions = [];
+  const seen = new Set();
+  const push = (id, hint) => {
+    if (!id || id === currentId || seen.has(id)) return;
+    const other = person(id);
+    if (!other) return;
+    seen.add(id);
+    suggestions.push({ key: journeySubjectKey("person", id), label: journeyPersonLabel(other), hint });
+  };
+  if (!currentId) return suggestions;
+  for (const family of families) {
+    const partners = Array.isArray(family.partnerIds) ? family.partnerIds : [];
+    const children = Array.isArray(family.childIds) ? family.childIds : [];
+    if (children.includes(currentId)) {
+      for (const parentId of partners) {
+        const parent = person(parentId);
+        push(parentId, parent?.gender === "F" ? "Mère" : parent?.gender === "M" ? "Père" : "Parent");
+      }
+      for (const siblingId of children) push(siblingId, "Frère / Sœur");
+    }
+    if (partners.includes(currentId)) {
+      for (const partnerId of partners) push(partnerId, "Conjoint");
+      for (const childId of children) {
+        const child = person(childId);
+        push(childId, child?.gender === "F" ? "Fille" : child?.gender === "M" ? "Fils" : "Enfant");
+      }
+    }
+  }
+  return suggestions;
+}
+
+/** Suggestions de sujet : la fiche courante, les proches réels, puis — le cas
+    échéant — la recherche sur l'ensemble de l'arbre. */
 function journeySubjectOptions(item, query) {
   const owner = journeyAttestationOwner(item);
-  const pool = [];
-  if (owner) pool.push({ key: journeySubjectKey(owner.kind, owner.id), label: owner.label, hint: "Sujet de la fiche" });
-  for (const personItem of people) {
-    if (owner && owner.kind === "person" && owner.id === personItem.id) continue;
-    pool.push({ key: journeySubjectKey("person", personItem.id), label: journeyPersonLabel(personItem), hint: "Personne" });
-  }
-  for (const family of families) {
-    if (owner && owner.kind === "family" && owner.id === family.id) continue;
-    pool.push({ key: journeySubjectKey("family", family.id), label: journeyFamilyLabel(family), hint: "Foyer" });
-  }
   const normalized = String(query || "").trim().toLowerCase();
-  const filtered = normalized
-    ? pool.filter(option => `${option.label} ${option.hint}`.toLowerCase().includes(normalized))
-    : pool;
-  return filtered.slice(0, JOURNEY_SUBJECT_RESULT_LIMIT);
+  const hintOf = personItem => (owner && owner.kind === "person" && owner.id === personItem.id ? "Personne actuelle" : "Personne");
+  if (normalized) {
+    const pool = [];
+    for (const personItem of people) {
+      pool.push({ key: journeySubjectKey("person", personItem.id), label: journeyPersonLabel(personItem), hint: hintOf(personItem) });
+    }
+    for (const family of families) {
+      pool.push({ key: journeySubjectKey("family", family.id), label: journeyFamilyLabel(family), hint: "Foyer" });
+    }
+    return pool.filter(option => `${option.label} ${option.hint}`.toLowerCase().includes(normalized))
+      .slice(0, JOURNEY_SUBJECT_RESULT_LIMIT);
+  }
+  const pool = [];
+  if (owner) {
+    pool.push({
+      key: journeySubjectKey(owner.kind, owner.id),
+      label: owner.label,
+      hint: owner.kind === "person" ? "Personne actuelle" : "Foyer de la fiche"
+    });
+  }
+  for (const suggestion of journeyKinshipSuggestions(item)) pool.push(suggestion);
+  for (const personItem of people) {
+    if (pool.length >= JOURNEY_SUBJECT_RESULT_LIMIT) break;
+    const key = journeySubjectKey("person", personItem.id);
+    if (pool.some(option => option.key === key)) continue;
+    pool.push({ key, label: journeyPersonLabel(personItem), hint: "Autre personne de l’arbre" });
+  }
+  return pool.slice(0, JOURNEY_SUBJECT_RESULT_LIMIT);
 }
 
 function journeyFamilyParticipants(familyId) {
@@ -3002,7 +3071,9 @@ function journeyFamilyParticipants(familyId) {
   return [...new Set([...(family.partnerIds || []), ...(family.childIds || [])].filter(id => typeof id === "string" && id))];
 }
 
-/** Faits disponibles pour le sujet choisi dans le composeur (registre R1). */
+/** Faits disponibles pour le sujet choisi dans le composeur (registre R1).
+    Les familles sont fournies pour dériver les relations précises, mais les
+    cibles de Foyer ne sont pas proposées à une Personne. */
 function journeyComposerTargets() {
   const subject = journeyParseSubjectKey(journeyAttestationDraft.composerSubject);
   if (!subject) return [];
@@ -3010,29 +3081,54 @@ function journeyComposerTargets() {
     const family = families.find(value => value.id === subject.id);
     return family ? enumerateJustificationTargets({ families: [family] }).targets : [];
   }
-  const subjectPerson = person(subject.id);
-  return subjectPerson ? enumerateJustificationTargets({ people: [subjectPerson] }).targets : [];
+  return enumerateJustificationTargets({
+    people, families, includeFamilyTargets: false
+  }).targets.filter(target => target.owner.kind === "person" && target.owner.id === subject.id);
+}
+
+function journeyDocumentCountLabel() {
+  const count = journeyAttestationDraft.documentIds.length;
+  if (!count) return "Sélectionner un ou plusieurs documents…";
+  return count === 1 ? "1 document sélectionné" : `${count} documents sélectionnés`;
+}
+
+/* Ligne compacte d'un document retenu : miniature, titre, métadonnées et les
+   trois actions (Consulter / Voir la fiche / Retirer). */
+function journeyDocumentRowMarkup(id, { selectable = false } = {}) {
+  const documentItem = documents.find(value => value.id === id);
+  const label = documentItem ? documentDisplayLabel(documentItem) : "Document retiré de l’arbre";
+  const meta = documentItem
+    ? [documentItem.type || documentItem.fileName || "", documentItem.fileName || ""].filter(Boolean).join(" · ")
+    : "Référence conservée";
+  const thumb = documentItem ? personDocThumbSource(documentItem) : "";
+  const thumbMarkup = thumb
+    ? `<img class="attestation-doc-thumb" src="${esc(thumb)}" alt="" loading="lazy">`
+    : `<span class="attestation-doc-thumb attestation-doc-thumb--empty" aria-hidden="true">${icon("document")}</span>`;
+  const actions = selectable ? "" : `<span class="attestation-chip-actions">
+        <button class="btn small" type="button" data-journey-document-view="${esc(id)}"${documentItem ? "" : " disabled"}>Consulter</button>
+        <button class="btn small" type="button" data-journey-document-sheet="${esc(id)}"${documentItem ? "" : " disabled"}>Voir la fiche</button>
+        <button class="btn icon-btn life-delete-icon" type="button" data-journey-document-remove="${esc(id)}"${documentItem ? "" : " disabled"} aria-label="Retirer ${esc(label)} de la sélection" title="Retirer de la sélection">${icon("trash")}</button>
+      </span>`;
+  return `<div class="attestation-association-option attestation-document-chip">
+      ${thumbMarkup}
+      <span class="attestation-association-copy"><strong>${esc(label)}</strong><small>${esc(meta)}</small></span>
+      ${actions}
+    </div>`;
 }
 
 function journeyDocumentSelectionMarkup() {
   const ids = journeyAttestationDraft.documentIds;
-  if (!ids.length) return `<p class="card-meta">Aucun document justificatif sélectionné.</p>`;
-  return ids.map(id => {
-    const documentItem = documents.find(value => value.id === id);
-    const label = documentItem ? documentDisplayLabel(documentItem) : "Document retiré de l’arbre";
-    const type = documentItem ? (documentItem.type || documentItem.fileName || "Document") : "Référence conservée";
-    const removable = documentItem ? "" : " disabled";
-    return `<div class="attestation-association-option attestation-document-chip">
-      <span class="attestation-association-copy"><strong>${esc(label)}</strong><small>${esc(type)}</small></span>
-      <span class="attestation-chip-actions">
-        <button class="btn small" type="button" data-journey-document-view="${esc(id)}"${documentItem ? "" : " disabled"}>Consulter</button>
-        <button class="btn small" type="button" data-journey-document-sheet="${esc(id)}"${documentItem ? "" : " disabled"}>Voir la fiche</button>
-        <button class="btn icon-btn life-delete-icon" type="button" data-journey-document-remove="${esc(id)}"${removable} aria-label="Retirer ${esc(label)} de la sélection" title="Retirer de la sélection">${icon("trash")}</button>
-      </span>
+  if (!ids.length) {
+    return `<div class="attestation-empty" id="journeyDocumentSelectionEmpty">
+      <strong>Aucun document sélectionné</strong>
+      <span>Sélectionnez un document existant ou ajoutez un nouveau document.</span>
     </div>`;
-  }).join("");
+  }
+  return ids.map(id => journeyDocumentRowMarkup(id)).join("");
 }
 
+/* Sélection par lignes : pas de case à cocher. La coche de la ligne est
+   décorative et reflète l'état `aria-pressed` du bouton. */
 function journeyDocumentListMarkup(item) {
   const draft = journeyAttestationDraft;
   const personId = item?.id || "";
@@ -3044,11 +3140,15 @@ function journeyDocumentListMarkup(item) {
     return leftLinked - rightLinked;
   });
   const visible = ordered.slice(0, JOURNEY_DOCUMENT_PAGE_SIZE * draft.documentPage);
-  const options = visible.map(documentItem => {
-    const checked = draft.documentIds.includes(documentItem.id) ? " checked" : "";
+  const rows = visible.map(documentItem => {
+    const selected = draft.documentIds.includes(documentItem.id);
     const type = documentItem.type || documentItem.fileName || "Document";
-    const linked = (documentItem.personIds || []).includes(personId) ? `<small>${esc(type)}</small>` : `<small>${esc(type)}</small><small>Bibliothèque</small>`;
-    return `<label class="attestation-association-option"><input type="checkbox" data-journey-document-pick="${esc(documentItem.id)}"${checked}><span class="attestation-association-copy">${esc(documentDisplayLabel(documentItem))}${linked}</span></label>`;
+    const origin = (documentItem.personIds || []).includes(personId) ? "" : `<small>Bibliothèque</small>`;
+    return `<button class="attestation-pick-row${selected ? " is-selected" : ""}" type="button"
+        data-journey-document-pick="${esc(documentItem.id)}" aria-pressed="${selected ? "true" : "false"}">
+        <span class="attestation-pick-check" aria-hidden="true">${selected ? icon("check") : ""}</span>
+        <span class="attestation-association-copy">${esc(documentDisplayLabel(documentItem))}<small>${esc(type)}</small>${origin}</span>
+      </button>`;
   }).join("");
   const more = ordered.length > visible.length
     ? `<button class="btn small tertiary" type="button" data-journey-documents-more>Afficher plus (${ordered.length - visible.length})</button>`
@@ -3056,7 +3156,7 @@ function journeyDocumentListMarkup(item) {
   const hint = query
     ? `<p class="card-meta">Recherche dans toute la bibliothèque documentaire.</p>`
     : `<p class="card-meta">Documents déjà associés à cette personne. Utilisez la recherche pour toute la bibliothèque.</p>`;
-  return `${hint}${options || `<p class="card-meta">Aucun document ne correspond à cette recherche.</p>`}${more}`;
+  return `${hint}${rows || `<p class="card-meta">Aucun document ne correspond à cette recherche.</p>`}${more}`;
 }
 
 function journeyDocumentPickerMarkup(item) {
@@ -3067,40 +3167,85 @@ function journeyDocumentPickerMarkup(item) {
     <div class="attestation-association-list" id="journeyDocumentList">${journeyDocumentListMarkup(item)}</div>`;
 }
 
+/* Tableau récapitulatif : une ligne par association précise
+   Document × Sujet × Fait × Qualification, jamais un regroupement. */
+function journeyAssociationSubjectLabel(item) {
+  return journeySubjectLabel(journeySubjectKey(item.subjectKind, item.subjectId));
+}
+
 function journeyAssociationListMarkup() {
   const list = journeyAttestationDraft.associations;
-  if (!list.length) return `<p class="card-meta">Aucune information renseignée pour cette attestation.</p>`;
-  return list.map(item => {
+  if (!list.length) {
+    return `<div class="attestation-empty" id="journeyAssociationListEmpty">
+      <strong>Aucune information ajoutée</strong>
+      <span>Ajoutez une information pour indiquer ce que chaque document justifie.</span>
+    </div>`;
+  }
+  const rows = list.map(item => {
     const documentItem = documents.find(value => value.id === item.documentId);
     const docLabel = documentItem ? documentDisplayLabel(documentItem) : "Document retiré de l’arbre";
     const status = item.existing ? "Enregistrée" : "À enregistrer";
-    return `<div class="attestation-association-option attestation-association-row" data-journey-association="${esc(item.key)}">
-      <span class="attestation-association-copy">
-        <strong>${esc(item.factLabel || item.factType)}</strong>
-        <small>${esc(docLabel)} · ${esc(journeySubjectLabel(journeySubjectKey(item.subjectKind, item.subjectId)))} · ${esc(PROOF_RELATION_LABELS[item.relation] || item.relation)} · ${status}</small>
-      </span>
-      <button class="btn icon-btn life-delete-icon" type="button" data-journey-association-remove="${esc(item.key)}" aria-label="Retirer l’information ${esc(item.factLabel || item.factType)}" title="Retirer cette association">${icon("trash")}</button>
-    </div>`;
+    const relationLabel = PROOF_RELATION_LABELS[item.relation] || item.relation;
+    return `<tr data-journey-association="${esc(item.key)}">
+      <td data-col="subject" data-label="Personne / Relation"><strong>${esc(journeyAssociationSubjectLabel(item))}</strong></td>
+      <td data-col="fact" data-label="Information">${esc(item.factLabel || item.factType)}</td>
+      <td data-col="document" data-label="Document">${esc(docLabel)}</td>
+      <td data-col="qualification" data-label="Qualification"><span class="attestation-qualification attestation-qualification--${esc(item.relation)}">${esc(relationLabel)}</span><small>${esc(status)}</small></td>
+      <td data-col="action"><button class="btn icon-btn life-delete-icon" type="button" data-journey-association-remove="${esc(item.key)}" aria-label="Retirer l’information ${esc(item.factLabel || item.factType)}" title="Retirer cette association">${icon("trash")}</button></td>
+    </tr>`;
   }).join("");
+  return `<div class="attestation-table-wrap">
+      <table class="attestation-table">
+        <caption class="sr-only">Informations justifiées par les documents de cette attestation</caption>
+        <thead>
+          <tr>
+            <th scope="col">Personne / Relation</th>
+            <th scope="col">Information</th>
+            <th scope="col">Document</th>
+            <th scope="col">Qualification</th>
+            <th scope="col"><span class="sr-only">Retrait</span></th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 function journeySubjectResultsMarkup(item) {
-  const options = journeySubjectOptions(item, journeyAttestationDraft.subjectQuery);
+  const draft = journeyAttestationDraft;
+  const options = journeySubjectOptions(item, draft.subjectQuery);
   if (!options.length) return `<p class="card-meta">Aucune personne ni foyer ne correspond à cette recherche.</p>`;
-  return options.map(option => `<button class="btn small tertiary" type="button" data-journey-subject-pick="${esc(option.key)}">${esc(option.label)}<small>${esc(option.hint)}</small></button>`).join("");
+  return options.map(option => {
+    const selected = draft.composerSubject === option.key;
+    return `<button class="attestation-pick-row${selected ? " is-selected" : ""}" type="button"
+        data-journey-subject-pick="${esc(option.key)}" aria-pressed="${selected ? "true" : "false"}">
+        <span class="attestation-pick-check" aria-hidden="true">${selected ? icon("check") : ""}</span>
+        <span class="attestation-association-copy">${esc(option.label)}<small>${esc(option.hint)}</small></span>
+      </button>`;
+  }).join("");
 }
 
+/* Informations groupées par catégorie. Les catégories ne sont que des
+   en-têtes d'organisation : elles ne sont jamais des faits cliquables. */
 function journeyAssociationFactOptionsMarkup() {
   const draft = journeyAttestationDraft;
   const targets = journeyComposerTargets();
-  if (!draft.composerSubject) return `<option value="">Choisissez d’abord un sujet.</option>`;
-  if (!targets.length) return `<option value="">Aucun fait disponible pour ce sujet.</option>`;
-  const options = targets.map(target => {
-    const value = esc(target.id);
-    const selected = draft.composerFactId === target.id ? " selected" : "";
-    return `<option value="${value}"${selected}>${esc(target.label || target.targetType)}</option>`;
+  if (!draft.composerSubject) return `<option value="">Choisissez d’abord une personne.</option>`;
+  if (!targets.length) return `<option value="">Aucune information disponible pour cette personne.</option>`;
+  const groups = new Map();
+  for (const target of targets) {
+    const category = justificationTargetCategory(target.targetType);
+    if (!groups.has(category)) groups.set(category, []);
+    groups.get(category).push(target);
+  }
+  const orderedKeys = [...JUSTIFICATION_CATEGORIES.map(entry => entry.key), ...[...groups.keys()]];
+  const body = [...new Set(orderedKeys)].filter(key => groups.has(key)).map(key => {
+    const label = (JUSTIFICATION_CATEGORIES.find(entry => entry.key === key) || { label: key }).label;
+    const options = groups.get(key).map(target =>
+      `<option value="${esc(target.id)}"${draft.composerFactId === target.id ? " selected" : ""}>${esc(target.label || target.targetType)}</option>`).join("");
+    return `<optgroup label="${esc(label)}">${options}</optgroup>`;
   }).join("");
-  return `<option value="">Choisissez un fait…</option>${options}`;
+  return `<option value="">Choisissez une information…</option>${body}`;
 }
 
 function journeyAssociationDocumentOptionsMarkup() {
@@ -3120,44 +3265,166 @@ function journeyRelationOptionsMarkup(current) {
     `<option value="${esc(value)}"${value === current ? " selected" : ""}>${esc(label)}</option>`).join("");
 }
 
-function journeyAssociationComposerMarkup(item) {
-  if (!isAdminUser()) {
-    return `<div class="attestation-composer"><p class="card-meta">L’ajout d’informations est réservé aux administrateurs.</p></div>`;
-  }
+function journeyVitalStatusTarget(target) {
+  return Boolean(target && (target.targetType === "person.death.aliveAt" || target.targetType === "person.death.deceasedAt"));
+}
+
+/* Panneau « Ajouter une information » : quatre champs, aucun formulaire
+   superposé, refermé après validation. */
+function journeyInfoPanelMarkup(item) {
   const draft = journeyAttestationDraft;
+  const selectedTarget = journeyComposerTargets().find(target => target.id === draft.composerFactId) || null;
+  const needsReferenceDate = journeyVitalStatusTarget(selectedTarget);
   const chosen = draft.composerSubject
-    ? `<p class="card-meta" id="journeySubjectChosen">Sujet : ${esc(journeySubjectLabel(draft.composerSubject))}</p>`
-    : `<p class="card-meta" id="journeySubjectChosen">Aucun sujet sélectionné.</p>`;
-  return `<div class="attestation-composer" data-journey-association-composer>
-    <p class="card-meta">Ajouter une information : sujet, fait, document et qualification pris un par un.</p>
-    <div class="attestation-proof-controls">
-      <label class="field-label" for="journeyAssociationSubjectSearch">Sujet</label>
-      <input class="field" id="journeyAssociationSubjectSearch" type="search" data-journey-subject-search autocomplete="off" placeholder="Rechercher une personne ou un foyer…" value="${esc(draft.subjectQuery)}">
-      <div class="attestation-association-list" id="journeySubjectResults">${journeySubjectResultsMarkup(item)}</div>
-      ${chosen}
-    </div>
-    <div class="attestation-proof-controls">
-      <label class="field-label" for="journeyAssociationFact">Fait précis</label>
-      <select class="field" id="journeyAssociationFact" data-journey-association-fact>${journeyAssociationFactOptionsMarkup()}</select>
-    </div>
-    <div class="attestation-proof-controls">
-      <label class="field-label" for="journeyAssociationDocument">Document</label>
-      <select class="field" id="journeyAssociationDocument" data-journey-association-document>${journeyAssociationDocumentOptionsMarkup()}</select>
-    </div>
-    <div class="attestation-proof-controls">
-      <label class="field-label" for="journeyAssociationRelation">Qualification</label>
-      <select class="field" id="journeyAssociationRelation" data-journey-association-relation>${journeyRelationOptionsMarkup(draft.composerRelation)}</select>
-    </div>
-    ${journeyErrorMarkup("association")}
-    <div class="attestation-proof-controls">
-      <button class="btn small primary" type="button" data-journey-association-add>Ajouter l’information</button>
-    </div>
-  </div>`;
+    ? `Sujet : ${journeySubjectLabel(draft.composerSubject)}`
+    : "Aucune personne sélectionnée.";
+  return `<div class="attestation-panel" data-journey-attestation-panel="info" id="journeyInfoPanel">
+      <div class="attestation-panel-head">
+        <h5>Ajouter une information</h5>
+        <button class="btn small tertiary" type="button" data-journey-panel-close>Fermer</button>
+      </div>
+      <div class="attestation-proof-controls">
+        <label class="field-label" for="journeyAssociationSubjectSearch">Personne</label>
+        <input class="field" id="journeyAssociationSubjectSearch" type="search" data-journey-subject-search autocomplete="off" placeholder="Rechercher une personne ou un foyer…" value="${esc(draft.subjectQuery)}">
+        <div class="attestation-association-list" id="journeySubjectResults">${journeySubjectResultsMarkup(item)}</div>
+        <p class="card-meta" id="journeySubjectChosen">${esc(chosen)}</p>
+      </div>
+      <div class="attestation-proof-controls">
+        <label class="field-label" for="journeyAssociationFact">Information</label>
+        <select class="field" id="journeyAssociationFact" data-journey-association-fact>${journeyAssociationFactOptionsMarkup()}</select>
+      </div>
+      <fieldset class="life-fields attestation-reference-date" data-journey-reference-date${needsReferenceDate ? "" : " hidden"}>
+        <legend>Date de référence</legend>
+        ${journeyDateFormMarkup(null)}
+        <p class="card-meta">Date portée par le document : elle ne devient pas la date de décès de la Personne.</p>
+        ${journeyErrorMarkup("referenceDate")}
+      </fieldset>
+      <div class="attestation-proof-controls">
+        <label class="field-label" for="journeyAssociationDocument">Document</label>
+        <select class="field" id="journeyAssociationDocument" data-journey-association-document>${journeyAssociationDocumentOptionsMarkup()}</select>
+      </div>
+      <div class="attestation-proof-controls">
+        <label class="field-label" for="journeyAssociationRelation">Qualification</label>
+        <select class="field" id="journeyAssociationRelation" data-journey-association-relation>${journeyRelationOptionsMarkup(draft.composerRelation)}</select>
+      </div>
+      ${journeyErrorMarkup("association")}
+      <div class="attestation-panel-actions">
+        <button class="btn small primary" type="button" data-journey-association-add>Ajouter l’information</button>
+        <button class="btn small" type="button" data-journey-panel-close>Annuler</button>
+      </div>
+    </div>`;
+}
+
+function journeyPersonResultsMarkup(item) {
+  const draft = journeyAttestationDraft;
+  const query = draft.personQuery.trim().toLowerCase();
+  let options = [];
+  if (query) {
+    options = people
+      .filter(personItem => journeyPersonLabel(personItem).toLowerCase().includes(query))
+      .map(personItem => ({ id: personItem.id, label: journeyPersonLabel(personItem), hint: "Personne" }));
+  } else {
+    const current = item ? { id: item.id, label: journeyPersonLabel(item), hint: "Personne actuelle" } : null;
+    const suggestions = journeyKinshipSuggestions(item).map(suggestion => ({
+      id: String(suggestion.key).slice("person:".length),
+      label: suggestion.label,
+      hint: suggestion.hint
+    }));
+    options = [current, ...suggestions].filter(Boolean);
+  }
+  const seen = new Set();
+  const rows = [];
+  for (const option of options) {
+    if (!option?.id || seen.has(option.id)) continue;
+    seen.add(option.id);
+    if (rows.length >= JOURNEY_SUBJECT_RESULT_LIMIT) break;
+    const selected = draft.personPreviewId === option.id;
+    rows.push(`<button class="attestation-pick-row${selected ? " is-selected" : ""}" type="button"
+        data-journey-person-pick="${esc(option.id)}" aria-pressed="${selected ? "true" : "false"}">
+        <span class="attestation-pick-check" aria-hidden="true">${selected ? icon("check") : ""}</span>
+        <span class="attestation-association-copy">${esc(option.label)}<small>${esc(option.hint)}</small></span>
+      </button>`);
+  }
+  if (!rows.length) return `<p class="card-meta">Aucune personne ne correspond à cette recherche.</p>`;
+  return rows.join("");
+}
+
+function journeyPersonPreviewMarkup(item) {
+  const draft = journeyAttestationDraft;
+  const other = draft.personPreviewId ? person(draft.personPreviewId) : null;
+  if (!other) return `<p class="card-meta">Sélectionnez une personne pour afficher un aperçu.</p>`;
+  const kinship = journeyKinshipSuggestions(item).find(suggestion => suggestion.key === journeySubjectKey("person", other.id));
+  const relation = other.id === item?.id ? "Personne actuelle" : (kinship ? kinship.hint : "Autre personne de l’arbre");
+  const birth = formatGenealogyDate(other.birthDateInfo, other.birthDate);
+  const death = formatGenealogyDate(other.deathDateInfo, other.deathDate);
+  const dates = [birth, death].filter(value => value && value !== "-" && value !== "—");
+  const place = typeof other.place === "string" ? other.place.trim() : "";
+  const rows = [
+    ["Nom", journeyPersonLabel(other)],
+    ["Relation", relation],
+    ...(dates.length ? [["Dates", dates.join(" – ")]] : []),
+    ...(place ? [["Lieu", place]] : [])
+  ];
+  return `<dl class="attestation-preview">${rows.map(([term, value]) =>
+    `<div><dt>${esc(term)}</dt><dd>${esc(value)}</dd></div>`).join("")}</dl>`;
+}
+
+/* Panneau « Ajouter une autre personne » : recherche, suggestions,
+   aperçu, confirmation. Il n'ouvre jamais une seconde modale. */
+function journeyPersonPanelMarkup(item) {
+  const draft = journeyAttestationDraft;
+  return `<div class="attestation-panel" data-journey-attestation-panel="person" id="journeyPersonPanel">
+      <div class="attestation-panel-head">
+        <h5>Ajouter une autre personne</h5>
+        <button class="btn small tertiary" type="button" data-journey-panel-close>Fermer</button>
+      </div>
+      <div class="attestation-proof-controls">
+        <label class="field-label" for="journeyPersonSearch">Rechercher dans l’arbre</label>
+        <input class="field" id="journeyPersonSearch" type="search" data-journey-person-search autocomplete="off" placeholder="Nom, prénom…" value="${esc(draft.personQuery)}">
+        <div class="attestation-association-list" id="journeyPersonResults">${journeyPersonResultsMarkup(item)}</div>
+      </div>
+      <div class="attestation-proof-controls">
+        <span class="field-label">Aperçu</span>
+        <div id="journeyPersonPreview">${journeyPersonPreviewMarkup(item)}</div>
+      </div>
+      <div class="attestation-panel-actions">
+        <button class="btn small primary" type="button" data-journey-person-confirm${draft.personPreviewId ? "" : " disabled"}>Ajouter la personne</button>
+        <button class="btn small" type="button" data-journey-panel-close>Annuler</button>
+      </div>
+    </div>`;
+}
+
+/* Les deux panneaux sont mutuellement exclusifs : un seul est rendu. */
+function journeyAssociationPanelsMarkup(item) {
+  if (!isAdminUser()) {
+    return `<div class="attestation-panel"><p class="card-meta">L’ajout d’informations est réservé aux administrateurs.</p></div>`;
+  }
+  if (journeyAttestationDraft.panel === "info") return journeyInfoPanelMarkup(item);
+  if (journeyAttestationDraft.panel === "person") return journeyPersonPanelMarkup(item);
+  return "";
+}
+
+function journeyAddInfoDisabledState() {
+  const count = journeyAttestationDraft.documentIds.length;
+  return count
+    ? { disabled: false, title: "" }
+    : { disabled: true, title: "Sélectionnez d’abord au moins un document justificatif." };
+}
+
+function journeyPanelActionsMarkup() {
+  if (!isAdminUser()) return "";
+  const state = journeyAddInfoDisabledState();
+  return `<div class="attestation-panel-actions">
+      <button class="btn small" type="button" data-journey-attestation-panel-open="info"${state.disabled ? " disabled" : ""} title="${esc(state.title)}">Ajouter une information</button>
+      <button class="btn small" type="button" data-journey-attestation-panel-open="person">Ajouter une autre personne</button>
+    </div>${state.disabled ? `<p class="card-meta attestation-panel-reason">Ajoutez au moins un document justificatif pour renseigner une information.</p>` : ""}`;
 }
 
 function renderJourneyDocumentSelection() {
   const host = $("journeyDocumentSelection");
   if (host) host.innerHTML = journeyDocumentSelectionMarkup();
+  const trigger = document.querySelector("[data-journey-documents-toggle]");
+  if (trigger) trigger.textContent = journeyDocumentCountLabel();
 }
 
 function renderJourneyDocumentPicker(item = journeyProofCurrentItem()) {
@@ -3176,19 +3443,53 @@ function renderJourneyAssociationList() {
   if (host) host.innerHTML = journeyAssociationListMarkup();
 }
 
+function renderJourneyAssociationPanels(item = journeyProofCurrentItem()) {
+  const host = $("journeyAssociationPanelHost");
+  if (host) host.innerHTML = journeyAssociationPanelsMarkup(item);
+  renderJourneyPanelActions();
+  renderJourneyReferenceDateVisibility();
+}
+
+function renderJourneyPanelActions() {
+  const host = $("journeyPanelActions");
+  if (host) host.innerHTML = journeyPanelActionsMarkup();
+}
+
 function renderJourneySubjectResults(item = journeyProofCurrentItem()) {
   const host = $("journeySubjectResults");
   if (host) host.innerHTML = journeySubjectResultsMarkup(item);
 }
 
+function renderJourneyPersonResults(item = journeyProofCurrentItem()) {
+  const host = $("journeyPersonResults");
+  if (host) host.innerHTML = journeyPersonResultsMarkup(item);
+}
+
+function renderJourneyPersonPreview(item = journeyProofCurrentItem()) {
+  const host = $("journeyPersonPreview");
+  if (host) host.innerHTML = journeyPersonPreviewMarkup(item);
+  const confirm = document.querySelector("[data-journey-person-confirm]");
+  if (confirm) confirm.disabled = !journeyAttestationDraft.personPreviewId;
+}
+
 function renderJourneyAssociationFactOptions() {
   const select = $("journeyAssociationFact");
   if (select) select.innerHTML = journeyAssociationFactOptionsMarkup();
+  renderJourneyReferenceDateVisibility();
 }
 
 function renderJourneyAssociationDocumentOptions() {
   const select = $("journeyAssociationDocument");
   if (select) select.innerHTML = journeyAssociationDocumentOptionsMarkup();
+}
+
+/* Le champ « Date de référence » n'apparaît que pour les états de vie à une
+   date ; les autres informations ne portent aucune date. */
+function renderJourneyReferenceDateVisibility() {
+  const block = document.querySelector("[data-journey-reference-date]");
+  if (!block) return;
+  const target = journeyComposerTargets().find(value => value.id === journeyAttestationDraft.composerFactId) || null;
+  block.hidden = !journeyVitalStatusTarget(target);
 }
 
 /** Associations déjà persistées pour les documents de l'attestation : elles
@@ -3220,6 +3521,7 @@ function journeyExistingAssociations(documentIds) {
       familyId,
       relationshipId: familyId && typeof data.relationshipId === "string" ? data.relationshipId : null,
       relation: PROOF_RELATION_LABELS[data.relation] ? data.relation : "supports",
+      referenceDateInfo: data.referenceDateInfo && typeof data.referenceDateInfo === "object" ? data.referenceDateInfo : null,
       existing: true,
       proofId: record.id
     });
@@ -3248,6 +3550,7 @@ function syncJourneyComposerAfterDocumentChange() {
   renderJourneyDocumentPicker();
   renderJourneyAssociationList();
   renderJourneyAssociationDocumentOptions();
+  renderJourneyPanelActions();
 }
 
 function toggleJourneyDocumentSelection(documentId, selected) {
@@ -3311,13 +3614,13 @@ function addJourneyAssociation() {
   clearJourneyErrors();
   const subject = journeyParseSubjectKey(draft.composerSubject);
   if (!subject) {
-    showJourneyError("association", "Choisissez un sujet : la personne de la fiche est proposée par défaut.");
+    showJourneyError("association", "Choisissez une personne : celle de la fiche est proposée par défaut.");
     journeyFocusError("association");
     return false;
   }
   const target = journeyComposerTargets().find(value => value.id === draft.composerFactId);
   if (!target) {
-    showJourneyError("association", "Choisissez un fait dans le registre.");
+    showJourneyError("association", "Choisissez une information dans la liste.");
     journeyFocusError("association");
     return false;
   }
@@ -3325,6 +3628,24 @@ function addJourneyAssociation() {
     showJourneyError("association", "Choisissez un document justificatif.");
     journeyFocusError("association");
     return false;
+  }
+  /* Les états de vie à une date exigent la date de référence portée par le
+     document : elle n'est jamais déduite ni transformée en date de décès. */
+  let referenceDateInfo = null;
+  if (journeyVitalStatusTarget(target)) {
+    const scope = $("journeyInfoPanel") || $("personAttestationDialog") || document;
+    const built = buildLifeDate(readJourneyDateRaw(scope));
+    if (!built.ok) {
+      showJourneyError("referenceDate", built.error);
+      journeyFocusError("referenceDate");
+      return false;
+    }
+    if (!built.date) {
+      showJourneyError("referenceDate", "Indiquez la date de référence portée par le document.");
+      journeyFocusError("referenceDate");
+      return false;
+    }
+    referenceDateInfo = built.date;
   }
   let association;
   try {
@@ -3336,7 +3657,8 @@ function addJourneyAssociation() {
       factId: proofFactIdForTarget(target),
       factType: proofFactTypeForTarget(target),
       factLabel: target.label || target.targetType,
-      relation: draft.composerRelation
+      relation: draft.composerRelation,
+      referenceDateInfo: referenceDateInfo
     });
   } catch (error) {
     showJourneyError("association", error.message);
@@ -3349,14 +3671,16 @@ function addJourneyAssociation() {
     journeyFocusError("association");
     return false;
   }
-  draft.associations.push({ ...association, key, existing: false });
+  draft.associations.push(Object.assign({}, association, { key: key, existing: false }));
+  /* Le panneau se referme, mais le contexte utile est conserve pour une
+     prochaine saisie (personne et document restent choisis). */
   draft.composerFactId = "";
+  draft.panel = "";
   renderJourneyAssociationList();
-  renderJourneyAssociationFactOptions();
+  renderJourneyAssociationPanels();
   toast("Information ajoutée. Elle sera enregistrée avec l’attestation.", "info");
   return true;
 }
-
 /** « Consulter » : l'état du formulaire est mis en attente, la visionneuse
     s'ouvre, puis le formulaire est reconstruit et rechargé au retour. */
 function consultJourneyAttestationDocument(documentId) {
@@ -4142,6 +4466,7 @@ function handlePersonPageContentClick(event) {
   }
   const pendingAttestationRemove = event.target.closest("[data-pending-entry-attestation-remove]");
   if (pendingAttestationRemove) {
+    journeyForgetDraftAssociations(pendingAttestationRemove.dataset.pendingEntryAttestationRemove);
     journeyPendingEntryAttestations = journeyPendingEntryAttestations.filter(value => value.id !== pendingAttestationRemove.dataset.pendingEntryAttestationRemove);
     renderJourneySection({ preserveForm: true });
     return;
@@ -4190,13 +4515,52 @@ function handlePersonPageContentClick(event) {
     if (panel) panel.hidden = !journeyAttestationDraft.documentsOpen;
     renderJourneyDocumentPickerPanel();
     journeyDocumentsToggle.setAttribute("aria-expanded", String(journeyAttestationDraft.documentsOpen));
-    journeyDocumentsToggle.textContent = journeyAttestationDraft.documentsOpen ? "Masquer la liste" : "Choisir des documents";
     return;
   }
   const documentsMore = event.target.closest("[data-journey-documents-more]");
   if (documentsMore) {
     journeyAttestationDraft.documentPage += 1;
     renderJourneyDocumentPicker();
+    return;
+  }
+  /* Sélection par ligne (aucune case à cocher) : la coche est décorative et
+     l'état est porté par `aria-pressed`. */
+  const documentPick = event.target.closest("[data-journey-document-pick]");
+  if (documentPick) {
+    const documentId = documentPick.dataset.journeyDocumentPick;
+    toggleJourneyDocumentSelection(documentId, documentPick.getAttribute("aria-pressed") !== "true");
+    return;
+  }
+  const panelOpen = event.target.closest("[data-journey-attestation-panel-open]");
+  if (panelOpen) {
+    const wanted = panelOpen.dataset.journeyAttestationPanelOpen;
+    journeyAttestationDraft.panel = journeyAttestationDraft.panel === wanted ? "" : wanted;
+    renderJourneyAssociationPanels();
+    return;
+  }
+  const panelClose = event.target.closest("[data-journey-panel-close]");
+  if (panelClose) {
+    journeyAttestationDraft.panel = "";
+    renderJourneyAssociationPanels();
+    return;
+  }
+  const personPick = event.target.closest("[data-journey-person-pick]");
+  if (personPick) {
+    journeyAttestationDraft.personPreviewId = personPick.dataset.journeyPersonPick;
+    renderJourneyPersonResults();
+    renderJourneyPersonPreview();
+    return;
+  }
+  const personConfirm = event.target.closest("[data-journey-person-confirm]");
+  if (personConfirm) {
+    const draft = journeyAttestationDraft;
+    if (!draft.personPreviewId) return;
+    draft.composerSubject = journeySubjectKey("person", draft.personPreviewId);
+    draft.composerSubjectLabel = journeySubjectLabel(draft.composerSubject);
+    draft.composerFactId = "";
+    draft.panel = "info";
+    clearJourneyErrors();
+    renderJourneyAssociationPanels();
     return;
   }
   const documentRemove = event.target.closest("[data-journey-document-remove]");
@@ -4289,13 +4653,18 @@ $("personAttestationDialog").addEventListener("input", event => {
     renderJourneySubjectResults();
     return;
   }
-  const documentPick = event.target.closest("[data-journey-document-pick]");
-  if (documentPick) toggleJourneyDocumentSelection(documentPick.dataset.journeyDocumentPick, documentPick.checked);
+  const personSearch = event.target.closest("[data-journey-person-search]");
+  if (personSearch) {
+    journeyAttestationDraft.personQuery = personSearch.value;
+    renderJourneyPersonResults();
+    return;
+  }
 });
 $("personAttestationDialog").addEventListener("change", event => {
   const factSelect = event.target.closest("[data-journey-association-fact]");
   if (factSelect) {
     journeyAttestationDraft.composerFactId = factSelect.value;
+    renderJourneyReferenceDateVisibility();
     return;
   }
   const relationSelect = event.target.closest("[data-journey-association-relation]");
@@ -5075,8 +5444,8 @@ async function addPartner() {
     });
   }
   await batch.commit();
+  await journeyFlushDraftAssociations(journeyDraftIdsIn(fields.marriageAttestations));
   setRelationBuilderOpen(false);
-  toast("Partenaire ajouté");
 }
 
 async function addChild() {
@@ -5106,6 +5475,7 @@ async function addParent() {
       || families.find(family => sameIds(family.partnerIds || [], parentIds));
     const relationData = readParentBuilderRelationship(familyForUpdate || null);
     await linkChildToParents(activeId, parentIds, "", linkTypes, relationData || {});
+    await journeyFlushDraftAssociations(journeyDraftIdsIn(relationData?.marriageAttestations));
     setRelationBuilderOpen(false);
     toast(parentIds.length > 1 ? "Parents rattachés" : "Parent rattaché");
   } catch (error) { toast(error.message || "Lien impossible", "error"); }
@@ -5199,6 +5569,7 @@ async function addSecondParentToCurrentFamily() {
       batch.set(createdTargetRef, { ...plan.createFamily, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
     }
     await batch.commit();
+    await journeyFlushDraftAssociations(journeyDraftIdsIn(familyFields.marriageAttestations));
 
     families = families.map(value => value.id === plan.sourceFamilyId
       ? { ...value, ...plan.sourceUpdate }
@@ -7084,6 +7455,9 @@ function genealogyEntryBits(item) {
     const peopleNames = genealogyPersonNames(data.personIds);
     bits.push(peopleNames.length ? `Personnes concernées : ${peopleNames.join(", ")}` : "Personnes concernées : Aucune personne associée");
     if (typeof data.sourceValue === "string" && data.sourceValue.trim()) bits.push(`Valeur relevée : ${genealogyExcerpt(data.sourceValue)}`);
+    if (data.referenceDateInfo && typeof data.referenceDateInfo === "object") {
+      bits.push(`Date de référence : ${formatGenealogyDate(data.referenceDateInfo)}`);
+    }
     const citation = typeof data.citationIt === "string" ? data.citationIt : data.citation?.textIt;
     if (citation) bits.push(`Citation : ${genealogyExcerpt(citation)}`);
     const translation = typeof data.citationFr === "string" ? data.citationFr : data.citation?.translationFr;
@@ -15576,7 +15950,10 @@ function journeyFormValues() {
       documentsOpen: draft.documentsOpen,
       documentQuery: draft.documentQuery,
       documentPage: draft.documentPage,
+      panel: draft.panel,
       subjectQuery: draft.subjectQuery,
+      personQuery: draft.personQuery,
+      personPreviewId: draft.personPreviewId,
       composerSubject: draft.composerSubject,
       composerFactId: draft.composerFactId,
       composerDocumentId: draft.composerDocumentId,
@@ -15984,6 +16361,11 @@ function journeyFocusError(key) {
     document.getElementById("journeyAssociationSubjectSearch")?.focus();
     return;
   }
+  if (key === "referenceDate") {
+    const scope = $("journeyInfoPanel") || document;
+    scope.querySelector("[data-journey-reference-date] [data-journey-panel]:not([hidden]) input")?.focus();
+    return;
+  }
   const id = key === "kind" ? "journeyEventKind" : key === "label" ? "journeyLabel" : "journeyPlace";
   document.getElementById(id)?.focus();
 }
@@ -16045,8 +16427,11 @@ async function journeySaveEntry() {
   }
   const saved = await journeyWriteSnapshot(item.id, field, next);
   if (!saved) return;
+  /* §14.3 : seules les associations des attestations réellement écrites sont
+     promues en Preuves ; un abandon du formulaire ne laisse rien derrière. */
+  const flushedAssociations = await journeyFlushDraftAssociations(pendingAttestations.map(value => value.id));
   const label = { residence: "Résidence", profession: "Profession", event: "Événement" }[type];
-  toast(`${label} ${journeyEditor.mode === "add" ? "enregistrée" : "modifiée"}.`);
+  toast(`${label} ${journeyEditor.mode === "add" ? "enregistrée" : "modifiée"}.${journeyAssociationFlushLabel(flushedAssociations)}`);
   journeyEditor = null;
   journeyEditorBaseline = null;
   journeyPendingEntryAttestations = [];
@@ -16059,9 +16444,10 @@ async function journeySaveEntry() {
 
 /* Associations explicites : chaque information devient au plus une Preuve.
    Les associations déjà enregistrées restent intactes, un retrait confirmé
-   est appliqué à l'enregistrement, et un échec n'interrompt jamais la suite. */
-async function journeyPersistAttestationAssociations() {
-  const draft = journeyAttestationDraft;
+   est appliqué à l'enregistrement, et un échec n'interrompt jamais la suite.
+   `draft` permet d'écrire les associations d'une attestation déjà mise en
+   attente par l'événement parent (voir `journeyDraftAssociations`). */
+async function journeyPersistAttestationAssociations(draft = journeyAttestationDraft) {
   const summary = { created: 0, removed: 0, existing: 0, failed: 0, blocked: false };
   const removals = [...draft.removedExisting];
   const creations = draft.associations.filter(item => !item.existing && !removals.some(other => other.key === item.key));
@@ -16123,6 +16509,7 @@ async function journeyPersistAttestationAssociations() {
         citationIt: null,
         citationFr: null,
         interpretation: "",
+        referenceDateInfo: entry.referenceDateInfo ?? null,
         authorUid: actorUid,
         createdAt: new Date().toISOString()
       });
@@ -16141,6 +16528,77 @@ async function journeyPersistAttestationAssociations() {
     }
   }
   return summary;
+}
+
+/* ---- Cycle de vie §14.3 : brouillon tant que le parent n'est pas écrit ---- */
+
+function journeyDraftIdsIn(attestations) {
+  return (Array.isArray(attestations) ? attestations : [])
+    .map(value => (typeof value === "string" ? value : (value && value.id)))
+    .filter(id => typeof id === "string" && id);
+}
+
+/** Conserve les associations d'une attestation encore préparée : aucune Preuve
+    n'est écrite tant que l'événement parent n'est pas enregistré. */
+function journeyStashDraftAssociations(attestationId) {
+  if (typeof attestationId !== "string" || !attestationId) return 0;
+  const draft = journeyAttestationDraft;
+  const pending = draft.associations.filter(item => !item.existing).length;
+  if (!pending && !draft.removedExisting.length) {
+    journeyDraftAssociations.delete(attestationId);
+    return 0;
+  }
+  journeyDraftAssociations.set(attestationId, {
+    documentIds: [...draft.documentIds],
+    associations: draft.associations.map(item => ({ ...item })),
+    removedExisting: draft.removedExisting.map(item => ({ ...item })),
+    documentsOpen: false,
+    documentQuery: "",
+    documentPage: 1,
+    subjectQuery: "",
+    composerSubject: draft.composerSubject,
+    composerSubjectLabel: draft.composerSubjectLabel,
+    composerFactId: "",
+    composerDocumentId: draft.composerDocumentId,
+    composerRelation: draft.composerRelation
+  });
+  return pending;
+}
+
+/** Écrit les Preuves des associations mises en attente, uniquement pour les
+    attestations réellement présentes dans l'écriture parent qui vient de
+    réussir. Un parent annulé ne vide jamais ce dossier : rien n'est écrit. */
+async function journeyFlushDraftAssociations(attestationIds = []) {
+  const ids = [...new Set(journeyDraftIdsIn(attestationIds))]
+    .filter(id => journeyDraftAssociations.has(id));
+  if (!ids.length) return null;
+  let summary = { created: 0, removed: 0, existing: 0, failed: 0, blocked: false };
+  for (const id of ids) {
+    const stashed = journeyDraftAssociations.get(id);
+    journeyDraftAssociations.delete(id);
+    if (!stashed) continue;
+    const partial = await journeyPersistAttestationAssociations(stashed);
+    summary.created += partial.created;
+    summary.removed += partial.removed;
+    summary.existing += partial.existing;
+    summary.failed += partial.failed;
+    summary.blocked = summary.blocked || partial.blocked;
+  }
+  return summary;
+}
+
+function journeyForgetDraftAssociations(attestationId) {
+  if (typeof attestationId === "string" && attestationId) journeyDraftAssociations.delete(attestationId);
+}
+
+/** Résumé ajouté au toast après l'enregistrement réussi d'un événement parent. */
+function journeyAssociationFlushLabel(summary) {
+  if (!summary) return "";
+  const parts = [];
+  if (summary.created) parts.push(`${summary.created} information${summary.created > 1 ? "s" : ""} enregistrée${summary.created > 1 ? "s" : ""}`);
+  if (summary.removed) parts.push(`${summary.removed} information retirée${summary.removed > 1 ? "s" : ""}`);
+  if (summary.failed) parts.push(`${summary.failed} échec${summary.failed > 1 ? "s" : ""}`);
+  return parts.length ? ` ${parts.join(", ")}.` : "";
 }
 
 async function journeySaveAttestation() {
@@ -16209,14 +16667,19 @@ async function journeySaveAttestation() {
       ? current.map(value => value.id === existing.id ? next : value)
       : [...current, next];
     const kind = context.kind;
-    await journeyPersistAttestationAssociations();
+    /* §14.3 : l'union n'existe pas encore — les associations restent en
+       brouillon et ne deviennent des Preuves qu'après l'écriture parent. */
+    const stashedAssociations = journeyStashDraftAssociations(candidate.id);
     journeyEditor = null;
     journeyEditorBaseline = null;
     pendingRelationAttestationContext = null;
     renderPendingRelationAttestations(kind);
-    toast(preservedCount
+    const stashNote = stashedAssociations
+      ? ` ${stashedAssociations} information${stashedAssociations > 1 ? "s" : ""} conservée${stashedAssociations > 1 ? "s" : ""} en brouillon jusqu’à l’enregistrement de l’union.`
+      : "";
+    toast((preservedCount
       ? `${existing ? "Attestation modifiée" : "Attestation ajoutée"} : ${preservedCount} référence${preservedCount > 1 ? "s" : ""} non disponible${preservedCount > 1 ? "s" : ""} dans ce contexte conservée${preservedCount > 1 ? "s" : ""}.`
-      : existing ? "Attestation modifiée dans le formulaire." : "Attestation ajoutée au formulaire.");
+      : existing ? "Attestation modifiée dans le formulaire." : "Attestation ajoutée au formulaire.") + stashNote);
     closeJourneyAttestationDialog();
     return;
   }
@@ -16234,13 +16697,17 @@ async function journeySaveAttestation() {
       sourceIds: [],
       proofIds: []
     }];
-    await journeyPersistAttestationAssociations();
+    /* §14.3 : l'élément du Parcours n'est pas encore enregistré — les
+       associations restent en brouillon jusqu'à l'écriture parent. */
+    const stashedAssociations = journeyStashDraftAssociations(candidate.id);
     journeyPendingEntryAttestationParent = null;
     journeyEditor = parent.editor;
     journeyEditorBaseline = parent.baseline;
     renderJourneyEditorSurface(parent.editor.type);
     restoreJourneyFormValues(parent.values);
-    toast("Attestation ajoutée au formulaire.");
+    toast(stashedAssociations
+      ? `Attestation ajoutée au formulaire. ${stashedAssociations} information${stashedAssociations > 1 ? "s" : ""} conservée${stashedAssociations > 1 ? "s" : ""} en brouillon jusqu’à l’enregistrement de l’élément.`
+      : "Attestation ajoutée au formulaire.");
     closeJourneyAttestationDialog();
     return;
   }
@@ -16540,7 +17007,8 @@ document.addEventListener("click", event => {
       : pendingRemove.closest("#partnerUnionAttestationList") ? "partner" : "addParent";
     const list = pendingRelationAttestations[kind] || [];
     const attestation = list.find(value => value.id === pendingRemove.dataset.pendingRelationAttestationRemove);
-    if (!attestation || !confirm("Retirer cette attestation préparée ? Aucun document, source ou preuve ne sera supprimé.")) return;
+    if (!attestation || !confirm(`Retirer cette attestation préparée ? Aucun document, source ou preuve ne sera supprimé.`)) return;
+    journeyForgetDraftAssociations(attestation.id);
     pendingRelationAttestations[kind] = list.filter(value => value.id !== attestation.id);
     renderPendingRelationAttestations(kind);
     return;
