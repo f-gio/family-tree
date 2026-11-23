@@ -36,6 +36,7 @@ window.__personPageTest = {
     genealogyLoaded = true;
     genealogyCollectionsLoaded = new Set(["sourceDocuments", "sourceRevisions", "transcriptionHeads", "transcriptionRevisions", "genealogyProofs", "genealogyProofRevisions", "factConclusions", "conclusionRevisions", "genealogyEvents", "genealogyNotifications"]);
     currentUserProfile = { role: "admin", displayName: "Archiviste" };
+    syncProofEntryPoints();
     treeCatalogState = "ready";
     $("authScreen").hidden = true;
     $("topbar").hidden = false;
@@ -79,6 +80,7 @@ window.__personPageTest = {
   rerenderJourney() { renderJourneySection(); },
   setEvidenceRole(role) {
     currentUserProfile = { role, displayName: "Testeur" };
+    syncProofEntryPoints();
     renderPersonDocuments("person-page-a");
   },
   setConclusionStatus(status) {
@@ -99,6 +101,16 @@ window.__personPageTest = {
     people = people.map(value => value.id === item.id ? item : value);
     renderJourneySection();
   },
+  menuDiag() {
+    return {
+      treeCatalogState,
+      role: currentUserProfile?.role || null,
+      isAdminUser: isAdminUser(),
+      membership: getPersonTreeMembership(activePersonPageItem || {}),
+      sources: ["printPersonBtn", "viewBranchBtn", "changePersonTreeBtn", "removePersonFromTreeBtn", "deleteBtn"].map(id => ({ id, hidden: $(id)?.hidden })),
+      menuActions: [...$("personPageActionsMenu").querySelectorAll("[data-person-page-action]")].map(node => node.dataset.personPageAction)
+    };
+  },
   state() {
     return {
       pageVisible: !$('personDetailView').hidden,
@@ -115,7 +127,24 @@ window.__personPageTest = {
   }
 };
 window.__personPageUpdates = [];
+/* Le callback d'authentification sans utilisateur (app.js) remet le profil à
+   null : le scénario attend cet état stable avant de grainer son profil. */
+window.__authNullAt = 0;
+const originalRefreshSignupAvailability = refreshSignupAvailability;
+refreshSignupAvailability = (...args) => {
+  window.__authNullAt = Date.now();
+  return originalRefreshSignupAvailability(...args);
+};
 `;
+
+/* Le callback d'authentification sans utilisateur de l'application remet le
+   profil courant à null. Le harnais graine un profil administrateur : attendre
+   que cet état initial soit stable avant le seed évite que le profil du
+   scénario soit écrasé avant le premier rendu de la fiche Personne. */
+async function seedAfterAuthSettles(page) {
+  await page.waitForFunction(() => window.__authNullAt > 0, undefined, { timeout: 5000 }).catch(() => {});
+  await page.evaluate(() => window.__personPageTest.seed());
+}
 
 async function readAttestationFieldPaint(page) {
   return page.evaluate(() => {
@@ -137,10 +166,10 @@ async function readAttestationFieldPaint(page) {
   });
 }
 
-/* Les deux accès documentaires sont désormais toujours visibles : le raccourci
-   de la personne et la bibliothèque ne se replient plus. */
-async function openAttestationDocumentPicker() {
-  return undefined;
+/* Les deux accès documentaires restent visibles pendant tout le parcours. */
+async function openAttestationDocumentPicker(page) {
+  assert.equal(await page.locator("#personAttestationDialog .attestation-doc-panels").count(), 1,
+    "raccourci et bibliothèque restent visibles simultanément");
 }
 
 test("la page Personne consulte les données, réutilise la modale et restaure le parcours Document", async t => {
@@ -196,7 +225,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
   try {
     await page.goto(server.baseURL, { waitUntil: "load" });
     await page.waitForFunction(() => typeof window.__personPageTest === "object");
-    await page.evaluate(() => window.__personPageTest.seed());
+    await seedAfterAuthSettles(page);
     await page.waitForFunction(() => {
       const entry = document.querySelector('#directoryList [data-directory-person="person-page-a"]');
       return Boolean(entry) && entry.getBoundingClientRect().height > 0;
@@ -454,7 +483,9 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.ok(footerClearance.clear, `le dernier champ reste lisible au-dessus du footer (notes:${footerClearance.notesBottom}, footer:${footerClearance.footerTop})`);
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await page.locator("#personPageActions > summary").click();
-    assert.equal(await page.locator("#personPageActionsMenu [data-person-page-action]").count(), 5, "menu ⋯ complet toujours disponible en modification");
+    const menuCount = await page.locator("#personPageActionsMenu [data-person-page-action]").count();
+    const menuDiag = menuCount === 5 ? null : await page.evaluate(() => window.__personPageTest.menuDiag());
+    assert.equal(menuCount, 5, `menu ⋯ complet toujours disponible en modification${menuDiag ? ` — ${JSON.stringify(menuDiag)}` : ""}`);
     await page.locator('#personPageActionsMenu [data-person-page-action="print"]').focus();
     await page.keyboard.press("ArrowDown");
     const menuKeyboard = await page.evaluate(() => ({
@@ -922,6 +953,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.locator("#personJourneyEntryDialog [data-journey-form]").count(), 0, "le formulaire n’est pas déployé dans la page sous-jacente");
     assert.equal(await page.locator("#personAttestationDialogTitle").innerText(), "Ajouter une attestation");
     assert.deepEqual(await page.locator("#personAttestationDialog [data-journey-form] .attestation-section-head h4").allTextContents(), ["Documents justificatifs", "Informations concernées", "Commentaire (facultatif)"], "trois rubriques hiérarchisées dans le formulaire d’attestation");
+    assert.equal(await page.locator("#journeyQuickDocsTitle").innerText(), "Documents de Adélaïde Rossi", "titre du raccourci basé sur le prénom et le nom structurés, sans deuxième prénom");
+    assert.equal(await page.locator("#personAttestationDialog .attestation-doc-panel .attestation-section-desc").count(), 0, "descriptions redondantes des panneaux supprimées");
     assert.equal(await page.locator("#personAttestationDialog .attestation-form-panel").count(), 3, "chaque rubrique dispose de son conteneur cohérent");
     const mobileAttestationFieldPaint = await readAttestationFieldPaint(page);
     assert.deepEqual(mobileAttestationFieldPaint.comment, mobileAttestationFieldPaint.deathPlace, "mobile : Commentaire reprend le fond et la bordure du Lieu de décès");
@@ -934,6 +967,10 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
        raccourci de la personne, puis la recherche sur toute la bibliothèque. */
     assert.equal(await page.locator("#journeyQuickDocumentList [data-journey-document-pick]").count(), 4, "documents rattachés à la personne proposés");
     assert.equal(await page.locator("#journeyLibraryResults [data-journey-document-pick]").count(), 0, "bibliothèque non affichée avant la saisie");
+    assert.equal((await page.locator("#journeyLibraryResults").innerText()).trim(), "", "aucun texte redondant sous le champ");
+    await page.fill("#journeyDocumentSearch", "Acte de naissance");
+    assert.equal(await page.locator('#journeyLibraryResults [data-journey-document-pick="person-page-document"]').count(), 0, "le document lié n’est pas répété dans les deux parcours");
+    assert.match(await page.locator("#journeyLibraryResults").innerText(), /déjà disponible/, "le résultat indique qu’il figure dans l’accès rapide");
     await page.fill("#journeyDocumentSearch", "sans lien");
     assert.equal(await page.locator('#journeyLibraryResults [data-journey-document-pick="person-page-unlinked"]').count(), 1, "recherche secondaire dans toute la bibliothèque");
     await page.fill("#journeyDocumentSearch", "");
@@ -941,12 +978,28 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator('[data-journey-document-pick="person-page-document"]').click();
     assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 1, "le document sélectionné devient une pastille compacte");
     const selectedChip = page.locator("#journeyDocumentSelection .attestation-document-chip").first();
-    assert.ok(await selectedChip.locator("[data-journey-document-view]").isVisible(), "action Consulter présente");
-    assert.ok(await selectedChip.locator("[data-journey-document-sheet]").isVisible(), "action Voir la fiche présente");
+    assert.ok(await selectedChip.locator("[data-journey-document-view]").isVisible(), "icône œil Consulter présente");
+    assert.equal(await selectedChip.locator("[data-journey-document-sheet]").count(), 1, "le titre cliquable assure l’accès à la fiche");
     assert.ok(await selectedChip.locator("[data-journey-document-remove]").isVisible(), "action de retrait présente");
     assert.equal(await selectedChip.locator("[data-journey-document-view]").getAttribute("type"), "button");
-    assert.equal(await selectedChip.locator("[data-journey-document-sheet]").getAttribute("type"), "button");
+    assert.equal(await selectedChip.locator("[data-journey-document-sheet]").evaluate(link => link.tagName), "A", "titre de document cliquable");
+    assert.equal(await selectedChip.locator("[data-journey-document-sheet]").getAttribute("target"), "_blank", "fiche ouverte dans un nouvel onglet");
+    assert.equal(await selectedChip.locator("[data-journey-document-view]").getAttribute("title"), "Consulter le document", "infobulle de l’icône œil");
     assert.equal(await selectedChip.locator("[data-journey-document-remove]").getAttribute("type"), "button");
+    await page.fill("#journeyAttComment", "Saisie à préserver pendant la consultation");
+    await selectedChip.locator("[data-journey-document-view]").click();
+    await page.waitForFunction(() => !document.getElementById("documentDetailView").hidden, undefined, { timeout: 10000 });
+    await page.locator("#documentMobileBackBtn").click();
+    await page.waitForFunction(() => document.getElementById("personAttestationDialog").open, undefined, { timeout: 10000 });
+    assert.equal(await page.locator("#journeyAttComment").inputValue(), "Saisie à préserver pendant la consultation", "retour de visionneuse sans perte de commentaire");
+    assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 1, "retour de visionneuse sans perte de document sélectionné");
+    const sheetPopupPromise = page.waitForEvent("popup");
+    await page.locator("#journeyDocumentSelection [data-journey-document-sheet]").first().click();
+    const sheetPopup = await sheetPopupPromise;
+    await sheetPopup.waitForURL(/view=documentDetail/, { timeout: 15000 });
+    assert.match(sheetPopup.url(), /id=person-page-document/, "titre ouvrant la fiche Document dans un nouvel onglet");
+    await sheetPopup.close().catch(() => {});
+    assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), true, "onglet Document sans fermer la modale");
     assert.equal(await page.locator("#journeyPanelActions [data-journey-attestation-panel-open]").count(), 1, "une seule action d’ajout pour un administrateur");
     await page.locator("[data-journey-document-remove]").first().click();
     assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 0, "retrait de la sélection sans suppression physique");
@@ -3342,7 +3395,7 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
   try {
     await page.goto(server.baseURL, { waitUntil: "load" });
     await page.waitForFunction(() => typeof window.__personPageWebkitHarness === "object");
-    await page.evaluate(() => window.__personPageTest.seed());
+    await seedAfterAuthSettles(page);
     await page.evaluate(() => window.__personPageWebkitHarness.openEdit());
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     await page.evaluate(() => { document.getElementById("authScreen").hidden = true; });
@@ -3513,7 +3566,7 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
 
     await page.locator('#personPageEditHost [data-close="personDialog"]').evaluate(button => button.click());
     await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
-    await page.evaluate(() => window.__personPageTest.seed());
+    await seedAfterAuthSettles(page);
     await page.evaluate(() => window.__personPageWebkitHarness.openEdit());
     await page.waitForFunction(() => !document.getElementById("personPageEditHost").hidden);
     await page.evaluate(() => { document.getElementById("authScreen").hidden = true; });

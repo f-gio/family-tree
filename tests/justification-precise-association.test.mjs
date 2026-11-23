@@ -185,18 +185,21 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
       columns: getComputedStyle(node).gridTemplateColumns.split(" ").length,
       titles: [...node.querySelectorAll(".attestation-panel-title-row h5")].map(node2 => node2.textContent.trim())
     }));
-    assert.deepEqual(docPanels.titles, ["Documents de cette personne", "Rechercher dans la bibliothèque"], "deux panneaux distincts");
+    assert.deepEqual(docPanels.titles, ["Documents de Ada Rossi", "Rechercher dans la bibliothèque"], "titre personnalisé et deux panneaux distincts");
     assert.equal(docPanels.columns, 2, "panneaux côte à côte sur ordinateur");
     assert.equal(await page.locator("#personAttestationDialog input[type=checkbox][data-journey-document-pick]").count(), 0,
       "aucune case à cocher pour choisir un document");
     assert.equal(await page.locator("#journeyQuickDocumentList [data-journey-document-pick]").count(), 3,
       "documents réellement liés à la personne proposés en accès rapide");
     assert.match(await page.locator("#personAttestationDialog .attestation-doc-panel").first().innerText(), /Accès rapide/, "indicateur d’accès rapide");
-    assert.match(await page.locator("#personAttestationDialog .attestation-doc-panel").first().innerText(), /Documents déjà liés à sa fiche généalogique/, "description du raccourci");
+    assert.doesNotMatch(await page.locator("#personAttestationDialog .attestation-doc-panel").first().innerText(), /Documents déjà liés à sa fiche généalogique/,
+      "description redondante du raccourci absente");
+    assert.doesNotMatch(await page.locator("#personAttestationDialog .attestation-doc-panel").last().innerText(), /Retrouvez un document/,
+      "description redondante de la bibliothèque absente");
 
     /* Bibliothèque : rien avant la saisie. */
     assert.equal(await page.locator("#journeyLibraryResults [data-journey-document-pick]").count(), 0, "aucune bibliothèque affichée par défaut");
-    assert.match(await page.locator("#journeyLibraryResults").innerText(), /Recherchez un document/, "invite de recherche à la place de la liste");
+    assert.equal((await page.locator("#journeyLibraryResults").innerText()).trim(), "", "aucun texte redondant sous le champ");
     await page.fill("#journeyDocumentSearch", "sans lien");
     assert.equal(await page.locator('#journeyLibraryResults [data-journey-document-pick="precise-doc-lib"]').count(), 1,
       "recherche sur toute la bibliothèque, même non lié");
@@ -208,22 +211,25 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     await pickDocument(page, "precise-doc-1");
     assert.equal(await page.locator("#journeySelectedCount").innerText(), "1 document", "compteur du récapitulatif");
     assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 1, "récapitulatif distinct");
+    assert.ok(await page.locator("#journeyDocumentSelection .attestation-document-title-link").isVisible(), "titre cliquable pour ouvrir la fiche");
+    assert.ok(await page.locator("#journeyDocumentSelection [data-journey-document-view] use[href='#icon-eye']").count(), "icône œil de consultation");
+    assert.equal(await page.locator("#journeyDocumentSelection [data-journey-document-sheet]").count(), 1, "aucun bouton Voir la fiche distinct du titre");
     await page.fill("#journeyDocumentSearch", "Registre");
-    assert.equal(await page.locator('#journeyLibraryResults [data-journey-document-pick="precise-doc-2"]').getAttribute("aria-pressed"), "false",
-      "document non encore retenu dans la bibliothèque");
+    assert.equal(await page.locator('#journeyLibraryResults [data-journey-document-pick="precise-doc-2"]').count(), 0,
+      "un document déjà visible dans le raccourci n'est pas dupliqué dans la bibliothèque");
     await pickDocument(page, "precise-doc-2");
     assert.equal(await page.locator("#journeySelectedCount").innerText(), "2 documents");
     await page.fill("#journeyDocumentSearch", "Registre");
-    assert.equal(await page.locator('#journeyLibraryResults [data-journey-document-pick="precise-doc-2"]').getAttribute("aria-pressed"), "true",
-      "un document trouvé par les deux parcours garde une seule identité");
-    assert.equal(await page.locator('[data-journey-document-pick="precise-doc-2"]').count(), 2,
-      "la même ligne apparaît dans les deux listes, sans doublon de sélection");
+    assert.equal(await page.locator('#journeyQuickDocumentList [data-journey-document-pick="precise-doc-2"]').getAttribute("aria-pressed"), "true",
+      "un document trouvé par les deux parcours conserve une seule identité sélectionnée");
+    assert.match(await page.locator("#journeyLibraryResults").innerText(), /déjà disponible/, "le raccourci signale le document recherché déjà lié");
     await page.fill("#journeyDocumentSearch", "");
     await pickDocument(page, "precise-doc-1");
     assert.equal(await page.locator("#journeySelectedCount").innerText(), "1 document", "désélection possible");
     await pickDocument(page, "precise-doc-1");
 
     /* CTA d'ajout : désactivé sans document, actif avec un document. */
+    assert.match(await page.locator("#journeyPanelActions").innerText(), /Ajouter une information/, "CTA d'information présent");
     assert.equal(await page.locator('[data-journey-attestation-panel-open="info"]').isDisabled(), false, "ajout possible");
     assert.ok(await page.locator("[data-journey-document-create]").isVisible(), "CTA « Ajouter un nouveau document » visible");
     assert.match(await page.locator(".attestation-or").innerText(), /OU/, "séparateur discret");
@@ -232,6 +238,7 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 1, "association existante chargée");
     await page.locator('[data-journey-attestation-panel-open="info"]').click();
     assert.equal(await page.locator("#journeyInfoPanel").count(), 1, "panneau intégré ouvert");
+    assert.equal(await page.locator("#journeyPersonPanel").count(), 0, "aucune modale ni panneau secondaire pour ajouter une personne");
     const labels = await page.locator("#journeyInfoPanel .attestation-field-label").allTextContents();
     assert.ok(labels.includes("Qui est concerné ?"), "champ 1");
     assert.ok(labels.includes("Quelle information est attestée ?"), "champ 2");
@@ -241,14 +248,13 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     assert.match(await page.locator("#journeyInfoPanel").innerText(), /La personne actuelle est proposée par défaut/, "description du champ 1");
 
     /* Champ 1 : personne présélectionnée, suggestions réelles, recherche globale. */
-    assert.ok(await page.locator('[data-journey-subject-pick="person:precise-a"][aria-pressed="true"]').count() === 1,
-      "personne actuelle présélectionnée");
+    assert.equal(await page.locator("#journeyAssociationSubjectSearch").inputValue(), "Ada Rossi", "personne actuelle présélectionnée dans le champ unique");
+    await page.locator("#journeyAssociationSubjectSearch").focus();
     assert.match(await page.locator("#journeySubjectResults").innerText(), /Conjoint/, "conjoint réellement connu suggéré");
     assert.match(await page.locator("#journeySubjectResults").innerText(), /Ramo Rossi/, "branche familiale affichée dans les résultats");
-    assert.match(await page.locator("#journeySubjectPreview").innerText(), /Ada Rossi/, "aperçu de la personne sélectionnée");
     await page.fill("#journeyAssociationSubjectSearch", "carlo");
     await page.locator('[data-journey-subject-pick="person:precise-c"]').click();
-    assert.match(await page.locator("#journeySubjectPreview").innerText(), /Carlo Benati/, "recherche globale sur l’arbre");
+    assert.equal(await page.locator("#journeyAssociationSubjectSearch").inputValue(), "Carlo Benati", "recherche globale et sélection unique");
     await page.fill("#journeyAssociationSubjectSearch", "");
     await page.locator('[data-journey-subject-pick="person:precise-a"]').click();
 
@@ -275,7 +281,8 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     /* Relation familiale : deuxième personne et phrase de confirmation. */
     await page.locator("#journeyAssociationFact").selectOption({ label: "Est la mère de…" });
     assert.equal(await page.locator("[data-journey-relation-block]").evaluate(node => node.hidden), false, "bloc relation affiché");
-    assert.match(await page.locator("[data-journey-relation-block]").innerText(), /Choisissez explicitement la deuxième personne concernée/, "description du bloc");
+    assert.match(await page.locator("[data-journey-relation-block]").innerText(), /De quelle personne\s*\?/, "recherche compacte de la deuxième personne");
+    assert.doesNotMatch(await page.locator("[data-journey-relation-block]").innerText(), /Première personne/, "la première personne n’est pas redemandée");
     assert.match(await page.locator("#journeyRelationPhrase").innerText(), /Ada Rossi est la mère de Carlo Benati\./, "phrase construite avec les vraies personnes");
     /* Relation incohérente : la personne elle-même. */
     await page.fill("#journeySecondSearch", "Ada");
@@ -410,16 +417,19 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     assert.equal(await page.locator('#journeyQuickDocumentList [data-journey-document-pick="precise-doc-1"]').evaluate(el => document.activeElement === el), true,
       "ligne focalisable au clavier");
 
-    /* Responsive : les deux accès s’empilent en dessous de 761 px. */
-    await page.setViewportSize({ width: 390, height: 844 });
-    const stacked = await page.locator("#personAttestationDialog .attestation-doc-panels").evaluate(node => ({
-      columns: getComputedStyle(node).gridTemplateColumns.split(" ").length,
-      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
-    }));
-    assert.equal(stacked.columns, 1, "panneaux empilés sur mobile");
-    assert.ok(stacked.overflow <= 1, "aucun débordement horizontal sur mobile");
-    const panelOrder = await page.locator("#personAttestationDialog .attestation-doc-panel h5").allTextContents();
-    assert.deepEqual(panelOrder, ["Documents de cette personne", "Rechercher dans la bibliothèque"], "même ordre sur mobile");
+    /* Responsive : deux colonnes en desktop, panneaux empilés en tablette et
+       mobile, sans débordement aux largeurs iPhone demandées. */
+    for (const width of [1440, 1024, 768, 390, 375, 320]) {
+      await page.setViewportSize({ width, height: width < 600 ? 844 : 900 });
+      const responsive = await page.locator("#personAttestationDialog .attestation-doc-panels").evaluate(node => ({
+        columns: getComputedStyle(node).gridTemplateColumns.split(" ").length,
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        panelOrder: [...node.querySelectorAll(".attestation-doc-panel h5")].map(title => title.textContent.trim())
+      }));
+      assert.equal(responsive.columns, width <= 760 ? 1 : 2, `${width}px : disposition responsive des panneaux`);
+      assert.ok(responsive.overflow <= 1, `${width}px : aucun débordement horizontal`);
+      assert.deepEqual(responsive.panelOrder, ["Documents de Ada Rossi", "Rechercher dans la bibliothèque"], `${width}px : ordre des accès conservé`);
+    }
 
     assert.deepEqual(errors, [], `aucune erreur JavaScript : ${errors.join(" | ")}`);
   } finally {
