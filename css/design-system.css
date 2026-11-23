@@ -1733,6 +1733,25 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
 .person-attestation-dialog .attestation-association-option > input { flex: 0 0 auto; margin: 0; }
 .person-attestation-dialog .attestation-association-copy { display: grid; gap: 1px; min-width: 0; overflow-wrap: anywhere; }
 .person-attestation-dialog .attestation-association-copy small { color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-regular); }
+.person-attestation-dialog .attestation-proof-controls {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  margin-top: var(--space-3);
+}
+.person-attestation-dialog .attestation-proof-controls .field-label {
+  color: var(--color-text-label);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.person-attestation-dialog .attestation-proof-controls .field {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+}
+.person-attestation-dialog [data-journey-proof-recap] { margin: var(--space-3) 0 0; }
 
 .person-dialog[open],
 .settings-dialog[open] {

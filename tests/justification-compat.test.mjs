@@ -14,6 +14,13 @@ import {
   classifyProofTargetCompatibility,
   collectAttestations,
   compareFamilyRelations,
+  mergeAttestationReferences,
+  partitionProofPlans,
+  planFamilyRelationIds,
+  planPersonDeletionImpact,
+  planProofCreation,
+  proofFactIdForTarget,
+  proofFactTypeForTarget,
   reportDocumentSelectionLoss
 } from "../js/justification-compat.js";
 import { enumerateJustificationTargets } from "../js/justification-targets.js";
@@ -381,4 +388,174 @@ test("la couverture distingue Preuve exacte, portée propriétaire et contradict
   analyzeJustificationCoverage({ targets: targets.targets, proofs: [exactProof, contradicting, generic], attestations: collected.attestations });
   assert.equal(JSON.stringify([targets.targets, [exactProof, contradicting, generic], collected.attestations]), before,
     "l’analyse ne mute ni les cibles, ni les preuves, ni les attestations");
+});
+
+test("la fusion des références d’attestation distingue sélection, retrait explicite et indisponibilité contextuelle", () => {
+  const merged = mergeAttestationReferences({
+    previousIds: ["doc-1", "doc-2", "doc-3", "doc-1", " "],
+    selectedIds: ["doc-1", "doc-4", "doc-4"],
+    availableIds: ["doc-1", "doc-4"],
+    removedIds: ["doc-3"]
+  });
+  assert.deepEqual(merged.ids, ["doc-1", "doc-2", "doc-4"], "les doublons et entrées vides sont éliminés");
+  assert.deepEqual(merged.preservedUnavailable, ["doc-2"], "un document hors contexte courant n’est pas retiré");
+  assert.deepEqual(merged.removedVisible, []);
+  assert.deepEqual(merged.removedExplicit, ["doc-3"], "seul le retrait explicite retire une référence");
+  assert.deepEqual(merged.added, ["doc-4"]);
+
+  const deselected = mergeAttestationReferences({
+    previousIds: ["doc-1", "doc-2"], selectedIds: ["doc-1"], availableIds: ["doc-1", "doc-2"], removedIds: []
+  });
+  assert.deepEqual(deselected.ids, ["doc-1"]);
+  assert.deepEqual(deselected.removedVisible, ["doc-2"], "une référence visible non sélectionnée suit la sélection");
+  assert.deepEqual(deselected.preservedUnavailable, []);
+
+  assert.deepEqual(mergeAttestationReferences().ids, []);
+  assert.throws(() => mergeAttestationReferences({ previousIds: "doc-1" }), /tableau/);
+});
+
+test("le plan de création produit une Preuve par couple cible et document sans inventer de sujet", () => {
+  const graph = fixtureGraph();
+  const targets = enumerateJustificationTargets({ people: [graph.people[0]], families: [graph.families[0]] }).targets;
+  const birthTarget = targets.find(target => target.factId === buildFactIdentityId("person", "personne-1", "birth.date"));
+  assert.ok(birthTarget, "la cible canonique de naissance est publiée");
+
+  const plan = planProofCreation({ targets: [birthTarget], documentIds: ["doc-1", "doc-2", "doc-1"] });
+  assert.equal(plan.summary.documents, 2, "les documents sont dédupliqués");
+  assert.equal(plan.plans.length, 2, "une Preuve par couple cible et document");
+  assert.ok(plan.plans.every(item => typeof item.documentId === "string" && item.documentId.length > 0),
+    "documentId reste une chaîne unique, jamais un tableau");
+  assert.deepEqual(plan.plans.map(item => item.documentId), ["doc-1", "doc-2"]);
+  assert.ok(plan.plans.every(item => item.factId === birthTarget.factId));
+  assert.ok(plan.plans.every(item => item.factType === birthTarget.targetType));
+  assert.ok(plan.plans.every(item => item.personIds.length === 1 && item.personIds[0] === "personne-1"));
+  assert.ok(plan.plans.every(item => item.familyId === null && item.relationshipId === null));
+  assert.throws(() => planProofCreation({ targets: [birthTarget], documentIds: ["doc-1"], relation: "cite" }), /Relation/);
+
+  const familyTarget = targets.find(target => target.owner && target.owner.kind === "family");
+  assert.ok(familyTarget, "la cible de Foyer est publiée");
+  const withoutParticipants = planProofCreation({ targets: [familyTarget], documentIds: ["doc-1"] });
+  assert.equal(withoutParticipants.plans.length, 0, "aucune Preuve de Foyer sans participants");
+  assert.equal(withoutParticipants.unresolved.length, 1);
+  assert.match(withoutParticipants.unresolved[0].reason, /Foyer/);
+
+  const withParticipants = planProofCreation({
+    targets: [familyTarget],
+    documentIds: ["doc-1"],
+    participantsByOwner: { "family:famille-1": ["personne-1", "personne-2"] }
+  });
+  assert.equal(withParticipants.plans.length, 1);
+  assert.deepEqual(withParticipants.plans[0].personIds, ["personne-1", "personne-2"]);
+  assert.equal(withParticipants.plans[0].familyId, "famille-1");
+  assert.equal(withParticipants.plans[0].factId, proofFactIdForTarget(familyTarget));
+});
+
+test("le partitionnement sépare associations déjà présentes et associations à créer sans modifier les Preuves", () => {
+  const graph = fixtureGraph();
+  const target = enumerateJustificationTargets({ people: [graph.people[0]] }).targets
+    .find(item => item.factId === buildFactIdentityId("person", "personne-1", "birth.date"));
+  const { plans } = planProofCreation({ targets: [target], documentIds: ["doc-1", "doc-2"] });
+  const existing = [proofFixture()];
+
+  const split = partitionProofPlans({ plans, existingProofs: existing });
+  assert.equal(split.existing.length, 1, "le couple (fait, document) déjà porté n’est pas recréé");
+  assert.equal(split.existing[0].documentId, "doc-1");
+  assert.equal(split.pending.length, 1);
+  assert.equal(split.pending[0].documentId, "doc-2");
+  assert.equal(existing[0].documentId, "doc-1", "aucune Preuve existante n’est mutée");
+
+  const wrapped = partitionProofPlans({ plans, existingProofs: [{ data: existing[0] }] });
+  assert.equal(wrapped.existing.length, 1, "les documents enveloppés dans data sont reconnus");
+
+  const empty = partitionProofPlans({ plans: [], existingProofs: existing });
+  assert.deepEqual(empty.pending, []);
+  assert.throws(() => partitionProofPlans({ plans: {} }), /tableau/);
+});
+
+test("l’identifiant et le type de fait d’une Preuve ciblée suivent le registre R1", () => {
+  const graph = fixtureGraph();
+  const target = enumerateJustificationTargets({ people: [graph.people[0]] }).targets
+    .find(item => item.factId === buildFactIdentityId("person", "personne-1", "birth.date"));
+
+  assert.equal(proofFactIdForTarget(target), target.factId);
+  assert.equal(proofFactTypeForTarget(target), target.targetType);
+  assert.equal(proofFactIdForTarget({ id: "cible-legacy", targetType: "person.birth.date" }), "cible-legacy",
+    "repli sur l’identifiant stable R1");
+  assert.throws(() => proofFactIdForTarget({}), /factId/);
+  assert.throws(() => proofFactIdForTarget(null), /objet/);
+  assert.throws(() => proofFactTypeForTarget({ id: "cible-legacy" }), /targetType/);
+});
+
+test("l’impact d’une suppression de Personne distingue références managées, bloquantes et familles emportées", () => {
+  const graph = fixtureGraph();
+  const people = [...graph.people, { id: "personne-2" }, { id: "personne-3" }];
+
+  const managed = planPersonDeletionImpact({
+    personId: "personne-1", people, families: graph.families,
+    documents: graph.documents, sources: graph.sources, proofs: [], conclusions: []
+  });
+  assert.equal(managed.blocked, false, "seules des références managées ne bloquent pas");
+  assert.ok(managed.issues.some(issue => issue.code === "document-person-reference" && issue.severity === "managed"));
+  assert.deepEqual(managed.familiesAtRisk, [], "la Personne n’est pas seule partenaire : le Foyer survit");
+
+  const orphanFamily = {
+    id: "famille-seule", partnerIds: ["personne-1"], childIds: [],
+    parentChildLinks: [], marriageAttestations: [{ id: "att-union-2", date: { type: "unknown" }, comment: "", documentIds: [] }]
+  };
+  const blocked = planPersonDeletionImpact({
+    personId: "personne-1", people, families: [...graph.families, orphanFamily],
+    documents: [], sources: [{ id: "src-1", personIds: ["personne-1"] }],
+    proofs: [proofFixture()], conclusions: []
+  });
+  assert.equal(blocked.blocked, true);
+  assert.deepEqual(blocked.familiesAtRisk, ["famille-seule"], "un Foyer à un seul partenaire est emporté");
+  assert.ok(blocked.issues.some(issue => issue.code === "source-person-reference"));
+  assert.ok(blocked.issues.some(issue => issue.code === "proof-person-reference"));
+  assert.ok(blocked.issues.some(issue => issue.code === "family-attestation-embedded"));
+  assert.ok(blocked.summary.unmanaged >= 3);
+
+  assert.throws(() => planPersonDeletionImpact({ personId: "" }), /personId/);
+  assert.throws(() => planPersonDeletionImpact({ personId: "personne-1", people: {} }), /tableau/);
+});
+
+test("le plan d’identifiants de relation parent-enfant reste une migration à approuver", () => {
+  const graph = fixtureGraph();
+  const plan = planFamilyRelationIds(graph.families[0]);
+
+  assert.equal(plan.familyId, "famille-1");
+  assert.equal(plan.requiresWrite, true, "aucune écriture n’est proposée sans migration approuvée");
+  assert.equal(plan.summary.persisted, 0);
+  assert.ok(plan.summary.relations > 0);
+  assert.ok(plan.relations.every(item => item.currentId === null), "aucun identifiant n’est persisté aujourd’hui");
+  assert.equal(
+    plan.relations[0].proposedId,
+    buildLegacyParentChildIdentityId("famille-1", "personne-1", "personne-3"),
+    "l’identifiant proposé réutilise la clé legacy sans l’écrire"
+  );
+  assert.equal(JSON.stringify(graph.families[0]).includes("relationId"), false);
+  assert.throws(() => planFamilyRelationIds({}), /identifiant/);
+});
+
+test("la correspondance de Preuve s’appuie sur factId canonique puis sur l’identifiant stable de la cible", () => {
+  const factId = buildFactIdentityId("person", "personne-1", "birth.date");
+  const exactByFactId = classifyProofTargetCompatibility(
+    proofFixture(),
+    [{ id: "cible-autre", factId, targetType: "person.birth.date", owner: { kind: "person", id: "personne-1" } }]
+  );
+  assert.equal(exactByFactId.status, "exact", "un factId partagé suffit, même si les identifiants de cible diffèrent");
+
+  const exactById = classifyProofTargetCompatibility(
+    proofFixture({ factId: "cible-stable" }),
+    [{ id: "cible-stable", factId: null, targetType: "person.residence.date", owner: { kind: "person", id: "personne-1" } }]
+  );
+  assert.equal(exactById.status, "exact", "une cible sans factId canonique retombe sur son identifiant stable");
+
+  const coverage = analyzeJustificationCoverage({
+    targets: [{ id: "cible-stable", factId: null, targetType: "person.residence.date", owner: { kind: "person", id: "personne-1" } }],
+    proofs: [proofFixture({ factId: "cible-stable" })],
+    attestations: []
+  });
+  assert.equal(coverage.targets[0].documentCoverage, "target-proof",
+    "la couverture rapproche aussi sur l’identifiant stable de la cible");
+  assert.equal(coverage.targets[0].evaluation, "not-evaluated");
 });

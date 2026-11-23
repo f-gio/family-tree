@@ -1,16 +1,17 @@
 /* Compatibilité des attestations, preuves et références documentaires
-   avec les cibles structurées du registre R1 (lot R2.1).
+   avec les cibles structurées du registre R1 (lots R2.1 et R2.2).
 
    Module pur : aucune dépendance DOM, Firebase ou réseau ; aucune écriture,
    aucune mutation des entrées, aucune transformation des modèles persistés.
 
-   Ces fonctions sont des diagnostics réutilisables pour R2.2/R2.3. Elles ne
-   sont volontairement pas branchées aux opérations de sauvegarde, de
-   suppression ou à l'interface dans ce lot. */
+   Les fonctions de diagnostic restent utilisables hors de l'interface. Les
+   fonctions de fusion et de planification sont appelées par l'application pour
+   conserver les références, planifier des créations de Preuves et bloquer des
+   suppressions dangereuses — elles ne déclenchent jamais d'écriture elles-mêmes. */
 
 import { buildLegacyParentChildIdentityId } from "./genealogy-identities.js";
 import { normalizedParentChildLinks } from "./family-relations.js";
-import { verifyProofReferences } from "./genealogy-proofs.js";
+import { PROOF_RELATIONS, verifyProofReferences } from "./genealogy-proofs.js";
 import { lifeAttestations, validateLifeAttestation } from "./life-journey.js";
 
 export const JUSTIFICATION_COMPAT_SCHEMA_VERSION = 1;
@@ -225,7 +226,9 @@ export function classifyProofTargetCompatibility(proof, targets = []) {
   if (!factId) {
     return { status: "invalid", proofId, factId, factType, targetIds: [], reason: "factId absent ou non textuel" };
   }
-  const exact = targets.filter(target => target?.factId === factId).map(target => target.id);
+  const exact = targets
+    .filter(target => target?.factId === factId || (!target?.factId && target?.id === factId))
+    .map(target => target.id);
   if (exact.length) {
     return { status: "exact", proofId, factId, factType, targetIds: exact, reason: "Le factId correspond exactement à une cible R1." };
   }
@@ -485,7 +488,10 @@ export function analyzeJustificationCoverage({ targets = [], proofs = [], attest
   }
   const entries = targets.map(target => {
     const factId = isValidId(target?.factId) ? target.factId.trim() : null;
-    const exactProofs = factId ? proofs.filter(proof => isRecord(proof) && proof.factId === factId) : [];
+    /* Cible sans factId canonique (Foyer, entrée du Parcours) : son identifiant
+       R1 stable sert de clé de rapprochement avec le factId de la Preuve. */
+    const matchId = factId || (isValidId(target?.id) ? target.id.trim() : null);
+    const exactProofs = matchId ? proofs.filter(proof => isRecord(proof) && proof.factId === matchId) : [];
     const ambiguousProofs = factId
       ? proofs.filter(proof => isRecord(proof) && (Array.isArray(target?.legacyFactCandidates) ? target.legacyFactCandidates : [])
         .some(candidate => candidate?.factId === factId))
@@ -516,5 +522,282 @@ export function analyzeJustificationCoverage({ targets = [], proofs = [], attest
     schemaVersion: JUSTIFICATION_COMPAT_SCHEMA_VERSION,
     targets: entries,
     summary: { ...summary, total: entries.length }
+  };
+}
+
+/* ---------------------------------------------- R2.2 : association ciblée */
+
+/** Identifiant de fait employé par une Preuve ciblée : le `factId` canonique
+ *  du registre R1, ou à défaut l'identifiant stable de la cible. */
+export function proofFactIdForTarget(target) {
+  if (!isRecord(target)) throw new TypeError("La cible doit être un objet");
+  if (isValidId(target.factId)) return target.factId.trim();
+  if (isValidId(target.id)) return target.id.trim();
+  throw new TypeError("La cible ne fournit ni factId ni identifiant stable.");
+}
+
+/** Type de fait machine d'une Preuve ciblée : le `targetType` du registre R1. */
+export function proofFactTypeForTarget(target) {
+  if (!isRecord(target) || !isValidId(target.targetType)) {
+    throw new TypeError("La cible doit porter un targetType stable.");
+  }
+  return target.targetType.trim();
+}
+
+function ownerKey(owner) {
+  return owner.kind + ":" + owner.id;
+}
+
+function proofPlanKey(factId, documentId) {
+  return factId + "|" + documentId;
+}
+
+/**
+ * Planifie une création de Preuves sans écrire : une Preuve par couple
+ * (cible, document), `documentId` restant singulier. `participantsByOwner`
+ * fournit les personnes d'un Foyer (clé `family:<id>`) ; sans elles, la cible
+ * est reportée dans `unresolved` plutôt que d'inventer un sujet.
+ */
+export function planProofCreation({
+  targets = [], documentIds = [], relation = "supports", participantsByOwner = {}
+} = {}) {
+  if (!Array.isArray(targets)) throw new TypeError("targets doit être un tableau");
+  if (!Array.isArray(documentIds)) throw new TypeError("documentIds doit être un tableau");
+  if (!isRecord(participantsByOwner)) throw new TypeError("participantsByOwner doit être un objet");
+  if (!PROOF_RELATIONS.includes(relation)) throw new TypeError("Relation documentaire non reconnue");
+
+  const documents = [];
+  for (const value of documentIds) {
+    if (isValidId(value)) {
+      const id = value.trim();
+      if (!documents.includes(id)) documents.push(id);
+    }
+  }
+
+  const plans = [];
+  const unresolved = [];
+  for (const target of targets) {
+    if (!isRecord(target) || !isRecord(target.owner)) continue;
+    let factId;
+    let factType;
+    try {
+      factId = proofFactIdForTarget(target);
+      factType = proofFactTypeForTarget(target);
+    } catch (error) {
+      unresolved.push({ targetId: target?.id ?? null, reason: error.message });
+      continue;
+    }
+    const candidates = target.owner.kind === "person"
+      ? [target.owner.id]
+      : participantsByOwner[ownerKey(target.owner)];
+    const participants = Array.isArray(candidates) ? candidates.filter(id => isValidId(id)).map(id => id.trim()) : [];
+    if (!participants.length) {
+      unresolved.push({ targetId: target.id, reason: "Participants du Foyer absents ; association non planifiée." });
+      continue;
+    }
+    const personIds = [...new Set(participants)];
+    for (const documentId of documents) {
+      plans.push({
+        key: proofPlanKey(factId, documentId),
+        targetId: target.id,
+        targetType: target.targetType,
+        targetLabel: isValidId(target.label) ? target.label : target.targetType,
+        factId: factId,
+        factType: factType,
+        documentId: documentId,
+        personIds: personIds,
+        familyId: target.owner.kind === "family" ? target.owner.id : null,
+        relationshipId: null,
+        relation: relation,
+        sourceValue: null,
+        citationIt: null,
+        citationFr: null,
+        interpretation: ""
+      });
+    }
+  }
+  return {
+    schemaVersion: JUSTIFICATION_COMPAT_SCHEMA_VERSION,
+    relation: relation,
+    plans: plans,
+    unresolved: unresolved,
+    summary: {
+      targets: targets.length,
+      documents: documents.length,
+      plans: plans.length,
+      unresolved: unresolved.length
+    }
+  };
+}
+
+/**
+ * Sépare un plan en associations à créer et associations déjà présentes :
+ * une paire (fait, document) déjà portée par une Preuve n'est pas recréée.
+ * Aucun doublon n'est proposé et aucune Preuve existante n'est modifiée.
+ */
+export function partitionProofPlans({ plans = [], existingProofs = [] } = {}) {
+  if (!Array.isArray(plans)) throw new TypeError("plans doit être un tableau");
+  if (!Array.isArray(existingProofs)) throw new TypeError("existingProofs doit être un tableau");
+  const known = new Set();
+  for (const proof of existingProofs) {
+    const data = isRecord(proof?.data) ? proof.data : proof;
+    if (isRecord(data) && isValidId(data.factId) && isValidId(data.documentId)) {
+      known.add(proofPlanKey(data.factId.trim(), data.documentId.trim()));
+    }
+  }
+  const pending = [];
+  const existing = [];
+  for (const plan of plans) {
+    const key = isRecord(plan) && isValidId(plan.factId) && isValidId(plan.documentId)
+      ? proofPlanKey(plan.factId.trim(), plan.documentId.trim())
+      : null;
+    if (key && known.has(key)) existing.push(plan);
+    else pending.push(plan);
+  }
+  return {
+    schemaVersion: JUSTIFICATION_COMPAT_SCHEMA_VERSION,
+    pending: pending,
+    existing: existing,
+    summary: { planned: plans.length, pending: pending.length, existing: existing.length }
+  };
+}
+
+/**
+ * Fusionne les références d'une attestation lors d'une modification.
+ *
+ * - une référence **visible** dans le sélecteur suit l'intention de
+ *   l'utilisateur : cochée conservée, décochée retirée ;
+ * - une référence **non disponible** dans le contexte courant est conservée
+ *   puis signalée : une indisponibilité contextuelle n'est pas une suppression ;
+ * - `removedIds` ne contient que des retraits explicites de l'utilisateur ;
+ * - doublons et entrées vides sont éliminés sans perdre d'ordre ni de valeur.
+ */
+export function mergeAttestationReferences(options = {}) {
+  if (!isRecord(options)) throw new TypeError("options doit être un objet");
+  const { previousIds = [], selectedIds = [], availableIds = [], removedIds = [] } = options;
+  for (const [name, value] of Object.entries({ previousIds, selectedIds, availableIds, removedIds })) {
+    if (!Array.isArray(value)) throw new TypeError(name + " doit être un tableau");
+  }
+  const normalize = values => {
+    const ids = [];
+    for (const value of values) {
+      if (isValidId(value)) {
+        const id = value.trim();
+        if (!ids.includes(id)) ids.push(id);
+      }
+    }
+    return ids;
+  };
+  const previous = normalize(previousIds);
+  const selected = normalize(selectedIds);
+  const available = new Set(normalize(availableIds));
+  const removed = new Set(normalize(removedIds));
+  const wanted = new Set(selected);
+
+  const ids = [];
+  const preservedUnavailable = [];
+  const removedVisible = [];
+  const removedExplicit = [];
+  for (const id of previous) {
+    if (removed.has(id)) {
+      removedExplicit.push(id);
+      continue;
+    }
+    if (available.has(id)) {
+      if (!wanted.has(id)) {
+        removedVisible.push(id);
+        continue;
+      }
+      ids.push(id);
+      continue;
+    }
+    ids.push(id);
+    preservedUnavailable.push(id);
+  }
+  const added = [];
+  for (const id of selected) {
+    if (!ids.includes(id)) {
+      ids.push(id);
+      added.push(id);
+    }
+  }
+  return {
+    schemaVersion: JUSTIFICATION_COMPAT_SCHEMA_VERSION,
+    ids: ids,
+    preservedUnavailable: preservedUnavailable,
+    removedVisible: removedVisible,
+    removedExplicit: removedExplicit,
+    added: added
+  };
+}
+
+/**
+ * Évalue ce qu'une suppression de Personne emporterait avec elle, à partir des
+ * collections réellement chargées. Diagnostic pur : aucune suppression n'est
+ * effectuée. Les références `unmanaged` bloquent ; les références `managed`
+ * (documents) restent à la charge du parcours existant.
+ */
+export function planPersonDeletionImpact({
+  personId, people = [], families = [], documents = [], sources = [], proofs = [], conclusions = []
+} = {}) {
+  if (!isValidId(personId)) throw new TypeError("personId doit être une chaîne non vide");
+  if (![people, families, documents, sources, proofs, conclusions].every(Array.isArray)) {
+    throw new TypeError("toutes les collections doivent être des tableaux");
+  }
+  const base = auditPersonReferenceRisks({ personId, people, families, documents, sources, proofs, conclusions });
+  const issues = [...base.issues];
+  const familiesAtRisk = [];
+
+  for (const family of families) {
+    if (!isRecord(family) || !isValidId(family.id) || !Array.isArray(family.partnerIds)) continue;
+    if (!family.partnerIds.includes(personId)) continue;
+    if (family.partnerIds.filter(id => id !== personId).length > 0) continue;
+    familiesAtRisk.push(family.id);
+    issues.push(...auditFamilyReferenceRisks({
+      familyId: family.id, families: families, proofs: proofs, people: people
+    }).issues);
+  }
+
+  const unmanaged = issues.filter(issue => issue.severity === "unmanaged");
+  return {
+    schemaVersion: JUSTIFICATION_COMPAT_SCHEMA_VERSION,
+    personId: personId,
+    issues: issues,
+    familiesAtRisk: familiesAtRisk,
+    blocked: unmanaged.length > 0,
+    summary: {
+      managed: issues.filter(issue => issue.severity === "managed").length,
+      unmanaged: unmanaged.length,
+      familiesAtRisk: familiesAtRisk.length
+    }
+  };
+}
+
+/**
+ * Planifie un identifiant persistant pour les liens parent-enfant. Aucune
+ * écriture n'est proposée : ajouter `relationId` à `families.parentChildLinks`
+ * exige une migration approuvée, et `normalizedParentChildLinks` écrase les
+ * clés inconnues lors de la réécriture d'un Foyer.
+ */
+export function planFamilyRelationIds(family) {
+  if (!isRecord(family) || !isValidId(family.id)) {
+    throw new TypeError("Le Foyer doit porter un identifiant stable");
+  }
+  const links = Array.isArray(family.partnerIds) && Array.isArray(family.childIds)
+    ? normalizedParentChildLinks(family)
+    : [];
+  return {
+    schemaVersion: JUSTIFICATION_COMPAT_SCHEMA_VERSION,
+    familyId: family.id,
+    requiresWrite: true,
+    reason: "Aucun identifiant relationnel n'est persisté aujourd'hui ; toute écriture de relationId dans families/{id} est une migration et doit être approuvée avant exécution.",
+    relations: links.map(link => ({
+      parentId: link.parentId,
+      childId: link.childId,
+      state: link.type,
+      currentId: null,
+      proposedId: buildLegacyParentChildIdentityId(family.id, link.parentId, link.childId)
+    })),
+    summary: { relations: links.length, persisted: 0 }
   };
 }

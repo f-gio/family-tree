@@ -6,7 +6,10 @@ import { isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 const source = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
 const start = source.indexOf("async function addSecondParentToCurrentFamily()");
-const end = source.indexOf("\n}\n", start);
+/* Fin de fonction : le dépôt est converti en CRLF à la sortie Git sur Windows,
+   la recherche accepte les deux fins de ligne sans modifier l'assertion. */
+const relativeEnd = start >= 0 ? source.slice(start).search(/\r?\n\}\r?\n/) : -1;
+const end = relativeEnd >= 0 ? start + relativeEnd : -1;
 assert.ok(start >= 0 && end > start, "parcours d'ajout du second parent repéré");
 const block = source.slice(start, end);
 assert.ok(block.includes("await batch.commit();"), "batch familial présent");

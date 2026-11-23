@@ -916,8 +916,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.equal(await page.evaluate(() => window.scrollY), scrollBeforeAttestation, "l’ouverture de la modale conserve le défilement de la fiche");
     assert.equal(await page.locator("#personJourneyEntryDialog [data-journey-form]").count(), 0, "le formulaire n’est pas déployé dans la page sous-jacente");
     assert.equal(await page.locator("#personAttestationDialogTitle").innerText(), "Ajouter une attestation");
-    assert.deepEqual(await page.locator("#personAttestationDialog [data-journey-form] .attestation-form-section > h4").allTextContents(), ["Date de l’attestation", "Commentaire", "Documents associés", "Sources", "Preuves"], "cinq rubriques hiérarchisées dans le formulaire d’attestation");
-    assert.equal(await page.locator("#personAttestationDialog .attestation-form-panel").count(), 5, "chaque rubrique dispose de son conteneur cohérent");
+    assert.deepEqual(await page.locator("#personAttestationDialog [data-journey-form] .attestation-form-section > h4").allTextContents(), ["Date de l’attestation", "Commentaire", "Documents associés", "Sources", "Preuves", "Justificatif précis"], "six rubriques hiérarchisées dans le formulaire d’attestation");
+    assert.equal(await page.locator("#personAttestationDialog .attestation-form-panel").count(), 6, "chaque rubrique dispose de son conteneur cohérent");
     const mobileAttestationFieldPaint = await readAttestationFieldPaint(page);
     assert.deepEqual(mobileAttestationFieldPaint.date, mobileAttestationFieldPaint.birthYear, "mobile : Date reprend le fond et la bordure du champ Année de Nouvelle personne");
     assert.deepEqual(mobileAttestationFieldPaint.comment, mobileAttestationFieldPaint.deathPlace, "mobile : Commentaire reprend le fond et la bordure du Lieu de décès");
@@ -2494,7 +2494,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
     assert.ok(await page.locator("#journeyError-attDate").isVisible(), "date de l’attestation obligatoire");
     assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), true, "Naissance : erreur conserve la modale ouverte");
-    assert.deepEqual(await page.locator("#personAttestationDialog .attestation-form-section > h4").allTextContents(), ["Date de l’attestation", "Commentaire", "Documents associés", "Sources", "Preuves"], "rubriques d’attestation conservées dans le formulaire de naissance");
+    assert.deepEqual(await page.locator("#personAttestationDialog .attestation-form-section > h4").allTextContents(), ["Date de l’attestation", "Commentaire", "Documents associés", "Sources", "Preuves", "Justificatif précis"], "rubriques d’attestation conservées dans le formulaire de naissance");
     assert.equal(await page.locator("[data-journey-document-check]").count(), 4);
     assert.equal(await page.locator("[data-journey-source-check]").count(), 1);
     assert.equal(await page.locator("[data-journey-proof-check]").count(), 1);

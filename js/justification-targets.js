@@ -35,6 +35,47 @@ const FAMILY_SCALAR_TARGETS = Object.freeze([
   { key: "endPlace", companion: "endPlaceInfo", type: "family.union.endPlace", label: "Lieu de fin d’union", valueType: "place" }
 ]);
 
+const PERSON_RESIDENCE_TARGETS = Object.freeze([
+  { targetType: "person.residence.date", label: "Date/période de résidence", valueType: "date", key: "dateInfo" },
+  { targetType: "person.residence.place", label: "Lieu de résidence", valueType: "place", key: "place" },
+  { targetType: "person.residence.address", label: "Adresse de résidence", valueType: "text", key: "address" }
+]);
+
+const PERSON_PROFESSION_TARGETS = Object.freeze([
+  { targetType: "person.profession.label", label: "Profession/activité", valueType: "text", key: "label" },
+  { targetType: "person.profession.date", label: "Date/période de profession", valueType: "date", key: "dateInfo" },
+  { targetType: "person.profession.place", label: "Lieu de profession", valueType: "place", key: "place" }
+]);
+
+const PERSON_LIFE_EVENT_TARGETS = Object.freeze([
+  { targetType: "person.lifeEvent.kind", label: "Type d’événement de vie", valueType: "text", key: "kind" },
+  { targetType: "person.lifeEvent.label", label: "Intitulé d’événement de vie", valueType: "text", key: "label" },
+  { targetType: "person.lifeEvent.date", label: "Date/période d’événement de vie", valueType: "date", key: "dateInfo" },
+  { targetType: "person.lifeEvent.place", label: "Lieu d’événement de vie", valueType: "place", key: "place" }
+]);
+
+const NAME_VARIANT_TARGET_LABELS = Object.freeze({
+  given: "Variante de prénom",
+  family: "Variante de nom"
+});
+
+const AD_HOC_TARGET_LABELS = Object.freeze({
+  "family.union.partners": "Partenaires de l’union",
+  "family.parentChild.relationship": "Lien parent-enfant"
+});
+
+/**
+ * Libellé français par type de cible. Il sert à présenter un `factType` de
+ * Preuve construit sur `targetType` sans exposer l'identifiant technique dans
+ * l'interface. Les libellés sont ceux réellement utilisés par le registre.
+ */
+export const JUSTIFICATION_TARGET_LABELS = Object.freeze({
+  ...Object.fromEntries([...PERSON_SCALAR_TARGETS, ...FAMILY_SCALAR_TARGETS].map(definition => [definition.type, definition.label])),
+  ...Object.fromEntries([...PERSON_RESIDENCE_TARGETS, ...PERSON_PROFESSION_TARGETS, ...PERSON_LIFE_EVENT_TARGETS].map(definition => [definition.targetType, definition.label])),
+  ...Object.fromEntries(Object.entries(NAME_VARIANT_TARGET_LABELS).map(([kind, label]) => [`person.nameVariant.${kind}`, label])),
+  ...AD_HOC_TARGET_LABELS
+});
+
 function cloneValue(value) {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map(cloneValue);
@@ -249,7 +290,7 @@ function addPersonTargets(person, targets, exclusions) {
       addTarget(targets, exclusions, {
         id: repeatedTargetId("person", person.id, "nameVariants", variant.id, `name.variant.${variant.kind}`),
         targetType: `person.nameVariant.${variant.kind}`,
-        label: `${nameVariantLabel(variant.kind)} — variante`,
+        label: NAME_VARIANT_TARGET_LABELS[variant.kind] || `Variante de ${nameVariantLabel(variant.kind)}`,
         valueType: "text",
         owner,
         path: { collection: "people", documentId: person.id, fields: ["nameVariants", variant.id, "value"] },
@@ -263,22 +304,9 @@ function addPersonTargets(person, targets, exclusions) {
     }
   }
 
-  repeatedRecords(owner, "residences", person, targets, exclusions, [
-    { targetType: "person.residence.date", label: "Date/période de résidence", valueType: "date", key: "dateInfo" },
-    { targetType: "person.residence.place", label: "Lieu de résidence", valueType: "place", key: "place" },
-    { targetType: "person.residence.address", label: "Adresse de résidence", valueType: "text", key: "address" }
-  ]);
-  repeatedRecords(owner, "professions", person, targets, exclusions, [
-    { targetType: "person.profession.label", label: "Profession/activité", valueType: "text", key: "label" },
-    { targetType: "person.profession.date", label: "Date/période de profession", valueType: "date", key: "dateInfo" },
-    { targetType: "person.profession.place", label: "Lieu de profession", valueType: "place", key: "place" }
-  ]);
-  repeatedRecords(owner, "lifeEvents", person, targets, exclusions, [
-    { targetType: "person.lifeEvent.kind", label: "Type d’événement de vie", valueType: "text", key: "kind" },
-    { targetType: "person.lifeEvent.label", label: "Intitulé d’événement de vie", valueType: "text", key: "label" },
-    { targetType: "person.lifeEvent.date", label: "Date/période d’événement de vie", valueType: "date", key: "dateInfo" },
-    { targetType: "person.lifeEvent.place", label: "Lieu d’événement de vie", valueType: "place", key: "place" }
-  ]);
+  repeatedRecords(owner, "residences", person, targets, exclusions, PERSON_RESIDENCE_TARGETS);
+  repeatedRecords(owner, "professions", person, targets, exclusions, PERSON_PROFESSION_TARGETS);
+  repeatedRecords(owner, "lifeEvents", person, targets, exclusions, PERSON_LIFE_EVENT_TARGETS);
 }
 
 function addFamilyTargets(family, targets, exclusions) {
