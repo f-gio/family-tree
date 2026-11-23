@@ -41,7 +41,15 @@ import { createGenealogyProof, transitionProofStatus, validateGenealogyProof } f
 import { createConclusionRevision, createConclusionHead } from "./fact-conclusions.js";
 import { createSourceDocument, mergeSourceDocumentGuidedData, resolveSourceDocumentLinks, searchLinkedDocuments, SOURCE_DOCUMENT_PICKER_PAGE_SIZE } from "./source-document-model.js";
 import { enumerateJustificationTargets, JUSTIFICATION_TARGET_LABELS } from "./justification-targets.js";
-import { mergeAttestationReferences, planPersonDeletionImpact, planProofCreation, partitionProofPlans } from "./justification-compat.js";
+import {
+  createJustificationAssociation,
+  justificationAssociationKey,
+  mergeAttestationReferences,
+  planAssociationProofs,
+  planPersonDeletionImpact,
+  proofFactIdForTarget,
+  proofFactTypeForTarget
+} from "./justification-compat.js";
 import {
   createPageTextRevision,
   hasTranscriptionContent,
@@ -2825,45 +2833,31 @@ function journeyEntryFormMarkup(kind, entry) {
 }
 
 function journeyAttestationFormMarkup(item, entry, attestation, { pendingEntry = false, pendingRelation = false } = {}) {
-  const linkedDocuments = documents.filter(record => (record.personIds || []).includes(item.id));
-  const sources = genealogyRecords.sourceDocuments.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id));
-  const proofs = genealogyRecords.genealogyProofs.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id));
-  const documentChecks = linkedDocuments.map(documentItem => {
-    const checked = (attestation?.documentIds || []).includes(documentItem.id) ? " checked" : "";
-    const type = documentItem.type || documentItem.fileName || "Document";
-    return `<label class="attestation-association-option"><input type="checkbox" data-journey-document-check="${esc(documentItem.id)}"${checked}><span class="attestation-association-copy">${esc(documentDisplayLabel(documentItem))}<small>${esc(type)}</small></span></label>`;
-  }).join("");
-  const sourceChecks = sources.length ? sources.map(record => {
-    const data = genealogyRecordData(record);
-    const checked = (attestation?.sourceIds || []).includes(record.id) ? " checked" : "";
-    return `<label class="attestation-association-option"><input type="checkbox" data-journey-source-check="${esc(record.id)}"${checked}><span class="attestation-association-copy">${esc(data.title || data.cote || "Source")}<small>${esc(data.category || "Source officielle")}</small></span></label>`;
-  }).join("") : `<p class="card-meta">Aucune source associée à cette personne.</p>`;
-  const proofChecks = proofs.length ? proofs.map(record => {
-    const data = genealogyRecordData(record);
-    const label = proofFactLabel(data.factType) || data.factId || "Preuve";
-    const checked = (attestation?.proofIds || []).includes(record.id) ? " checked" : "";
-    return `<label class="attestation-association-option"><input type="checkbox" data-journey-proof-check="${esc(record.id)}"${checked}><span class="attestation-association-copy">${esc(label)}<small>Preuve</small></span></label>`;
-  }).join("") : `<p class="card-meta">Aucune preuve associée à cette personne.</p>`;
-  const associationGroup = (title, options, emptyMessage, kind) => `<section class="attestation-form-section" aria-labelledby="journeyAttestation${kind}Title">
-      <h4 id="journeyAttestation${kind}Title">${title}</h4>
-      <div class="attestation-form-panel"><div class="attestation-association-list">${options || `<p class="card-meta">${emptyMessage}</p>`}</div></div>
-    </section>`;
+  ensureJourneyAttestationDraft(item, attestation);
   return `<div class="life-journey-form attestation-form" data-journey-form>
     ${pendingEntry ? `<p class="hint">${pendingRelation ? "Cette attestation sera enregistrée avec l’union familiale." : "Cette attestation sera enregistrée avec l’élément du Parcours détaillé."}</p>` : ""}
-    <section class="attestation-form-section" aria-labelledby="journeyAttestationDateTitle">
-      <h4 id="journeyAttestationDateTitle">Date de l’attestation</h4>
-      <div class="attestation-form-panel attestation-date-panel">${journeyDateFormMarkup(attestation?.date)}${journeyErrorMarkup("attDate")}</div>
+    <section class="attestation-form-section" aria-labelledby="journeyAttestationDocumentsTitle" data-journey-documents-section>
+      <h4 id="journeyAttestationDocumentsTitle">Documents justificatifs</h4>
+      <div class="attestation-form-panel">
+        <div class="attestation-document-selection" id="journeyDocumentSelection">${journeyDocumentSelectionMarkup()}</div>
+        <div class="attestation-proof-controls attestation-document-actions">
+          <button class="btn small" type="button" data-journey-documents-toggle aria-expanded="${journeyAttestationDraft.documentsOpen ? "true" : "false"}" aria-controls="journeyDocumentPicker">${journeyAttestationDraft.documentsOpen ? "Masquer la liste" : "Choisir des documents"}</button>
+          <button class="btn small tertiary" type="button" data-journey-document-create>${icon("plus")}<span>Ajouter un document</span></button>
+        </div>
+        <div id="journeyDocumentPicker"${journeyAttestationDraft.documentsOpen ? "" : " hidden"}>${journeyAttestationDraft.documentsOpen ? journeyDocumentPickerMarkup(item) : ""}</div>
+      </div>
+    </section>
+    <section class="attestation-form-section" aria-labelledby="journeyAttestationInformationsTitle" data-journey-informations-section>
+      <h4 id="journeyAttestationInformationsTitle">Informations concernées</h4>
+      <div class="attestation-form-panel">
+        <div class="attestation-association-list" id="journeyAssociationList">${journeyAssociationListMarkup(item)}</div>
+        ${journeyAssociationComposerMarkup(item)}
+      </div>
     </section>
     <section class="attestation-form-section" aria-labelledby="journeyAttestationCommentTitle">
       <h4 id="journeyAttestationCommentTitle">Commentaire</h4>
       <div class="attestation-form-panel"><label class="sr-only" for="journeyAttComment">Commentaire</label><input class="field attestation-comment-field" id="journeyAttComment" aria-labelledby="journeyAttestationCommentTitle" maxlength="300" value="${attestation ? esc(attestation.comment || "") : ""}"></div>
     </section>
-    <div class="life-journey-justifications">
-      ${associationGroup("Documents associés", documentChecks, "Aucun document associé à cette personne.", "Documents")}
-      ${associationGroup("Sources", sourceChecks, "Aucune source associée à cette personne.", "Sources")}
-      ${associationGroup("Preuves", proofChecks, "Aucune preuve associée à cette personne.", "Proofs")}
-    </div>
-    ${pendingEntry ? "" : journeyProofPreciseSection(item)}
     <div class="life-journey-form-actions">
       <button class="btn small" type="button" data-journey-attestation-cancel>Annuler</button>
       <button class="btn small primary" type="button" data-journey-attestation-save>${pendingEntry ? "Ajouter à l’élément" : "Enregistrer"}</button>
@@ -2871,149 +2865,552 @@ function journeyAttestationFormMarkup(item, entry, attestation, { pendingEntry =
   </div>`;
 }
 
-const JOURNEY_PROOF_PAGE_SIZE = 8;
-const journeyProofState = {
-  targetQuery: "", documentQuery: "", targetPage: 1, documentPage: 1,
-  selectedTargets: new Set(), selectedDocuments: new Set()
+/* ------------------------------------------------------------------
+   Attestation — état de sélection. « Documents justificatifs » et
+   « Informations concernées » vivent dans `journeyAttestationDraft` :
+   l'état survit à la navigation (visionneuse, nouvelle fiche) et n'est
+   jamais reconstruit à partir du DOM.
+   ------------------------------------------------------------------ */
+const JOURNEY_DOCUMENT_PAGE_SIZE = 6;
+const JOURNEY_SUBJECT_RESULT_LIMIT = 8;
+
+const journeyAttestationDraft = {
+  documentIds: [],
+  associations: [],
+  removedExisting: [],
+  documentsOpen: false,
+  documentQuery: "",
+  documentPage: 1,
+  subjectQuery: "",
+  composerSubject: "",
+  composerSubjectLabel: "",
+  composerFactId: "",
+  composerDocumentId: "",
+  composerRelation: "supports"
 };
 
-function resetJourneyProofState() {
-  journeyProofState.targetQuery = "";
-  journeyProofState.documentQuery = "";
-  journeyProofState.targetPage = 1;
-  journeyProofState.documentPage = 1;
-  journeyProofState.selectedTargets = new Set();
-  journeyProofState.selectedDocuments = new Set();
+/* Reprise du formulaire après navigation vers la visionneuse. */
+let journeyAttestationReturnDraft = null;
+let journeyAttestationReturnValues = null;
+let journeyAttestationReturnEditor = null;
+let journeyAttestationDraftToken = "";
+let journeyAttestationAwaitingNewDocument = false;
+
+function journeyAttestationDraftTokenFor() {
+  const editor = journeyEditor || {};
+  return [editor.type, editor.entryKind, editor.entryId, editor.attId, editor.mode, editor.pendingEntry ? "pending" : ""].join("~");
 }
 
-/* Propriétaire de l’attestation : le Foyer pour une union, la Personne sinon.
-   Les contextes préparés (union ou élément du Parcours) n’offrent pas de cible
-   précise : ils sont masqués par `pendingEntry`. */
-function journeyProofOwnerTargets(item) {
-  if ((journeyEditor?.entryKind || "") === "marriage") {
-    const family = families.find(value => value.id === (journeyEditor?.entryId || "")) || null;
-    return family ? enumerateJustificationTargets({ families: [family] }).targets : [];
+/** Initialise l'état de sélection à l'ouverture du formulaire, sauf si un
+    retour de navigation fournit déjà l'état à restaurer. */
+function ensureJourneyAttestationDraft(item, attestation) {
+  const token = journeyAttestationDraftTokenFor();
+  if (journeyAttestationDraftToken === token) return;
+  journeyAttestationDraftToken = token;
+  if (journeyAttestationReturnDraft) {
+    resetJourneyAttestationDraft(journeyAttestationReturnDraft);
+    journeyAttestationReturnDraft = null;
+    return;
   }
-  return item ? enumerateJustificationTargets({ people: [item] }).targets : [];
+  journeyLoadDraftForAttestation(attestation || null);
 }
 
-function journeyProofParticipantsByOwner(item) {
-  const map = {};
-  for (const family of families) {
-    if (!family?.id) continue;
-    const ids = [...new Set([...(family.partnerIds || []), ...(family.childIds || [])]
-      .filter(id => typeof id === "string" && id.trim()))];
-    if (ids.length) map[`family:${family.id}`] = ids;
+function resetJourneyAttestationDraft(source = {}) {
+  const draft = journeyAttestationDraft;
+  draft.documentIds = [...(source.documentIds || [])];
+  draft.associations = (source.associations || []).map(item => ({ ...item }));
+  draft.removedExisting = (source.removedExisting || []).map(item => ({ ...item }));
+  draft.documentsOpen = Boolean(source.documentsOpen);
+  draft.documentQuery = typeof source.documentQuery === "string" ? source.documentQuery : "";
+  draft.documentPage = Number(source.documentPage) > 0 ? Number(source.documentPage) : 1;
+  draft.subjectQuery = typeof source.subjectQuery === "string" ? source.subjectQuery : "";
+  draft.composerSubject = source.composerSubject || "";
+  draft.composerSubjectLabel = source.composerSubjectLabel || "";
+  draft.composerFactId = source.composerFactId || "";
+  draft.composerDocumentId = source.composerDocumentId || "";
+  draft.composerRelation = source.composerRelation || "supports";
+}
+
+function journeyPersonLabel(record) {
+  if (!record || typeof record !== "object") return "";
+  const full = [record.firstName, record.middleName, record.lastName].filter(value => typeof value === "string" && value.trim()).join(" ").trim();
+  if (full) return full;
+  if (typeof record.marriedName === "string" && record.marriedName.trim()) return record.marriedName.trim();
+  return record.id || "";
+}
+
+function journeyFamilyLabel(family) {
+  if (!family || typeof family !== "object") return "Foyer";
+  const names = (family.partnerIds || []).map(id => journeyPersonLabel(person(id))).filter(Boolean);
+  return names.length ? `Foyer ${names.join(" & ")}` : `Foyer ${family.id}`;
+}
+
+/* Propriétaire de l'attestation : le Foyer pour une union, la Personne sinon.
+   Il sert de suggestion par défaut, jamais de restriction. */
+function journeyAttestationOwner(item = journeyProofCurrentItem(), entryKind = journeyEditor?.entryKind, entryId = journeyEditor?.entryId) {
+  if (entryKind === "marriage") {
+    const family = families.find(value => value.id === (entryId || "")) || null;
+    if (family) return { kind: "family", id: family.id, label: journeyFamilyLabel(family) };
   }
-  if (item?.id) map[`person:${item.id}`] = [item.id];
-  return map;
-}
-
-function journeyProofTargetListMarkup(item) {
-  const query = journeyProofState.targetQuery.trim().toLowerCase();
-  const targets = journeyProofOwnerTargets(item);
-  const selected = journeyProofState.selectedTargets;
-  const filtered = query
-    ? targets.filter(target => `${target.label || ""} ${target.targetType || ""}`.toLowerCase().includes(query))
-    : targets;
-  const visible = filtered.slice(0, JOURNEY_PROOF_PAGE_SIZE * journeyProofState.targetPage);
-  const options = visible.map(target => {
-    const checked = selected.has(target.id) ? " checked" : "";
-    const owner = target.owner?.label || "";
-    return `<label class="attestation-association-option"><input type="checkbox" data-journey-proof-target="${esc(target.id)}"${checked}><span class="attestation-association-copy">${esc(target.label || target.targetType)}<small>${esc(owner)}</small></span></label>`;
-  }).join("");
-  const more = filtered.length > visible.length
-    ? `<button class="btn small tertiary" type="button" data-journey-proof-more="target">Afficher plus (${filtered.length - visible.length})</button>`
-    : "";
-  return `${options || `<p class="card-meta">Aucun fait précis ne correspond à cette recherche.</p>`}${more}`;
-}
-
-function journeyProofDocumentListMarkup() {
-  const query = journeyProofState.documentQuery.trim();
-  const pool = query ? searchLinkedDocuments(documents, query) : documents;
-  const selected = journeyProofState.selectedDocuments;
-  const visible = pool.slice(0, JOURNEY_PROOF_PAGE_SIZE * journeyProofState.documentPage);
-  const options = visible.map(documentItem => {
-    const checked = selected.has(documentItem.id) ? " checked" : "";
-    const type = documentItem.type || documentItem.fileName || "Document";
-    return `<label class="attestation-association-option"><input type="checkbox" data-journey-proof-document="${esc(documentItem.id)}"${checked}><span class="attestation-association-copy">${esc(documentDisplayLabel(documentItem))}<small>${esc(type)}</small></span></label>`;
-  }).join("");
-  const more = pool.length > visible.length
-    ? `<button class="btn small tertiary" type="button" data-journey-proof-more="document">Afficher plus (${pool.length - visible.length})</button>`
-    : "";
-  return `${options || `<p class="card-meta">Aucun document ne correspond à cette recherche.</p>`}${more}`;
-}
-
-function journeyProofRelationOptionsMarkup() {
-  const current = document.querySelector("[data-journey-proof-relation]")?.value || "supports";
-  return Object.entries(PROOF_RELATION_LABELS).map(([value, label]) =>
-    `<option value="${esc(value)}"${value === current ? " selected" : ""}>${esc(label)}</option>`).join("");
-}
-
-function journeyProofRecapText() {
-  const targets = journeyProofState.selectedTargets.size;
-  const docs = journeyProofState.selectedDocuments.size;
-  if (!targets || !docs) return "Sélectionnez au moins un fait précis et un document : une Preuve est créée par couple.";
-  const count = targets * docs;
-  return `${targets} fait${targets > 1 ? "s" : ""} × ${docs} document${docs > 1 ? "s" : ""} → ${count} Preuve${count > 1 ? "s" : ""} à créer.`;
-}
-
-function updateJourneyProofRecap() {
-  const recap = document.querySelector("[data-journey-proof-recap]");
-  if (recap) recap.textContent = journeyProofRecapText();
+  return item ? { kind: "person", id: item.id, label: journeyPersonLabel(item) } : null;
 }
 
 function journeyProofCurrentItem() {
   return activePersonPageItem || person($("personId")?.value || "") || null;
 }
 
-function renderJourneyProofTargetList() {
-  const list = $("journeyProofTargetList");
-  if (list) list.innerHTML = journeyProofTargetListMarkup(journeyProofCurrentItem());
+function journeySubjectKey(kind, id) {
+  return `${kind}:${id}`;
 }
 
-function renderJourneyProofDocumentList() {
-  const list = $("journeyProofDocumentList");
-  if (list) list.innerHTML = journeyProofDocumentListMarkup();
+function journeyParseSubjectKey(key) {
+  const [kind, id] = String(key || "").split(":");
+  if ((kind !== "person" && kind !== "family") || !id) return null;
+  return { kind, id };
 }
 
-function journeyProofPreciseSection(item) {
-  const admin = isAdminUser();
-  if (!admin) {
-    return `<section class="attestation-form-section" aria-labelledby="journeyAttestationPreciseTitle">
-      <h4 id="journeyAttestationPreciseTitle">Justificatif précis</h4>
-      <div class="attestation-form-panel"><p class="card-meta">La création de justificatifs précis est réservée aux administrateurs.</p></div>
-    </section>`;
+function journeySubjectLabel(key) {
+  const subject = journeyParseSubjectKey(key);
+  if (!subject) return "";
+  if (subject.kind === "family") return journeyFamilyLabel(families.find(value => value.id === subject.id) || { id: subject.id, partnerIds: [] });
+  return journeyPersonLabel(person(subject.id)) || subject.id;
+}
+
+/** Suggestions de sujet : la fiche courante en tête, puis le reste de l'arbre. */
+function journeySubjectOptions(item, query) {
+  const owner = journeyAttestationOwner(item);
+  const pool = [];
+  if (owner) pool.push({ key: journeySubjectKey(owner.kind, owner.id), label: owner.label, hint: "Sujet de la fiche" });
+  for (const personItem of people) {
+    if (owner && owner.kind === "person" && owner.id === personItem.id) continue;
+    pool.push({ key: journeySubjectKey("person", personItem.id), label: journeyPersonLabel(personItem), hint: "Personne" });
   }
-  const targets = journeyProofOwnerTargets(item);
-  if (!targets.length) {
-    return `<section class="attestation-form-section" aria-labelledby="journeyAttestationPreciseTitle">
-      <h4 id="journeyAttestationPreciseTitle">Justificatif précis</h4>
-      <div class="attestation-form-panel"><p class="card-meta">Aucun fait précis disponible pour cet élément.</p></div>
-    </section>`;
+  for (const family of families) {
+    if (owner && owner.kind === "family" && owner.id === family.id) continue;
+    pool.push({ key: journeySubjectKey("family", family.id), label: journeyFamilyLabel(family), hint: "Foyer" });
   }
-  const query = journeyProofState.targetQuery;
-  return `<section class="attestation-form-section" aria-labelledby="journeyAttestationPreciseTitle" data-journey-proof-section>
-    <h4 id="journeyAttestationPreciseTitle">Justificatif précis</h4>
-    <div class="attestation-form-panel">
-      <p class="hint">Reliez un ou plusieurs documents aux faits précis relevés sur cet élément. Une Preuve est créée pour chaque couple (fait, document) ; les documents associés ci-dessus ne sont pas modifiés.</p>
-      <div class="attestation-proof-controls">
-        <label class="field-label" for="journeyProofTargetSearch">Faits précis</label>
-        <input class="field" id="journeyProofTargetSearch" type="search" data-journey-proof-target-search placeholder="Rechercher un fait…" value="${esc(query)}" autocomplete="off">
-      </div>
-      <div class="attestation-association-list" id="journeyProofTargetList">${journeyProofTargetListMarkup(item)}</div>
-      <div class="attestation-proof-controls">
-        <label class="field-label" for="journeyProofRelation">Relation documentaire</label>
-        <select class="field" id="journeyProofRelation" data-journey-proof-relation>${journeyProofRelationOptionsMarkup()}</select>
-      </div>
-      <div class="attestation-proof-controls">
-        <label class="field-label" for="journeyProofDocumentSearch">Documents à joindre</label>
-        <input class="field" id="journeyProofDocumentSearch" type="search" data-journey-proof-document-search placeholder="Rechercher un document…" value="${esc(journeyProofState.documentQuery)}" autocomplete="off">
-      </div>
-      <div class="attestation-association-list" id="journeyProofDocumentList">${journeyProofDocumentListMarkup()}</div>
-      <p class="card-meta" data-journey-proof-recap>${esc(journeyProofRecapText())}</p>
+  const normalized = String(query || "").trim().toLowerCase();
+  const filtered = normalized
+    ? pool.filter(option => `${option.label} ${option.hint}`.toLowerCase().includes(normalized))
+    : pool;
+  return filtered.slice(0, JOURNEY_SUBJECT_RESULT_LIMIT);
+}
+
+function journeyFamilyParticipants(familyId) {
+  const family = families.find(value => value.id === familyId);
+  if (!family) return [];
+  return [...new Set([...(family.partnerIds || []), ...(family.childIds || [])].filter(id => typeof id === "string" && id))];
+}
+
+/** Faits disponibles pour le sujet choisi dans le composeur (registre R1). */
+function journeyComposerTargets() {
+  const subject = journeyParseSubjectKey(journeyAttestationDraft.composerSubject);
+  if (!subject) return [];
+  if (subject.kind === "family") {
+    const family = families.find(value => value.id === subject.id);
+    return family ? enumerateJustificationTargets({ families: [family] }).targets : [];
+  }
+  const subjectPerson = person(subject.id);
+  return subjectPerson ? enumerateJustificationTargets({ people: [subjectPerson] }).targets : [];
+}
+
+function journeyDocumentSelectionMarkup() {
+  const ids = journeyAttestationDraft.documentIds;
+  if (!ids.length) return `<p class="card-meta">Aucun document justificatif sélectionné.</p>`;
+  return ids.map(id => {
+    const documentItem = documents.find(value => value.id === id);
+    const label = documentItem ? documentDisplayLabel(documentItem) : "Document retiré de l’arbre";
+    const type = documentItem ? (documentItem.type || documentItem.fileName || "Document") : "Référence conservée";
+    const removable = documentItem ? "" : " disabled";
+    return `<div class="attestation-association-option attestation-document-chip">
+      <span class="attestation-association-copy"><strong>${esc(label)}</strong><small>${esc(type)}</small></span>
+      <span class="attestation-chip-actions">
+        <button class="btn small" type="button" data-journey-document-view="${esc(id)}"${documentItem ? "" : " disabled"}>Consulter</button>
+        <button class="btn small" type="button" data-journey-document-sheet="${esc(id)}"${documentItem ? "" : " disabled"}>Voir la fiche</button>
+        <button class="btn icon-btn life-delete-icon" type="button" data-journey-document-remove="${esc(id)}"${removable} aria-label="Retirer ${esc(label)} de la sélection" title="Retirer de la sélection">${icon("trash")}</button>
+      </span>
+    </div>`;
+  }).join("");
+}
+
+function journeyDocumentListMarkup(item) {
+  const draft = journeyAttestationDraft;
+  const personId = item?.id || "";
+  const query = draft.documentQuery.trim();
+  const matched = query ? searchLinkedDocuments(documents, query) : documents.filter(record => (record.personIds || []).includes(personId));
+  const ordered = [...matched].sort((left, right) => {
+    const leftLinked = (left.personIds || []).includes(personId) ? 0 : 1;
+    const rightLinked = (right.personIds || []).includes(personId) ? 0 : 1;
+    return leftLinked - rightLinked;
+  });
+  const visible = ordered.slice(0, JOURNEY_DOCUMENT_PAGE_SIZE * draft.documentPage);
+  const options = visible.map(documentItem => {
+    const checked = draft.documentIds.includes(documentItem.id) ? " checked" : "";
+    const type = documentItem.type || documentItem.fileName || "Document";
+    const linked = (documentItem.personIds || []).includes(personId) ? `<small>${esc(type)}</small>` : `<small>${esc(type)}</small><small>Bibliothèque</small>`;
+    return `<label class="attestation-association-option"><input type="checkbox" data-journey-document-pick="${esc(documentItem.id)}"${checked}><span class="attestation-association-copy">${esc(documentDisplayLabel(documentItem))}${linked}</span></label>`;
+  }).join("");
+  const more = ordered.length > visible.length
+    ? `<button class="btn small tertiary" type="button" data-journey-documents-more>Afficher plus (${ordered.length - visible.length})</button>`
+    : "";
+  const hint = query
+    ? `<p class="card-meta">Recherche dans toute la bibliothèque documentaire.</p>`
+    : `<p class="card-meta">Documents déjà associés à cette personne. Utilisez la recherche pour toute la bibliothèque.</p>`;
+  return `${hint}${options || `<p class="card-meta">Aucun document ne correspond à cette recherche.</p>`}${more}`;
+}
+
+function journeyDocumentPickerMarkup(item) {
+  return `<div class="attestation-proof-controls">
+      <label class="sr-only" for="journeyDocumentSearch">Rechercher un document</label>
+      <input class="field" id="journeyDocumentSearch" type="search" data-journey-document-search placeholder="Rechercher dans la bibliothèque…" value="${esc(journeyAttestationDraft.documentQuery)}" autocomplete="off">
     </div>
-  </section>`;
+    <div class="attestation-association-list" id="journeyDocumentList">${journeyDocumentListMarkup(item)}</div>`;
+}
+
+function journeyAssociationListMarkup() {
+  const list = journeyAttestationDraft.associations;
+  if (!list.length) return `<p class="card-meta">Aucune information renseignée pour cette attestation.</p>`;
+  return list.map(item => {
+    const documentItem = documents.find(value => value.id === item.documentId);
+    const docLabel = documentItem ? documentDisplayLabel(documentItem) : "Document retiré de l’arbre";
+    const status = item.existing ? "Enregistrée" : "À enregistrer";
+    return `<div class="attestation-association-option attestation-association-row" data-journey-association="${esc(item.key)}">
+      <span class="attestation-association-copy">
+        <strong>${esc(item.factLabel || item.factType)}</strong>
+        <small>${esc(docLabel)} · ${esc(journeySubjectLabel(journeySubjectKey(item.subjectKind, item.subjectId)))} · ${esc(PROOF_RELATION_LABELS[item.relation] || item.relation)} · ${status}</small>
+      </span>
+      <button class="btn icon-btn life-delete-icon" type="button" data-journey-association-remove="${esc(item.key)}" aria-label="Retirer l’information ${esc(item.factLabel || item.factType)}" title="Retirer cette association">${icon("trash")}</button>
+    </div>`;
+  }).join("");
+}
+
+function journeySubjectResultsMarkup(item) {
+  const options = journeySubjectOptions(item, journeyAttestationDraft.subjectQuery);
+  if (!options.length) return `<p class="card-meta">Aucune personne ni foyer ne correspond à cette recherche.</p>`;
+  return options.map(option => `<button class="btn small tertiary" type="button" data-journey-subject-pick="${esc(option.key)}">${esc(option.label)}<small>${esc(option.hint)}</small></button>`).join("");
+}
+
+function journeyAssociationFactOptionsMarkup() {
+  const draft = journeyAttestationDraft;
+  const targets = journeyComposerTargets();
+  if (!draft.composerSubject) return `<option value="">Choisissez d’abord un sujet.</option>`;
+  if (!targets.length) return `<option value="">Aucun fait disponible pour ce sujet.</option>`;
+  const options = targets.map(target => {
+    const value = esc(target.id);
+    const selected = draft.composerFactId === target.id ? " selected" : "";
+    return `<option value="${value}"${selected}>${esc(target.label || target.targetType)}</option>`;
+  }).join("");
+  return `<option value="">Choisissez un fait…</option>${options}`;
+}
+
+function journeyAssociationDocumentOptionsMarkup() {
+  const draft = journeyAttestationDraft;
+  if (!draft.documentIds.length) return `<option value="">Sélectionnez d’abord un document justificatif.</option>`;
+  const options = draft.documentIds.map(id => {
+    const documentItem = documents.find(value => value.id === id);
+    const label = documentItem ? documentDisplayLabel(documentItem) : id;
+    const selected = draft.composerDocumentId === id ? " selected" : "";
+    return `<option value="${esc(id)}"${selected}>${esc(label)}</option>`;
+  }).join("");
+  return `<option value="">Choisissez un document…</option>${options}`;
+}
+
+function journeyRelationOptionsMarkup(current) {
+  return Object.entries(PROOF_RELATION_LABELS).map(([value, label]) =>
+    `<option value="${esc(value)}"${value === current ? " selected" : ""}>${esc(label)}</option>`).join("");
+}
+
+function journeyAssociationComposerMarkup(item) {
+  if (!isAdminUser()) {
+    return `<div class="attestation-composer"><p class="card-meta">L’ajout d’informations est réservé aux administrateurs.</p></div>`;
+  }
+  const draft = journeyAttestationDraft;
+  const chosen = draft.composerSubject
+    ? `<p class="card-meta" id="journeySubjectChosen">Sujet : ${esc(journeySubjectLabel(draft.composerSubject))}</p>`
+    : `<p class="card-meta" id="journeySubjectChosen">Aucun sujet sélectionné.</p>`;
+  return `<div class="attestation-composer" data-journey-association-composer>
+    <p class="card-meta">Ajouter une information : sujet, fait, document et qualification pris un par un.</p>
+    <div class="attestation-proof-controls">
+      <label class="field-label" for="journeyAssociationSubjectSearch">Sujet</label>
+      <input class="field" id="journeyAssociationSubjectSearch" type="search" data-journey-subject-search autocomplete="off" placeholder="Rechercher une personne ou un foyer…" value="${esc(draft.subjectQuery)}">
+      <div class="attestation-association-list" id="journeySubjectResults">${journeySubjectResultsMarkup(item)}</div>
+      ${chosen}
+    </div>
+    <div class="attestation-proof-controls">
+      <label class="field-label" for="journeyAssociationFact">Fait précis</label>
+      <select class="field" id="journeyAssociationFact" data-journey-association-fact>${journeyAssociationFactOptionsMarkup()}</select>
+    </div>
+    <div class="attestation-proof-controls">
+      <label class="field-label" for="journeyAssociationDocument">Document</label>
+      <select class="field" id="journeyAssociationDocument" data-journey-association-document>${journeyAssociationDocumentOptionsMarkup()}</select>
+    </div>
+    <div class="attestation-proof-controls">
+      <label class="field-label" for="journeyAssociationRelation">Qualification</label>
+      <select class="field" id="journeyAssociationRelation" data-journey-association-relation>${journeyRelationOptionsMarkup(draft.composerRelation)}</select>
+    </div>
+    ${journeyErrorMarkup("association")}
+    <div class="attestation-proof-controls">
+      <button class="btn small primary" type="button" data-journey-association-add>Ajouter l’information</button>
+    </div>
+  </div>`;
+}
+
+function renderJourneyDocumentSelection() {
+  const host = $("journeyDocumentSelection");
+  if (host) host.innerHTML = journeyDocumentSelectionMarkup();
+}
+
+function renderJourneyDocumentPicker(item = journeyProofCurrentItem()) {
+  const host = $("journeyDocumentList");
+  if (host) host.innerHTML = journeyDocumentListMarkup(item);
+}
+
+function renderJourneyDocumentPickerPanel(item = journeyProofCurrentItem()) {
+  const panel = $("journeyDocumentPicker");
+  if (!panel) return;
+  panel.innerHTML = journeyAttestationDraft.documentsOpen ? journeyDocumentPickerMarkup(item) : "";
+}
+
+function renderJourneyAssociationList() {
+  const host = $("journeyAssociationList");
+  if (host) host.innerHTML = journeyAssociationListMarkup();
+}
+
+function renderJourneySubjectResults(item = journeyProofCurrentItem()) {
+  const host = $("journeySubjectResults");
+  if (host) host.innerHTML = journeySubjectResultsMarkup(item);
+}
+
+function renderJourneyAssociationFactOptions() {
+  const select = $("journeyAssociationFact");
+  if (select) select.innerHTML = journeyAssociationFactOptionsMarkup();
+}
+
+function renderJourneyAssociationDocumentOptions() {
+  const select = $("journeyAssociationDocument");
+  if (select) select.innerHTML = journeyAssociationDocumentOptionsMarkup();
+}
+
+/** Associations déjà persistées pour les documents de l'attestation : elles
+    sont affichées telles quelles, jamais recréées ni dupliquées. */
+function journeyExistingAssociations(documentIds) {
+  const wanted = new Set(documentIds);
+  const seen = new Set();
+  const found = [];
+  for (const record of genealogyRecords.genealogyProofs) {
+    const data = genealogyRecordData(record);
+    if (!data || typeof data !== "object" || typeof data.documentId !== "string") continue;
+    if (!wanted.has(data.documentId) || typeof data.factId !== "string" || !data.factId) continue;
+    const key = `${data.factId}|${data.documentId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const familyId = typeof data.familyId === "string" && data.familyId ? data.familyId : null;
+    const persons = Array.isArray(data.personIds) ? data.personIds.filter(id => typeof id === "string" && id) : [];
+    const subjectId = familyId || persons[0] || "";
+    if (!subjectId) continue;
+    found.push({
+      key,
+      documentId: data.documentId,
+      factId: data.factId,
+      factType: typeof data.factType === "string" && data.factType ? data.factType : data.factId,
+      factLabel: proofFactLabel(data.factType) || data.factType || data.factId,
+      subjectKind: familyId ? "family" : "person",
+      subjectId,
+      personIds: persons,
+      familyId,
+      relationshipId: familyId && typeof data.relationshipId === "string" ? data.relationshipId : null,
+      relation: PROOF_RELATION_LABELS[data.relation] ? data.relation : "supports",
+      existing: true,
+      proofId: record.id
+    });
+  }
+  return found;
+}
+
+function journeyLoadDraftForAttestation(attestation) {
+  const documentIds = [...new Set((attestation?.documentIds || []).filter(id => typeof id === "string" && id))];
+  resetJourneyAttestationDraft({ documentIds, associations: journeyExistingAssociations(documentIds) });
+  const draft = journeyAttestationDraft;
+  draft.composerDocumentId = documentIds[0] || "";
+  if (!draft.composerSubject) {
+    const owner = journeyAttestationOwner(journeyProofCurrentItem());
+    if (owner) {
+      draft.composerSubject = journeySubjectKey(owner.kind, owner.id);
+      draft.composerSubjectLabel = owner.label;
+    }
+  }
+}
+
+function syncJourneyComposerAfterDocumentChange() {
+  const draft = journeyAttestationDraft;
+  if (!draft.documentIds.includes(draft.composerDocumentId)) draft.composerDocumentId = draft.documentIds[0] || "";
+  renderJourneyDocumentSelection();
+  renderJourneyDocumentPicker();
+  renderJourneyAssociationList();
+  renderJourneyAssociationDocumentOptions();
+}
+
+function toggleJourneyDocumentSelection(documentId, selected) {
+  if (typeof documentId !== "string" || !documentId) return;
+  const draft = journeyAttestationDraft;
+  if (!selected) return removeJourneyDocumentFromSelection(documentId);
+  if (draft.documentIds.includes(documentId)) return;
+  draft.documentIds.push(documentId);
+  const loaded = journeyExistingAssociations([documentId]).filter(item => !draft.associations.some(other => other.key === item.key));
+  draft.associations.push(...loaded);
+  syncJourneyComposerAfterDocumentChange();
+}
+
+function stageJourneyAssociationRemoval(items) {
+  const draft = journeyAttestationDraft;
+  const persisted = items.filter(item => item.existing && item.proofId);
+  const keys = new Set(items.map(item => item.key));
+  draft.associations = draft.associations.filter(item => !keys.has(item.key));
+  for (const item of persisted) {
+    if (!draft.removedExisting.some(other => other.key === item.key)) draft.removedExisting.push({ key: item.key, proofId: item.proofId });
+  }
+  return persisted.length;
+}
+
+function removeJourneyAssociation(key) {
+  const draft = journeyAttestationDraft;
+  const item = draft.associations.find(other => other.key === key);
+  if (!item) return;
+  if (item.existing) {
+    const label = item.factLabel || item.factType;
+    if (!window.confirm(`Retirer l’information « ${label} » ? Elle sera supprimée à l’enregistrement, avec sa Preuve.`)) return;
+    stageJourneyAssociationRemoval([item]);
+    toast("Information retirée : elle sera supprimée à l’enregistrement.", "info");
+  } else {
+    stageJourneyAssociationRemoval([item]);
+  }
+  renderJourneyAssociationList();
+  renderJourneyDocumentSelection();
+}
+
+function removeJourneyDocumentFromSelection(documentId) {
+  const draft = journeyAttestationDraft;
+  const index = draft.documentIds.indexOf(documentId);
+  if (index === -1) return;
+  const related = draft.associations.filter(item => item.documentId === documentId);
+  const persisted = related.filter(item => item.existing && item.proofId);
+  if (persisted.length) {
+    const message = persisted.length === 1
+      ? "Ce document porte une information enregistrée. La retirer de la sélection la supprimera à l’enregistrement. Continuer ?"
+      : `Ce document porte ${persisted.length} informations enregistrées. Leur retrait les supprimera à l’enregistrement. Continuer ?`;
+    if (!window.confirm(message)) return;
+  }
+  draft.documentIds.splice(index, 1);
+  const removedCount = stageJourneyAssociationRemoval(related);
+  syncJourneyComposerAfterDocumentChange();
+  if (removedCount) toast(`${removedCount} information${removedCount > 1 ? "s" : ""} retirée${removedCount > 1 ? "s" : ""} avec le document.`, "info");
+}
+
+function addJourneyAssociation() {
+  const draft = journeyAttestationDraft;
+  clearJourneyErrors();
+  const subject = journeyParseSubjectKey(draft.composerSubject);
+  if (!subject) {
+    showJourneyError("association", "Choisissez un sujet : la personne de la fiche est proposée par défaut.");
+    journeyFocusError("association");
+    return false;
+  }
+  const target = journeyComposerTargets().find(value => value.id === draft.composerFactId);
+  if (!target) {
+    showJourneyError("association", "Choisissez un fait dans le registre.");
+    journeyFocusError("association");
+    return false;
+  }
+  if (!draft.documentIds.includes(draft.composerDocumentId)) {
+    showJourneyError("association", "Choisissez un document justificatif.");
+    journeyFocusError("association");
+    return false;
+  }
+  let association;
+  try {
+    association = createJustificationAssociation({
+      documentId: draft.composerDocumentId,
+      subjectKind: subject.kind,
+      subjectId: subject.id,
+      personIds: subject.kind === "family" ? journeyFamilyParticipants(subject.id) : undefined,
+      factId: proofFactIdForTarget(target),
+      factType: proofFactTypeForTarget(target),
+      factLabel: target.label || target.targetType,
+      relation: draft.composerRelation
+    });
+  } catch (error) {
+    showJourneyError("association", error.message);
+    journeyFocusError("association");
+    return false;
+  }
+  const key = justificationAssociationKey(association);
+  if (draft.associations.some(item => item.key === key)) {
+    showJourneyError("association", "Cette information existe déjà pour ce document.");
+    journeyFocusError("association");
+    return false;
+  }
+  draft.associations.push({ ...association, key, existing: false });
+  draft.composerFactId = "";
+  renderJourneyAssociationList();
+  renderJourneyAssociationFactOptions();
+  toast("Information ajoutée. Elle sera enregistrée avec l’attestation.", "info");
+  return true;
+}
+
+/** « Consulter » : l'état du formulaire est mis en attente, la visionneuse
+    s'ouvre, puis le formulaire est reconstruit et rechargé au retour. */
+function consultJourneyAttestationDocument(documentId) {
+  const documentItem = documents.find(value => value.id === documentId);
+  if (!documentItem) return toast("Ce document n’est plus disponible.", "error");
+  journeyAttestationReturnDraft = {
+    documentIds: [...journeyAttestationDraft.documentIds],
+    associations: journeyAttestationDraft.associations.map(item => ({ ...item })),
+    removedExisting: journeyAttestationDraft.removedExisting.map(item => ({ ...item })),
+    documentsOpen: journeyAttestationDraft.documentsOpen,
+    documentQuery: journeyAttestationDraft.documentQuery,
+    documentPage: journeyAttestationDraft.documentPage,
+    subjectQuery: journeyAttestationDraft.subjectQuery,
+    composerSubject: journeyAttestationDraft.composerSubject,
+    composerSubjectLabel: journeyAttestationDraft.composerSubjectLabel,
+    composerFactId: journeyAttestationDraft.composerFactId,
+    composerDocumentId: journeyAttestationDraft.composerDocumentId,
+    composerRelation: journeyAttestationDraft.composerRelation
+  };
+  journeyAttestationReturnValues = journeyFormValues();
+  journeyAttestationReturnEditor = journeyEditor ? { ...journeyEditor } : null;
+  journeyEditor = null;
+  journeyEditorBaseline = null;
+  journeyAttestationDraftToken = "";
+  closeJourneyAttestationDialog();
+  openStoredDocument(documentItem, "previous");
+}
+
+/** Rouvre le formulaire d'attestation après un aller-retour par la
+    visionneuse, avec l'état de sélection et le commentaire restaurés. */
+function resumeJourneyAttestationAfterNavigation() {
+  const editor = journeyAttestationReturnEditor;
+  if (!editor) return false;
+  journeyAttestationReturnEditor = null;
+  requestAnimationFrame(() => {
+    if (!personPageInlineEditing && activePersonPageItem) enterPersonPageInlineEdit();
+    if (journeyEditor) return;
+    journeyOpenEditor(editor);
+  });
+  return true;
+}
+
+function openJourneyAttestationDocumentSheet(documentId) {
+  const documentItem = documents.find(value => value.id === documentId);
+  if (!documentItem) return toast("Ce document n’est plus disponible.", "error");
+  const url = navigationUrl(window.location, "documentDetail", documentId);
+  window.open(url, "_blank", "noopener");
+}
+
+function createJourneyAttestationDocument() {
+  const owner = journeyAttestationOwner();
+  const personId = owner?.kind === "person" ? owner.id : (journeyProofCurrentItem()?.id || "");
+  journeyAttestationAwaitingNewDocument = true;
+  openDocument(null, personId, null);
 }
 
 function personPageScrollSnapshot() {
@@ -3131,6 +3528,9 @@ function openPendingRelationAttestation(kind, attestationId = "") {
 }
 
 function closeJourneyAttestationDialog() {
+  /* La fermeture termine la session de sélection : la prochaine ouverture
+     repart d'un état neuf, sauf si un retour de navigation est en attente. */
+  journeyAttestationDraftToken = "";
   const dialog = $("personAttestationDialog");
   if (!dialog.open) return;
   dialog.close();
@@ -3783,18 +4183,50 @@ function handlePersonPageContentClick(event) {
     const [type, entryId, attId] = attestationDelete.dataset.journeyAttestationDelete.split(":");
     return journeyDeleteAttestation(type, entryId, attId);
   }
-  const proofMore = event.target.closest("[data-journey-proof-more]");
-  if (proofMore) {
-    if (proofMore.dataset.journeyProofMore === "target") {
-      journeyProofState.targetPage += 1;
-      renderJourneyProofTargetList();
-    } else {
-      journeyProofState.documentPage += 1;
-      renderJourneyProofDocumentList();
-    }
-    updateJourneyProofRecap();
+  const journeyDocumentsToggle = event.target.closest("[data-journey-documents-toggle]");
+  if (journeyDocumentsToggle) {
+    journeyAttestationDraft.documentsOpen = !journeyAttestationDraft.documentsOpen;
+    const panel = $("journeyDocumentPicker");
+    if (panel) panel.hidden = !journeyAttestationDraft.documentsOpen;
+    renderJourneyDocumentPickerPanel();
+    journeyDocumentsToggle.setAttribute("aria-expanded", String(journeyAttestationDraft.documentsOpen));
+    journeyDocumentsToggle.textContent = journeyAttestationDraft.documentsOpen ? "Masquer la liste" : "Choisir des documents";
     return;
   }
+  const documentsMore = event.target.closest("[data-journey-documents-more]");
+  if (documentsMore) {
+    journeyAttestationDraft.documentPage += 1;
+    renderJourneyDocumentPicker();
+    return;
+  }
+  const documentRemove = event.target.closest("[data-journey-document-remove]");
+  if (documentRemove) {
+    removeJourneyDocumentFromSelection(documentRemove.dataset.journeyDocumentRemove);
+    return;
+  }
+  const documentView = event.target.closest("[data-journey-document-view]");
+  if (documentView) return consultJourneyAttestationDocument(documentView.dataset.journeyDocumentView);
+  const documentSheet = event.target.closest("[data-journey-document-sheet]");
+  if (documentSheet) return openJourneyAttestationDocumentSheet(documentSheet.dataset.journeyDocumentSheet);
+  const documentCreate = event.target.closest("[data-journey-document-create]");
+  if (documentCreate) return createJourneyAttestationDocument();
+  const subjectPick = event.target.closest("[data-journey-subject-pick]");
+  if (subjectPick) {
+    const draft = journeyAttestationDraft;
+    draft.composerSubject = subjectPick.dataset.journeySubjectPick;
+    draft.composerSubjectLabel = journeySubjectLabel(draft.composerSubject);
+    draft.composerFactId = "";
+    clearJourneyErrors();
+    const chosen = $("journeySubjectChosen");
+    if (chosen) chosen.textContent = `Sujet : ${draft.composerSubjectLabel}`;
+    renderJourneySubjectResults();
+    renderJourneyAssociationFactOptions();
+    return;
+  }
+  const associationAdd = event.target.closest("[data-journey-association-add]");
+  if (associationAdd) return addJourneyAssociation();
+  const associationRemove = event.target.closest("[data-journey-association-remove]");
+  if (associationRemove) return removeJourneyAssociation(associationRemove.dataset.journeyAssociationRemove);
   const journeyOpenSource = event.target.closest("[data-journey-open-source]");
   if (journeyOpenSource) return openGenealogyItem("source", journeyOpenSource.dataset.journeyOpenSource, null, null, personPageContext());
   const journeySummary = event.target.closest(".life-entry > summary");
@@ -3841,41 +4273,38 @@ $("personAttestationDialog").addEventListener("cancel", event => {
   event.preventDefault();
   journeyCancelEditor();
 });
-/* Recherche et pagination du « Justificatif précis » : seules les listes sont
-   redessinées pour que la saisie conserve le focus et la sélection. */
+/* Recherche des documents et des sujets : seules les listes sont redessinées
+   pour que la saisie conserve le focus et la sélection. */
 $("personAttestationDialog").addEventListener("input", event => {
-  const targetSearch = event.target.closest("[data-journey-proof-target-search]");
-  if (targetSearch) {
-    journeyProofState.targetQuery = targetSearch.value;
-    journeyProofState.targetPage = 1;
-    renderJourneyProofTargetList();
-    updateJourneyProofRecap();
-    return;
-  }
-  const documentSearch = event.target.closest("[data-journey-proof-document-search]");
+  const documentSearch = event.target.closest("[data-journey-document-search]");
   if (documentSearch) {
-    journeyProofState.documentQuery = documentSearch.value;
-    journeyProofState.documentPage = 1;
-    renderJourneyProofDocumentList();
-    updateJourneyProofRecap();
+    journeyAttestationDraft.documentQuery = documentSearch.value;
+    journeyAttestationDraft.documentPage = 1;
+    renderJourneyDocumentPicker();
     return;
   }
-  const targetCheck = event.target.closest("[data-journey-proof-target]");
-  if (targetCheck) {
-    if (targetCheck.checked) journeyProofState.selectedTargets.add(targetCheck.dataset.journeyProofTarget);
-    else journeyProofState.selectedTargets.delete(targetCheck.dataset.journeyProofTarget);
-    updateJourneyProofRecap();
+  const subjectSearch = event.target.closest("[data-journey-subject-search]");
+  if (subjectSearch) {
+    journeyAttestationDraft.subjectQuery = subjectSearch.value;
+    renderJourneySubjectResults();
     return;
   }
-  const documentCheck = event.target.closest("[data-journey-proof-document]");
-  if (documentCheck) {
-    if (documentCheck.checked) journeyProofState.selectedDocuments.add(documentCheck.dataset.journeyProofDocument);
-    else journeyProofState.selectedDocuments.delete(documentCheck.dataset.journeyProofDocument);
-    updateJourneyProofRecap();
-  }
+  const documentPick = event.target.closest("[data-journey-document-pick]");
+  if (documentPick) toggleJourneyDocumentSelection(documentPick.dataset.journeyDocumentPick, documentPick.checked);
 });
 $("personAttestationDialog").addEventListener("change", event => {
-  if (event.target.closest("[data-journey-proof-relation]")) updateJourneyProofRecap();
+  const factSelect = event.target.closest("[data-journey-association-fact]");
+  if (factSelect) {
+    journeyAttestationDraft.composerFactId = factSelect.value;
+    return;
+  }
+  const relationSelect = event.target.closest("[data-journey-association-relation]");
+  if (relationSelect) {
+    journeyAttestationDraft.composerRelation = relationSelect.value;
+    return;
+  }
+  const documentSelect = event.target.closest("[data-journey-association-document]");
+  if (documentSelect) journeyAttestationDraft.composerDocumentId = documentSelect.value;
 });
 $("closePersonAttestationDialogBtn").addEventListener("click", journeyCancelEditor);
 $("personJourneyEntryDialog").addEventListener("click", event => {
@@ -13891,6 +14320,9 @@ function restoreDocumentPageOrigin(target) {
       else $("genealogySearch")?.focus({ preventScroll: true });
     });
   }
+  /* Retour d'un aller-retour « Consulter » : le formulaire d'attestation est
+     reconstruit avec son état de sélection et son commentaire restaurés. */
+  requestAnimationFrame(() => resumeJourneyAttestationAfterNavigation());
 }
 
 /** Onglets Original / Informations supprimés (lot G) : les deux panneaux
@@ -14043,7 +14475,12 @@ async function saveDocument(event) {
     if (id) await updateDoc(target, data);
     else await setDoc(target, { ...data, createdAt: serverTimestamp() });
     if ((file || removeExistingFile) && existing?.chunkVersion) await deleteFileChunks(existing);
+    /* Document créé depuis le formulaire d'attestation : il rejoint
+       immédiatement la sélection, sans relance de l'utilisateur. */
+    const awaitedByJourney = journeyAttestationAwaitingNewDocument;
+    journeyAttestationAwaitingNewDocument = false;
     close("documentDialog");
+    if (awaitedByJourney) toggleJourneyDocumentSelection(target.id, true);
     toast(`${id ? "Document mis à jour" : "Document ajouté"}${optimizationSummary ? ` · ${optimizationSummary}` : ""}`);
   } catch (error) {
     console.error(error);
@@ -15099,8 +15536,8 @@ $("personForm").addEventListener("submit", async event => {
   }
 });
 
-function readJourneyDateRaw() {
-  const container = document.querySelector("[data-journey-date]");
+function readJourneyDateRaw(scope = document) {
+  const container = (scope && typeof scope.querySelector === "function" ? scope : document).querySelector("[data-journey-date]");
   if (!container) return { type: "exact", value: "", year: "", from: "", to: "" };
   const type = container.querySelector(".date-type-button.active")?.dataset.journeyDateType || "exact";
   const value = { type };
@@ -15127,14 +15564,25 @@ function journeyFormValues() {
   values.placeInfo = journeyLocationControl?.getValue().placeInfo || null;
   values.date = readJourneyDateRaw();
   values.pendingEntryAttestations = journeyPendingEntryAttestations.map(attestation => ({ ...attestation }));
-  values.documents = [...document.querySelectorAll("[data-journey-document-check]:checked")].map(input => input.dataset.journeyDocumentCheck);
-  values.sources = [...document.querySelectorAll("[data-journey-source-check]:checked")].map(input => input.dataset.journeySourceCheck);
-  values.proofs = [...document.querySelectorAll("[data-journey-proof-check]:checked")].map(input => input.dataset.journeyProofCheck);
-  values.proofTargets = [...journeyProofState.selectedTargets];
-  values.proofDocuments = [...journeyProofState.selectedDocuments];
-  values.proofRelation = document.querySelector("[data-journey-proof-relation]")?.value || "";
-  values.proofTargetQuery = journeyProofState.targetQuery;
-  values.proofDocumentQuery = journeyProofState.documentQuery;
+  /* État de sélection du formulaire d'attestation : capturé uniquement quand
+     l'éditeur courant est bien une attestation, pour ne jamais le propager
+     dans un formulaire d'élément du Parcours. */
+  if (journeyEditor?.type === "attestation") {
+    const draft = journeyAttestationDraft;
+    values.attestationDraft = {
+      documentIds: [...draft.documentIds],
+      associations: draft.associations.map(item => ({ ...item })),
+      removedExisting: draft.removedExisting.map(item => ({ ...item })),
+      documentsOpen: draft.documentsOpen,
+      documentQuery: draft.documentQuery,
+      documentPage: draft.documentPage,
+      subjectQuery: draft.subjectQuery,
+      composerSubject: draft.composerSubject,
+      composerFactId: draft.composerFactId,
+      composerDocumentId: draft.composerDocumentId,
+      composerRelation: draft.composerRelation
+    };
+  }
   return values;
 }
 
@@ -15208,23 +15656,28 @@ function restoreJourneyFormValues(values) {
       if (field) field.value = value ?? "";
     }
   }
-  const documentIds = new Set(values.documents || []);
-  const sources = new Set(values.sources || []);
-  const proofs = new Set(values.proofs || []);
-  document.querySelectorAll("[data-journey-document-check]").forEach(input => { input.checked = documentIds.has(input.dataset.journeyDocumentCheck); });
-  document.querySelectorAll("[data-journey-source-check]").forEach(input => { input.checked = sources.has(input.dataset.journeySourceCheck); });
-  document.querySelectorAll("[data-journey-proof-check]").forEach(input => { input.checked = proofs.has(input.dataset.journeyProofCheck); });
-  if (Object.hasOwn(values, "proofTargets")) journeyProofState.selectedTargets = new Set(values.proofTargets || []);
-  if (Object.hasOwn(values, "proofDocuments")) journeyProofState.selectedDocuments = new Set(values.proofDocuments || []);
-  if (Object.hasOwn(values, "proofTargetQuery")) journeyProofState.targetQuery = values.proofTargetQuery || "";
-  if (Object.hasOwn(values, "proofDocumentQuery")) journeyProofState.documentQuery = values.proofDocumentQuery || "";
-  const proofRelation = document.querySelector("[data-journey-proof-relation]");
-  if (proofRelation && Object.hasOwn(values, "proofRelation") && values.proofRelation) proofRelation.value = values.proofRelation;
-  if (document.querySelector("[data-journey-proof-section]")) {
-    renderJourneyProofTargetList();
-    renderJourneyProofDocumentList();
+  if (Object.hasOwn(values, "attestationDraft") && journeyEditor?.type === "attestation") {
+    resetJourneyAttestationDraft({
+      ...values.attestationDraft,
+      composerSubjectLabel: journeySubjectLabel(values.attestationDraft.composerSubject)
+    });
+    renderJourneyDocumentSelection();
+    renderJourneyDocumentPickerPanel();
+    renderJourneyAssociationList();
+    renderJourneyAssociationFactOptions();
+    renderJourneyAssociationDocumentOptions();
+    const documentSearch = $("journeyDocumentSearch");
+    if (documentSearch) documentSearch.value = journeyAttestationDraft.documentQuery;
+    const subjectSearch = $("journeyAssociationSubjectSearch");
+    if (subjectSearch) subjectSearch.value = journeyAttestationDraft.subjectQuery;
+    renderJourneySubjectResults();
+    const chosen = $("journeySubjectChosen");
+    if (chosen) {
+      chosen.textContent = journeyAttestationDraft.composerSubject
+        ? `Sujet : ${journeySubjectLabel(journeyAttestationDraft.composerSubject)}`
+        : "Aucun sujet sélectionné.";
+    }
   }
-  updateJourneyProofRecap();
   syncJourneyEventLabelRequirement();
   syncJourneyEventVisibilityButtons();
   }
@@ -15427,10 +15880,15 @@ function journeyOpenEditor(next) {
   journeyPendingEntryAttestationParent = null;
   journeyEditor = next;
   journeyEditorBaseline = null;
-  if (opensAttestationModal) resetJourneyProofState();
+  journeyAttestationDraftToken = "";
   if (next.entryId && !isMajorEventAttestationKind(next.entryKind)) journeyExpanded.add(next.entryId);
   renderJourneyEditorSurface(next.entryKind || next.type);
-  if (opensAttestationModal) openJourneyAttestationDialog(returnFocus, scrollSnapshot);
+  if (opensAttestationModal) {
+    openJourneyAttestationDialog(returnFocus, scrollSnapshot);
+    const returnValues = journeyAttestationReturnValues;
+    journeyAttestationReturnValues = null;
+    if (returnValues) restoreJourneyFormValues(returnValues);
+  }
   else if (["residence", "profession", "event"].includes(next.type)) journeyScrollEntryFormIntoView();
 }
 
@@ -15522,6 +15980,10 @@ function journeyFocusError(key) {
     document.querySelector("[data-journey-panel]:not([hidden]) input")?.focus();
     return;
   }
+  if (key === "association") {
+    document.getElementById("journeyAssociationSubjectSearch")?.focus();
+    return;
+  }
   const id = key === "kind" ? "journeyEventKind" : key === "label" ? "journeyLabel" : "journeyPlace";
   document.getElementById(id)?.focus();
 }
@@ -15595,51 +16057,68 @@ async function journeySaveEntry() {
   syncJourneyEntryDialog();
 }
 
-/* §8 R2.2 : création groupée des Preuves précises. Une Preuve par couple
-   (fait, document) ; une paire déjà portée n'est pas recréée ; un échec
-   n'interrompt pas les créations suivantes et n'efface aucune donnée. */
-async function journeyCreatePreciseProofs(item) {
-  const summary = { created: 0, existing: 0, failed: 0, blocked: false };
-  const targetIds = [...journeyProofState.selectedTargets];
-  const documentIds = [...journeyProofState.selectedDocuments];
-  if (!targetIds.length || !documentIds.length) return summary;
+/* Associations explicites : chaque information devient au plus une Preuve.
+   Les associations déjà enregistrées restent intactes, un retrait confirmé
+   est appliqué à l'enregistrement, et un échec n'interrompt jamais la suite. */
+async function journeyPersistAttestationAssociations() {
+  const draft = journeyAttestationDraft;
+  const summary = { created: 0, removed: 0, existing: 0, failed: 0, blocked: false };
+  const removals = [...draft.removedExisting];
+  const creations = draft.associations.filter(item => !item.existing && !removals.some(other => other.key === item.key));
+  if (!removals.length && !creations.length) return summary;
   if (!isAdminUser()) {
     summary.blocked = true;
     return summary;
   }
-  const relation = document.querySelector("[data-journey-proof-relation]")?.value || "supports";
-  const targets = journeyProofOwnerTargets(item).filter(target => targetIds.includes(target.id));
-  if (!targets.length) return summary;
-  let plan;
-  try {
-    plan = planProofCreation({
-      targets: targets,
-      documentIds: documentIds,
-      relation: relation,
-      participantsByOwner: journeyProofParticipantsByOwner(item)
-    });
-  } catch (error) {
-    summary.failed = targets.length * documentIds.length;
-    toast(error.message || "Planification du justificatif précis impossible.", "error");
+  const actorUid = auth.currentUser?.uid || null;
+  if (!actorUid) {
+    summary.blocked = true;
     return summary;
   }
-  const split = partitionProofPlans({
-    plans: plan.plans,
-    existingProofs: genealogyRecords.genealogyProofs.map(record => genealogyRecordData(record))
-  });
-  summary.existing = split.existing.length;
-  const actorUid = auth.currentUser?.uid || null;
-  for (const itemPlan of split.pending) {
+
+  const removedProofIds = new Set();
+  for (const removal of removals) {
+    if (!removal.proofId) continue;
+    try {
+      await genealogyStore.deleteOfficial({ type: "proof", id: removal.proofId, actorUid });
+      removedProofIds.add(removal.proofId);
+      summary.removed += 1;
+    } catch (error) {
+      summary.failed += 1;
+      console.error("Retrait de l’association impossible", error);
+    }
+  }
+  if (removedProofIds.size) {
+    draft.removedExisting = draft.removedExisting.filter(item => !removedProofIds.has(item.proofId));
+  }
+
+  let plan;
+  try {
+    plan = planAssociationProofs({
+      associations: creations,
+      existingProofs: genealogyRecords.genealogyProofs
+        .filter(record => !removedProofIds.has(record.id))
+        .map(record => genealogyRecordData(record))
+    });
+  } catch (error) {
+    summary.failed += creations.length;
+    toast(error.message || "Planification des informations impossible.", "error");
+    return summary;
+  }
+  summary.existing = plan.summary.existing;
+  summary.failed += plan.summary.invalid;
+
+  for (const entry of plan.plans) {
     try {
       const proof = createGenealogyProof({
         id: createGenealogyId(refs.genealogyProofs),
-        factId: itemPlan.factId,
-        factType: itemPlan.factType,
-        personIds: itemPlan.personIds,
-        familyId: itemPlan.familyId,
-        relationshipId: itemPlan.relationshipId,
-        documentId: itemPlan.documentId,
-        relation: itemPlan.relation,
+        factId: entry.factId,
+        factType: entry.factType,
+        personIds: entry.personIds,
+        familyId: entry.familyId,
+        relationshipId: entry.relationshipId,
+        documentId: entry.documentId,
+        relation: entry.relation,
         sourceValue: null,
         citationIt: null,
         citationFr: null,
@@ -15653,12 +16132,12 @@ async function journeyCreatePreciseProofs(item) {
       const eventId = createGenealogyId(refs.genealogyEvents);
       await genealogyStore.createOfficial({
         type: "proof", id: proof.id, revisionId, eventId, data: proof,
-        reason: "Création officielle : justificatif précis", actorUid
+        reason: "Création officielle : information justifiée", actorUid
       });
       summary.created += 1;
     } catch (error) {
       summary.failed += 1;
-      console.error("Création du justificatif précis impossible", error);
+      console.error("Enregistrement de l’information impossible", error);
     }
   }
   return summary;
@@ -15673,52 +16152,64 @@ async function journeySaveAttestation() {
   const majorTarget = isMajorEventAttestationKind(entryKind) ? majorEventAttestationTarget(entryKind, entryId) : null;
   if (!item) return;
   if (isMajorEventAttestationKind(entryKind) && !majorTarget && !journeyEditor.pendingRelation) return;
-  const dateResult = buildLifeDate(readJourneyDateRaw());
-  if (!dateResult.ok || !dateResult.date) {
-    showJourneyError("attDate", "Choisissez la date de l'attestation, ou indiquez qu’elle est inconnue.");
+  /* La date n'est plus exigée : elle est portée par le document justificatif.
+     Le contrôle peut même être absent du formulaire. Seule une saisie
+     réellement invalide est refusée ; aucune date n'est jamais fabriquée.
+     La lecture est bornée à la modale d'attestation pour ne jamais confondre
+     avec le sélecteur de date d'un autre formulaire encore monté. */
+  const attestationScope = $("personAttestationDialog") || document;
+  const dateControlPresent = Boolean(attestationScope.querySelector("[data-journey-date]"));
+  const dateResult = buildLifeDate(readJourneyDateRaw(attestationScope));
+  if (!dateResult.ok && dateControlPresent) {
+    showJourneyError("attDate", dateResult.error);
     journeyFocusError("date");
     return;
   }
+  /* Sans date saisie, la date d'une attestation historique est conservée quand
+     le contrôle n'est pas affiché ; sinon l'absence de date reste une absence. */
+  const resolveAttestationDate = previous => {
+    if (dateResult.date !== null) return dateResult.date;
+    if (dateControlPresent) return null;
+    return previous?.date ?? null;
+  };
   const comment = (document.getElementById("journeyAttComment")?.value || "").trim();
-  const selectedSourceIds = [...document.querySelectorAll("[data-journey-source-check]:checked")].map(input => input.dataset.journeySourceCheck);
-  const selectedProofIds = [...document.querySelectorAll("[data-journey-proof-check]:checked")].map(input => input.dataset.journeyProofCheck);
-  const selectedDocumentIds = [...document.querySelectorAll("[data-journey-document-check]:checked")].map(input => input.dataset.journeyDocumentCheck);
+  /* Les Documents sont pilotés par l'état de sélection ; les Sources et les
+     Preuves ne sont plus éditables ici : leurs références historiques sont
+     conservées telles quelles. */
+  const selectedDocumentIds = [...journeyAttestationDraft.documentIds];
+  const availableDocumentIds = new Set(documents.filter(record => (record.personIds || []).includes(item.id)).map(record => record.id));
+  const documentRefsFrom = previousIds => mergeAttestationReferences({
+    previousIds,
+    selectedIds: selectedDocumentIds,
+    availableIds: [...availableDocumentIds],
+    removedIds: []
+  });
   if (journeyEditor.pendingRelation) {
     const context = pendingRelationAttestationContext;
     if (!context || !pendingRelationAttestations[context.kind]) return;
     const current = pendingRelationAttestations[context.kind];
     const existing = current.find(value => value.id === context.attestationId) || null;
-    const candidate = { id: existing?.id || doc(refs.people).id, date: dateResult.date };
+    const attestationDate = resolveAttestationDate(existing);
+    const candidate = { id: existing?.id || doc(refs.people).id, date: attestationDate };
     if (hasSimilarLifeAttestation(current, candidate)
       && !window.confirm("Attestation potentiellement identique : une attestation à cette date existe déjà. Enregistrer quand même ?")) return;
-    const availableDocumentIds = new Set(documents.filter(record => (record.personIds || []).includes(item.id)).map(record => record.id));
-    const availableSourceIds = new Set(genealogyRecords.sourceDocuments.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id)).map(record => record.id));
-    const availableProofIds = new Set(genealogyRecords.genealogyProofs.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id)).map(record => record.id));
     /* Références conservées : une référence non disponible dans ce contexte est
        gardée et signalée, jamais retirée silencieusement. */
-    const mergeRefs = (previous, selected, available) => mergeAttestationReferences({
-      previousIds: previous,
-      selectedIds: selected.filter(id => available.has(id)),
-      availableIds: [...available],
-      removedIds: []
-    });
-    const documentRefs = mergeRefs(existing?.documentIds || [], selectedDocumentIds, availableDocumentIds);
-    const sourceRefs = mergeRefs(existing?.sourceIds || [], selectedSourceIds, availableSourceIds);
-    const proofRefs = mergeRefs(existing?.proofIds || [], selectedProofIds, availableProofIds);
-    const preservedCount = documentRefs.preservedUnavailable.length
-      + sourceRefs.preservedUnavailable.length + proofRefs.preservedUnavailable.length;
+    const documentRefs = documentRefsFrom(existing?.documentIds || []);
+    const preservedCount = documentRefs.preservedUnavailable.length;
     const next = {
       id: candidate.id,
-      date: dateResult.date,
+      date: attestationDate,
       comment,
       documentIds: documentRefs.ids,
-      sourceIds: sourceRefs.ids,
-      proofIds: proofRefs.ids
+      sourceIds: [...(existing?.sourceIds || [])],
+      proofIds: [...(existing?.proofIds || [])]
     };
     pendingRelationAttestations[context.kind] = existing
       ? current.map(value => value.id === existing.id ? next : value)
       : [...current, next];
     const kind = context.kind;
+    await journeyPersistAttestationAssociations();
     journeyEditor = null;
     journeyEditorBaseline = null;
     pendingRelationAttestationContext = null;
@@ -15732,20 +16223,18 @@ async function journeySaveAttestation() {
   if (journeyEditor.pendingEntry) {
     const parent = journeyPendingEntryAttestationParent;
     if (!parent) return;
-    const candidate = { id: doc(refs.people).id, date: dateResult.date };
+    const candidate = { id: doc(refs.people).id, date: resolveAttestationDate(null) };
     if (hasSimilarLifeAttestation(journeyPendingEntryAttestations, candidate)
       && !window.confirm("Attestation potentiellement identique : une attestation à cette date existe déjà. Enregistrer quand même ?")) return;
-    const availableDocumentIds = new Set(documents.filter(documentItem => (documentItem.personIds || []).includes(item.id)).map(documentItem => documentItem.id));
-    const availableSourceIds = new Set(genealogyRecords.sourceDocuments.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id)).map(record => record.id));
-    const availableProofIds = new Set(genealogyRecords.genealogyProofs.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id)).map(record => record.id));
     journeyPendingEntryAttestations = [...journeyPendingEntryAttestations, {
       id: candidate.id,
-      date: dateResult.date,
+      date: candidate.date,
       comment,
-      documentIds: [...new Set(selectedDocumentIds.filter(id => availableDocumentIds.has(id)))],
-      sourceIds: [...new Set(selectedSourceIds.filter(id => availableSourceIds.has(id)))],
-      proofIds: [...new Set(selectedProofIds.filter(id => availableProofIds.has(id)))]
+      documentIds: documentRefsFrom([]).ids,
+      sourceIds: [],
+      proofIds: []
     }];
+    await journeyPersistAttestationAssociations();
     journeyPendingEntryAttestationParent = null;
     journeyEditor = parent.editor;
     journeyEditorBaseline = parent.baseline;
@@ -15763,23 +16252,19 @@ async function journeySaveAttestation() {
     ? lifeAttestations({ attestations: majorTarget.container[field] })
     : lifeAttestations(entry);
   const attId = journeyEditor.mode === "add" ? doc(refs.people).id : journeyEditor.attId;
-  const candidate = { id: attId, date: dateResult.date };
-  if (hasSimilarLifeAttestation(attestations, candidate) && !window.confirm("Attestation potentiellement identique : une attestation à cette date existe déjà. Enregistrer quand même ?")) return;
   const previousAttestation = attestations.find(value => value.id === attId);
-  const availableDocumentIds = new Set(documents.filter(documentItem => (documentItem.personIds || []).includes(item.id)).map(documentItem => documentItem.id));
-  const availableSourceIds = new Set(genealogyRecords.sourceDocuments.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id)).map(record => record.id));
-  const availableProofIds = new Set(genealogyRecords.genealogyProofs.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id)).map(record => record.id));
-  const unavailableExistingDocumentIds = (previousAttestation?.documentIds || []).filter(id => !availableDocumentIds.has(id));
-  /* Les trois types de référence suivent la même règle : indisponibilité
-     contextuelle n'est pas suppression. */
-  const unavailableExistingSourceIds = (previousAttestation?.sourceIds || []).filter(id => !availableSourceIds.has(id));
-  const unavailableExistingProofIds = (previousAttestation?.proofIds || []).filter(id => !availableProofIds.has(id));
-  const documentIds = [...new Set([...unavailableExistingDocumentIds, ...selectedDocumentIds])];
-  const sourceIds = [...new Set([...unavailableExistingSourceIds, ...selectedSourceIds])];
-  const proofIds = [...new Set([...unavailableExistingProofIds, ...selectedProofIds])];
-  const preservedReferenceCount = unavailableExistingDocumentIds.length
-    + unavailableExistingSourceIds.length + unavailableExistingProofIds.length;
-  const record = { id: attId, date: dateResult.date, comment, documentIds, sourceIds, proofIds };
+  const attestationDate = resolveAttestationDate(previousAttestation);
+  const candidate = { id: attId, date: attestationDate };
+  if (hasSimilarLifeAttestation(attestations, candidate) && !window.confirm("Attestation potentiellement identique : une attestation à cette date existe déjà. Enregistrer quand même ?")) return;
+  /* DocumentIds : la sélection de l'utilisateur fait foi, une référence hors
+     du contexte courant est conservée. Sources et Preuves : lecture seule,
+     leurs références historiques ne sont jamais réécrites. */
+  const documentRefs = documentRefsFrom(previousAttestation?.documentIds || []);
+  const documentIds = documentRefs.ids;
+  const sourceIds = [...(previousAttestation?.sourceIds || [])];
+  const proofIds = [...(previousAttestation?.proofIds || [])];
+  const preservedReferenceCount = documentRefs.preservedUnavailable.length;
+  const record = { id: attId, date: attestationDate, comment, documentIds, sourceIds, proofIds };
   const nextAttestations = journeyEditor.mode === "add"
     ? [...attestations, record]
     : attestations.map(value => value.id === attId ? record : value);
@@ -15790,15 +16275,17 @@ async function journeySaveAttestation() {
     ? await lifeEventWriteAttestations(majorTarget, next)
     : await journeyWriteSnapshot(item.id, field, next);
   if (!saved) return;
-  const proofSummary = await journeyCreatePreciseProofs(item);
+  const proofSummary = await journeyPersistAttestationAssociations();
   const savedLabel = journeyEditor.mode === "add" ? "Attestation enregistrée." : "Attestation modifiée.";
   const parts = [savedLabel];
   if (preservedReferenceCount) {
     parts.push(`${preservedReferenceCount} référence${preservedReferenceCount > 1 ? "s" : ""} non disponible${preservedReferenceCount > 1 ? "s" : ""} dans ce contexte conservée${preservedReferenceCount > 1 ? "s" : ""}.`);
   }
-  if (proofSummary.created) parts.push(`${proofSummary.created} justificatif${proofSummary.created > 1 ? "s" : ""} précis créé${proofSummary.created > 1 ? "s" : ""}.`);
-  if (proofSummary.existing) parts.push(`${proofSummary.existing} déjà présent${proofSummary.existing > 1 ? "s" : ""}.`);
-  if (proofSummary.failed) parts.push(`${proofSummary.failed} échec${proofSummary.failed > 1 ? "s" : ""} à la création.`);
+  if (proofSummary.created) parts.push(`${proofSummary.created} information${proofSummary.created > 1 ? "s" : ""} enregistrée${proofSummary.created > 1 ? "s" : ""}.`);
+  if (proofSummary.removed) parts.push(`${proofSummary.removed} information${proofSummary.removed > 1 ? "s" : ""} retirée${proofSummary.removed > 1 ? "s" : ""}.`);
+  if (proofSummary.existing) parts.push(`${proofSummary.existing} déjà présente${proofSummary.existing > 1 ? "s" : ""}.`);
+  if (proofSummary.failed) parts.push(`${proofSummary.failed} échec${proofSummary.failed > 1 ? "s" : ""}.`);
+  if (proofSummary.blocked) parts.push("Informations non enregistrées : action réservée aux administrateurs.");
   toast(parts.join(" "));
   journeyEditor = null;
   journeyEditorBaseline = null;
@@ -17084,6 +17571,8 @@ $("restoreCurrentDocumentFileBtn").onclick = () => {
 };
 $("deleteDocumentBtn").onclick = () => runSafely(removeDocument, "Suppression du document impossible");
 $("documentDialog").addEventListener("close", () => {
+  /* Annulation du parcours « Ajouter un document » : aucune sélection modifiée. */
+  journeyAttestationAwaitingNewDocument = false;
   if (reopenUnifiedDocumentAfter("documentDialog")) return;
   const context = documentReturnContext;
   documentReturnContext = null;

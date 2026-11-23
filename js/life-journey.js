@@ -124,9 +124,15 @@ export function validateLifeEvent(input = {}, { allowLegacyKind = false, require
   return { ok: Object.keys(errors).length === 0, errors };
 }
 
+/* La date de l'attestation n'est plus exigée : la date historique est portée
+   par le document justificatif. Une date conservée sur une attestation
+   historique reste acceptée telle quelle ; seule une date illisible est
+   signalée, sans jamais être réécrite ni migrée. */
 export function validateLifeAttestation(input = {}) {
   const errors = {};
-  if (!input.date) errors.date = "Indiquez la date de l'attestation ou sélectionnez « Inconnue ».";
+  if (input.date != null && (typeof input.date !== "object" || Array.isArray(input.date))) {
+    errors.date = "Date d’attestation illisible : corrigez-la ou retirez-la.";
+  }
   return { ok: Object.keys(errors).length === 0, errors };
 }
 

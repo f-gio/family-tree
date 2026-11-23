@@ -444,7 +444,8 @@ test("union et parcours détaillé : même rangée de boutons ; attestations inc
     assert.deepEqual(journey.labels, ["Date précise", "Année", "Vers", "Entre", "Inconnue"], "résidence : libellés visibles");
     assert.equal(journey.hasSelect, false, "résidence : aucun sélecteur natif");
 
-    // Attestation : sélecteur inchangé
+    // Attestation : la date a quitté le formulaire au profit du document
+    // justificatif ; le sélecteur du formulaire détaillé reste inchangé.
     await page.locator("#personJourneyEntryDialog [data-journey-cancel]").click();
     await page.waitForFunction(() => !document.getElementById("personJourneyEntryDialog").open);
     await page.locator("#personPageDetailedJourney [data-journey-attestation-add]").first().click();
@@ -452,14 +453,17 @@ test("union et parcours détaillé : même rangée de boutons ; attestations inc
     await page.waitForSelector("[data-journey-attestation-save]");
     const attestation = await page.evaluate(() => {
       const form = document.querySelector("#personAttestationDialog [data-journey-form]");
-      const container = form?.querySelector("[data-journey-date]");
-      if (!container) return null;
-      return { hasSelect: Boolean(container.querySelector(".date-type-select")), switchDisplay: getComputedStyle(container.querySelector(".date-type-switch")).display, buttons: container.querySelectorAll("[data-journey-date-type]").length };
+      if (!form) return null;
+      return {
+        hasDate: Boolean(form.querySelector("[data-journey-date]")),
+        sections: [...form.querySelectorAll(".attestation-form-section > h4")].map(title => title.textContent.trim()),
+        hasSave: Boolean(document.querySelector("#personAttestationDialog [data-journey-attestation-save]"))
+      };
     });
     assert.ok(attestation, "formulaire d'attestation ouvert");
-    assert.equal(attestation.hasSelect, false, "attestation : aucun sélecteur natif ajouté");
-    assert.notEqual(attestation.switchDisplay, "none", "attestation : boutons conservés visibles");
-    assert.equal(attestation.buttons, 5, "attestation : ses options inchangées");
+    assert.equal(attestation.hasDate, false, "attestation : aucun sélecteur de date");
+    assert.deepEqual(attestation.sections, ["Documents justificatifs", "Informations concernées", "Commentaire"], "attestation : rubriques du nouveau formulaire");
+    assert.equal(attestation.hasSave, true, "attestation : action d’enregistrement conservée");
 
     assert.deepEqual(session.errors, [], `aucune erreur JS : ${session.errors.join(" || ")}`);
   } finally {
@@ -621,7 +625,6 @@ test("Safari WebKit mobile : modale familiale à la hauteur Personne et options 
       assert.equal(builder.ctaBelowDate, true, `Safari ${kind} : CTA sous le champ Date`);
       await page.locator(`${kind === "parent" ? "#parentUnionSections" : "#partnerUnionSections"} [data-pending-relation-attestation-add]`).click();
       await page.waitForSelector("#personAttestationDialog[open]", { timeout: 5000 });
-      await page.locator('#personAttestationDialog [data-journey-date-type="unknown"]').click();
       await page.fill("#journeyAttComment", `Préparée ${kind}`);
       await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
       await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });
@@ -664,7 +667,6 @@ test("formulaires de création : sept précisions sur une ligne et CTA d'attesta
         await page.locator(`${root} [data-pending-relation-attestation-add]`).click();
         await page.waitForSelector("#personAttestationDialog[open]", { timeout: 5000 });
         assert.equal(await page.locator("#personAttestationDialog").evaluate(d => d.open), true, `${width}px ${kind} : modale d'attestation ouverte`);
-        await page.locator('#personAttestationDialog [data-journey-date-type="unknown"]').click();
         await page.fill("#journeyAttComment", `Préparée ${kind}`);
         await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
         await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });

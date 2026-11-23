@@ -362,11 +362,9 @@ test("lot 3 : deux parents avec union renseignée s'enregistrent une fois, sans 
 
       await page.locator('#parentUnionAttestationControl [data-pending-relation-attestation-add]').click();
       await page.waitForSelector("#personAttestationDialog[open]");
-      await page.locator('#personAttestationDialog [data-journey-date-type="unknown"]').click();
       await page.fill("#journeyAttComment", "Acte familial préparé");
-      await page.locator('[data-journey-document-check="builder-doc"]').check();
-      await page.locator('[data-journey-source-check="builder-source"]').check();
-      await page.locator('[data-journey-proof-check="builder-proof"]').check();
+      await page.locator("#personAttestationDialog [data-journey-documents-toggle]").click();
+      await page.locator('[data-journey-document-pick="builder-doc"]').check();
       await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
       await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);
       let pending = (await page.evaluate(() => window.__parentBuilderTest.state())).pendingParentAttestations;
@@ -374,8 +372,6 @@ test("lot 3 : deux parents avec union renseignée s'enregistrent une fois, sans 
 
       await page.locator('#parentUnionAttestationControl [data-pending-relation-attestation-add]').click();
       await page.waitForSelector("#personAttestationDialog[open]");
-      await page.locator('#personAttestationDialog [data-journey-date-type="year"]').click();
-      await page.fill("#journeyDateYear", "1925");
       await page.fill("#journeyAttComment", "Attestation à retirer");
       await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
       await page.waitForFunction(() => window.__parentBuilderTest.state().pendingParentAttestations.length === 2);
@@ -405,8 +401,8 @@ test("lot 3 : deux parents avec union renseignée s'enregistrent une fois, sans 
       assert.equal(unionWrite.marriageAttestations.length, 1, "une attestation préparée associée au foyer créé");
       assert.equal(unionWrite.marriageAttestations[0].comment, "Acte familial corrigé", "modification préparée conservée");
       assert.deepEqual(unionWrite.marriageAttestations[0].documentIds, ["builder-doc"]);
-      assert.deepEqual(unionWrite.marriageAttestations[0].sourceIds, ["builder-source"]);
-      assert.deepEqual(unionWrite.marriageAttestations[0].proofIds, ["builder-proof"]);
+      assert.deepEqual(unionWrite.marriageAttestations[0].sourceIds, [], "aucune sélection de source dans le nouveau formulaire");
+      assert.deepEqual(unionWrite.marriageAttestations[0].proofIds, [], "aucune pré-sélection de preuve dans le nouveau formulaire");
       assert.equal(unionWrite.unionPlace, "", "lieu vide conservé à sa valeur neutre");
       assert.deepEqual(unionWrite.endDateInfo, { type: "unknown" }, "date de fin non renseignée reste inconnue");
       assert.deepEqual(unionWrite.parentChildLinks.map(link => link.type), ["unknown", "unknown"], "les filiations sélectionnées sont conservées à la création");
@@ -474,7 +470,6 @@ test("lot 3 : un parent seul s'ajoute sans aucune écriture d'union", async t =>
       await page.selectOption("#parent2Select", "builder-p2");
       await page.locator('#parentUnionAttestationControl [data-pending-relation-attestation-add]').click();
       await page.waitForSelector("#personAttestationDialog[open]");
-      await page.locator('#personAttestationDialog [data-journey-date-type="unknown"]').click();
       await page.fill("#journeyAttComment", "Préparée puis annulée");
       await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
       await page.waitForFunction(() => window.__parentBuilderTest.state().pendingParentAttestations.length === 1);
@@ -543,18 +538,16 @@ test("correction finale : création d'un partenaire enregistre union, fin et att
 
       await page.locator('#partnerUnionAttestationControl [data-pending-relation-attestation-add]').click();
       await page.waitForSelector("#personAttestationDialog[open]");
-      await page.locator('#personAttestationDialog [data-journey-date-type="unknown"]').click();
       await page.fill("#journeyAttComment", "Acte d’union préparé");
-      await page.locator('[data-journey-document-check="builder-doc"]').check();
-      await page.locator('[data-journey-source-check="builder-source"]').check();
-      await page.locator('[data-journey-proof-check="builder-proof"]').check();
+      await page.locator("#personAttestationDialog [data-journey-documents-toggle]").click();
+      await page.locator('[data-journey-document-pick="builder-doc"]').check();
       await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
       await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);
       const prepared = await page.evaluate(() => window.__parentBuilderTest.state().pendingPartnerAttestations);
       assert.equal(prepared.length, 1, "attestation gardée en mémoire jusqu'à l'ajout du partenaire");
       assert.deepEqual(prepared[0].documentIds, ["builder-doc"]);
-      assert.deepEqual(prepared[0].sourceIds, ["builder-source"]);
-      assert.deepEqual(prepared[0].proofIds, ["builder-proof"]);
+      assert.deepEqual(prepared[0].sourceIds, [], "aucune sélection de source dans le nouveau formulaire");
+      assert.deepEqual(prepared[0].proofIds, [], "aucune pré-sélection de preuve dans le nouveau formulaire");
 
       const partnerDesktop = await page.evaluate(() => {
         const row = document.querySelector("#partnerUnionSections .relation-union-date-row");
@@ -589,8 +582,8 @@ test("correction finale : création d'un partenaire enregistre union, fin et att
       assert.equal(family.marriageAttestations.length, 1);
       assert.equal(family.marriageAttestations[0].comment, "Acte d’union préparé");
       assert.deepEqual(family.marriageAttestations[0].documentIds, ["builder-doc"]);
-      assert.deepEqual(family.marriageAttestations[0].sourceIds, ["builder-source"]);
-      assert.deepEqual(family.marriageAttestations[0].proofIds, ["builder-proof"]);
+      assert.deepEqual(family.marriageAttestations[0].sourceIds, [], "aucune sélection de source dans le nouveau formulaire");
+      assert.deepEqual(family.marriageAttestations[0].proofIds, [], "aucune pré-sélection de preuve dans le nouveau formulaire");
       assert.deepEqual(errors, [], "aucune erreur JavaScript");
     } finally { await context.close(); }
   } finally {
@@ -618,7 +611,6 @@ test("ajout d'un partenaire à un foyer monoparental conserve les enfants et att
       await page.fill("#partnerUnionYear", "1930");
       await page.locator('#partnerUnionAttestationControl [data-pending-relation-attestation-add]').click();
       await page.waitForSelector("#personAttestationDialog[open]");
-      await page.locator('#personAttestationDialog [data-journey-date-type="unknown"]').click();
       await page.fill("#journeyAttComment", "Seconde attestation");
       await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
       await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);

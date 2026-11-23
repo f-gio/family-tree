@@ -544,121 +544,131 @@ export function proofFactTypeForTarget(target) {
   return target.targetType.trim();
 }
 
-function ownerKey(owner) {
-  return owner.kind + ":" + owner.id;
-}
-
 function proofPlanKey(factId, documentId) {
   return factId + "|" + documentId;
 }
 
 /**
- * Planifie une création de Preuves sans écrire : une Preuve par couple
- * (cible, document), `documentId` restant singulier. `participantsByOwner`
- * fournit les personnes d'un Foyer (clé `family:<id>`) ; sans elles, la cible
- * est reportée dans `unresolved` plutôt que d'inventer un sujet.
+ * Clé d'une association explicite : le couple (fait, document) la désigne de
+ * façon unique. Le sujet est porté par l'association elle-même ; pour un fait
+ * du registre R1 son identifiant encode déjà la Personne ou le Foyer.
  */
-export function planProofCreation({
-  targets = [], documentIds = [], relation = "supports", participantsByOwner = {}
-} = {}) {
-  if (!Array.isArray(targets)) throw new TypeError("targets doit être un tableau");
-  if (!Array.isArray(documentIds)) throw new TypeError("documentIds doit être un tableau");
-  if (!isRecord(participantsByOwner)) throw new TypeError("participantsByOwner doit être un objet");
-  if (!PROOF_RELATIONS.includes(relation)) throw new TypeError("Relation documentaire non reconnue");
+export function justificationAssociationKey(association) {
+  if (!isRecord(association)) throw new TypeError("L'association doit être un objet");
+  if (!isValidId(association.factId)) throw new TypeError("L'association doit porter un fait.");
+  if (!isValidId(association.documentId)) throw new TypeError("L'association doit porter un document.");
+  return proofPlanKey(association.factId.trim(), association.documentId.trim());
+}
 
-  const documents = [];
-  for (const value of documentIds) {
-    if (isValidId(value)) {
-      const id = value.trim();
-      if (!documents.includes(id)) documents.push(id);
+/**
+ * Valide une association explicite : document justificatif, sujet (Personne ou
+ * Foyer), fait précis et qualification documentaire — **une qualification par
+ * association**, jamais globale.
+ */
+export function createJustificationAssociation(input = {}) {
+  if (!isRecord(input)) throw new TypeError("L'association doit être un objet");
+  const documentId = isValidId(input.documentId) ? input.documentId.trim() : "";
+  if (!documentId) throw new TypeError("Une association exige un document justificatif.");
+  const factId = isValidId(input.factId) ? input.factId.trim() : "";
+  if (!factId) throw new TypeError("Une association exige un fait précis.");
+  const factType = isValidId(input.factType) ? input.factType.trim() : "";
+  if (!factType) throw new TypeError("Une association exige le type du fait.");
+  if (!PROOF_RELATIONS.includes(input.relation)) {
+    throw new TypeError("Une association exige sa qualification documentaire.");
+  }
+  const subjectKind = input.subjectKind === "person" || input.subjectKind === "family" ? input.subjectKind : null;
+  if (!subjectKind) throw new TypeError("Une association exige un sujet : Personne ou Foyer.");
+  const subjectId = isValidId(input.subjectId) ? input.subjectId.trim() : "";
+  if (!subjectId) throw new TypeError("Une association exige l’identifiant de son sujet.");
+  let personIds;
+  let familyId;
+  if (subjectKind === "person") {
+    personIds = [subjectId];
+    familyId = null;
+  } else {
+    personIds = [...new Set((Array.isArray(input.personIds) ? input.personIds : [])
+      .filter(id => isValidId(id)).map(id => id.trim()))];
+    if (!personIds.length) throw new TypeError("Une association de Foyer exige ses participants.");
+    familyId = subjectId;
+  }
+  const relationshipId = isValidId(input.relationshipId) ? input.relationshipId.trim() : null;
+  if (relationshipId && !familyId) throw new TypeError("Une relation familiale exige un Foyer.");
+  return {
+    documentId: documentId,
+    factId: factId,
+    factType: factType,
+    subjectKind: subjectKind,
+    subjectId: subjectId,
+    personIds: personIds,
+    familyId: familyId,
+    relationshipId: relationshipId,
+    relation: input.relation,
+    factLabel: typeof input.factLabel === "string" && input.factLabel.trim() ? input.factLabel.trim() : factType
+  };
+}
+
+function proofAsRecord(proof) {
+  return isRecord(proof?.data) ? proof.data : (isRecord(proof) ? proof : null);
+}
+
+/**
+ * Planifie la création des Preuves correspondant à des associations
+ * **explicites** : aucune combinaison fait × document n'est produite à la
+ * volée. Chaque association devient au plus une Preuve ; les couples déjà
+ * portés sont préservés et les répétitions internes sont écartées.
+ */
+export function planAssociationProofs({ associations = [], existingProofs = [] } = {}) {
+  if (!Array.isArray(associations)) throw new TypeError("associations doit être un tableau");
+  if (!Array.isArray(existingProofs)) throw new TypeError("existingProofs doit être un tableau");
+
+  const known = new Map();
+  for (const proof of existingProofs) {
+    const data = proofAsRecord(proof);
+    if (data && isValidId(data.factId) && isValidId(data.documentId)) {
+      const key = proofPlanKey(data.factId.trim(), data.documentId.trim());
+      if (!known.has(key)) known.set(key, isValidId(proof?.id) ? proof.id : null);
     }
   }
 
   const plans = [];
-  const unresolved = [];
-  for (const target of targets) {
-    if (!isRecord(target) || !isRecord(target.owner)) continue;
-    let factId;
-    let factType;
-    try {
-      factId = proofFactIdForTarget(target);
-      factType = proofFactTypeForTarget(target);
-    } catch (error) {
-      unresolved.push({ targetId: target?.id ?? null, reason: error.message });
-      continue;
-    }
-    const candidates = target.owner.kind === "person"
-      ? [target.owner.id]
-      : participantsByOwner[ownerKey(target.owner)];
-    const participants = Array.isArray(candidates) ? candidates.filter(id => isValidId(id)).map(id => id.trim()) : [];
-    if (!participants.length) {
-      unresolved.push({ targetId: target.id, reason: "Participants du Foyer absents ; association non planifiée." });
-      continue;
-    }
-    const personIds = [...new Set(participants)];
-    for (const documentId of documents) {
-      plans.push({
-        key: proofPlanKey(factId, documentId),
-        targetId: target.id,
-        targetType: target.targetType,
-        targetLabel: isValidId(target.label) ? target.label : target.targetType,
-        factId: factId,
-        factType: factType,
-        documentId: documentId,
-        personIds: personIds,
-        familyId: target.owner.kind === "family" ? target.owner.id : null,
-        relationshipId: null,
-        relation: relation,
-        sourceValue: null,
-        citationIt: null,
-        citationFr: null,
-        interpretation: ""
-      });
-    }
-  }
-  return {
-    schemaVersion: JUSTIFICATION_COMPAT_SCHEMA_VERSION,
-    relation: relation,
-    plans: plans,
-    unresolved: unresolved,
-    summary: {
-      targets: targets.length,
-      documents: documents.length,
-      plans: plans.length,
-      unresolved: unresolved.length
-    }
-  };
-}
-
-/**
- * Sépare un plan en associations à créer et associations déjà présentes :
- * une paire (fait, document) déjà portée par une Preuve n'est pas recréée.
- * Aucun doublon n'est proposé et aucune Preuve existante n'est modifiée.
- */
-export function partitionProofPlans({ plans = [], existingProofs = [] } = {}) {
-  if (!Array.isArray(plans)) throw new TypeError("plans doit être un tableau");
-  if (!Array.isArray(existingProofs)) throw new TypeError("existingProofs doit être un tableau");
-  const known = new Set();
-  for (const proof of existingProofs) {
-    const data = isRecord(proof?.data) ? proof.data : proof;
-    if (isRecord(data) && isValidId(data.factId) && isValidId(data.documentId)) {
-      known.add(proofPlanKey(data.factId.trim(), data.documentId.trim()));
-    }
-  }
-  const pending = [];
+  const duplicates = [];
   const existing = [];
-  for (const plan of plans) {
-    const key = isRecord(plan) && isValidId(plan.factId) && isValidId(plan.documentId)
-      ? proofPlanKey(plan.factId.trim(), plan.documentId.trim())
-      : null;
-    if (key && known.has(key)) existing.push(plan);
-    else pending.push(plan);
+  const invalid = [];
+  const seen = new Set();
+  for (const entry of associations) {
+    let association;
+    try {
+      association = createJustificationAssociation(entry);
+    } catch (error) {
+      invalid.push({ association: isRecord(entry) ? { ...entry } : null, reason: error.message });
+      continue;
+    }
+    const key = justificationAssociationKey(association);
+    if (seen.has(key)) {
+      duplicates.push({ ...association, key: key });
+      continue;
+    }
+    seen.add(key);
+    if (known.has(key)) {
+      existing.push({ ...association, key: key, proofId: known.get(key) });
+      continue;
+    }
+    plans.push({ ...association, key: key });
   }
+
   return {
     schemaVersion: JUSTIFICATION_COMPAT_SCHEMA_VERSION,
-    pending: pending,
+    plans: plans,
+    duplicates: duplicates,
     existing: existing,
-    summary: { planned: plans.length, pending: pending.length, existing: existing.length }
+    invalid: invalid,
+    summary: {
+      associations: associations.length,
+      plans: plans.length,
+      duplicates: duplicates.length,
+      existing: existing.length,
+      invalid: invalid.length
+    }
   };
 }
 

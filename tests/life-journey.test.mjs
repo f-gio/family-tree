@@ -115,10 +115,26 @@ test("validations des entrées", () => {
   assert.equal(validateLifeEvent({ kind: "", label: "x" }).ok, false);
   assert.match(validateLifeEvent({ kind: "", label: "x" }).errors.kind, /type d'événement/);
   assert.equal(validateLifeEvent({ kind: "census", label: "" }).ok, true, "l’intitulé d’un événement est facultatif");
-  assert.equal(validateLifeAttestation({ date: null }).ok, false);
-  assert.match(validateLifeAttestation({ date: null }).errors.date, /date de l'attestation/);
+  /* Phase A : la date de l'attestation n'est plus exigée, la date historique
+     reste lue telle quelle et aucune date n'est fabriquée. */
+  assert.equal(validateLifeAttestation({}).ok, true, "attestation sans date acceptée");
+  assert.equal(validateLifeAttestation({ date: null }).ok, true, "date absente non exigée");
+  assert.deepEqual(validateLifeAttestation({}).errors, {}, "aucune erreur produite pour une date facultative");
   assert.equal(validateLifeAttestation({ date: { type: "unknown" } }).ok, true, "la date inconnue est une valeur explicite valide");
   assert.equal(validateLifeAttestation({ date: { type: "year", year: 1895 } }).ok, true, "attestation datée d'une année seule");
+  assert.equal(validateLifeAttestation({ date: { type: "exact", value: "1895-04-12" } }).ok, true, "date historique conservée acceptée sans migration");
+  assert.equal(validateLifeAttestation({ date: "1895" }).ok, false, "date illisible signalée");
+  assert.match(validateLifeAttestation({ date: "1895" }).errors.date, /illisible/);
+});
+
+test("attestation sans date : lecture, tri et similarité sans fabrication", () => {
+  const legacy = { id: "hist", date: { type: "year", year: 1892 }, documentIds: ["d1"], sourceIds: ["s1"], proofIds: ["p1"] };
+  const snapshot = JSON.stringify(legacy);
+  assert.equal(formatLifeDate(legacy.date), "1892", "la date historique reste lue");
+  assert.equal(formatLifeDate(null), formatLifeDate({ type: "unknown" }), "une attestation sans date reste affichable comme une date inconnue");
+  assert.equal(lifeDateSortValue(null), null, "aucune date fabriquée pour le tri");
+  assert.equal(hasSimilarLifeAttestation([legacy], { id: "new", date: null }), false, "aucun doublon inventé sans date");
+  assert.equal(JSON.stringify(legacy), snapshot, "la date et les références historiques sont intactes");
 });
 
 test("attestations multiples et similarité", () => {

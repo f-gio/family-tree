@@ -112,7 +112,6 @@ test("ajout d'un second parent depuis Modifier les parents ne rattache aucun aut
       await page.fill("#unionYear", "1925");
       await page.locator('#addParentUnionAttestationControl [data-pending-relation-attestation-add]').click();
       await page.waitForSelector("#personAttestationDialog[open]");
-      await page.locator('#personAttestationDialog [data-journey-date-type="unknown"]').click();
       await page.fill("#journeyAttComment", "Acte ajout seconde parenté");
       await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
       await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);

@@ -14,11 +14,12 @@ import {
   classifyProofTargetCompatibility,
   collectAttestations,
   compareFamilyRelations,
+  createJustificationAssociation,
+  justificationAssociationKey,
   mergeAttestationReferences,
-  partitionProofPlans,
+  planAssociationProofs,
   planFamilyRelationIds,
   planPersonDeletionImpact,
-  planProofCreation,
   proofFactIdForTarget,
   proofFactTypeForTarget,
   reportDocumentSelectionLoss
@@ -93,10 +94,10 @@ test("les attestations persistées des quatre emplacements sont recensées sans 
   assert.equal(JSON.stringify(graph), before, "aucun objet en entrée n'est muté");
 });
 
-test("les attestations incomplètes, sans identifiant d'entrée ou mal typées sont exclues", () => {
+test("les attestations à date illisible, sans identifiant d'entrée ou mal typées sont exclues ou signalées", () => {
   const people = [{
     id: "personne-1",
-    birthAttestations: [{ id: "att-ok", date: { type: "year", year: 1902 } }, { date: { type: "year", year: 1902 } }, { id: "att-sans-date" }],
+    birthAttestations: [{ id: "att-ok", date: { type: "year", year: 1902 } }, { date: { type: "year", year: 1902 } }, { id: "att-date-illisible", date: "1890" }, { id: "att-sans-date" }],
     deathAttestations: "pas-un-tableau",
     residences: [{ place: "Sans identifiant", attestations: [] }, "entrée-invalide"],
     lifeEvents: [{ id: "event-1", kind: "census", attestations: [] }]
@@ -108,12 +109,22 @@ test("les attestations incomplètes, sans identifiant d'entrée ou mal typées s
     "identifiant persistant de l’entrée absent",
     "entrée de Parcours invalide"
   ]);
-  assert.equal(collected.attestations.length, 3, "les trois attestations de naissance restent recensées");
+  assert.equal(collected.attestations.length, 4, "les attestations de naissance restent recensées, date absente ou non");
   assert.ok(collected.attestations.every(item => item.field === "birthAttestations"));
   const audit = auditAttestationCatalog(collected, {});
   assert.ok(audit.issues.some(issue => issue.code === "attestation-id-invalid"));
   assert.ok(audit.issues.some(issue => issue.code === "attestation-incomplete"));
   assert.equal(audit.summary.withIssues, 2);
+  /* Phase A : une attestation sans date n'est plus incomplète et sa date
+     historique n'est jamais réécrite. */
+  const dateless = collected.attestations.find(item => item.attestation.id === "att-sans-date");
+  assert.ok(dateless, "l’attestation sans date reste recensée");
+  assert.equal(dateless.attestation.date, undefined, "aucune date n’est fabriquée");
+  assert.equal(
+    audit.issues.some(issue => issue.message && issue.message.includes("date de l’attestation")),
+    false,
+    "l’absence de date n’est plus une anomalie"
+  );
 });
 
 test("les références d’une attestation distinguent contexte absent, présent et manquant", () => {
@@ -414,62 +425,113 @@ test("la fusion des références d’attestation distingue sélection, retrait e
   assert.throws(() => mergeAttestationReferences({ previousIds: "doc-1" }), /tableau/);
 });
 
-test("le plan de création produit une Preuve par couple cible et document sans inventer de sujet", () => {
+test("une association explicite relie un document, un sujet, un fait et sa propre qualification", () => {
   const graph = fixtureGraph();
   const targets = enumerateJustificationTargets({ people: [graph.people[0]], families: [graph.families[0]] }).targets;
   const birthTarget = targets.find(target => target.factId === buildFactIdentityId("person", "personne-1", "birth.date"));
   assert.ok(birthTarget, "la cible canonique de naissance est publiée");
 
-  const plan = planProofCreation({ targets: [birthTarget], documentIds: ["doc-1", "doc-2", "doc-1"] });
-  assert.equal(plan.summary.documents, 2, "les documents sont dédupliqués");
-  assert.equal(plan.plans.length, 2, "une Preuve par couple cible et document");
-  assert.ok(plan.plans.every(item => typeof item.documentId === "string" && item.documentId.length > 0),
-    "documentId reste une chaîne unique, jamais un tableau");
-  assert.deepEqual(plan.plans.map(item => item.documentId), ["doc-1", "doc-2"]);
-  assert.ok(plan.plans.every(item => item.factId === birthTarget.factId));
-  assert.ok(plan.plans.every(item => item.factType === birthTarget.targetType));
-  assert.ok(plan.plans.every(item => item.personIds.length === 1 && item.personIds[0] === "personne-1"));
-  assert.ok(plan.plans.every(item => item.familyId === null && item.relationshipId === null));
-  assert.throws(() => planProofCreation({ targets: [birthTarget], documentIds: ["doc-1"], relation: "cite" }), /Relation/);
+  const association = createJustificationAssociation({
+    documentId: "doc-1",
+    subjectKind: "person",
+    subjectId: "personne-1",
+    factId: proofFactIdForTarget(birthTarget),
+    factType: proofFactTypeForTarget(birthTarget),
+    factLabel: birthTarget.label,
+    relation: "supports"
+  });
+  assert.equal(association.documentId, "doc-1", "le Document est identifié");
+  assert.equal(association.subjectKind, "person", "la Personne est identifiée");
+  assert.equal(association.subjectId, "personne-1");
+  assert.deepEqual(association.personIds, ["personne-1"]);
+  assert.equal(association.familyId, null);
+  assert.equal(association.factId, birthTarget.factId, "le fait précis vient du registre R1");
+  assert.equal(association.relation, "supports", "la qualification appartient à l’association");
+  assert.equal(justificationAssociationKey(association), `${association.factId}|doc-1`);
+
+  /* La qualification est indépendante d'une association à l'autre. */
+  const contradicts = createJustificationAssociation({ ...association, relation: "contradicts" });
+  assert.equal(contradicts.relation, "contradicts");
+  assert.notEqual(contradicts.relation, association.relation);
 
   const familyTarget = targets.find(target => target.owner && target.owner.kind === "family");
   assert.ok(familyTarget, "la cible de Foyer est publiée");
-  const withoutParticipants = planProofCreation({ targets: [familyTarget], documentIds: ["doc-1"] });
-  assert.equal(withoutParticipants.plans.length, 0, "aucune Preuve de Foyer sans participants");
-  assert.equal(withoutParticipants.unresolved.length, 1);
-  assert.match(withoutParticipants.unresolved[0].reason, /Foyer/);
-
-  const withParticipants = planProofCreation({
-    targets: [familyTarget],
-    documentIds: ["doc-1"],
-    participantsByOwner: { "family:famille-1": ["personne-1", "personne-2"] }
+  const familyAssociation = createJustificationAssociation({
+    documentId: "doc-1",
+    subjectKind: "family",
+    subjectId: "famille-1",
+    personIds: ["personne-1", "personne-2", "personne-1"],
+    factId: proofFactIdForTarget(familyTarget),
+    factType: proofFactTypeForTarget(familyTarget),
+    relation: "mentions"
   });
-  assert.equal(withParticipants.plans.length, 1);
-  assert.deepEqual(withParticipants.plans[0].personIds, ["personne-1", "personne-2"]);
-  assert.equal(withParticipants.plans[0].familyId, "famille-1");
-  assert.equal(withParticipants.plans[0].factId, proofFactIdForTarget(familyTarget));
+  assert.equal(familyAssociation.familyId, "famille-1", "la relation familiale est prise en charge");
+  assert.deepEqual(familyAssociation.personIds, ["personne-1", "personne-2"], "participants dédupliqués");
+
+  assert.throws(() => createJustificationAssociation({ documentId: "doc-1" }), /fait précis/);
+  assert.throws(() => createJustificationAssociation({ factId: "f", factType: "t", subjectKind: "person", subjectId: "p", relation: "supports" }), /document justificatif/);
+  assert.throws(() => createJustificationAssociation({ documentId: "doc-1", factId: "f", factType: "t", subjectKind: "person", subjectId: "p" }), /qualification/);
+  assert.throws(() => createJustificationAssociation({ documentId: "doc-1", factId: "f", factType: "t", subjectKind: "entreprise", subjectId: "p", relation: "supports" }), /sujet/);
+  assert.throws(() => createJustificationAssociation({ documentId: "doc-1", factId: "f", factType: "t", subjectKind: "family", subjectId: "famille-1", relation: "supports" }), /participants/);
+  assert.throws(() => createJustificationAssociation({ documentId: "doc-1", factId: "f", factType: "t", subjectKind: "person", subjectId: "p", relation: "supports", relationshipId: "rel-1" }), /Foyer/);
+  assert.throws(() => createJustificationAssociation(null), /objet/);
 });
 
-test("le partitionnement sépare associations déjà présentes et associations à créer sans modifier les Preuves", () => {
-  const graph = fixtureGraph();
-  const target = enumerateJustificationTargets({ people: [graph.people[0]] }).targets
-    .find(item => item.factId === buildFactIdentityId("person", "personne-1", "birth.date"));
-  const { plans } = planProofCreation({ targets: [target], documentIds: ["doc-1", "doc-2"] });
+test("aucune combinaison fait × document n’est produite : seules les associations explicites sont planifiées", () => {
+  const factA = buildFactIdentityId("person", "personne-1", "birth.date");
+  const factB = buildFactIdentityId("person", "personne-1", "birth.place");
+  /* Deux faits et deux documents sont disponibles, mais une seule association
+     est demandée pour chacun : le plan ne doit jamais exploser en 4. */
+  const associations = [
+    { documentId: "doc-1", subjectKind: "person", subjectId: "personne-1", factId: factA, factType: "person.birth.date", relation: "supports" },
+    { documentId: "doc-2", subjectKind: "person", subjectId: "personne-1", factId: factB, factType: "person.birth.place", relation: "contradicts" }
+  ];
+  const plan = planAssociationProofs({ associations, existingProofs: [] });
+  assert.equal(plan.plans.length, 2, "deux associations explicites, deux Preuves prévues");
+  assert.deepEqual(
+    plan.plans.map(item => [item.factId, item.documentId, item.relation]),
+    [[factA, "doc-1", "supports"], [factB, "doc-2", "contradicts"]],
+    "chaque association garde sa propre qualification"
+  );
+  assert.ok(plan.plans.every(item => typeof item.documentId === "string" && item.documentId.length > 0),
+    "documentId reste une chaîne unique, jamais un tableau");
+  assert.equal(plan.summary.duplicates, 0);
+  assert.equal(plan.summary.existing, 0);
+  assert.equal(plan.summary.invalid, 0);
+});
+
+test("les associations déjà portées, répétées ou invalides sont écartées sans toucher aux Preuves", () => {
+  const factId = buildFactIdentityId("person", "personne-1", "birth.date");
+  const base = { documentId: "doc-1", subjectKind: "person", subjectId: "personne-1", factId, factType: "person.birth.date", relation: "supports" };
   const existing = [proofFixture()];
+  const snapshot = JSON.stringify(existing);
 
-  const split = partitionProofPlans({ plans, existingProofs: existing });
-  assert.equal(split.existing.length, 1, "le couple (fait, document) déjà porté n’est pas recréé");
-  assert.equal(split.existing[0].documentId, "doc-1");
-  assert.equal(split.pending.length, 1);
-  assert.equal(split.pending[0].documentId, "doc-2");
-  assert.equal(existing[0].documentId, "doc-1", "aucune Preuve existante n’est mutée");
+  const plan = planAssociationProofs({
+    associations: [
+      base,
+      { ...base, relation: "contradicts" },
+      { ...base, documentId: "doc-2" },
+      { ...base, documentId: "doc-3", subjectKind: "person", subjectId: "personne-inconnue" },
+      { documentId: "doc-9" }
+    ],
+    existingProofs: existing
+  });
+  assert.equal(plan.summary.existing, 1, "le couple (fait, document) déjà porté n’est pas recréé");
+  assert.equal(plan.existing[0].documentId, "doc-1");
+  assert.equal(plan.existing[0].proofId, "preuve-1");
+  assert.equal(plan.summary.duplicates, 1, "une seconde qualification sur le même couple n’est pas dupliquée");
+  assert.equal(plan.duplicates[0].relation, "contradicts");
+  assert.equal(plan.summary.plans, 2, "seules les associations neuves restent à créer");
+  assert.deepEqual(plan.plans.map(item => item.documentId), ["doc-2", "doc-3"]);
+  assert.equal(plan.summary.invalid, 1, "une association incomplète est signalée, jamais fabriquée");
+  assert.match(plan.invalid[0].reason, /document justificatif|fait|qualification|sujet/);
+  assert.equal(JSON.stringify(existing), snapshot, "aucune Preuve existante n’est mutée");
 
-  const wrapped = partitionProofPlans({ plans, existingProofs: [{ data: existing[0] }] });
-  assert.equal(wrapped.existing.length, 1, "les documents enveloppés dans data sont reconnus");
+  const wrapped = planAssociationProofs({ associations: [base], existingProofs: [{ data: existing[0] }] });
+  assert.equal(wrapped.existing.length, 1, "les Preuves enveloppées dans data sont reconnues");
 
-  const empty = partitionProofPlans({ plans: [], existingProofs: existing });
-  assert.deepEqual(empty.pending, []);
-  assert.throws(() => partitionProofPlans({ plans: {} }), /tableau/);
+  assert.throws(() => planAssociationProofs({ associations: {} }), /tableau/);
+  assert.throws(() => planAssociationProofs({ associations: [], existingProofs: {} }), /tableau/);
 });
 
 test("l’identifiant et le type de fait d’une Preuve ciblée suivent le registre R1", () => {
