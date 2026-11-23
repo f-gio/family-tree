@@ -456,13 +456,13 @@ test("union et parcours détaillé : même rangée de boutons ; attestations inc
       if (!form) return null;
       return {
         hasDate: Boolean(form.querySelector("[data-journey-date]")),
-        sections: [...form.querySelectorAll(".attestation-form-section > h4")].map(title => title.textContent.trim()),
+        sections: [...form.querySelectorAll(".attestation-section-head h4")].map(title => title.textContent.trim()),
         hasSave: Boolean(document.querySelector("#personAttestationDialog [data-journey-attestation-save]"))
       };
     });
     assert.ok(attestation, "formulaire d'attestation ouvert");
     assert.equal(attestation.hasDate, false, "attestation : aucun sélecteur de date");
-    assert.deepEqual(attestation.sections, ["Documents justificatifs", "Informations concernées", "Commentaire"], "attestation : rubriques du nouveau formulaire");
+    assert.deepEqual(attestation.sections, ["Documents justificatifs", "Informations concernées", "Commentaire (facultatif)"], "attestation : rubriques du nouveau formulaire");
     assert.equal(attestation.hasSave, true, "attestation : action d’enregistrement conservée");
 
     assert.deepEqual(session.errors, [], `aucune erreur JS : ${session.errors.join(" || ")}`);

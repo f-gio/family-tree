@@ -2008,6 +2008,299 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   .person-attestation-dialog .attestation-table-wrap { overflow-x: visible; }
 }
 
+/* ---- Reproduction de la maquette : teintes et typographie ----
+   Portées au seul formulaire d'attestation : le Design System global n'est
+   pas modifié. Les valeurs ci-dessous sont les références visuelles validées. */
+@media (min-width: 761px) {
+  #personAttestationDialog[open] {
+    width: min(1400px, calc(100vw - 3rem), 90vw);
+    max-height: min(90vh, 90dvh);
+    background: #fcfaf6;
+    border: 1px solid #ded8cb;
+    border-radius: var(--radius-xl);
+    box-shadow: 0 18px 48px rgba(40, 59, 51, 0.18);
+  }
+}
+#personAttestationDialog .modal-head,
+#personAttestationDialog .modal-actions,
+#personAttestationDialog .person-attestation-modal-body { background: #fcfaf6; }
+#personAttestationDialog .modal-head { border-bottom: 1px solid #ded8cb; }
+#personAttestationDialog .modal-actions { border-top: 1px solid #ded8cb; }
+#personAttestationDialog .person-attestation-modal-body { color: #283b33; font-size: 13px; }
+#personAttestationDialogTitle {
+  margin: 0;
+  color: #244b3c;
+  font-family: var(--font-display);
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+#personAttestationDialogContext { color: #68736d; font-size: 12px; }
+
+.person-attestation-dialog .attestation-form-section {
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid #ded8cb;
+  border-radius: var(--radius-lg);
+  background: #f3efe8;
+}
+.person-attestation-dialog .attestation-section-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.person-attestation-dialog .attestation-section-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  background: #254d3a;
+  color: #fffefa;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+}
+.person-attestation-dialog .attestation-section-heading { display: grid; gap: 2px; min-width: 0; }
+.person-attestation-dialog .attestation-section-heading h4 {
+  margin: 0;
+  color: #244b3c;
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.person-attestation-dialog .attestation-section-desc {
+  margin: 0;
+  color: #68736d;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.person-attestation-dialog .attestation-form-panel {
+  border: 1px solid #ded8cb;
+  border-radius: var(--radius-lg);
+  background: #fffefa;
+}
+
+/* Documents : deux accès côte à côte, empilés sur mobile. */
+.person-attestation-dialog .attestation-doc-panels {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.person-attestation-dialog .attestation-doc-panel {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid #ded8cb;
+  border-radius: var(--radius-md);
+  background: #fcfaf6;
+}
+.person-attestation-dialog .attestation-panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.person-attestation-dialog .attestation-panel-title-row h5 {
+  margin: 0;
+  color: #244b3c;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 700;
+}
+.person-attestation-dialog .attestation-badge {
+  flex: 0 0 auto;
+  padding: 2px var(--space-2);
+  border: 1px solid #ded8cb;
+  border-radius: 999px;
+  background: #e7efe8;
+  color: #254d3a;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+}
+.person-attestation-dialog .attestation-quick-docs,
+.person-attestation-dialog .attestation-library-results,
+.person-attestation-dialog .attestation-search-results {
+  max-height: 15rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.person-attestation-dialog .attestation-or {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: #68736d;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.person-attestation-dialog .attestation-or::before,
+.person-attestation-dialog .attestation-or::after {
+  content: "";
+  flex: 1 1 auto;
+  border-top: 1px solid #ded8cb;
+}
+.person-attestation-dialog .attestation-selected-docs {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid #ded8cb;
+}
+.person-attestation-dialog [data-journey-document-create],
+.person-attestation-dialog [data-journey-attestation-panel-open] { min-height: var(--control-touch); }
+.person-attestation-dialog .attestation-pick-row {
+  border-color: #ded8cb;
+  background: #fffefa;
+  color: #283b33;
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+.person-attestation-dialog .attestation-pick-row:hover { background: #f3efe8; }
+.person-attestation-dialog .attestation-pick-row.is-selected {
+  background: #e7efe8;
+  border-color: #254d3a;
+}
+.person-attestation-dialog .attestation-pick-row .attestation-association-copy { color: #283b33; }
+.person-attestation-dialog .attestation-pick-row .attestation-association-copy small { color: #68736d; font-size: 11px; }
+.person-attestation-dialog .attestation-pick-check { color: #254d3a; }
+.person-attestation-dialog .attestation-document-chip {
+  border: 1px solid #ded8cb;
+  background: #fffefa;
+}
+
+/* Panneau « Nouvelle information » : grille de la maquette. */
+.person-attestation-dialog .attestation-field {
+  display: flex;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.person-attestation-dialog .attestation-field-index {
+  flex: 0 0 auto;
+  color: #254d3a;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.person-attestation-dialog .attestation-field-body {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.person-attestation-dialog .attestation-field-label {
+  color: #244b3c;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.person-attestation-dialog .attestation-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.person-attestation-dialog .attestation-relation-block {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px dashed #ded8cb;
+  border-radius: var(--radius-md);
+  background: #fffefa;
+}
+.person-attestation-dialog .attestation-relation-block[hidden] { display: none; }
+.person-attestation-dialog .attestation-relation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.person-attestation-dialog .attestation-relation-person { display: grid; gap: var(--space-1); min-width: 0; }
+.person-attestation-dialog .attestation-relation-value {
+  margin: 0;
+  color: #283b33;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+}
+.person-attestation-dialog .attestation-relation-phrase {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid #ded8cb;
+  border-radius: var(--radius-md);
+  background: #e7efe8;
+  color: #254d3a;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+}
+.person-attestation-dialog .attestation-relation-phrase[hidden] { display: none; }
+.person-attestation-dialog fieldset.attestation-field { border: 0; padding: 0; }
+.person-attestation-dialog fieldset.attestation-field > legend { padding: 0; }
+.person-attestation-dialog .attestation-reference-date { border: 1px solid #ded8cb; border-radius: var(--radius-md); background: #fffefa; }
+.person-attestation-dialog .attestation-reference-date[hidden] { display: none; }
+.person-attestation-dialog .attestation-panel-actions--end { justify-content: flex-end; }
+
+/* Commentaire, aperçu, tableaux et états. */
+.person-attestation-dialog .attestation-comment-field {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 4.5rem;
+  padding: var(--space-2);
+  border: 1px solid #ded8cb;
+  border-radius: var(--radius-md);
+  background: #fffefa;
+  color: #283b33;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.person-attestation-dialog .attestation-preview {
+  border-color: #ded8cb;
+  background: #fcfaf6;
+  color: #283b33;
+}
+.person-attestation-dialog .attestation-preview dt { color: #68736d; }
+.person-attestation-dialog .attestation-empty {
+  border-color: #ded8cb;
+  background: #fcfaf6;
+}
+.person-attestation-dialog .attestation-empty > strong { color: #283b33; }
+.person-attestation-dialog .attestation-empty > span { color: #68736d; }
+.person-attestation-dialog .attestation-table th { color: #68736d; }
+.person-attestation-dialog .attestation-table td { color: #283b33; }
+.person-attestation-dialog .attestation-qualification {
+  border-color: #ded8cb;
+  background: #e7efe8;
+  color: #254d3a;
+}
+.person-attestation-dialog .card-meta { color: #68736d; font-size: 11px; }
+
+/* Mobile : les deux accès documentaires et la grille du panneau s'empilent. */
+@media (max-width: 760px) {
+  .person-attestation-dialog .attestation-doc-panels,
+  .person-attestation-dialog .attestation-field-grid,
+  .person-attestation-dialog .attestation-relation-grid { grid-template-columns: minmax(0, 1fr); }
+  #personAttestationDialogTitle { font-size: 22px; }
+  .person-attestation-dialog .attestation-section-heading h4 { font-size: 18px; }
+  .person-attestation-dialog .attestation-form-section { padding: var(--space-3); }
+}
+
 .person-dialog[open],
 .settings-dialog[open] {
   height: min(47.5rem, var(--modal-max-height));

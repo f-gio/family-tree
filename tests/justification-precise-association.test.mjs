@@ -3,12 +3,12 @@ import test from "node:test";
 import { chromium } from "playwright";
 import { AUTH_BOOTSTRAP_PATCH, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
-/* R2.2/R2.3 — Refonte UX du formulaire d'attestation :
-   sélection de documents par lignes (sans case à cocher), tableau des
-   associations, panneaux intégrés « Ajouter une information » et « Ajouter une
-   autre personne » mutuellement exclusifs, relations familiales précises,
-   états de vie à une date avec date de référence, et cycle de vie des Preuves
-   rattaché à l'enregistrement de l'événement parent. */
+/* Reproduction de la maquette interactive du formulaire d'attestation :
+   deux accès documentaires (raccourci de la personne + bibliothèque),
+   récapitulatif des documents, tableau des associations, panneau unique
+   « Nouvelle information » avec ordre de champs imposé, relation familiale
+   précisée à deux personnes, état de vie avec date de référence, et cycle de
+   vie des Preuves rattaché à l'événement parent. */
 
 const hooks = `
 window.__preciseProofTest = {
@@ -43,7 +43,13 @@ window.__preciseProofTest = {
   },
   seed() {
     people = [
-      { id: "precise-a", firstName: "Ada", lastName: "Rossi", gender: "F", inTree: true, birthDateInfo: { type: "year", year: 1890 } },
+      {
+        id: "precise-a", firstName: "Ada", lastName: "Rossi", gender: "F", inTree: true,
+        birthDateInfo: { type: "year", year: 1890 }, branch: "Ramo Rossi",
+        residences: [{ id: "precise-res", place: "Palermo", dateInfo: { type: "year", year: 1910 }, attestations: [] }],
+        professions: [{ id: "precise-job", label: "Cartographe", dateInfo: { type: "year", year: 1912 }, attestations: [] }],
+        lifeEvents: [{ id: "precise-event", kind: "census", label: "Recensement", dateInfo: { type: "year", year: 1911 }, attestations: [] }]
+      },
       { id: "precise-b", firstName: "Bruno", lastName: "Bianchi", gender: "M", inTree: true },
       { id: "precise-c", firstName: "Carlo", lastName: "Benati", gender: "M", inTree: true }
     ];
@@ -107,10 +113,10 @@ async function openAttestation(page) {
 }
 
 async function pickDocument(page, id) {
-  await page.locator(`#personAttestationDialog [data-journey-document-pick="${id}"]`).click();
+  await page.locator(`#personAttestationDialog [data-journey-document-pick="${id}"]`).first().click();
 }
 
-test("attestation : documents par lignes, tableau des informations et panneaux intégrés", { timeout: 180000 }, async t => {
+test("maquette : deux accès documentaires, panneau unique et relations précisées", { timeout: 180000 }, async t => {
   let browser;
   try { browser = await chromium.launch({ headless: true }); }
   catch (error) { t.skip(`Chromium indisponible : ${error.message}`); return; }
@@ -154,117 +160,175 @@ test("attestation : documents par lignes, tableau des informations et panneaux i
 
     await openAttestation(page);
 
-    /* Étape 4 — structure, états vides et absence des anciens contrôles. */
+    /* Modale : titre, sous-titre contextuel, pied Annuler / Enregistrer. */
+    assert.equal(await page.locator("#personAttestationDialogTitle").innerText(), "Ajouter une attestation");
+    assert.match(await page.locator("#personAttestationDialogContext").innerText(), /Personne concernée : Ada Rossi/, "sous-titre nommant la personne concernée");
+    assert.match(await page.locator("#personAttestationDialogContext").innerText(), /Naissance/, "contexte réel de l’attestation conservé");
+    assert.equal(await page.locator("#personAttestationDialog .modal-actions [data-journey-attestation-cancel]").count(), 1, "Annuler dans le pied");
+    assert.equal(await page.locator("#personAttestationDialog .modal-actions [data-journey-attestation-save]").count(), 1, "Enregistrer dans le pied");
+
+    /* Trois sections numérotées, sans section supplémentaire. */
     assert.deepEqual(
-      await page.locator("#personAttestationDialog .attestation-form-section > h4").allTextContents(),
-      ["Documents justificatifs", "Informations concernées", "Commentaire"],
-      "trois rubriques dans la modale"
+      await page.locator("#personAttestationDialog .attestation-form-section > .attestation-section-head h4").allTextContents(),
+      ["Documents justificatifs", "Informations concernées", "Commentaire (facultatif)"],
+      "trois sections numérotées"
     );
+    assert.equal(await page.locator("#personAttestationDialog .attestation-section-number").count(), 3, "trois pastilles de section");
+    assert.equal(await page.locator("#personAttestationDialog .attestation-form-section").count(), 3, "aucune section supplémentaire");
     assert.equal(await page.locator("#personAttestationDialog [data-journey-date]").count(), 0, "champ Date supprimé");
     assert.equal(await page.locator("#personAttestationDialog [data-journey-source-check]").count(), 0, "sélection de Sources supprimée");
-    assert.equal(await page.locator("#personAttestationDialog [data-journey-proof-check]").count(), 0, "liste de Preuves supprimée");
-    assert.equal(await page.locator("#journeyDocumentSelectionEmpty").count(), 1, "état vide des documents");
-    assert.match(await page.locator("#journeyDocumentSelectionEmpty").innerText(), /Aucun document sélectionné/);
-    assert.match(await page.locator("#journeyDocumentSelectionEmpty").innerText(), /Sélectionnez un document existant ou ajoutez un nouveau document/);
-    assert.equal(await page.locator("#journeyAssociationListEmpty").count(), 1, "état vide des informations");
-    assert.match(await page.locator("#journeyAssociationListEmpty").innerText(), /Aucune information ajoutée/);
-    assert.equal(await page.locator("#journeyPanelActions [data-journey-attestation-panel-open]").count(), 2, "deux CTA d’ajout");
-    assert.equal(await page.locator('[data-journey-attestation-panel-open="info"]').isDisabled(), true,
-      "ajout d’information bloqué tant qu’aucun document n’est choisi");
-    assert.match(await page.locator("#journeyPanelActions").innerText(), /Ajoutez au moins un document justificatif/,
-      "raison du blocage affichée");
+    assert.equal(await page.locator("#personAttestationDialog [data-journey-attestation-panel-open=\"person\"]").count(), 0,
+      "aucun second CTA « Ajouter une autre personne »");
 
-    /* Étape 5 — sélection de documents par lignes, sans case à cocher. */
+    /* Deux accès documentaires côte à côte, sans case à cocher. */
+    const docPanels = await page.locator("#personAttestationDialog .attestation-doc-panels").evaluate(node => ({
+      columns: getComputedStyle(node).gridTemplateColumns.split(" ").length,
+      titles: [...node.querySelectorAll(".attestation-panel-title-row h5")].map(node2 => node2.textContent.trim())
+    }));
+    assert.deepEqual(docPanels.titles, ["Documents de cette personne", "Rechercher dans la bibliothèque"], "deux panneaux distincts");
+    assert.equal(docPanels.columns, 2, "panneaux côte à côte sur ordinateur");
     assert.equal(await page.locator("#personAttestationDialog input[type=checkbox][data-journey-document-pick]").count(), 0,
       "aucune case à cocher pour choisir un document");
-    await page.locator("[data-journey-documents-toggle]").click();
-    assert.equal(await page.locator("[data-journey-document-pick]").count(), 3, "documents liés proposés en lignes");
-    assert.equal(await page.locator('[data-journey-document-pick="precise-doc-lib"]').count(), 0, "bibliothèque absente par défaut");
-    await pickDocument(page, "precise-doc-1");
-    assert.equal(await page.locator('[data-journey-document-pick="precise-doc-1"]').getAttribute("aria-pressed"), "true", "état de sélection annoncé");
-    await pickDocument(page, "precise-doc-2");
-    assert.equal(await page.locator("[data-journey-documents-toggle]").innerText(), "2 documents sélectionnés", "résumé du nombre de documents");
-    assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 2, "documents choisis en lignes compactes");
-    const chip = page.locator("#journeyDocumentSelection .attestation-document-chip").first();
-    assert.ok(await chip.locator("[data-journey-document-view]").isVisible(), "action Consulter");
-    assert.ok(await chip.locator("[data-journey-document-sheet]").isVisible(), "action Voir la fiche");
-    assert.ok(await chip.locator("[data-journey-document-remove]").isVisible(), "action Retirer");
-    assert.ok(await chip.locator(".attestation-doc-thumb").count() === 1, " miniature présente");
-    await page.fill("#journeyDocumentSearch", "bibliothèque");
-    assert.equal(await page.locator('[data-journey-document-pick="precise-doc-lib"]').count(), 1, "recherche secondaire sur la bibliothèque");
+    assert.equal(await page.locator("#journeyQuickDocumentList [data-journey-document-pick]").count(), 3,
+      "documents réellement liés à la personne proposés en accès rapide");
+    assert.match(await page.locator("#personAttestationDialog .attestation-doc-panel").first().innerText(), /Accès rapide/, "indicateur d’accès rapide");
+    assert.match(await page.locator("#personAttestationDialog .attestation-doc-panel").first().innerText(), /Documents déjà liés à sa fiche généalogique/, "description du raccourci");
+
+    /* Bibliothèque : rien avant la saisie. */
+    assert.equal(await page.locator("#journeyLibraryResults [data-journey-document-pick]").count(), 0, "aucune bibliothèque affichée par défaut");
+    assert.match(await page.locator("#journeyLibraryResults").innerText(), /Recherchez un document/, "invite de recherche à la place de la liste");
+    await page.fill("#journeyDocumentSearch", "sans lien");
+    assert.equal(await page.locator('#journeyLibraryResults [data-journey-document-pick="precise-doc-lib"]').count(), 1,
+      "recherche sur toute la bibliothèque, même non lié");
+    await page.fill("#journeyDocumentSearch", "zzzz");
+    assert.match(await page.locator("#journeyLibraryResults").innerText(), /Aucun document ne correspond/, "résultat absent géré");
     await page.fill("#journeyDocumentSearch", "");
-    assert.equal(await page.locator("[data-journey-attestation-panel-open=\"info\"]").isDisabled(), false, "l’ajout devient possible");
 
-    /* Étapes 6/7 — tableau et panneau « Ajouter une information ». */
-    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 1,
-      "l’association déjà enregistrée sur le document choisi est chargée sans duplication");
-    assert.match(await page.locator("#journeyAssociationList").innerText(), /Enregistrée/);
+    /* Sélection, identité unique sur les deux parcours, récapitulatif. */
+    await pickDocument(page, "precise-doc-1");
+    assert.equal(await page.locator("#journeySelectedCount").innerText(), "1 document", "compteur du récapitulatif");
+    assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 1, "récapitulatif distinct");
+    await page.fill("#journeyDocumentSearch", "Registre");
+    assert.equal(await page.locator('#journeyLibraryResults [data-journey-document-pick="precise-doc-2"]').getAttribute("aria-pressed"), "false",
+      "document non encore retenu dans la bibliothèque");
+    await pickDocument(page, "precise-doc-2");
+    assert.equal(await page.locator("#journeySelectedCount").innerText(), "2 documents");
+    await page.fill("#journeyDocumentSearch", "Registre");
+    assert.equal(await page.locator('#journeyLibraryResults [data-journey-document-pick="precise-doc-2"]').getAttribute("aria-pressed"), "true",
+      "un document trouvé par les deux parcours garde une seule identité");
+    assert.equal(await page.locator('[data-journey-document-pick="precise-doc-2"]').count(), 2,
+      "la même ligne apparaît dans les deux listes, sans doublon de sélection");
+    await page.fill("#journeyDocumentSearch", "");
+    await pickDocument(page, "precise-doc-1");
+    assert.equal(await page.locator("#journeySelectedCount").innerText(), "1 document", "désélection possible");
+    await pickDocument(page, "precise-doc-1");
+
+    /* CTA d'ajout : désactivé sans document, actif avec un document. */
+    assert.equal(await page.locator('[data-journey-attestation-panel-open="info"]').isDisabled(), false, "ajout possible");
+    assert.ok(await page.locator("[data-journey-document-create]").isVisible(), "CTA « Ajouter un nouveau document » visible");
+    assert.match(await page.locator(".attestation-or").innerText(), /OU/, "séparateur discret");
+
+    /* Tableau et panneau unique. */
+    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 1, "association existante chargée");
     await page.locator('[data-journey-attestation-panel-open="info"]').click();
-    assert.equal(await page.locator("#journeyInfoPanel").count(), 1, "panneau d’information ouvert");
-    assert.equal(await page.locator("#journeyPersonPanel").count(), 0, "les deux panneaux ne sont jamais ouverts ensemble");
-    assert.equal(await page.locator("#journeyAssociationRelation option").count(), 4, "qualification propre à chaque association");
-    assert.match(await page.locator("#journeySubjectChosen").innerText(), /Ada Rossi/, "personne de la fiche proposée par défaut");
-    const factGroups = await page.locator("#journeyAssociationFact optgroup").evaluateAll(nodes => nodes.map(node => node.getAttribute("label")));
-    assert.ok(factGroups.includes("Naissance"), "catégorie Naissance");
-    assert.ok(factGroups.includes("Décès et état de vie"), "catégorie Décès et état de vie");
-    assert.ok(factGroups.includes("Famille et filiation"), "catégorie Famille et filiation");
-    assert.equal(await page.locator("[data-journey-reference-date]").count(), 1, "champ de date de référence présent mais masqué");
-    assert.equal(await page.locator("[data-journey-reference-date]").getAttribute("hidden") !== null, true, "masqué tant qu’aucun état de vie n’est choisi");
+    assert.equal(await page.locator("#journeyInfoPanel").count(), 1, "panneau intégré ouvert");
+    const labels = await page.locator("#journeyInfoPanel .attestation-field-label").allTextContents();
+    assert.ok(labels.includes("Qui est concerné ?"), "champ 1");
+    assert.ok(labels.includes("Quelle information est attestée ?"), "champ 2");
+    assert.ok(labels.includes("Par quel document ?"), "champ 3");
+    assert.ok(labels.includes("Comment le document se rapporte-t-il au fait ?"), "champ 4");
+    assert.match(await page.locator("#journeyInfoPanel .attestation-field").first().innerText(), /1\./, "numéro du champ 1");
+    assert.match(await page.locator("#journeyInfoPanel").innerText(), /La personne actuelle est proposée par défaut/, "description du champ 1");
 
-    /* Suggestion contextuelle puis recherche globale. */
-    const suggestions = await page.locator("#journeySubjectResults").innerText();
-    assert.match(suggestions, /Personne actuelle/, "personne actuelle suggérée");
-    assert.match(suggestions, /Conjoint/, "conjoint réellement connu suggéré");
-    assert.match(suggestions, /Fils/, "enfant réellement connu suggéré");
-    assert.doesNotMatch(suggestions, /Père/, "aucun parent inventé : aucun n’est renseigné");
-    await page.fill("#journeyAssociationSubjectSearch", "bruno");
-    await page.locator('[data-journey-subject-pick="person:precise-b"]').click();
-    assert.match(await page.locator("#journeySubjectChosen").innerText(), /Bruno Bianchi/, "recherche globale sur l’arbre");
+    /* Champ 1 : personne présélectionnée, suggestions réelles, recherche globale. */
+    assert.ok(await page.locator('[data-journey-subject-pick="person:precise-a"][aria-pressed="true"]').count() === 1,
+      "personne actuelle présélectionnée");
+    assert.match(await page.locator("#journeySubjectResults").innerText(), /Conjoint/, "conjoint réellement connu suggéré");
+    assert.match(await page.locator("#journeySubjectResults").innerText(), /Ramo Rossi/, "branche familiale affichée dans les résultats");
+    assert.match(await page.locator("#journeySubjectPreview").innerText(), /Ada Rossi/, "aperçu de la personne sélectionnée");
+    await page.fill("#journeyAssociationSubjectSearch", "carlo");
+    await page.locator('[data-journey-subject-pick="person:precise-c"]').click();
+    assert.match(await page.locator("#journeySubjectPreview").innerText(), /Carlo Benati/, "recherche globale sur l’arbre");
+    await page.fill("#journeyAssociationSubjectSearch", "");
+    await page.locator('[data-journey-subject-pick="person:precise-a"]').click();
 
-    /* Étape 9 — état de vie à une date avec date de référence. */
-    await page.locator("#journeyAssociationDocument").selectOption("precise-doc-2");
+    /* Champ 2 : catégories, sans identifiant technique. */
+    const groups = await page.locator("#journeyAssociationFact optgroup").evaluateAll(nodes => nodes.map(node => node.getAttribute("label")));
+    assert.ok(groups.includes("Identité"), "catégorie Identité");
+    assert.ok(groups.includes("Naissance"), "catégorie Naissance");
+    assert.ok(groups.includes("Décès et état de vie"), "catégorie Décès et état de vie");
+    assert.ok(groups.includes("Famille et filiation"), "catégorie Famille et filiation");
+    assert.ok(groups.includes("Résidence"), "catégorie Résidence");
+    assert.ok(groups.includes("Profession"), "catégorie Profession");
+    assert.ok(groups.includes("Parcours"), "catégorie Parcours");
+    const factLabels = await page.locator("#journeyAssociationFact option").allTextContents();
+    assert.ok(factLabels.some(label => label.includes("Est la mère de…")), "relation présentée en langage naturel");
+    assert.ok(factLabels.every(label => !label.includes("~")), "aucun identifiant technique affiché");
+
+    /* Champ 3 : uniquement les documents sélectionnés, sans préremplissage
+       quand plusieurs sont retenus. */
+    assert.equal(await page.locator("#journeyAssociationDocument option").count(), 2, "deux documents retenus, l’un prérempli");
+    await pickDocument(page, "precise-doc-3");
+    assert.equal(await page.locator("#journeyAssociationDocument option").count(), 3, "troisième document ajouté");
+    await page.selectOption("#journeyAssociationDocument", "precise-doc-1");
+
+    /* Relation familiale : deuxième personne et phrase de confirmation. */
+    await page.locator("#journeyAssociationFact").selectOption({ label: "Est la mère de…" });
+    assert.equal(await page.locator("[data-journey-relation-block]").evaluate(node => node.hidden), false, "bloc relation affiché");
+    assert.match(await page.locator("[data-journey-relation-block]").innerText(), /Choisissez explicitement la deuxième personne concernée/, "description du bloc");
+    assert.match(await page.locator("#journeyRelationPhrase").innerText(), /Ada Rossi est la mère de Carlo Benati\./, "phrase construite avec les vraies personnes");
+    /* Relation incohérente : la personne elle-même. */
+    await page.fill("#journeySecondSearch", "Ada");
+    await page.locator('[data-journey-second-pick="precise-a"]').click();
+    await page.locator("[data-journey-association-add]").click();
+    assert.match(await page.locator("#journeyError-association").innerText(), /deux personnes différentes/, "relation refusée avec soi-même");
+    /* Relation absente de l’arbre : aucun identifiant n’est fabriqué. */
+    await page.fill("#journeySecondSearch", "Bruno");
+    await page.locator('[data-journey-second-pick="precise-b"]').click();
+    assert.match(await page.locator("#journeyRelationPhrase").innerText(), /Ada Rossi est la mère de Bruno Bianchi/, "phrase affichée pour la combinaison choisie");
+    await page.locator("[data-journey-association-add]").click();
+    assert.match(await page.locator("#journeyError-association").innerText(), /pas enregistré dans l’arbre/, "relation non enregistrée bloquée");
+    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 1, "aucune ligne fabriquée");
+    await page.fill("#journeySecondSearch", "Carlo");
+    await page.locator('[data-journey-second-pick="precise-c"]').click();
+    await page.locator("[data-journey-association-add]").click();
+    assert.equal(await page.locator("#journeyInfoPanel").count(), 0, "panneau refermé après validation");
+    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 2, "relation enregistrée ajoutée au tableau");
+
+    /* État de vie à une date avec date de référence. */
+    await page.locator('[data-journey-attestation-panel-open="info"]').click();
     await page.locator("#journeyAssociationFact").selectOption({ label: "Vivant à cette date" });
-    assert.equal(await page.locator("[data-journey-reference-date]").evaluate(block => block.hidden), false,
-      "date de référence affichée pour un état de vie");
+    assert.equal(await page.locator("[data-journey-relation-block]").evaluate(node => node.hidden), true, "bloc relation masqué");
+    assert.equal(await page.locator("[data-journey-reference-date]").evaluate(node => node.hidden), false, "date de référence affichée");
     await page.locator("[data-journey-association-add]").click();
     assert.ok(await page.locator("#journeyError-referenceDate").isVisible(), "date de référence obligatoire");
-    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 1, "aucune ligne ajoutée sans date de référence");
     await page.locator('#journeyInfoPanel [data-journey-date-type="year"]').click();
     await page.fill("#journeyDateYear", "1884");
     await page.locator("[data-journey-association-add]").click();
-    assert.equal(await page.locator("#journeyInfoPanel").count(), 0, "le panneau se referme après validation");
-    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 2, "la nouvelle ligne apparaît immédiatement");
-    assert.match(await page.locator("#journeyAssociationList").innerText(), /Vivant à cette date/);
-    assert.match(await page.locator("#journeyAssociationList").innerText(), /Confirme/);
+    assert.equal(await page.locator("#journeyInfoPanel").count(), 0, "panneau refermé");
+
+    /* Qualification indépendante : une seule ligne porte « Contredit ». */
+    await page.locator('[data-journey-attestation-panel-open="info"]').click();
+    await page.selectOption("#journeyAssociationDocument", "precise-doc-2");
+    const factOptions = await page.locator("#journeyAssociationFact option").evaluateAll(nodes => nodes.map(node => ({ value: node.value, label: node.textContent })));
+    const birthFact = factOptions.find(option => option.label === "Date de naissance");
+    assert.ok(birthFact, "fait « Date de naissance » disponible");
+    await page.locator("#journeyAssociationFact").selectOption(birthFact.value);
+    await page.selectOption("#journeyAssociationRelation", "contradicts");
+    await page.locator("[data-journey-association-add]").click();
+    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 4, "troisième association ajoutée");
+    const qualifications = await page.locator("#journeyAssociationList [data-col='qualification']").allTextContents();
+    assert.ok(qualifications.some(text => text.includes("Contredit")), "qualification propre à la nouvelle ligne");
+    assert.ok(qualifications.some(text => text.includes("Confirme")), "qualifications des autres lignes inchangées");
 
     /* Doublon refusé. */
     await page.locator('[data-journey-attestation-panel-open="info"]').click();
-    await page.fill("#journeyAssociationSubjectSearch", "");
-    await page.locator('[data-journey-subject-pick="person:precise-b"]').click();
-    await page.locator("#journeyAssociationDocument").selectOption("precise-doc-2");
-    await page.locator("#journeyAssociationFact").selectOption({ label: "Vivant à cette date" });
-    await page.locator('#journeyInfoPanel [data-journey-date-type="year"]').click();
-    await page.fill("#journeyDateYear", "1884");
+    await page.selectOption("#journeyAssociationDocument", "precise-doc-2");
+    const stillBirth = (await page.locator("#journeyAssociationFact option").evaluateAll(nodes => nodes.map(node => ({ value: node.value, label: node.textContent })))).find(option => option.label === "Date de naissance");
+    await page.locator("#journeyAssociationFact").selectOption(stillBirth.value);
     await page.locator("[data-journey-association-add]").click();
     assert.match(await page.locator("#journeyError-association").innerText(), /existe déjà/, "doublon refusé");
-    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 2, "aucune ligne supplémentaire");
-
-    /* Étape 8 — panneau « Ajouter une autre personne ». */
-    await page.locator("[data-journey-panel-close]").first().click();
-    await page.locator('[data-journey-attestation-panel-open="person"]').click();
-    assert.equal(await page.locator("#journeyPersonPanel").count(), 1, "panneau de recherche ouvert");
-    assert.equal(await page.locator("#journeyInfoPanel").count(), 0, "panneaux toujours mutuellement exclusifs");
-    assert.match(await page.locator("#journeyPersonResults").innerText(), /Personne actuelle/, "suggestions contextuelles");
-    assert.match(await page.locator("#journeyPersonResults").innerText(), /Conjoint/, "conjoint suggéré");
-    await page.fill("#journeyPersonSearch", "carlo");
-    await page.locator('[data-journey-person-pick="precise-c"]').click();
-    assert.match(await page.locator("#journeyPersonPreview").innerText(), /Carlo Benati/, "aperçu de la personne");
-    assert.match(await page.locator("#journeyPersonPreview").innerText(), /Fils/, "relation avec la personne de la fiche");
-    assert.doesNotMatch(await page.locator("#journeyPersonPreview").innerText(), /Dates\s+—/, "aucune date fabriquée pour une personne sans dates");
-    await page.locator("[data-journey-person-confirm]").click();
-    assert.equal(await page.locator("#journeyPersonPanel").count(), 0, "panneau refermé après confirmation");
-    assert.equal(await page.locator("#journeyInfoPanel").count(), 1, "panneau d’information ouvert automatiquement");
-    assert.match(await page.locator("#journeySubjectChosen").innerText(), /Carlo Benati/, "personne préremplie pour la saisie");
+    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 4, "aucune ligne supplémentaire");
     await page.locator("[data-journey-panel-close]").first().click();
 
     /* Enregistrement : une Preuve par association explicite. */
@@ -272,59 +336,36 @@ test("attestation : documents par lignes, tableau des informations et panneaux i
     await page.fill("#journeyAttComment", "Registre communal consulté");
     await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
     await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });
-
     const createCalls = await page.evaluate(() => window.__preciseProofTest.createCalls);
-    assert.equal(createCalls.length, 1, "une seule création : une association explicite, pas un produit cartésien");
-    assert.equal(createCalls[0].data.documentId, "precise-doc-2");
-    assert.equal(createCalls[0].data.relation, "supports");
-    assert.deepEqual([...createCalls[0].data.personIds].sort(), ["precise-b"]);
-    assert.deepEqual(createCalls[0].data.referenceDateInfo, { type: "year", year: 1884 },
-      "date de référence persistée, distincte de toute date de décès");
+    assert.equal(createCalls.length, 3, "trois nouvelles associations, pas un produit cartésien");
+    assert.ok(createCalls.every(call => call.type === "proof"));
+    assert.ok(createCalls.some(call => call.data.referenceDateInfo && call.data.referenceDateInfo.year === 1884),
+      "date de référence persistée");
     const writes = await page.evaluate(() => window.__preciseProofTest.writes);
-    assert.equal(writes.length, 1, "attestation enregistrée");
-    assert.equal(writes[0].attestations[0].date, null, "aucune date d’attestation fabriquée");
-    assert.deepEqual(writes[0].attestations[0].documentIds, ["precise-doc-1", "precise-doc-2"]);
-    assert.deepEqual(writes[0].attestations[0].sourceIds, [], "champ sourceIds préservé");
-    assert.deepEqual(writes[0].attestations[0].proofIds, [], "champ proofIds préservé");
+    assert.equal(writes[0].attestations[0].comment, "Registre communal consulté", "commentaire enregistré");
+    assert.deepEqual([...writes[0].attestations[0].documentIds].sort(),
+      ["precise-doc-1", "precise-doc-2", "precise-doc-3"], "trois documents retenus, sans doublon");
+    assert.deepEqual(writes[0].attestations[0].sourceIds, [], "sourceIds préservés");
+    assert.deepEqual(writes[0].attestations[0].proofIds, [], "proofIds préservés");
 
-    /* Réouverture : association existante rechargée sans duplication. */
+    /* Modification : documents et associations rechargés sans duplication. */
     await page.locator("#birthAttestationList [data-journey-attestation-edit]").first().click();
     await page.waitForFunction(() => document.getElementById("personAttestationDialog").open, undefined, { timeout: 10000 });
-    assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 2, "documents restaurés");
-    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 1, "association existante rechargée une seule fois");
-    assert.match(await page.locator("#journeyAssociationList").innerText(), /Enregistrée/);
+    assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 3, "documents restaurés");
+    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 1,
+      "l’association réellement persistée est rechargée, jamais dupliquée (les créations du harnais ne sont pas écrites)");
+    assert.match(await page.locator("#journeyAttComment").inputValue(), /Registre communal consulté/, "commentaire restauré");
 
     /* Retrait contrôlé d’une association persistée. */
     await page.evaluate(() => window.__preciseProofTest.reset());
     await page.locator("#journeyAssociationList [data-journey-association-remove]").first().click();
-    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 0, "association retirée après confirmation");
     await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
     await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });
     const deleteCalls = await page.evaluate(() => window.__preciseProofTest.deleteCalls);
     assert.equal(deleteCalls.length, 1, "un retrait confirmé appliqué à l’enregistrement");
     assert.equal(deleteCalls[0].id, "precise-proof-seed");
 
-    /* « Voir la fiche » ouvre un nouvel onglet, sans perte de saisie. */
-    await openAttestation(page);
-    await page.locator("[data-journey-documents-toggle]").click();
-    await pickDocument(page, "precise-doc-3");
-    assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 1, "document sélectionné avant l’onglet");
-    const popupPromise = page.waitForEvent("popup");
-    await page.locator("[data-journey-document-sheet]").first().click();
-    const popup = await popupPromise;
-    await popup.waitForURL(/view=documentDetail/, { timeout: 15000 });
-    assert.match(popup.url(), /id=precise-doc/, "identifiant du document dans l’URL");
-    await popup.close().catch(() => {});
-    assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), true, "formulaire ouvert après l’onglet");
-    assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 1, "état conservé");
-
-    /* Accessibilité : navigation clavier sur les lignes de sélection. */
-    await page.locator('[data-journey-document-pick="precise-doc-1"]').focus();
-    assert.equal(await page.locator('[data-journey-document-pick="precise-doc-1"]').evaluate(el => document.activeElement === el), true,
-      "ligne focalisable au clavier");
-
-    /* Étape 2 — cycle de vie (§14.3) : rien n'est écrit tant que l'événement
-       parent n'est pas définitivement enregistré. */
+    /* Cycle de vie §14.3 : rien tant que le parent n’est pas enregistré. */
     await page.evaluate(() => {
       window.__preciseProofTest.reset();
       window.__preciseProofTest.setDraft([{
@@ -343,24 +384,42 @@ test("attestation : documents par lignes, tableau des informations et panneaux i
       window.__preciseProofTest.stash("att-parente");
     });
     assert.equal(await page.evaluate(() => window.__preciseProofTest.pending()), 1, "association mise en attente");
-    assert.equal((await page.evaluate(() => window.__preciseProofTest.createCalls)).length, 0,
-      "aucune Preuve créée pendant la préparation de l’événement");
-
-    /* Événement parent annulé : son identifiant n'apparaît dans aucune
-       écriture, donc rien n'est promu — aucune preuve orpheline. */
+    assert.equal((await page.evaluate(() => window.__preciseProofTest.createCalls)).length, 0, "aucune Preuve pendant la préparation");
     const cancelled = await page.evaluate(() => window.__preciseProofTest.flush(["autre-attestation"]));
-    assert.equal(cancelled, null, "aucun brouillon ne correspond à l’événement annulé");
-    assert.equal((await page.evaluate(() => window.__preciseProofTest.createCalls)).length, 0,
-      "annulation du parent : aucune preuve orpheline");
-    assert.equal(await page.evaluate(() => window.__preciseProofTest.pending()), 1, "le brouillon n’est jamais jeté silencieusement");
-
-    /* Événement parent enregistré : les associations sont promues une fois. */
+    assert.equal(cancelled, null, "parent annulé : aucun brouillon correspondant");
+    assert.equal((await page.evaluate(() => window.__preciseProofTest.createCalls)).length, 0, "aucune preuve orpheline");
     const flushed = await page.evaluate(() => window.__preciseProofTest.flush(["att-parente"]));
     assert.equal(flushed.created, 1, "promotion à l’enregistrement du parent");
-    assert.equal(await page.evaluate(() => window.__preciseProofTest.pending()), 0, "brouillon vidé après promotion");
-    assert.equal((await page.evaluate(() => window.__preciseProofTest.createCalls)).length, 1, "une seule Preuve créée");
-    await page.evaluate(() => window.__preciseProofTest.flush(["att-parente"]));
-    assert.equal((await page.evaluate(() => window.__preciseProofTest.createCalls)).length, 1, "aucune seconde écriture");
+    assert.equal((await page.evaluate(() => window.__preciseProofTest.createCalls)).length, 1, "une seule Preuve");
+
+    /* « Voir la fiche » : nouvel onglet, formulaire intact. */
+    await openAttestation(page);
+    await pickDocument(page, "precise-doc-3");
+    assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 1, "document sélectionné avant l’onglet");
+    const popupPromise = page.waitForEvent("popup");
+    await page.locator("[data-journey-document-sheet]").first().click();
+    const popup = await popupPromise;
+    await popup.waitForURL(/view=documentDetail/, { timeout: 15000 });
+    assert.match(popup.url(), /id=precise-doc/, "identifiant du document dans l’URL");
+    await popup.close().catch(() => {});
+    assert.equal(await page.locator("#personAttestationDialog").evaluate(dialog => dialog.open), true, "formulaire ouvert après l’onglet");
+    assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 1, "état conservé");
+
+    /* Accessibilité : navigation clavier sur une ligne de sélection. */
+    await page.locator('#journeyQuickDocumentList [data-journey-document-pick="precise-doc-1"]').focus();
+    assert.equal(await page.locator('#journeyQuickDocumentList [data-journey-document-pick="precise-doc-1"]').evaluate(el => document.activeElement === el), true,
+      "ligne focalisable au clavier");
+
+    /* Responsive : les deux accès s’empilent en dessous de 761 px. */
+    await page.setViewportSize({ width: 390, height: 844 });
+    const stacked = await page.locator("#personAttestationDialog .attestation-doc-panels").evaluate(node => ({
+      columns: getComputedStyle(node).gridTemplateColumns.split(" ").length,
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+    }));
+    assert.equal(stacked.columns, 1, "panneaux empilés sur mobile");
+    assert.ok(stacked.overflow <= 1, "aucun débordement horizontal sur mobile");
+    const panelOrder = await page.locator("#personAttestationDialog .attestation-doc-panel h5").allTextContents();
+    assert.deepEqual(panelOrder, ["Documents de cette personne", "Rechercher dans la bibliothèque"], "même ordre sur mobile");
 
     assert.deepEqual(errors, [], `aucune erreur JavaScript : ${errors.join(" | ")}`);
   } finally {
