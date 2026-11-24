@@ -442,6 +442,24 @@ function addPersonTargets(person, families = [], peopleById = new Map(), targets
     owner, ownerCollection: "people", record: person, definition
   }));
 
+  /* Cibles de déclaration documentaire sans événement Personne sous-jacent.
+     Elles garantissent un catalogue commun même si profession/résidence/parcours
+     ne sont pas encore renseignés, sans fabriquer d'entrée généalogique. */
+  for (const definition of [
+    { targetType: "person.residence.place", label: "Lieu de résidence", valueType: "place" },
+    { targetType: "person.profession.label", label: "Profession/activité", valueType: "text" },
+    { targetType: "person.lifeEvent.label", label: "Événement du parcours", valueType: "text" }
+  ]) {
+    const factId = buildFactIdentityId("person.claim.r1", person.id, definition.targetType);
+    addTarget(targets, exclusions, {
+      id: factId, factId, targetType: definition.targetType, label: definition.label,
+      valueType: definition.valueType, owner,
+      path: { collection: "people", documentId: person.id, fields: [] },
+      value: null, valueState: "absent", factIdentityCompatibility: "exact",
+      legacyFactCandidates: [], identityStrategy: "owner-and-claim-kind"
+    });
+  }
+
   const variants = person.nameVariants;
   if (variants != null && !Array.isArray(variants)) exclusions.push({ owner, path: ["nameVariants"], reason: "le champ n'est pas un tableau" });
   if (Array.isArray(variants)) {

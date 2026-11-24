@@ -447,12 +447,15 @@ test("une association explicite relie un document, un sujet, un fait et sa propr
   assert.equal(association.familyId, null);
   assert.equal(association.factId, birthTarget.factId, "le fait précis vient du registre R1");
   assert.equal(association.relation, "supports", "la qualification appartient à l’association");
+  assert.equal(association.sourceValue, null, "les attestations historiques sans valeur restent compatibles");
   assert.equal(justificationAssociationKey(association), `${association.factId}|doc-1`);
 
   /* La qualification est indépendante d'une association à l'autre. */
   const contradicts = createJustificationAssociation({ ...association, relation: "contradicts" });
   assert.equal(contradicts.relation, "contradicts");
   assert.notEqual(contradicts.relation, association.relation);
+  const documentary = createJustificationAssociation({ ...association, sourceValue: { value: "Menuisier", dateInfo: { type: "year", year: 1925 } } });
+  assert.deepEqual(documentary.sourceValue, { value: "Menuisier", dateInfo: { type: "year", year: 1925 } }, "la valeur documentaire et sa temporalité structurée sont préservées");
 
   const familyTarget = targets.find(target => target.owner && target.owner.kind === "family");
   assert.ok(familyTarget, "la cible de Foyer est publiée");

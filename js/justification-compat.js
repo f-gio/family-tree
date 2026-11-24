@@ -603,6 +603,9 @@ export function createJustificationAssociation(input = {}) {
     }
     referenceDateInfo = { ...input.referenceDateInfo };
   }
+  const sourceValue = input.sourceValue === undefined || input.sourceValue === null
+    ? null
+    : JSON.parse(JSON.stringify(input.sourceValue));
   return {
     documentId: documentId,
     factId: factId,
@@ -614,6 +617,7 @@ export function createJustificationAssociation(input = {}) {
     relationshipId: relationshipId,
     relation: input.relation,
     referenceDateInfo,
+    sourceValue,
     factLabel: typeof input.factLabel === "string" && input.factLabel.trim() ? input.factLabel.trim() : factType
   };
 }

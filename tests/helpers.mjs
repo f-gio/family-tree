@@ -23,7 +23,7 @@ const MIME = {
   ".ico": "image/x-icon"
 };
 
-const CHROMIUM_UNSAFE_PORTS = new Set([6000, 6665, 6666, 6667, 6668, 6669]);
+const CHROMIUM_UNSAFE_PORTS = new Set([6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697]);
 
 export async function startStaticServer(root = ROOT) {
   const base = root.replace(/[\\/]+$/, "");

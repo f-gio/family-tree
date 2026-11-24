@@ -28,6 +28,13 @@ Ce document consigne les décisions communiquées et l'état connu du lot 0. Il 
 7. Les autorisations doivent être imposées au niveau des données, et pas seulement dans l'interface.
 8. Les sauvegardes et restaurations doivent être testées progressivement avant publication.
 
+### Valeurs documentaires des Preuves
+
+- Une valeur lue dans un document est portée par `genealogyProofs[].sourceValue`; elle ne remplace jamais la valeur généalogique ni ne crée un événement Personne.
+- Une date attestée utilise directement la structure généalogique existante (`{ type, value|year|from/to }`). Pour une profession ou une résidence, la période facultative accompagne la valeur sous `{ value, dateInfo }` dans `sourceValue`.
+- `referenceDateInfo` reste réservé à la date de référence des affirmations d’état de vie (« vivant/décédé à cette date ») et n’est pas réutilisé pour la date d’un fait.
+- Les preuves historiques sans `sourceValue` restent sans valeur documentaire explicite (`null` à la lecture); aucune valeur n’est reconstituée depuis les fiches Personne. Les révisions existantes restent immuables.
+
 ## B. Les neuf chapitres fonctionnels
 
 Les neuf chapitres sont annoncés dans le périmètre fonctionnel. Leurs intitulés détaillés, critères et règles propres ne sont pas présents dans la documentation du dépôt consultée lors de la préparation de ce document. Ils ne sont donc pas reconstitués ici.

@@ -135,12 +135,22 @@ async function verifyServedFiles(outputRoot, files) {
       response.end("404");
     }
   });
-  await new Promise((resolveListen, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolveListen);
-  });
+  const fetchUnsafePorts = new Set([6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697, 10080]);
+  let address;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await new Promise((resolveListen, reject) => {
+      const onError = error => { server.off("listening", onListening); reject(error); };
+      const onListening = () => { server.off("error", onError); resolveListen(); };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(0, "127.0.0.1", onListening);
+    });
+    address = server.address();
+    if (!fetchUnsafePorts.has(address.port)) break;
+    await new Promise((resolveClose, rejectClose) => server.close(error => error ? rejectClose(error) : resolveClose()));
+    if (attempt === 19) throw new Error("Impossible d’allouer un port local accepté par fetch");
+  }
   try {
-    const address = server.address();
     const baseUrl = `http://127.0.0.1:${address.port}/`;
     for (const file of files) {
       const response = await fetch(new URL(file.split("/").map(encodeURIComponent).join("/"), baseUrl));

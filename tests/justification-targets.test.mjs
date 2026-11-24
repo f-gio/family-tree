@@ -277,6 +277,19 @@ test("les états de vie à une date existent sans aucune valeur de décès sur l
   assert.equal(JSON.stringify({ people, families }), snapshot, "aucune Personne ni Foyer n’est muté");
 });
 
+test("le registre expose des cibles documentaires stables pour résidence, profession et parcours inconnus", () => {
+  const person = { id: "sans-evenements", firstName: "A", lastName: "B" };
+  const first = enumerateJustificationTargets({ people: [person] }).targets;
+  const second = enumerateJustificationTargets({ people: [{ ...person, professions: [{ id: "job", label: "Agriculteur" }] }] }).targets;
+  for (const type of ["person.residence.place", "person.profession.label", "person.lifeEvent.label"]) {
+    const claim = first.find(target => target.targetType === type && target.identityStrategy === "owner-and-claim-kind");
+    assert.ok(claim, `${type} existe avant la saisie généalogique`);
+    assert.equal(claim.valueState, "absent");
+    assert.equal(claim.path.fields.length, 0, "aucun événement n'est inventé");
+    assert.equal(second.find(target => target.targetType === type && target.identityStrategy === "owner-and-claim-kind").id, claim.id, "identifiant documentaire stable indépendant des valeurs de fiche");
+  }
+});
+
 test("les relations familiales sont explicites, nommées et sans ambiguïté de Foyer", () => {
   const { people, families } = vitalAndRelationFixture();
   const snapshot = JSON.stringify({ people, families });
