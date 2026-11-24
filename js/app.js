@@ -2548,9 +2548,8 @@ function personPageResearchMarkup(item) {
     const documentItem = documents.find(item => item.id === data.documentId);
     const relation = PROOF_RELATION_LABELS[data.relation] || data.relation || "Mention";
     const statusBadge = data.technicalStatus ? genealogyStatusBadgeHtml(data.technicalStatus) : `<span class="genealogy-status-badge">À vérifier</span>`;
-    const primary = value.value || category;
     const document = documentItem ? `<span class="person-detail-research-document">${icon("document")}<span>${esc(documentDisplayLabel(documentItem))}</span></span>` : "";
-    return `<article class="person-detail-research-card person-detail-research-card--proof" tabindex="0" role="button" aria-label="Consulter la preuve : ${esc(category)}${value.value ? `, ${esc(value.value)}` : ""}" data-view-proof="${esc(record.id)}">${value.value ? `<span class="person-detail-research-category">${esc(category)}</span>` : ""}<strong>${esc(primary)}</strong>${value.temporal ? `<span class="person-detail-research-temporal">${esc(value.temporal)}</span>` : ""}${value.referenceDate ? `<span class="person-detail-research-temporal">Date de référence : ${esc(value.referenceDate)}</span>` : ""}${document}<span class="person-detail-research-meta"><span>${esc(relation)}</span>${statusBadge}</span></article>`;
+    return `<article class="person-detail-research-card person-detail-research-card--proof" tabindex="0" role="button" aria-label="Consulter la preuve : ${esc(category)}${value.value ? `, ${esc(value.value)}` : ""}" data-view-proof="${esc(record.id)}"><span class="person-detail-research-line"><span>${documentaryValueMarkup(category, data.sourceValue, data.referenceDateInfo)}</span><span class="person-detail-research-meta"><span>${esc(relation)}</span>${statusBadge}</span></span>${document}</article>`;
   });
   const conclusionCards = linkedConclusions.map(record => {
     const data = genealogyRecordData(record);
@@ -3346,7 +3345,17 @@ function documentaryValueParts(sourceValue, referenceDateInfo = null) {
 
 function documentaryValueSummary(sourceValue, referenceDateInfo = null) {
   const parts = documentaryValueParts(sourceValue, referenceDateInfo);
-  return [parts.value, parts.temporal, parts.referenceDate ? `Date de référence : ${parts.referenceDate}` : ""].filter(Boolean).join(" · ");
+  const temporal = parts.temporal ? ` ${parts.temporal}` : "";
+  const reference = parts.referenceDate ? ` — Date de référence : ${parts.referenceDate}` : "";
+  return `${parts.value || ""}${temporal}${reference}`;
+}
+
+function documentaryValueMarkup(factLabel, sourceValue, referenceDateInfo = null) {
+  const parts = documentaryValueParts(sourceValue, referenceDateInfo);
+  if (!parts.value) return esc(factLabel);
+  const temporal = parts.temporal ? ` ${esc(parts.temporal)}` : "";
+  const reference = parts.referenceDate ? ` — Date de référence : ${esc(parts.referenceDate)}` : "";
+  return `<span class="documentary-fact-label">${esc(factLabel)}</span> : <strong class="documentary-fact-value">${esc(parts.value)}${temporal}${reference}</strong>`;
 }
 
 function journeyAssociationListMarkup() {
@@ -3362,14 +3371,14 @@ function journeyAssociationListMarkup() {
     const docLabel = documentItem ? documentDisplayLabel(documentItem) : "Document retiré de l’arbre";
     const factLabel = documentaryFactLabel(item.factType);
     const valueParts = documentaryValueParts(item.sourceValue, item.referenceDateInfo);
-    const primaryValue = valueParts.value || factLabel;
     const relationLabel = PROOF_RELATION_LABELS[item.relation] || item.relation;
+    const actionLabel = valueParts.value || factLabel;
     return `<tr data-journey-association="${esc(item.key)}">
       <td data-col="subject" data-label="Personne / relation"><strong>${esc(journeyAssociationSubjectLabel(item))}</strong></td>
-      <td data-col="fact" data-label="Information attestée"><strong class="attestation-fact-value">${esc(primaryValue)}</strong>${valueParts.value ? `<small class="attestation-fact-category">${esc(factLabel)}</small>` : ""}${valueParts.temporal ? `<small class="attestation-fact-temporal">${esc(valueParts.temporal)}</small>` : ""}${valueParts.referenceDate ? `<small class="attestation-fact-temporal">Date de référence : ${esc(valueParts.referenceDate)}</small>` : ""}</td>
+      <td data-col="fact" data-label="Information attestée">${documentaryValueMarkup(factLabel, item.sourceValue, item.referenceDateInfo)}</td>
       <td data-col="document" data-label="Document">${esc(docLabel)}</td>
       <td data-col="qualification" data-label="Qualification"><span class="attestation-qualification attestation-qualification--${esc(item.relation)}">${esc(relationLabel)}</span></td>
-      <td data-col="action" data-label="Actions"><span class="attestation-association-actions"><button class="btn icon-btn" type="button" data-journey-association-edit="${esc(item.key)}" aria-label="Modifier ${esc(primaryValue)}" title="Modifier l’association">${icon("edit")}</button><button class="btn icon-btn life-delete-icon" type="button" data-journey-association-remove="${esc(item.key)}" aria-label="Retirer ${esc(primaryValue)}" title="Retirer cette association">${icon("trash")}</button></span></td>
+      <td data-col="action" data-label="Actions"><span class="attestation-association-actions"><button class="btn icon-btn" type="button" data-journey-association-edit="${esc(item.key)}" aria-label="Modifier ${esc(actionLabel)}" title="Modifier l’association">${icon("edit")}</button><button class="btn icon-btn life-delete-icon" type="button" data-journey-association-remove="${esc(item.key)}" aria-label="Retirer ${esc(actionLabel)}" title="Retirer cette association">${icon("trash")}</button></span></td>
     </tr>`;
   }).join("");
   return `<div class="attestation-table-wrap">
@@ -3505,6 +3514,7 @@ function journeyInfoPanelMarkup(item) {
   return `<div class="attestation-panel" data-journey-attestation-panel="info" id="journeyInfoPanel">
       <div class="attestation-panel-head">
         <h5>${draft.editingAssociationKey ? "Modifier l’information attestée" : "Nouvelle information"}</h5>
+        <button class="btn icon-btn attestation-panel-close" type="button" data-journey-panel-close aria-label="Annuler la modification de l’information" title="Annuler la modification de l’information">${icon("close")}</button>
       </div>
       <div class="attestation-field" data-attestation-field="subject">
         <span class="attestation-field-index" aria-hidden="true">1.</span>
@@ -3552,8 +3562,7 @@ function journeyInfoPanelMarkup(item) {
       </div>
       ${journeyErrorMarkup("association")}
       <div class="attestation-panel-actions attestation-panel-actions--end">
-        <button class="btn small" type="button" data-journey-panel-close>Annuler</button>
-        <button class="btn small primary" type="button" data-journey-association-add>${draft.editingAssociationKey ? "Enregistrer les modifications" : "Ajouter l’information"}</button>
+        <button class="btn small attestation-secondary-action" type="button" data-journey-association-add>${icon(draft.editingAssociationKey ? "check" : "plus")}<span>${draft.editingAssociationKey ? "Appliquer les modifications" : "Ajouter l’information"}</span></button>
       </div>
     </div>`;
 }
@@ -8286,11 +8295,11 @@ function proofDetailsMarkup(data, record) {
   const facts = [
     ["Information attestée", esc(factLabel)],
     ["Personne concernée", personEntries ? (data.personIds || []).map(id => esc(directoryPersonName(people.find(item => item.id === id) || {}))).filter(Boolean).join(", ") : "Aucune personne associée"],
-    ["Valeur documentaire", documentaryValue.value ? `<strong class="proof-documentary-value">${esc(documentaryValue.value)}</strong>` : "Valeur documentaire non précisée"],
+    ["Valeur documentaire", documentaryValue.value
+      ? `${documentaryValueMarkup(factLabel, data.sourceValue, data.referenceDateInfo)}`
+      : "Valeur documentaire non précisée"],
     ["Relation à la conclusion", relationLabel ? esc(relationLabel) : "—"]
   ];
-  if (documentaryValue.temporal) facts.push(["Date ou période", esc(documentaryValue.temporal)]);
-  if (documentaryValue.referenceDate) facts.push(["Date de référence", esc(documentaryValue.referenceDate)]);
   if (data.pageId) facts.push(["Page", esc(String(data.pageId))]);
   if (data.passageId) {
     const passageLabel = data.passageLineLabel ? `Passage · ${data.passageLineLabel}` : "Passage cité";

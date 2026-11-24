@@ -176,7 +176,7 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     assert.doesNotMatch(revisionHistory, /Invalid Date|fixture-author|proof-revision-fixture/);
     assert.match(revisionHistory, /Auteur de démonstration/);
     assert.equal(state.factColumnCount, 2, "faits structurés en deux colonnes sur ordinateur");
-    assert.match(await page.locator("#proofPageContent").innerText(), /Valeur documentaire[\s\S]*1890/i);
+    assert.match(await page.locator("#proofPageContent").innerText(), /VALEUR DOCUMENTAIRE[\s\S]*Naissance : 1890/i);
     assert.doesNotMatch(await page.locator("#proofPageContent").innerText(), /\[object Object\]/);
     await page.evaluate(() => window.__proofPageTest.setSourceValue({ value: "Metz", placeInfo: { name: "Metz", countryCode: "FRA" }, dateInfo: { type: "between", from: 1930, to: 1940 } }, null));
     assert.match(await page.locator("#proofPageContent").innerText(), /Metz \(FRA\)[\s\S]*entre 1930 et 1940/i, "lieu et période structurés sans JSON brut");

@@ -1929,7 +1929,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.ok(layout.timelineItemRects[0].left < layout.timelineItemRects[1].left && layout.timelineItemRects[1].left < layout.timelineItemRects[2].left, `${width}px : événements ordonnés horizontalement`);
         assert.ok(layout.timelineItemRects.every(item => Math.abs(item.top - layout.timelineItemRects[0].top) < 1), `${width}px : pastilles sur une même rangée`);
         assert.ok(layout.timelineItemRects.every(item => Math.abs(item.dotTop + item.dotHeight / 2 - item.top - item.lineTop - item.lineHeight / 2) <= 1), `${width}px : trait horizontal centré sur les pastilles`);
-         assert.ok(layout.timelineLayout.ratio >= 0.88 && layout.timelineLayout.ratio <= 1, `${width}px : timeline desktop utilise la largeur disponible pour les événements (${layout.timelineLayout.ratio})`);
+        assert.ok(layout.timelineLayout.ratio >= 0.88 && layout.timelineLayout.ratio <= 1, `${width}px : timeline desktop utilise la largeur disponible pour les événements (${layout.timelineLayout.ratio})`);
         assert.ok(layout.timelineLayout.centeredGap <= 4, `${width}px : timeline centrée horizontalement (écart ${layout.timelineLayout.centeredGap}px)`);
         layout.timelineItemRects.forEach((item, index) => {
           assert.ok(Math.abs(item.dotCenter - item.contentCenter) <= 2, `${width}px : pastille ${index + 1} alignée sur le centre de son bloc (${Math.round(item.dotCenter)} / ${Math.round(item.contentCenter)})`);
@@ -1937,11 +1937,13 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           assert.ok(item.iconLeft <= item.titleLeft, `${width}px : icône de l'événement ${index + 1} à gauche du libellé`);
           assert.ok(item.iconWidth <= 18, `${width}px : icône de l'événement ${index + 1} lisible à 18 px (${item.iconWidth}px)`);
         });
-         assert.ok(layout.timelineLayout.headingToLine >= 36 && layout.timelineLayout.headingToLine <= 44, `${width}px : respiration titre principal → axe (${Math.round(layout.timelineLayout.headingToLine)}px)`);
-         assert.ok(layout.timelineLayout.lineToContent >= 24 && layout.timelineLayout.lineToContent <= 32, `${width}px : respiration axe → informations (${Math.round(layout.timelineLayout.lineToContent)}px)`);
-         assert.equal(layout.timelineLayout.dateBelowTitle, true, `${width}px : date sur son propre niveau sous le libellé du jalon`);
+        assert.ok(layout.timelineLayout.headingToLine >= 34 && layout.timelineLayout.headingToLine <= 42, `${width}px : respiration titre principal → axe (${Math.round(layout.timelineLayout.headingToLine)}px)`);
+        assert.ok(layout.timelineLayout.lineToContent >= 20 && layout.timelineLayout.lineToContent <= 28, `${width}px : respiration axe → informations (${Math.round(layout.timelineLayout.lineToContent)}px)`);
+        assert.equal(layout.timelineLayout.dateBelowTitle, true, `${width}px : date sur son propre niveau sous le libellé du jalon`);
         assert.equal(layout.timelineLayout.titleTransform, "uppercase", `${width}px : libellés d'événements en capitales`);
-         assert.equal(layout.timelineLayout.ageCount, 0, `${width}px : aucun âge avec des dates de naissance/mariage partielles`);
+        assert.equal(layout.timelineLayout.ageCount, 0, `${width}px : aucun âge avec des dates de naissance/mariage partielles`);
+        const timelineDateColor = await page.locator("#personPageTimeline .timeline-desktop-date-age").first().evaluate(node => getComputedStyle(node).color);
+        assert.equal(timelineDateColor, "rgb(40, 75, 63)", `${width}px : dates desktop en vert foncé du Design System`);
         assert.equal(layout.statusBadge && ["flex", "inline-flex"].includes(layout.statusBadge.display), true, `${width}px : badge Décédé visible sur desktop (${layout.statusBadge && layout.statusBadge.display})`);
         assert.equal(layout.docTitleStyle.size, 13, `${width}px : titre documentaire à 13px`);
         assert.equal(layout.docTitleStyle.weight, "600", `${width}px : titre documentaire en graisse 600`);

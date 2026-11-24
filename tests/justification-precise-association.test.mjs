@@ -277,7 +277,9 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     assert.ok(labels.includes("Comment le document se rapporte-t-il au fait ?"), "champ 4");
     assert.match(await page.locator("#journeyInfoPanel .attestation-field").first().innerText(), /1\./, "numéro du champ 1");
     assert.match(await page.locator("#journeyInfoPanel").innerText(), /Recherchez une personne dans l'arbre/, "aide de recherche globale");
-    assert.equal(await page.locator("#journeyInfoPanel [data-journey-panel-close]").count(), 1, "seule l'action Annuler ferme le composeur");
+    assert.equal(await page.locator("#journeyInfoPanel [data-journey-panel-close]").count(), 1, "une seule croix annule la saisie interne");
+    assert.match(await page.locator("[data-journey-association-add]").innerText(), /Ajouter l’information/, "CTA secondaire d’ajout");
+    assert.equal(await page.locator("#journeyInfoPanel [data-journey-panel-close] + button").count(), 0, "aucun CTA secondaire concurrent dans le pied du formulaire");
 
     /* Champ 1 : personne présélectionnée, suggestions réelles, recherche globale. */
     assert.equal(await page.locator("#journeyAssociationSubjectSearch").inputValue(), "Ada Rossi", "personne actuelle présélectionnée dans le champ unique");
@@ -382,7 +384,7 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     await page.locator('#journeyInfoPanel [data-journey-date-type="year"]').first().click();
     await page.locator("#journeyDateYear").first().fill("1925");
     await page.locator("[data-journey-association-add]").click();
-    assert.match(await page.locator("#journeyAssociationList").innerText(), /Menuisier[\s\S]*1925/, "valeur documentaire et période indépendante persistées dans l’association");
+    assert.match(await page.locator("#journeyAssociationList").innerText(), /Profession \/ activité :[\s\S]*Menuisier 1925/, "valeur documentaire et période formulées naturellement");
     assert.equal(await page.evaluate(() => window.__preciseProofTest.professions("precise-b")), undefined, "aucun événement professionnel généalogique fabriqué");
     await page.locator('[data-journey-attestation-panel-open="info"]').click();
     const residenceFact = await page.locator("#journeyAssociationFact option").evaluateAll(nodes => nodes.find(node => node.textContent.includes("Lieu de résidence"))?.value || "");
@@ -422,7 +424,7 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     await page.locator('#journeyInfoPanel [data-journey-date-type="year"]').first().click();
     await page.locator("#journeyDateYear").first().fill("1891");
     await page.locator('[data-journey-association-add]').click();
-    assert.match(await page.locator("#journeyAssociationList").innerText(), /1891/, "valeur documentaire modifiée immédiatement dans le brouillon");
+    assert.match(await page.locator("#journeyAssociationList").innerText(), /Date de naissance :[\s\S]*1891/, "valeur documentaire modifiée immédiatement dans le brouillon");
     assert.ok(nativeDialogs.some(message => /réutilisée par une autre attestation/i.test(message)), "la modification partagée demande une décision explicite");
     assert.ok((await page.evaluate(() => window.__preciseProofTest.associations())).some(item => item.pendingRevision && item.proofId === "precise-proof-seed"), "édition persistée conservée comme révision en brouillon");
 
