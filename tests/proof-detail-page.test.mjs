@@ -6,6 +6,11 @@ import { ROOT, startStaticServer } from "./helpers.mjs";
 const hooks = `
 window.__proofPageTest = {
   show(view = "genealogy") { $("authScreen").hidden = true; $("topbar").hidden = false; setView(view); },
+  setSourceValue(value, referenceDateInfo = null) {
+    genealogyRecords.genealogyProofs[0].data.sourceValue = value;
+    genealogyRecords.genealogyProofs[0].data.referenceDateInfo = referenceDateInfo;
+    refreshOpenProofPage();
+  },
   seed() {
     const firestoreTimestamp = { toDate() { return new Date("2024-01-01T00:00:00Z"); } };
     const documentItem = {
@@ -171,7 +176,13 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     assert.doesNotMatch(revisionHistory, /Invalid Date|fixture-author|proof-revision-fixture/);
     assert.match(revisionHistory, /Auteur de démonstration/);
     assert.equal(state.factColumnCount, 2, "faits structurés en deux colonnes sur ordinateur");
-    assert.match(await page.locator("#proofPageContent").innerText(), /Valeur relevée dans le document[\s\S]*1890/i);
+    assert.match(await page.locator("#proofPageContent").innerText(), /Valeur documentaire[\s\S]*1890/i);
+    assert.doesNotMatch(await page.locator("#proofPageContent").innerText(), /\[object Object\]/);
+    await page.evaluate(() => window.__proofPageTest.setSourceValue({ value: "Metz", placeInfo: { name: "Metz", countryCode: "FRA" }, dateInfo: { type: "between", from: 1930, to: 1940 } }, null));
+    assert.match(await page.locator("#proofPageContent").innerText(), /Metz \(FRA\)[\s\S]*entre 1930 et 1940/i, "lieu et période structurés sans JSON brut");
+    await page.evaluate(() => window.__proofPageTest.setSourceValue({ value: "Femme au foyer", dateInfo: { type: "between", from: 1930, to: 1940 } }, { type: "year", year: 1945 }));
+    assert.match(await page.locator("#proofPageContent").innerText(), /Femme au foyer[\s\S]*entre 1930 et 1940[\s\S]*Date de référence[\s\S]*1945/i, "valeur, période et référence restent distinctes");
+    await page.evaluate(() => window.__proofPageTest.setSourceValue("1890", null));
     assert.match(await page.locator("#proofPageContent").innerText(), /née le quinze mars/);
     assert.match(await page.locator("#proofPageContent").innerText(), /La date est confirmée/);
     assert.ok(await page.locator("#proofPageContent [data-genealogy-person]").count(), "personne associée consultable");
@@ -259,9 +270,16 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.getElementById("personDialog").open);
     await page.evaluate(() => window.__proofPageTest.openProof());
+    await page.evaluate(() => window.__proofPageTest.setSourceValue({ value: "Femme au foyer", dateInfo: { type: "between", from: 1930, to: 1940 } }, { type: "year", year: 1945 }));
     await page.click("#proofPageReviseBtn");
     await page.waitForSelector("#genealogyContributionDialog[open]");
     assert.equal((await page.evaluate(() => window.__proofPageTest.state())).proofVisible, true);
+    assert.equal(await page.locator("#proofSourceValue").inputValue(), "Femme au foyer", "révision préremplie avec la valeur documentaire");
+    const sourceDateUI = await page.locator("#proofSourceTemporalFields").evaluate(node => ({ hidden: node.hidden, html: node.innerHTML, value: document.querySelector("#journeyDateFrom")?.value }));
+    assert.ok(sourceDateUI.html.includes("journeyDateFrom"), `dates documentaires structurées préremplies (${JSON.stringify(sourceDateUI)})`);
+    assert.equal(await page.locator("#proofSourceTemporalFields #journeyDateFrom").inputValue(), "1930", "révision préremplie avec la première borne structurée");
+    assert.equal(await page.locator("#proofSourceTemporalFields #journeyDateTo").inputValue(), "1940", "révision préremplie avec la seconde borne structurée");
+    assert.equal(await page.locator("#proofReferenceDateFields #journeyDateYear").inputValue(), "1945", "date de référence distincte préremplie");
     await page.locator('#genealogyContributionDialog [data-close="genealogyContributionDialog"]').first().click();
     await page.waitForFunction(() => !document.getElementById("genealogyContributionDialog").open);
     await page.evaluate(() => window.__proofPageTest.setRole("member"));

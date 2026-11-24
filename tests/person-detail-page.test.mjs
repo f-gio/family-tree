@@ -1741,9 +1741,9 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
             const itemRect = item.getBoundingClientRect();
             const dotRect = item.querySelector(".timeline-dot").getBoundingClientRect();
             const lineStyle = getComputedStyle(item, "::after");
-            const contentRect = item.querySelector(".timeline-content").getBoundingClientRect();
-            const icon = item.querySelector(".timeline-icon");
-            const titleRect = item.querySelector(".timeline-title").getBoundingClientRect();
+             const contentRect = item.querySelector(".timeline-desktop-content").getBoundingClientRect();
+             const icon = item.querySelector(".timeline-desktop-icon");
+             const titleRect = item.querySelector(".timeline-title--desktop").getBoundingClientRect();
             return {
               left: itemRect.left, top: itemRect.top,
               dotCenter: dotRect.left + dotRect.width / 2, dotTop: dotRect.top, dotHeight: dotRect.height,
@@ -1769,17 +1769,16 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
             const heading = timeline.querySelector("h3").getBoundingClientRect();
             const firstItem = timelineItems[0];
             const dot = firstItem.querySelector(".timeline-dot").getBoundingClientRect();
-            const line = firstItem.querySelector(".timeline-line").getBoundingClientRect();
-            const title = firstItem.querySelector(".timeline-title").getBoundingClientRect();
-            const date = firstItem.querySelector(".timeline-date").getBoundingClientRect();
+             const title = firstItem.querySelector(".timeline-desktop-heading").getBoundingClientRect();
+             const date = firstItem.querySelector(".timeline-desktop-date-age").getBoundingClientRect();
             return {
               ratio: Number((list.width / card.width).toFixed(3)),
               centeredGap: Math.abs((list.left - card.left) - (card.right - list.right)),
               headingToLine: dot.top - heading.bottom,
-              lineToContent: line.top - (dot.top + dot.height / 2),
+               lineToContent: date.top - (dot.top + dot.height / 2),
               dateBelowTitle: date.top >= title.bottom - 1,
-              titleTransform: getComputedStyle(firstItem.querySelector(".timeline-title")).textTransform,
-              ageCount: timelineList.querySelectorAll(".timeline-age").length
+               titleTransform: getComputedStyle(firstItem.querySelector(".timeline-title--desktop")).textTransform,
+               ageCount: timelineList.querySelectorAll(".timeline-age--desktop").length
             };
           })(),
           pdfFormatDisplay: pdfCard && getComputedStyle(pdfCard.querySelector(".person-detail-document-format")).display,
@@ -1930,7 +1929,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.ok(layout.timelineItemRects[0].left < layout.timelineItemRects[1].left && layout.timelineItemRects[1].left < layout.timelineItemRects[2].left, `${width}px : événements ordonnés horizontalement`);
         assert.ok(layout.timelineItemRects.every(item => Math.abs(item.top - layout.timelineItemRects[0].top) < 1), `${width}px : pastilles sur une même rangée`);
         assert.ok(layout.timelineItemRects.every(item => Math.abs(item.dotTop + item.dotHeight / 2 - item.top - item.lineTop - item.lineHeight / 2) <= 1), `${width}px : trait horizontal centré sur les pastilles`);
-        assert.ok(layout.timelineLayout.ratio >= 0.75 && layout.timelineLayout.ratio <= 0.9, `${width}px : timeline centrée sur environ 84% de la carte (ratio ${layout.timelineLayout.ratio})`);
+         assert.ok(layout.timelineLayout.ratio >= 0.88 && layout.timelineLayout.ratio <= 1, `${width}px : timeline desktop utilise la largeur disponible pour les événements (${layout.timelineLayout.ratio})`);
         assert.ok(layout.timelineLayout.centeredGap <= 4, `${width}px : timeline centrée horizontalement (écart ${layout.timelineLayout.centeredGap}px)`);
         layout.timelineItemRects.forEach((item, index) => {
           assert.ok(Math.abs(item.dotCenter - item.contentCenter) <= 2, `${width}px : pastille ${index + 1} alignée sur le centre de son bloc (${Math.round(item.dotCenter)} / ${Math.round(item.contentCenter)})`);
@@ -1938,11 +1937,11 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           assert.ok(item.iconLeft <= item.titleLeft, `${width}px : icône de l'événement ${index + 1} à gauche du libellé`);
           assert.ok(item.iconWidth <= 18, `${width}px : icône de l'événement ${index + 1} lisible à 18 px (${item.iconWidth}px)`);
         });
-        assert.ok(layout.timelineLayout.headingToLine >= 22 && layout.timelineLayout.headingToLine <= 30, `${width}px : respiration titre → ligne (${Math.round(layout.timelineLayout.headingToLine)}px)`);
-        assert.ok(layout.timelineLayout.lineToContent >= 18 && layout.timelineLayout.lineToContent <= 24, `${width}px : respiration ligne → informations (${Math.round(layout.timelineLayout.lineToContent)}px)`);
-        assert.equal(layout.timelineLayout.dateBelowTitle, true, `${width}px : date sur son propre niveau sous le libellé`);
+         assert.ok(layout.timelineLayout.headingToLine >= 36 && layout.timelineLayout.headingToLine <= 44, `${width}px : respiration titre principal → axe (${Math.round(layout.timelineLayout.headingToLine)}px)`);
+         assert.ok(layout.timelineLayout.lineToContent >= 24 && layout.timelineLayout.lineToContent <= 32, `${width}px : respiration axe → informations (${Math.round(layout.timelineLayout.lineToContent)}px)`);
+         assert.equal(layout.timelineLayout.dateBelowTitle, true, `${width}px : date sur son propre niveau sous le libellé du jalon`);
         assert.equal(layout.timelineLayout.titleTransform, "uppercase", `${width}px : libellés d'événements en capitales`);
-        assert.equal(layout.timelineLayout.ageCount, 0, `${width}px : aucun âge avec des dates de naissance/mariage partielles`);
+         assert.equal(layout.timelineLayout.ageCount, 0, `${width}px : aucun âge avec des dates de naissance/mariage partielles`);
         assert.equal(layout.statusBadge && ["flex", "inline-flex"].includes(layout.statusBadge.display), true, `${width}px : badge Décédé visible sur desktop (${layout.statusBadge && layout.statusBadge.display})`);
         assert.equal(layout.docTitleStyle.size, 13, `${width}px : titre documentaire à 13px`);
         assert.equal(layout.docTitleStyle.weight, "600", `${width}px : titre documentaire en graisse 600`);
@@ -2180,6 +2179,16 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
     assert.deepEqual(exactAges.titles, ["Naissance", "Mariage", "Décès"], "parcours complet : naissance, mariage, décès");
     assert.deepEqual(exactAges.ages, ["· 26 ans", "· 26 ans"], "âges au mariage et au décès, aucun à la naissance");
     assert.ok(["inline", "block"].includes(exactAges.ageDisplay), `âge visible sur desktop (${exactAges.ageDisplay})`);
+    const desktopTimeline = await page.evaluate(() => ({
+      titles: [...document.querySelectorAll("#personPageTimeline .timeline-title--desktop")].map(node => getComputedStyle(node).textTransform === "uppercase" ? node.textContent.toLocaleUpperCase("fr-FR") : node.textContent),
+      dates: [...document.querySelectorAll("#personPageTimeline .timeline-date--desktop")].map(node => node.textContent),
+      ages: [...document.querySelectorAll("#personPageTimeline .timeline-age--desktop")].map(node => node.textContent),
+      detail: document.querySelector('#personPageTimeline [data-life-event="union-person-page-family-d"] .timeline-detail--desktop')?.textContent
+    }));
+    assert.deepEqual(desktopTimeline.titles, ["NAISSANCE", "MARIAGE", "DÉCÈS"], "intitulés desktop centrés au-dessus de l’axe");
+    assert.deepEqual(desktopTimeline.dates, ["25/08/1904", "06/12/1930", "28/07/1931"], "dates exactes desktop au format JJ/MM/AAAA");
+    assert.deepEqual(desktopTimeline.ages, ["26 ans", "26 ans"], "âge desktop sur la ligne de date sans séparateur quand absent");
+    assert.match(desktopTimeline.detail, /avec Émile Conti/);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => window.__personPageTest.openDirectory());
     await page.locator('#directoryList [data-directory-person="person-page-d"]').click();
@@ -2192,6 +2201,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       const coreBottom = Math.max(title.bottom, ...dates.map(rect => rect.bottom));
       return {
         age: getComputedStyle(document.querySelector("#personPageTimeline .timeline-age")).display,
+        desktopOnly: getComputedStyle(document.querySelector("#personPageTimeline .timeline-desktop-content")).display,
         status: getComputedStyle(document.querySelector("#personPageEssentials .person-detail-status")).display,
         photoCenterDelta: Math.round(((portrait.top + portrait.bottom) / 2 - (coreTop + coreBottom) / 2) * 10) / 10,
         titleLines: Math.round(title.height / Number.parseFloat(getComputedStyle(document.getElementById("personPageTitle")).lineHeight)),
@@ -2199,6 +2209,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       };
     });
     assert.match(mobileExact.age, /inline|block|flex/, `âge exact visible sur mobile (${mobileExact.age})`);
+    assert.equal(mobileExact.desktopOnly, "none", "la structure desktop est masquée et n’altère pas le rendu mobile");
     assert.ok(["flex", "inline-flex"].includes(mobileExact.status), `badge Décédé visible sur mobile (${mobileExact.status})`);
     assert.ok(Math.abs(mobileExact.photoCenterDelta) <= 2.5, `portrait centré sur le nom et les dates malgré les badges (${mobileExact.photoCenterDelta}px)`);
     assert.ok(mobileExact.titleLines >= 1, `nom long conservé sur une ou plusieurs lignes (${mobileExact.titleLines})`);
@@ -3809,7 +3820,7 @@ test("WebKit mobile : contrôles Date contenus et variantes en pile dans la fich
         attestationHeading: panel?.querySelector(".life-event-attestations h4")?.textContent || "",
         expanded: document.querySelector(`#personPageTimeline [data-life-event="detailed-event-${id}"]`)?.getAttribute("aria-expanded"),
         icon: (() => {
-          const svg = document.querySelector(`#personPageTimeline [data-life-event="detailed-event-${id}"] .timeline-icon`);
+          const svg = document.querySelector(`#personPageTimeline [data-life-event="detailed-event-${id}"] .timeline-desktop-icon`);
           if (!svg) return null;
           const style = getComputedStyle(svg);
           return { bg: style.backgroundColor, color: style.color, href: svg.querySelector("use")?.getAttribute("href"), width: Math.round(svg.getBoundingClientRect().width) };

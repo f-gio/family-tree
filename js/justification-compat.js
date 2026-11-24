@@ -583,7 +583,9 @@ export function createJustificationAssociation(input = {}) {
   let personIds;
   let familyId;
   if (subjectKind === "person") {
-    personIds = [subjectId];
+    const relatedPeople = Array.isArray(input.personIds) ? input.personIds
+      .filter(id => isValidId(id)).map(id => id.trim()) : [];
+    personIds = [...new Set([subjectId, ...relatedPeople])];
     familyId = null;
   } else {
     personIds = [...new Set((Array.isArray(input.personIds) ? input.personIds : [])

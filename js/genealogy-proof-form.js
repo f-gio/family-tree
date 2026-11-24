@@ -58,8 +58,8 @@ export function validateProofGuidedFields(fields = {}) {
   if (passageId && !transcriptionRevisionId) errors.passage = "Le passage sélectionné n'est plus lié à une révision de transcription.";
   if (!PROOF_RELATIONS.includes(fields.relation)) errors.relation = "Choisissez la relation entre cette source et le fait.";
   const sourceUnknown = Boolean(fields.sourceUnknown);
-  const sourceValue = fields.sourceValue == null ? "" : String(fields.sourceValue).trim();
-  if (!sourceUnknown && !sourceValue) errors.sourceValue = "Indiquez la valeur relevée dans le document, ou cochez « Non relevée ».";
+  const sourceValue = fields.sourceValue == null ? "" : typeof fields.sourceValue === "string" ? fields.sourceValue.trim() : fields.sourceValue;
+  if (!sourceUnknown && (sourceValue === "" || sourceValue == null)) errors.sourceValue = "Indiquez la valeur relevée dans le document, ou cochez « Non relevée ».";
   if (fields.citationIt != null && typeof fields.citationIt !== "string") errors.citationIt = "La citation italienne doit être un texte.";
   if (fields.citationFr != null && typeof fields.citationFr !== "string") errors.citationFr = "La traduction doit être un texte.";
   if (factType && typeof fields.existingFactId === "string" && fields.existingFactId.trim() && fields.existingFactType && factType !== String(fields.existingFactType).trim() && factKind !== "other") {
@@ -105,7 +105,8 @@ export function buildProofGuidedInput(fields = {}) {
     zone: null,
     citationIt: fields.citationIt == null || !String(fields.citationIt).trim() ? null : String(fields.citationIt),
     citationFr: fields.citationFr == null || !String(fields.citationFr).trim() ? null : String(fields.citationFr),
-    sourceValue: sourceUnknown ? null : String(fields.sourceValue || "").trim(),
+    sourceValue: sourceUnknown ? null : typeof fields.sourceValue === "string" ? fields.sourceValue.trim() : structuredClone(fields.sourceValue),
+    ...(Object.hasOwn(fields, "referenceDateInfo") ? { referenceDateInfo: fields.referenceDateInfo ?? null } : {}),
     relation: fields.relation,
     interpretation: String(fields.interpretation || "").trim()
   };

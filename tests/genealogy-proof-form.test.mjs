@@ -68,6 +68,15 @@ test("la preuve construite passe les validations du modèle genealogy-proofs", (
   assert.equal(proof.zone, null);
 });
 
+test("la révision guidée conserve une valeur documentaire structurée sans la convertir en texte brut", () => {
+  const sourceValue = { value: "Femme au foyer", placeInfo: { name: "Metz", countryCode: "FRA" }, dateInfo: { type: "between", from: 1930, to: 1940 } };
+  const referenceDateInfo = { type: "year", year: 1940 };
+  const input = buildProofGuidedInput({ ...base(), sourceValue, referenceDateInfo });
+  assert.deepEqual(input.sourceValue, sourceValue);
+  assert.deepEqual(input.referenceDateInfo, referenceDateInfo, "la date de référence reste distincte de la période de la valeur source");
+  assert.equal(validateProofGuidedFields({ ...base(), sourceValue }).valid, true);
+});
+
 test("passage : page et révision déduites, dépendances respectées", () => {
   const input = buildProofGuidedInput({ ...base(), pageId: "page1", passageId: "passage1", transcriptionRevisionId: "rev1", citationIt: "testo", citationFr: "texte" });
   assert.equal(input.pageId, "page1");

@@ -456,6 +456,8 @@ test("une association explicite relie un document, un sujet, un fait et sa propr
   assert.notEqual(contradicts.relation, association.relation);
   const documentary = createJustificationAssociation({ ...association, sourceValue: { value: "Menuisier", dateInfo: { type: "year", year: 1925 } } });
   assert.deepEqual(documentary.sourceValue, { value: "Menuisier", dateInfo: { type: "year", year: 1925 } }, "la valeur documentaire et sa temporalité structurée sont préservées");
+  const relationAssociation = createJustificationAssociation({ ...association, personIds: ["personne-1", "personne-2"] });
+  assert.deepEqual(relationAssociation.personIds, ["personne-1", "personne-2"], "une preuve relationnelle conserve les deux personnes distinctes");
 
   const familyTarget = targets.find(target => target.owner && target.owner.kind === "family");
   assert.ok(familyTarget, "la cible de Foyer est publiée");
