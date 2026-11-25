@@ -1795,6 +1795,7 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           imageMetadataIcons: extensionImageCard.querySelectorAll(".person-detail-document-format .ui-icon").length,
           unknownFormat: unknownCard.querySelector(".person-detail-document-format"),
           researchChevron: research ? getComputedStyle(research, "::after").content : "none",
+          researchChevronSpans: research ? research.querySelectorAll(".person-detail-research-chevron").length : 0,
           accountRight: account.getBoundingClientRect().right,
           brandLeft: brand.getBoundingClientRect().left,
           accountColumn: getComputedStyle(account).gridColumnStart,
@@ -1961,7 +1962,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         assert.equal(layout.imageMetadataIcons, 0, `${width}px : aucun pictogramme répété dans les métadonnées Image`);
         assert.equal(layout.unknownVisualHref, "#icon-document", `${width}px : pictogramme générique pour format inconnu`);
         assert.equal(layout.unknownFormat, null, `${width}px : repli générique pour type inconnu`);
-        assert.equal(layout.researchChevron, '"›"', `${width}px : chevron sur les recherches ouvrables`);
+        assert.equal(layout.researchChevron, "none", `${width}px : aucun chevron pseudo-élément sur la tuile Preuve (double chevron corrigé)`);
+        assert.equal(layout.researchChevronSpans, 1, `${width}px : exactement un chevron mutualisé sur la tuile ouvrable`);
         assert.ok(layout.accountRight >= layout.viewport - 64 && layout.accountColumn === "3" && layout.brandColumn === "1", `${width}px : compte à droite et marque à gauche (${layout.brandLeft}/${layout.accountRight})`);
         assert.deepEqual(layout.menuActions.map(item => item.action), ["print", "branch", "change-tree", "remove-tree", "delete"], `${width}px : cinq actions dans le menu ⋯`);
         assert.deepEqual(layout.menuActions.slice(1, 4).map(item => item.icon), ["#icon-tree", "#icon-transfer", "#icon-unlink"], `${width}px : icônes distinctes pour les actions arbre`);

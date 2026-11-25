@@ -2247,7 +2247,7 @@ function renderPersonDocuments(personId) {
   ];
   $("personGenealogyEvidenceList").innerHTML = evidence.length
     ? evidence.map(item => {
-      if (item.kind === "proof") return personPageProofResearchTileMarkup(item.record, { editable: true });
+      if (item.kind === "proof") return personPageProofResearchTileMarkup(item.record, { action: personPageInlineEditing ? "revise-tile" : "revise-button" });
       const title = proofFactLabel(item.data.factType) || item.data.factId || item.kind;
       const status = conclusionStatusText(item.data);
       const viewAttribute = `data-view-conclusion="${esc(item.record.id)}"`;
@@ -2539,23 +2539,36 @@ function documentaryQualificationMarkup(relation) {
   return `<span class="documentary-qualification documentary-qualification--${esc(tone)}">${esc(label)}</span>`;
 }
 
-function personPageProofResearchTileMarkup(record, { editable = false } = {}) {
+function personPageProofResearchTileMarkup(record, { action = "chevron" } = {}) {
   const data = genealogyRecordData(record);
   const category = documentaryFactLabel(data.factType) || data.factId || "Information attestée";
   const value = documentaryValueParts(data.sourceValue, data.referenceDateInfo);
   const documentItem = documents.find(item => item.id === data.documentId);
-  const relation = PROOF_RELATION_LABELS[data.relation] || data.relation || PROOF_RELATION_LABELS.mentions;
   const document = documentItem
     ? `<span class="person-detail-research-document">${icon("document")}<span>${esc(documentDisplayLabel(documentItem))}</span></span>`
     : "";
-  const canRevise = editable && isAdminUser();
-  const action = canRevise
-    ? `<button class="btn icon-btn person-detail-research-action person-detail-research-edit" type="button" data-edit-genealogy-proof="${esc(record.id)}" aria-label="Réviser ${esc(category)}${value.value ? ` : ${esc(value.value)}` : ""}" title="Réviser la preuve">${icon("edit")}</button>`
-    : `<span class="person-detail-research-action person-detail-research-chevron" aria-hidden="true">›</span>`;
-  const cardClass = editable
+  /* Trois modes exclusifs : consultation (chevron + ouverture Preuve), fiche
+     (bouton crayon + ouverture Preuve, verrouillé par les tests existants) et
+     modification (la tuile entière déclenche la révision, crayon indicateur). */
+  const tileEdit = action === "revise-tile" && isAdminUser();
+  const reviseButton = action === "revise-button" && isAdminUser();
+  const cardAttr = tileEdit
+    ? `data-edit-genealogy-proof="${esc(record.id)}"`
+    : `data-view-proof="${esc(record.id)}"`;
+  const ariaLabel = tileEdit
+    ? `Réviser ${esc(category)}${value.value ? ` : ${esc(value.value)}` : ""}`
+    : `Consulter la preuve : ${esc(category)}${value.value ? `, ${esc(value.value)}` : ""}`;
+  const indicator = tileEdit
+    ? `<span class="person-detail-research-action person-detail-research-edit" aria-hidden="true">${icon("edit")}</span>`
+    : reviseButton
+      ? `<button class="btn icon-btn person-detail-research-action person-detail-research-edit" type="button" data-edit-genealogy-proof="${esc(record.id)}" aria-label="Réviser ${esc(category)}${value.value ? ` : ${esc(value.value)}` : ""}" title="Réviser la preuve">${icon("edit")}</button>`
+      : `<span class="person-detail-research-action person-detail-research-chevron" aria-hidden="true">›</span>`;
+  const cardClass = action === "revise-tile"
     ? "person-doc-card person-detail-research-card person-detail-research-card--proof person-detail-research-card--editing"
-    : "person-detail-research-card person-detail-research-card--proof";
-  return `<article class="${cardClass}" tabindex="0" role="button" aria-label="Consulter la preuve : ${esc(category)}${value.value ? `, ${esc(value.value)}` : ""}" data-view-proof="${esc(record.id)}"><span class="person-detail-research-information">${documentaryValueMarkup(category, data.sourceValue, data.referenceDateInfo)}</span>${document}<span class="person-detail-research-qualification">${documentaryQualificationMarkup(data.relation)}</span>${action}</article>`;
+    : action === "revise-button"
+      ? "person-doc-card person-detail-research-card person-detail-research-card--proof"
+      : "person-detail-research-card person-detail-research-card--proof";
+  return `<article class="${cardClass}" tabindex="0" role="button" aria-label="${ariaLabel}" ${cardAttr}><span class="person-detail-research-information">${documentaryValueMarkup(category, data.sourceValue, data.referenceDateInfo)}</span>${document}<span class="person-detail-research-qualification">${documentaryQualificationMarkup(data.relation)}</span>${indicator}</article>`;
 }
 
 function personPageResearchMarkup(item) {
@@ -3397,7 +3410,9 @@ function documentaryValueMarkup(factLabel, sourceValue, referenceDateInfo = null
   const connector = documentaryTemporalConnector(parts.value, parts.temporal, parts.valueType);
   const temporal = temporalText ? `${connector}${esc(temporalText)}` : "";
   const reference = parts.referenceDate ? ` — Date de référence : ${esc(parts.referenceDate)}` : "";
-  return `<span class="documentary-fact-label">${esc(factLabel)}</span> : <strong class="documentary-fact-value">${esc(parts.value)}${temporal}${reference}</strong>`;
+  /* Espace insécable avant les deux-points : la ponctuation reste attachée à
+     la catégorie même sur une carte étroite, jamais seule sur une ligne. */
+  return `<span class="documentary-fact-label">${esc(factLabel)}</span>&nbsp;: <strong class="documentary-fact-value">${esc(parts.value)}${temporal}${reference}</strong>`;
 }
 
 function journeyAssociationListMarkup() {
@@ -18111,10 +18126,11 @@ $("personDocumentsList").addEventListener("keydown", event => {
 $("personGenealogyEvidenceList").addEventListener("keydown", event => {
   if (event.key !== "Enter" && event.key !== " ") return;
   if (event.target.closest("button")) return;
-  const card = event.target.closest("[data-view-proof], [data-view-conclusion]");
+  const card = event.target.closest("[data-view-proof], [data-view-conclusion], [data-edit-genealogy-proof]");
   if (!card) return;
   event.preventDefault();
-  if (card.dataset.viewConclusion) openGenealogyItem("conclusion", card.dataset.viewConclusion);
+  if (card.dataset.editGenealogyProof) card.click();
+  else if (card.dataset.viewConclusion) openGenealogyItem("conclusion", card.dataset.viewConclusion);
   else openGenealogyItem("proof", card.dataset.viewProof);
 });
 

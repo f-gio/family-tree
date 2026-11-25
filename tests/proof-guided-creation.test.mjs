@@ -423,7 +423,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       // a) le crayon ouvre la révision guidée (sans JSON)
       assert.equal(await page.locator("#personGenealogyEvidenceList article.person-doc-card").count(), 3, "trois cartes preuve cliquables pour la personne");
       const marriageCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "Mariage" });
-      await marriageCard.locator("[data-edit-genealogy-proof]").click();
+      await marriageCard.click(); /* la tuile entière porte data-edit-genealogy-proof en mode modification */
       await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
       assert.ok(await page.locator("#genealogyOfficialProofFields").isVisible(), "formulaire guidé en révision");
       assert.ok(!(await page.locator("#genealogyContributionPayload").isVisible()), "aucun champ JSON en révision");
@@ -453,7 +453,7 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       await page.waitForTimeout(300);
       await openPersonSection();
       const deathCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "Décès" });
-      await deathCard.locator("[data-edit-genealogy-proof]").click();
+      await deathCard.click();
       await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
       await page.locator('#genealogySourcePersonSelection [data-remove-genealogy-source-person]').first().click();
       await page.waitForTimeout(200);
@@ -482,13 +482,13 @@ test("créations réelles du formulaire guidé de preuve (émulateur)", { timeou
       const openMarriageRevision = async (personName = "Probe") => {
         await openPersonDocumentsForEditing(personName);
         const marriageCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "Mariage" });
-        await marriageCard.locator("[data-edit-genealogy-proof]").click();
+        await marriageCard.click(); /* la tuile entière porte data-edit-genealogy-proof en mode modification */
         await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
       };
       const openBirthRevision = async () => {
         await openPersonDocumentsForEditing("Ada");
         const birthCard = page.locator("#personGenealogyEvidenceList article.person-doc-card").filter({ hasText: "Naissance" });
-        await birthCard.locator("[data-edit-genealogy-proof]").click();
+        await birthCard.click();
         await page.waitForSelector("#genealogyContributionDialog[open]", { timeout: 10000 });
       };
       const selectPerson = async name => {

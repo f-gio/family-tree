@@ -521,7 +521,7 @@ test("les cartes conclusions de la fiche Personne s'ouvrent comme conclusions et
   assert.ok(app.includes('data-view-conclusion="${esc(record.id)}"'), "la carte conclusion de la section Recherches est interactive");
   assert.ok(app.includes('aria-label="Consulter la conclusion : ${esc(title)}"'), "titre accessible identique aux cartes de preuve");
   assert.ok(app.includes('openGenealogyItem("conclusion", viewConclusionCard.dataset.viewConclusion)'), "ouverture par le mécanisme officiel openGenealogyItem");
-  assert.ok(app.includes('"[data-view-proof], [data-view-conclusion]"'), "le clavier couvre preuves et conclusions");
+  assert.ok(app.includes('"[data-view-proof], [data-view-conclusion], [data-edit-genealogy-proof]"'), "le clavier couvre preuves, conclusions et révision");
   assert.ok(app.includes("const status = conclusionStatusText(item.data);"), "la modale Personne affiche le statut réel enregistré");
   assert.ok(app.includes("const status = conclusionStatusText(data);"), "la section Recherches partage le même libellé de statut");
   for (const [status, label] of [
@@ -533,7 +533,8 @@ test("les cartes conclusions de la fiche Personne s'ouvrent comme conclusions et
 });
 
 test("le bouton Réviser suit les permissions existantes sans affaiblir la révision officielle", () => {
-  assert.ok(app.includes("const canRevise = editable && isAdminUser()"), "visibilité de l'action conditionnée au mode édition et au rôle administrateur");
+  assert.ok(app.includes('const tileEdit = action === "revise-tile" && isAdminUser()'), "visibilité du crayon conditionnée au mode édition et au rôle administrateur");
+  assert.ok(app.includes('const reviseButton = action === "revise-button" && isAdminUser()'), "bouton de révision de la fiche conditionné au rôle administrateur");
   assert.ok(app.includes('data-edit-genealogy-proof="${esc(record.id)}"'), "action de révision de preuve conservée");
   assert.ok(app.includes('data-edit-genealogy-conclusion="${esc(item.record.id)}"'), "action de révision de conclusion conservée");
   assert.ok(app.includes('event.target.closest("[data-edit-genealogy-proof], [data-edit-genealogy-conclusion]")'), "répartition du clic entre preuve et conclusion");

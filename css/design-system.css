@@ -1859,6 +1859,10 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   font: inherit;
   text-align: left;
   cursor: pointer;
+  /* Safari iOS : le bouton natif centre et rogne son contenu multi-lignes ;
+     neutraliser l'apparence native laisse la tuile grandir avec son texte. */
+  -webkit-appearance: none;
+  appearance: none;
 }
 .person-attestation-dialog .attestation-pick-row:hover { background: var(--color-surface-soft); }
 .person-attestation-dialog .attestation-pick-row:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
@@ -2068,11 +2072,11 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   .person-attestation-dialog .attestation-table td[data-col="subject"] { grid-area: 1 / 1 / 2 / 3; }
   .person-attestation-dialog .attestation-table td[data-col="subject"] strong { display: block; min-width: 0; color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-semibold); line-height: 1.35; overflow-wrap: break-word; }
   .person-attestation-dialog .attestation-table td[data-col="fact"] { grid-area: 2 / 1 / 3 / 3; }
-  .person-attestation-dialog .attestation-table td[data-col="document"] { grid-area: 3 / 1 / 4 / 3; display: flex; align-items: center; gap: var(--space-1); color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.35; overflow-wrap: anywhere; }
+  .person-attestation-dialog .attestation-table td[data-col="document"] { grid-area: 3 / 1 / 4 / 3; display: flex; align-items: center; gap: var(--space-1); color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.35; overflow-wrap: anywhere; padding-bottom: var(--space-2); border-bottom: var(--border-subtle); }
   .person-attestation-dialog .attestation-mobile-document-icon { display: inline-flex; flex: 0 0 auto; align-items: center; }
   .person-attestation-dialog .attestation-mobile-document-icon .ui-icon { width: 0.875rem; height: 0.875rem; }
-  .person-attestation-dialog .attestation-table td[data-col="qualification"] { grid-area: 4 / 1 / 5 / 2; align-self: center; min-height: 44px; display: flex; align-items: center; padding-top: var(--space-2); border-top: var(--border-subtle); }
-  .person-attestation-dialog .attestation-table td[data-col="action"] { grid-area: 4 / 2 / 5 / 3; align-self: center; min-height: 44px; display: flex; align-items: center; justify-content: flex-end; padding-top: var(--space-2); border-top: var(--border-subtle); }
+  .person-attestation-dialog .attestation-table td[data-col="qualification"] { grid-area: 4 / 1 / 5 / 2; align-self: center; min-height: 44px; display: flex; align-items: center; }
+  .person-attestation-dialog .attestation-table td[data-col="action"] { grid-area: 4 / 2 / 5 / 3; align-self: center; min-height: 44px; display: flex; align-items: center; justify-content: flex-end; }
   .person-attestation-dialog .attestation-table-wrap { overflow-x: visible; }
 }
 
@@ -2104,6 +2108,9 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   line-height: 1.15;
 }
 #personAttestationDialogContext { color: #68736d; font-size: 12px; }
+/* Safari iOS : pas d'ajustement automatique de la taille du texte dans la
+   modale, sinon les titres longs gonflent et débordent de leurs tuiles. */
+#personAttestationDialog { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 #personAttestationDialogTitle:focus { outline: none; }
 /* Croix du titre : sans encadrement permanent, jamais réduite sous la cible
    tactile de 44 px par la flexion de l'en-tête. */
@@ -2406,6 +2413,26 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   #personAttestationDialogTitle { font-size: 22px; }
   .person-attestation-dialog .attestation-section-heading h4 { font-size: 18px; }
   .person-attestation-dialog .attestation-form-section { padding: var(--space-3); }
+  /* Champs numérotés : le numéro structure seulement l'intitulé ; les
+     contrôles démarrent tous sur la marge gauche du panneau (référence :
+     « Lieu attesté »), sur toute la largeur disponible. */
+  .person-attestation-dialog .attestation-field { position: relative; }
+  .person-attestation-dialog .attestation-field-index { position: absolute; left: 0; top: 0; line-height: 1.35; }
+  .person-attestation-dialog .attestation-field-body { flex: 1 1 auto; width: 100%; min-width: 0; }
+  .person-attestation-dialog .attestation-field-body > label,
+  .person-attestation-dialog .attestation-field-body > .attestation-section-desc { padding-left: calc(1.125rem + var(--space-1)); }
+  .person-attestation-dialog select.field { height: var(--control-touch); min-height: var(--control-touch); }
+  /* Sélecteur de précision : toutes les options visibles sur mobile, sans
+     découpe sur le bord droit (les anciennes précisions restent présentes). */
+  #personAttestationDialog .date-type-switch { flex-wrap: wrap; overflow-x: visible; padding-inline: 0; }
+  /* CTA d'ajout des sections Documents / Recherches : pleine largeur,
+     centrés, même gabarit secondaire dans les deux sections. */
+  #personDocumentsPanel #linkDocumentBtn,
+  #personDocumentsPanel #genealogyProposeProofForPersonBtn {
+    justify-self: stretch;
+    width: 100%;
+    min-height: var(--control-touch);
+  }
   .person-attestation-dialog .attestation-form-panel { padding: 0; border: 0; border-radius: 0; background: transparent; }
   .person-attestation-dialog [data-journey-documents-section] .attestation-section-desc,
   .person-attestation-dialog [data-journey-informations-section] .attestation-section-desc { display: none; }
@@ -2416,6 +2443,7 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   .person-attestation-dialog .attestation-association-copy small,
   .person-attestation-dialog .attestation-document-open small,
   .person-attestation-dialog .attestation-document-type { font-size: 12px; line-height: 1.35; }
+  #personAttestationDialog .attestation-pick-row .attestation-association-copy small { font-size: 12px; line-height: 1.35; }
   .person-attestation-dialog .btn { font-size: 14px; }
   .person-attestation-dialog .attestation-pick-row {
     align-items: center;
@@ -7433,7 +7461,9 @@ body:has(#personDetailView:not([hidden])):not(:has(#personPageEditHost:not([hidd
 .person-detail-content .person-doc-card.is-no-thumbnail .person-doc-thumb { height: 4rem; aspect-ratio: auto; }
 .person-detail-content .person-doc-card.is-no-thumbnail .person-doc-tile { place-items: center start; padding-inline: var(--space-3); }
 .person-detail-overview { display: grid; gap: var(--space-4); }
-.person-detail-research-list { display: grid; gap: var(--space-2); }
+/* Colonne simple : chaque tuile grandit avec son contenu (une grille de
+   lignes auto rogne les cartes dont le texte enroule davantage). */
+.person-detail-research-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .person-detail-research-card { display: grid; gap: var(--space-1); min-width: 0; padding: var(--space-3); border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); text-align: left; }
 .person-detail-research-card[role="button"] { cursor: pointer; }
 .person-detail-research-card strong { overflow-wrap: anywhere; }
@@ -7448,6 +7478,7 @@ body:has(#personDetailView:not([hidden])):not(:has(#personPageEditHost:not([hidd
   row-gap: 2px;
   min-height: 4.25rem;
   padding: var(--space-3) var(--space-4);
+  overflow: visible;
 }
 .person-detail-research-information { grid-area: 1 / 1 / 2 / 2; min-width: 0; line-height: 1.35; overflow-wrap: anywhere; }
 .person-detail-research-card--proof .documentary-fact-value { color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-semibold); line-height: 1.35; }
@@ -7464,14 +7495,14 @@ body:has(#personDetailView:not([hidden])):not(:has(#personPageEditHost:not([hidd
 .person-detail-research-card--proof .person-detail-research-action { grid-column: 3; }
 .person-detail-research-card--proof[role="button"]:hover { border-color: var(--color-border-strong); background: var(--color-surface-soft); }
 .person-detail-research-card--proof[role="button"]:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
-.person-detail-research-card--proof[role="button"] { padding-right: var(--space-4); }
-.person-detail-research-card--proof[role="button"]::after { content: none; }
 @media (max-width: 760px) {
-  .person-detail-research-card--proof { grid-template-columns: minmax(0, 1fr) var(--control-touch); grid-template-rows: auto auto auto; gap: var(--space-1) var(--space-2); min-height: 0; padding: var(--space-3); }
+  .person-detail-research-card--proof { grid-template-columns: minmax(0, 1fr) var(--control-touch); grid-template-rows: auto auto auto; gap: var(--space-2); min-height: 0; padding: var(--space-3); }
   .person-detail-research-information { grid-area: 1 / 1 / 2 / 2; align-self: center; }
-  .person-detail-research-document { grid-area: 2 / 1 / 3 / 3; }
+  /* La ligne documentaire reste en colonne 1 : l'action occupe la colonne 2
+     sur toute la hauteur, sinon le texte passe sous le chevron/crayon. */
+  .person-detail-research-document { grid-area: 2 / 1 / 3 / 2; }
   .person-detail-research-card--proof .person-detail-research-qualification { grid-area: 3 / 1 / 4 / 2; justify-self: start; }
-  .person-detail-research-card--proof .person-detail-research-action { grid-area: 1 / 2 / 2 / 3; align-self: center; min-width: var(--control-touch); min-height: var(--control-touch); }
+  .person-detail-research-card--proof .person-detail-research-action { grid-area: 1 / 2 / 4 / 3; align-self: center; min-width: var(--control-touch); min-height: var(--control-touch); }
   .person-detail-research-card--proof .person-detail-research-edit { width: var(--control-touch); }
 }
 .proof-documentary-value { color: var(--color-brand); font-size: var(--text-lg); font-weight: var(--weight-semibold); }
@@ -8061,7 +8092,9 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   .person-page-edit-host .person-page-inline-section-header > .btn:focus-visible { border-color: var(--color-border-strong); background: var(--color-surface-soft); color: var(--color-brand); }
   .person-page-edit-host #toggleRelationBuilderBtn { margin: 0; }
   .person-page-edit-host #personDocumentsSection > h4 { display: none; }
-  .person-page-edit-host #personGenealogyEvidenceSection > h4 { margin: 0; color: var(--color-text); font: var(--weight-semibold) 1.0625rem/1.3 var(--font-display); }
+  /* En modification desktop, l'en-tête inline « Recherches » remplace le titre
+     de section (masqué ici) ; sur mobile, le h4 reste la référence. */
+  .person-page-edit-host #personGenealogyEvidenceSection > h4 { display: none; }
   .person-page-edit-host #personGenealogyEvidenceSection .mini-docs { display: grid; gap: var(--space-2); }
 
   .person-detail-content #personPageDocuments .person-doc-gallery,
@@ -8081,8 +8114,11 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   .person-detail-document-format-visual--pdf { color: var(--color-danger); }
 
   .person-detail-research-card--proof { min-height: 4.25rem; padding: var(--space-3) var(--space-4); }
-  .person-detail-research-card[role="button"] { position: relative; padding-right: var(--space-10); transition: background-color var(--transition-fast), border-color var(--transition-fast); }
-  .person-detail-research-card[role="button"]::after { content: "›"; position: absolute; top: 50%; right: var(--space-4); transform: translateY(-50%); color: var(--color-brand); font: var(--weight-medium) 1.75rem/1 var(--font-ui); }
+  /* Le chevron pseudo-élément n'appartient qu'aux cartes sans action interne
+     (conclusions en consultation) : les cartes Preuve et les cartes du mode
+     modification portent leur propre chevron ou crayon. */
+  .person-detail-research-card[role="button"]:not(.person-detail-research-card--proof):not(.person-doc-card) { position: relative; padding-right: var(--space-10); transition: background-color var(--transition-fast), border-color var(--transition-fast); }
+  .person-detail-research-card[role="button"]:not(.person-detail-research-card--proof):not(.person-doc-card)::after { content: "›"; position: absolute; top: 50%; right: var(--space-4); transform: translateY(-50%); color: var(--color-brand); font: var(--weight-medium) 1.75rem/1 var(--font-ui); }
   .person-detail-research-card[role="button"]:hover { border-color: var(--color-border-strong); background: var(--color-surface-soft); }
   .person-detail-research-card[role="button"]:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
 
@@ -8505,7 +8541,7 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   outline-offset: 2px;
 }
 .person-attestation-dialog .attestation-document-chip { flex-wrap: nowrap; gap: var(--space-2); padding: var(--space-1); border: var(--border-subtle); border-radius: var(--radius-md); background: var(--color-surface); }
-.person-attestation-dialog .attestation-document-open { display: flex; align-items: center; gap: var(--space-2); flex: 1 1 auto; min-width: 0; min-height: var(--control-touch); padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text); font: inherit; text-align: left; cursor: pointer; }
+.person-attestation-dialog .attestation-document-open { display: flex; align-items: center; gap: var(--space-2); flex: 1 1 auto; min-width: 0; min-height: var(--control-touch); padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text); font: inherit; text-align: left; cursor: pointer; -webkit-appearance: none; appearance: none; }
 .person-attestation-dialog .attestation-document-open:hover { background: var(--color-surface-soft); }
 .person-attestation-dialog .attestation-document-open .attestation-association-copy { flex: 1 1 auto; }
 .person-attestation-dialog .attestation-document-open strong { overflow-wrap: anywhere; }
@@ -8537,9 +8573,4 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
 @media (max-width: 760px) {
   .person-attestation-dialog .attestation-qualification-field { max-width: none; }
   .person-attestation-dialog .attestation-search-results { max-height: min(14rem, 32vh); }
-  .person-attestation-dialog .attestation-document-chip { align-items: center; }
-  .person-attestation-dialog .attestation-document-open .attestation-association-copy { flex: 1 1 auto; }
-  .person-attestation-dialog .attestation-table td[data-col="fact"] { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; }
-  .person-attestation-dialog .attestation-table td[data-col="action"] { display: flex; width: 100%; justify-content: flex-end; }
-  .person-attestation-dialog .attestation-table td[data-col="action"]::before { margin-right: auto; }
 }
