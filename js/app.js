@@ -494,16 +494,41 @@ function dateInfoOf(item, prefix) {
 
 function updatePersonNativeDateVisual(prefix) {
   if (!["birth", "death"].includes(prefix)) return;
-  const input = $(`${prefix}Date`);
-  const visual = document.querySelector(`[data-person-date-visual="${prefix}"]`);
-  const control = document.querySelector(`[data-person-date-control="${prefix}"]`);
-  if (!input || !visual || !control) return;
-  const formatted = input.value ? formatGenealogyDate({ type: "exact", value: input.value }) : "";
+  synchronizeNativeDateVisual($(`${prefix}Date`));
+}
+
+function synchronizeNativeDateVisual(input) {
+  const control = input?.closest(".person-native-date-control");
+  const visual = control?.querySelector(".person-native-date-visual");
+  if (!input || !control || !visual) return;
+  const iso = input.value || "";
+  let formatted = "";
+  if (iso && input.dataset.personDateFormat === "numeric") {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    if (match) formatted = `${match[3]}/${match[2]}/${match[1]}`;
+  } else if (iso) {
+    formatted = formatGenealogyDate({ type: "exact", value: iso });
+  }
   visual.textContent = formatted === "—" ? "" : formatted;
   control.classList.toggle("is-empty", !visual.textContent);
 }
 
-const personNativeDateVisualInputs = new WeakSet();
+const nativeDateVisualInputs = new WeakSet();
+
+function bindNativeDateVisual(input) {
+  if (!input) return;
+  if (!nativeDateVisualInputs.has(input)) {
+    const sync = () => synchronizeNativeDateVisual(input);
+    input.addEventListener("input", sync);
+    input.addEventListener("change", sync);
+    nativeDateVisualInputs.add(input);
+  }
+  synchronizeNativeDateVisual(input);
+}
+
+function synchronizeJourneyNativeDateVisuals(root = document) {
+  root.querySelectorAll?.('#personAttestationDialog input[data-person-date-input="journey"]').forEach(bindNativeDateVisual);
+}
 
 function synchronizePersonNativeDateVisualControls() {
   const mobile = window.matchMedia("(max-width: 760px)").matches;
@@ -532,13 +557,7 @@ function synchronizePersonNativeDateVisualControls() {
       control.append(visual, input);
     }
     input.dataset.personDateInput = prefix;
-    if (!personNativeDateVisualInputs.has(input)) {
-      const sync = () => updatePersonNativeDateVisual(prefix);
-      input.addEventListener("input", sync);
-      input.addEventListener("change", sync);
-      personNativeDateVisualInputs.add(input);
-    }
-    updatePersonNativeDateVisual(prefix);
+    bindNativeDateVisual(input);
   }
 }
 
@@ -2596,7 +2615,7 @@ function journeyErrorMarkup(key) {
   return `<span class="field-error" id="journeyError-${key}" role="alert" hidden></span>`;
 }
 
-function journeyDateFormMarkup(dateInfo) {
+function journeyDateFormMarkup(dateInfo, { nativeDateVisual = false } = {}) {
   const type = LIFE_DATE_TYPES.includes(dateInfo?.type) ? dateInfo.type : "exact";
   const legacyDateLabels = { before: "Avant", after: "Après", attested: "Attesté" };
   const buttons = [["exact", "Date précise"], ["year", "Année"], ["about", "Vers"], ["between", "Entre"], ["unknown", "Inconnue"]];
@@ -2605,17 +2624,20 @@ function journeyDateFormMarkup(dateInfo) {
   const year = (type === "year" || type === "about") && dateInfo?.year ? dateInfo.year : "";
   const from = type === "between" && dateInfo?.from ? dateInfo.from : "";
   const to = type === "between" && dateInfo?.to ? dateInfo.to : "";
+  const dateInput = (id, value) => nativeDateVisual
+    ? `<span class="person-native-date-control" data-person-date-control="${id}"><span class="person-native-date-visual" data-person-date-visual="${id}" aria-hidden="true"></span><input class="field" id="${id}" data-person-date-input="journey" data-person-date-format="numeric" type="date" value="${esc(value)}"></span>`
+    : `<input class="field" id="${id}" type="date" value="${esc(value)}">`;
   const panel = (panelType, content) => `<div class="date-value-panel single" data-journey-panel="${panelType}"${type === panelType ? "" : " hidden"}>${content}</div>`;
   return `<div class="genealogy-date" data-journey-date>
     <div class="date-type-switch" role="group" aria-label="Format de la date">
-      ${buttons.map(([value, label]) => `<button class="date-type-button${type === value ? " active" : ""}" type="button" data-journey-date-type="${value}">${label}</button>`).join("")}
+      ${buttons.map(([value, label]) => `<button class="date-type-button${type === value ? " active" : ""}" type="button" data-journey-date-type="${value}" aria-pressed="${type === value}">${label}</button>`).join("")}
     </div>
-    ${panel("exact", `<label>Date<input class="field" id="journeyDateValue" type="date" value="${esc(iso)}"></label>`)}
+    ${panel("exact", `<label>Date${dateInput("journeyDateValue", iso)}</label>`)}
     ${panel("year", `<label>Année<input class="field" id="journeyDateYear" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*" value="${esc(year)}"></label>`)}
     ${panel("about", `<label>Année<input class="field" id="journeyDateAbout" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*" value="${esc(year)}"></label>`)}
-    ${panel("before", `<label>Date<input class="field" id="journeyDateBefore" type="date" value="${esc(iso)}"></label>`)}
-    ${panel("after", `<label>Date<input class="field" id="journeyDateAfter" type="date" value="${esc(iso)}"></label>`)}
-    ${panel("attested", `<label>Date<input class="field" id="journeyDateAttested" type="date" value="${esc(iso)}"></label>`)}
+    ${panel("before", `<label>Date${dateInput("journeyDateBefore", iso)}</label>`)}
+    ${panel("after", `<label>Date${dateInput("journeyDateAfter", iso)}</label>`)}
+    ${panel("attested", `<label>Date${dateInput("journeyDateAttested", iso)}</label>`)}
     ${panel("between", `<label>De<input class="field" id="journeyDateFrom" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*" value="${esc(from)}"></label><label>À<input class="field" id="journeyDateTo" type="number" min="1" max="9999" inputmode="numeric" pattern="[0-9]*" value="${esc(to)}"></label>`)}
   </div>`;
 }
@@ -3603,10 +3625,10 @@ function journeyInfoPanelMarkup(item) {
         <div class="attestation-association-list attestation-search-results" id="journeySecondResults" role="listbox">${journeySecondPersonResultsMarkup(item)}</div>
         <p class="attestation-relation-phrase" id="journeyRelationPhrase"${phrase ? "" : " hidden"}>${esc(phrase)}</p>
       </div>
-      ${selectedTarget && !isRelation && !needsReferenceDate ? `<div class="attestation-source-value-fields"><label class="attestation-field-label"${["date", "reference-date"].includes(selectedTarget.valueType) ? "" : " for=\"journeySourceValue\""}>${esc(journeySourceValueLabel(selectedTarget))}</label>${selectedTarget.valueType === "date" ? journeyDateFormMarkup(draft.composerSourceDateInfo) : selectedTarget.valueType === "place" ? `<input class="field" id="journeySourceValue" data-journey-source-place value="${esc(draft.composerSourceText)}" autocomplete="off" placeholder="Ville, localité ou lieu historique">` : `<input class="field" id="journeySourceValue" data-journey-source-value value="${esc(draft.composerSourceText)}" autocomplete="off" placeholder="Valeur relevée dans le document">`}${sourceDate && selectedTarget.valueType !== "date" ? `<div class="attestation-source-date"><label class="attestation-field-label">Date ou période (facultative)</label>${journeyDateFormMarkup(draft.composerSourceDateInfo)}</div>` : ""}</div>` : ""}
+      ${selectedTarget && !isRelation && !needsReferenceDate ? `<div class="attestation-source-value-fields"><label class="attestation-field-label"${["date", "reference-date"].includes(selectedTarget.valueType) ? "" : " for=\"journeySourceValue\""}>${esc(journeySourceValueLabel(selectedTarget))}</label>${selectedTarget.valueType === "date" ? journeyDateFormMarkup(draft.composerSourceDateInfo, { nativeDateVisual: true }) : selectedTarget.valueType === "place" ? `<input class="field" id="journeySourceValue" data-journey-source-place value="${esc(draft.composerSourceText)}" autocomplete="off" placeholder="Ville, localité ou lieu historique">` : `<input class="field" id="journeySourceValue" data-journey-source-value value="${esc(draft.composerSourceText)}" autocomplete="off" placeholder="Valeur relevée dans le document">`}${sourceDate && selectedTarget.valueType !== "date" ? `<div class="attestation-source-date"><label class="attestation-field-label">Date ou période (facultative)</label>${journeyDateFormMarkup(draft.composerSourceDateInfo, { nativeDateVisual: true })}</div>` : ""}</div>` : ""}
       <div class="attestation-context-field attestation-reference-date" data-journey-reference-date${needsReferenceDate ? "" : " hidden"}>
         <label class="attestation-field-label">Date de référence</label>
-        ${journeyDateFormMarkup(draft.composerReferenceDateInfo)}
+        ${journeyDateFormMarkup(draft.composerReferenceDateInfo, { nativeDateVisual: true })}
         ${journeyErrorMarkup("referenceDate")}
       </div>
       <div class="attestation-field" data-attestation-field="qualification">
@@ -3795,6 +3817,8 @@ function renderJourneyAssociationList() {
 function renderJourneyAssociationPanels(item = journeyProofCurrentItem()) {
   const host = $("journeyAssociationPanelHost");
   if (host) host.innerHTML = journeyAssociationPanelsMarkup(item);
+  synchronizeJourneyNativeDateVisuals(host || document);
+  revealActiveJourneyDateOptions(host || document);
   journeySourcePlaceControl?.destroy();
   journeySourcePlaceControl = null;
   const placeInput = $("journeyInfoPanel")?.querySelector("[data-journey-source-place]");
@@ -3858,6 +3882,7 @@ function renderJourneyReferenceDateVisibility() {
   if (!block) return;
   const target = journeyComposerTargets().find(value => value.id === journeyAttestationDraft.composerFactId) || null;
   block.hidden = !journeyVitalStatusTarget(target);
+  if (!block.hidden) revealActiveJourneyDateOptions(block);
 }
 
 /* Le bloc « Préciser la relation familiale » n'apparaît que pour un fait
@@ -5679,11 +5704,33 @@ function renderLifeTimeline() {
     : "";
 }
 
+function revealJourneyDateOption(button) {
+  const switcher = button?.closest("[data-journey-date]")?.querySelector(".date-type-switch");
+  if (!switcher || !button || switcher.clientWidth === 0) return;
+  const viewport = switcher.getBoundingClientRect();
+  const option = button.getBoundingClientRect();
+  let target = switcher.scrollLeft;
+  if (option.left < viewport.left) target += option.left - viewport.left;
+  else if (option.right > viewport.right) target += option.right - viewport.right;
+  switcher.scrollLeft = Math.max(0, Math.min(target, switcher.scrollWidth - switcher.clientWidth));
+}
+
+function revealActiveJourneyDateOptions(root = document) {
+  root.querySelectorAll?.("[data-journey-date]").forEach(container => {
+    revealJourneyDateOption(container.querySelector(".date-type-button.active"));
+  });
+}
+
 function applyJourneyDateTypeToggle(dateTypeButton) {
   const container = dateTypeButton.closest("[data-journey-date]");
   if (!container) return;
-  container.querySelectorAll(".date-type-button").forEach(button => button.classList.toggle("active", button === dateTypeButton));
+  container.querySelectorAll(".date-type-button").forEach(button => {
+    const active = button === dateTypeButton;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
   container.querySelectorAll("[data-journey-panel]").forEach(panel => { panel.hidden = panel.dataset.journeyPanel !== dateTypeButton.dataset.journeyDateType; });
+  revealJourneyDateOption(dateTypeButton);
 }
 
 function updateMarriedNameVisibility() {

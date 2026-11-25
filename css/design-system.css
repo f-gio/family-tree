@@ -1720,6 +1720,13 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
 .person-attestation-dialog .attestation-date-panel .field-error { margin-top: var(--space-2); }
 .person-attestation-dialog .attestation-association-list { display: grid; gap: var(--space-1); min-width: 0; }
 .person-attestation-dialog .attestation-association-list > p { margin: 0; }
+.person-attestation-dialog .attestation-quick-docs,
+.person-attestation-dialog .attestation-library-results {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+}
 .person-attestation-dialog .attestation-association-option {
   display: flex;
   align-items: center;
@@ -1846,11 +1853,15 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
 .person-attestation-dialog .attestation-pick-row {
   display: flex;
   align-items: center;
+  align-self: stretch;
+  flex: 0 0 auto;
   gap: var(--space-3);
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
   min-height: var(--control-touch);
+  height: auto;
+  max-height: none;
   padding: var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -2422,9 +2433,6 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   .person-attestation-dialog .attestation-field-body > label,
   .person-attestation-dialog .attestation-field-body > .attestation-section-desc { padding-left: calc(1.125rem + var(--space-1)); }
   .person-attestation-dialog select.field { height: var(--control-touch); min-height: var(--control-touch); }
-  /* Sélecteur de précision : toutes les options visibles sur mobile, sans
-     découpe sur le bord droit (les anciennes précisions restent présentes). */
-  #personAttestationDialog .date-type-switch { flex-wrap: wrap; overflow-x: visible; padding-inline: 0; }
   /* CTA d'ajout des sections Documents / Recherches : pleine largeur,
      centrés, même gabarit secondaire dans les deux sections. */
   #personDocumentsPanel #linkDocumentBtn,
@@ -2450,18 +2458,20 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
     height: auto;
     max-height: none;
     min-height: var(--control-touch);
+    flex: 0 0 auto;
     padding-block: var(--space-2);
     line-height: 1.35;
     overflow: visible;
   }
   .person-attestation-dialog .attestation-pick-check { flex: 0 0 1.25rem; align-self: center; }
-  .person-attestation-dialog .attestation-pick-row .attestation-association-copy { display: grid; flex: 1 1 auto; align-self: center; min-width: 0; height: auto; max-height: none; overflow: visible; line-height: 1.35; }
-  .person-attestation-dialog .attestation-document-title { display: block; width: 100%; min-width: 0; height: auto; max-height: none; overflow: visible; white-space: normal; overflow-wrap: anywhere; word-break: normal; }
-  .person-attestation-dialog .attestation-document-type { display: block; }
+  .person-attestation-dialog .attestation-pick-row .attestation-association-copy { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1 1 0; align-self: stretch; align-content: center; min-width: 0; height: auto; max-height: none; overflow: visible; gap: 3px; line-height: 1.35; }
+  .person-attestation-dialog .attestation-document-title { display: block; width: 100%; min-width: 0; height: auto; max-height: none; margin: 0; overflow: visible; white-space: normal; overflow-wrap: anywhere; word-break: normal; font-size: 14px; font-weight: 500; line-height: 1.35; }
+  .person-attestation-dialog .attestation-document-type { display: block; min-width: 0; height: auto; max-height: none; margin: 0; overflow: visible; white-space: normal; overflow-wrap: anywhere; font-size: 12px; font-weight: var(--weight-regular); line-height: 1.35; }
   .person-attestation-dialog .attestation-document-chip { align-items: center; height: auto; max-height: none; }
-  .person-attestation-dialog .attestation-document-open { flex: 1 1 auto; align-items: center; min-width: 0; height: auto; max-height: none; }
-  .person-attestation-dialog .attestation-document-open .attestation-association-copy { display: grid; align-content: center; flex: 1 1 auto; align-self: center; gap: 2px; min-width: 0; height: auto; max-height: none; overflow: visible; line-height: 1.35; }
+  .person-attestation-dialog .attestation-document-open { box-sizing: border-box; flex: 1 1 0; align-items: center; min-width: 0; height: auto; max-height: none; }
+  .person-attestation-dialog .attestation-document-open .attestation-association-copy { display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; flex: 1 1 0; align-self: stretch; gap: 3px; min-width: 0; height: auto; max-height: none; overflow: visible; line-height: 1.35; }
   .person-attestation-dialog .attestation-document-open strong { display: block; min-width: 0; height: auto; max-height: none; overflow: visible; white-space: normal; overflow-wrap: anywhere; word-break: normal; }
+  .person-attestation-dialog .attestation-document-open .attestation-document-title-mobile { font-size: 14px; font-weight: 500; line-height: 1.35; }
   .person-attestation-dialog .attestation-document-title-desktop { display: none !important; }
   .person-attestation-dialog .attestation-document-title-mobile { display: block; }
   .person-attestation-dialog .attestation-document-open small { display: block; margin-top: 2px; color: var(--color-text-muted); font-size: 12px; line-height: 1.35; }
@@ -2817,6 +2827,8 @@ label .field { margin-top: var(--space-2); }
 /* Le conteneur du calque Date n'ajoute aucune boîte hors du mode mobile. */
 #personForm .person-native-date-control { display: contents; }
 #personForm .person-native-date-visual { display: none; }
+#personAttestationDialog .person-native-date-control { display: contents; }
+#personAttestationDialog .person-native-date-visual { display: none; }
 
 /* Attestations de Naissance/Décès : CTA en colonne à droite des champs,
    puis attestations sous toute la rangée Date/Lieu. */
@@ -6314,6 +6326,78 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   }
   #personAttestationDialog .attestation-date-panel .date-type-switch::-webkit-scrollbar { display: none; width: 0; height: 0; }
   #personAttestationDialog .attestation-date-panel .date-type-button { flex: 0 0 auto; min-width: max-content; }
+  #personAttestationDialog [data-journey-date] .date-type-switch {
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    box-sizing: border-box;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    scroll-behavior: auto;
+    touch-action: pan-x pan-y;
+  }
+  #personAttestationDialog [data-journey-date] .date-type-switch::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  #personAttestationDialog [data-journey-date] .date-type-button { flex: 0 0 auto; min-width: max-content; min-height: var(--control-touch); white-space: nowrap; }
+  #personAttestationDialog .person-native-date-control {
+    position: relative;
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: var(--control-touch);
+    min-height: var(--control-touch);
+    margin-top: var(--space-2);
+    border: var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+  #personAttestationDialog .person-native-date-visual {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 0 var(--space-3);
+    border-radius: inherit;
+    color: var(--color-text);
+    font: var(--weight-regular) 16px/var(--leading-body) var(--font-ui);
+    text-align: left;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  #personAttestationDialog .person-native-date-control.is-empty .person-native-date-visual::before { content: "JJ/MM/AAAA"; color: var(--color-text-muted); }
+  #personAttestationDialog .person-native-date-control .field[data-person-date-input="journey"] {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: 100%;
+    min-height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    opacity: 0;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  #personAttestationDialog .person-native-date-control:focus-within { border-color: var(--color-brand); outline: 3px solid rgb(40 75 63 / 28%); outline-offset: 2px; box-shadow: var(--shadow-focus); }
   #personAttestationDialog .attestation-date-panel .date-value-panel .field {
     display: block;
     box-sizing: border-box;

@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
 import { webkit } from "playwright";
 import { AUTH_BOOTSTRAP_PATCH, isAllowedRequest, ROOT, startStaticServer } from "./helpers.mjs";
 
 const longTitle = "Registre paroissial ancien — actes de naissance, mariage et décès de la commune d’Orino, volume III, folios 12 à 84";
 const longFileName = "FICHIER_TECHNIQUE_DO_NOT_RENDER_001_2026_03.pdf";
+const screenshotDir = process.env.ATTESTATION_UX_SCREENSHOT_DIR || "";
+async function captureAttestationScreenshot(page, name) {
+  if (!screenshotDir) return;
+  await page.screenshot({ path: join(screenshotDir, name) });
+}
 const hooks = `
 window.__finalAttestationUX = {
   seed() {
@@ -27,7 +34,9 @@ window.__finalAttestationUX = {
     documents = [
       { id: "ux-doc-long", title: "${longTitle}", type: "Registre", fileName: "${longFileName}", mimeType: "application/pdf", personIds: [id] },
       { id: "ux-doc-same", title: "Acte civil", type: "Acte civil", fileName: "technical-acte.pdf", mimeType: "application/pdf", personIds: [id] },
-      { id: "ux-doc-library", title: "Archives paroissiales sans lien — répertoire historique de la commune", type: "Archive", fileName: "FICHIER_TECHNIQUE_LIBRARY_002.pdf", mimeType: "application/pdf", personIds: [] }
+      { id: "ux-doc-marriage", title: "Acte de Mariage Carlo Giovannoni et Rosa Conti", type: "Acte de mariage", fileName: "mariage-technique.pdf", mimeType: "application/pdf", personIds: [id] },
+      { id: "ux-doc-birth", title: "Acte de Naissance Carlo Bartolomeo Giovannoni", type: "Acte de naissance", fileName: "naissance-technique.pdf", mimeType: "application/pdf", personIds: [id] },
+      { id: "ux-doc-library", title: "Archives paroissiales — Décès journal Chroniques Messines, transcription intégrale de l’acte et de ses annotations marginales conservées au registre communal", type: "Chroniques Messines", fileName: "FICHIER_TECHNIQUE_LIBRARY_002.pdf", mimeType: "application/pdf", personIds: [] }
     ];
     loadedPeople = loadedFamilies = loadedDocuments = loadedTasks = true;
     const targets = enumerateJustificationTargets({ people, families, includeFamilyTargets: false }).targets
@@ -73,6 +82,18 @@ window.__finalAttestationUX = {
     this.refreshResearch();
     renderPersonDocuments("ux-person");
   },
+  setSourceDate(dateInfo) {
+    journeyAttestationDraft.composerSourceDateInfo = { ...dateInfo };
+    renderJourneyAssociationPanels();
+  },
+  prepareNewAttestationDocument() {
+    journeyAttestationDraft.documentIds = ["ux-doc-long"];
+    journeyAttestationDraft.composerDocumentId = "ux-doc-long";
+    renderJourneyDocumentSelection();
+    renderJourneyPanelActions();
+  },
+  openNewAttestation() { journeyOpenEditor({ type: "attestation", entryKind: "event", mode: "add", entryId: "ux-event" }); },
+  readDate(scope) { return readJourneyDateRaw(scope); },
   finishEdit() { finishPersonPageInlineEdit({ refresh: false }); }
 };
 window.__authNullAt = 0;
@@ -103,6 +124,7 @@ test("Recherches, qualifications et modale Attestation : finitions desktop et mo
   const nativeDialogs = [];
   page.on("dialog", dialog => { nativeDialogs.push(dialog.message()); dialog.accept().catch(() => {}); });
   try {
+    if (screenshotDir) await mkdir(screenshotDir, { recursive: true });
     await page.goto(server.baseURL, { waitUntil: "load" });
     await page.waitForFunction(() => typeof window.__finalAttestationUX === "object");
     await page.waitForFunction(() => window.__authNullAt > 0, undefined, { timeout: 5000 }).catch(() => {});
@@ -290,6 +312,7 @@ test("Recherches, qualifications et modale Attestation : finitions desktop et mo
       await attestationEdit.evaluate(button => button.click());
       await page.waitForFunction(() => document.getElementById("personAttestationDialog").open);
       await page.waitForTimeout(180);
+      if (width === 375 || width === 390) await captureAttestationScreenshot(page, `attestation-${width}-documents.png`);
       const associationCapsules = await page.locator("#journeyAssociationList .documentary-qualification").evaluateAll(nodes => nodes.map(node => ({ text: node.textContent.trim(), tag: node.tagName, background: getComputedStyle(node).backgroundColor, color: getComputedStyle(node).color })));
       assert.deepEqual(associationCapsules.map(item => item.text), ["Confirme", "Contredit", "Mentionne", "Ambiguë"], `${width}px qualifications des informations concernées`);
       assert.ok(associationCapsules.every(item => item.tag === "SPAN"), `${width}px capsules informatives non cliquables`);
@@ -375,12 +398,24 @@ test("Recherches, qualifications et modale Attestation : finitions desktop et mo
               const iconBox = row.querySelector(".attestation-pick-check").getBoundingClientRect();
               const type = row.querySelector(".attestation-document-type");
               const typeBox = type ? type.getBoundingClientRect() : null;
-              return { rowHeight: rowBox.height, rowTop: rowBox.top, rowBottom: rowBox.bottom,
+              const lineRects = element => {
+                const range = document.createRange();
+                range.selectNodeContents(element);
+                return [...range.getClientRects()].map(rect => ({ top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left }));
+              };
+              const titleLines = lineRects(title);
+              const typeLines = type ? lineRects(type) : [];
+              return { titleText: title.innerText, selected: row.classList.contains("is-selected"), rowHeight: rowBox.height, rowTop: rowBox.top, rowBottom: rowBox.bottom, rowLeft: rowBox.left, rowRight: rowBox.right,
                 titleHeight: titleBox.height, titleScrollHeight: title.scrollHeight, titleClientHeight: title.clientHeight,
-                titleFits: titleBox.top >= rowBox.top && titleBox.bottom <= rowBox.bottom,
+                titleFits: titleLines.length > 0 && titleLines.every(rect => rect.top >= rowBox.top - 0.5 && rect.bottom <= rowBox.bottom + 0.5 && rect.left >= rowBox.left - 0.5 && rect.right <= rowBox.right + 0.5),
                 titleFontSize: getComputedStyle(title).fontSize,
-                typeFits: typeBox ? typeBox.top >= rowBox.top && typeBox.bottom <= rowBox.bottom : null,
+                titleFontWeight: getComputedStyle(title).fontWeight,
+                titleLineHeight: getComputedStyle(title).lineHeight,
+                titleLineRects: titleLines,
+                typeFits: typeBox ? typeLines.length > 0 && typeLines.every(rect => rect.top >= rowBox.top - 0.5 && rect.bottom <= rowBox.bottom + 0.5 && rect.left >= rowBox.left - 0.5 && rect.right <= rowBox.right + 0.5) : null,
                 typeFontSize: type ? getComputedStyle(type).fontSize : null,
+                typeFontWeight: type ? getComputedStyle(type).fontWeight : null,
+                typeLineRects: typeLines,
                 iconCenter: (iconBox.top + iconBox.bottom) / 2, rowCenter: (rowBox.top + rowBox.bottom) / 2,
                 title: title.innerText, type: type?.innerText || "" };
             })
@@ -413,12 +448,18 @@ test("Recherches, qualifications et modale Attestation : finitions desktop et mo
         const longPick = mobile.pickRows.find(row => row.title.includes("Registre paroissial ancien"));
         assert.ok(longPick && longPick.rowHeight >= 44 && longPick.titleHeight > 40 && longPick.titleScrollHeight <= longPick.titleClientHeight + 1 && longPick.titleFits, `${width}px titre long intégralement contenu dans sa tuile : ${JSON.stringify(longPick)}`);
         assert.ok(Math.abs(longPick.iconCenter - longPick.rowCenter) <= longPick.titleHeight / 2, `${width}px pictogramme + aligné au centre vertical de sa tuile`);
+        assert.equal(longPick.titleFontWeight, "500", `${width}px titre de sélection à graisse moyenne`);
+        assert.ok(mobile.pickRows.some(row => row.title.includes("Acte de Mariage Carlo Giovannoni et Rosa Conti") && row.titleFits && row.typeFits), `${width}px intitulé de mariage et son type contenus dans la tuile`);
+        assert.ok(mobile.pickRows.some(row => row.title.includes("Acte de Naissance Carlo Bartolomeo Giovannoni") && row.titleFits && row.typeFits), `${width}px intitulé de naissance et son type contenus dans la tuile`);
+        assert.equal(longPick.selected, true, `${width}px document déjà sélectionné garde son état sélectionné sans rognage`);
+        assert.equal(mobile.pickRows.find(row => row.title.includes("Acte de Mariage Carlo Giovannoni et Rosa Conti")).selected, false, `${width}px document non sélectionné garde son état initial`);
         assert.ok(mobile.pickRows.some(row => row.title === "Acte civil" && row.type === ""), `${width}px type masqué s’il répète le titre`);
         const shortPick = mobile.pickRows.find(row => row.title === "Acte civil");
         assert.ok(longPick.rowHeight > shortPick.rowHeight + 20, `${width}px la hauteur augmente réellement avec le contenu (${longPick.rowHeight} > ${shortPick.rowHeight})`);
         assert.ok(mobile.pickRows.every(row => row.titleFontSize === "14px"), `${width}px titres documentaires calculés à 14px`);
-        assert.ok(mobile.pickRows.filter(row => row.type).every(row => row.typeFontSize === "12px"), `${width}px types documentaires calculés à 12px`);
+        assert.ok(mobile.pickRows.filter(row => row.type).every(row => row.typeFontSize === "12px" && row.typeFontWeight === "400"), `${width}px types documentaires calculés à 12px en graisse normale`);
         assert.ok(mobile.pickRows.every((row, index) => index === 0 || row.rowTop >= mobile.pickRows[index - 1].rowBottom - 0.6), `${width}px tuiles voisines sans chevauchement vertical`);
+        assert.equal(new Set(mobile.pickRows.map(row => Math.round(row.rowTop * 10) / 10)).size, mobile.pickRows.length, `${width}px chaque tuile commence sur sa propre rangée`);
         assert.equal(mobile.factText.split("\n").some(line => line.trim() === ":"), false, `${width}px aucune ligne contenant uniquement les deux-points`);
         assert.match(mobile.factText, /Lieu de résidence\s*:\s*Orino \(ITA\) en 1932/, `${width}px catégorie et valeur attachées par la ponctuation`);
         assert.equal(mobile.documentBorder, "1px", `${width}px séparateur unique sous le document`);
@@ -433,7 +474,7 @@ test("Recherches, qualifications et modale Attestation : finitions desktop et mo
           const rowBox = row.getBoundingClientRect();
           const titleBox = title.getBoundingClientRect();
           const typeBox = type ? type.getBoundingClientRect() : null;
-          return { rowHeight: rowBox.height, titleHeight: titleBox.height, titleFits: titleBox.top >= rowBox.top && titleBox.bottom <= rowBox.bottom,
+          return { selected: row.getAttribute("aria-pressed"), rowHeight: rowBox.height, titleHeight: titleBox.height, titleFits: titleBox.top >= rowBox.top && titleBox.bottom <= rowBox.bottom,
             titleFontSize: getComputedStyle(title).fontSize,
             typeFits: typeBox ? typeBox.top >= rowBox.top && typeBox.bottom <= rowBox.bottom : null,
             typeFontSize: type ? getComputedStyle(type).fontSize : null,
@@ -443,9 +484,31 @@ test("Recherches, qualifications et modale Attestation : finitions desktop et mo
         assert.equal(libraryMetrics.titleFontSize, "14px", `${width}px titre bibliothèque calculé à 14px`);
         assert.equal(libraryMetrics.typeFits, true, `${width}px type bibliothèque contenu dans la tuile`);
         assert.equal(libraryMetrics.typeFontSize, "12px", `${width}px type bibliothèque calculé à 12px`);
+        assert.equal(libraryMetrics.selected, "false", `${width}px tuile bibliothèque non sélectionnée avant appui`);
+        assert.ok(libraryMetrics.rowHeight > 44, `${width}px titre très long de la bibliothèque augmente la hauteur réelle (${libraryMetrics.rowHeight}px)`);
         await libraryRow.click();
         assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 2, `${width}px sélection bibliothèque fonctionnelle`);
+        const selectedLibraryPick = await page.locator('#journeyLibraryResults [data-journey-document-pick="ux-doc-library"]').evaluate(row => ({ selected: row.getAttribute("aria-pressed"), classSelected: row.classList.contains("is-selected"), icon: row.querySelector(".attestation-pick-check use")?.getAttribute("href"), background: getComputedStyle(row).backgroundColor }));
+        assert.deepEqual(selectedLibraryPick, { selected: "true", classSelected: true, icon: "#icon-check", background: "rgb(231, 239, 232)" }, `${width}px coche et fond vert pâle préservés après sélection`);
         assert.doesNotMatch(await page.locator("#journeyDocumentSelection").innerText(), /FICHIER_TECHNIQUE_DO_NOT_RENDER|FICHIER_TECHNIQUE_LIBRARY/, `${width}px noms de fichiers techniques masqués`);
+        const selectedLibraryMetrics = await page.locator('#journeyDocumentSelection .attestation-document-chip').filter({ has: page.locator('[data-journey-document-remove="ux-doc-library"]') }).evaluate(chip => {
+          const box = chip.getBoundingClientRect();
+          const open = chip.querySelector(".attestation-document-open");
+          const title = open.querySelector(".attestation-document-title-mobile");
+          const type = open.querySelector(".attestation-document-type-mobile");
+          const contained = element => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            const rects = [...range.getClientRects()];
+            return rects.length > 0 && rects.every(rect => rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5 && rect.left >= box.left - 0.5 && rect.right <= box.right + 0.5);
+          };
+          return { height: box.height, titleFits: contained(title), typeFits: contained(type), titleSize: getComputedStyle(title).fontSize, titleWeight: getComputedStyle(title).fontWeight, typeSize: getComputedStyle(type).fontSize, scrollWidth: chip.scrollWidth, clientWidth: chip.clientWidth };
+        });
+        assert.ok(selectedLibraryMetrics.height > 44 && selectedLibraryMetrics.titleFits && selectedLibraryMetrics.typeFits, `${width}px titre très long sélectionné et métadonnée contenus sans troncature : ${JSON.stringify(selectedLibraryMetrics)}`);
+        assert.equal(selectedLibraryMetrics.titleSize, "14px", `${width}px titre sélectionné à 14px`);
+        assert.equal(selectedLibraryMetrics.titleWeight, "500", `${width}px titre sélectionné à graisse moyenne`);
+        assert.equal(selectedLibraryMetrics.typeSize, "12px", `${width}px métadonnée sélectionnée à 12px`);
+        assert.equal(selectedLibraryMetrics.scrollWidth, selectedLibraryMetrics.clientWidth, `${width}px tuile sélectionnée sans débordement horizontal`);
         await page.locator('#journeyDocumentSelection [data-journey-document-remove="ux-doc-library"]').click();
         assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 1, `${width}px retrait de document sélectionné fonctionnel`);
         await page.fill("#journeyDocumentSearch", "");
@@ -487,9 +550,13 @@ test("Recherches, qualifications et modale Attestation : finitions desktop et mo
             date: {
               wrap: getComputedStyle(sw).flexWrap,
               count: dateButtons.length,
-              allInside: dateButtons.every(b => { const r = b.getBoundingClientRect(); return r.left >= swRect.left - 1 && r.right <= swRect.right + 1 && r.top >= swRect.top - 1 && r.bottom <= swRect.bottom + 1; }),
+              clientWidth: sw.clientWidth,
+              scrollWidth: sw.scrollWidth,
+              width: swRect.width,
               rows: new Set(dateButtons.map(b => Math.round(b.getBoundingClientRect().top))).size,
-              activeVisible: activeRect.left >= swRect.left - 1 && activeRect.right <= swRect.right + 1
+              buttonsUncompressed: dateButtons.every(button => getComputedStyle(button).flexShrink === "0" && getComputedStyle(button).whiteSpace === "nowrap"),
+              activeVisible: activeRect.left >= swRect.left - 1 && activeRect.right <= swRect.right + 1,
+              contentInsideForm: swRect.left >= panel.getBoundingClientRect().left - 1 && swRect.right <= panel.getBoundingClientRect().right + 1
             },
             resultsClosed: { display: getComputedStyle(results).display, border: getComputedStyle(results).borderTopWidth },
             sourceLeft: sourceValue ? Math.round(sourceValue.getBoundingClientRect().x * 10) / 10 : null
@@ -499,10 +566,89 @@ test("Recherches, qualifications et modale Attestation : finitions desktop et mo
         assert.equal(formMetrics.allSameWidth, true, `${width}px largeurs intérieures identiques`);
         assert.equal(formMetrics.allHeights44, true, `${width}px hauteurs calculées ≥ 44 px`);
         assert.equal(formMetrics.allFonts16, true, `${width}px polices de saisie calculées à 16 px`);
-        assert.equal(formMetrics.date.wrap, "wrap", `${width}px sélecteur de date sur plusieurs lignes, aucune option coupée`);
+        assert.equal(formMetrics.date.wrap, "nowrap", `${width}px sélecteur de date sur une ligne unique`);
         assert.ok(formMetrics.date.count >= 5, `${width}px les cinq précisions de date sont présentes (${formMetrics.date.count})`);
-        assert.equal(formMetrics.date.allInside, true, `${width}px toutes les options de date contenues dans le sélecteur`);
+        assert.equal(formMetrics.date.rows, 1, `${width}px toutes les options de date appartiennent à une seule rangée`);
+        assert.ok(formMetrics.date.scrollWidth > formMetrics.date.clientWidth, `${width}px options accessibles par défilement horizontal natif`);
+        assert.equal(formMetrics.date.buttonsUncompressed, true, `${width}px options non compressibles et libellés sans retour à la ligne`);
+        assert.equal(formMetrics.date.contentInsideForm, true, `${width}px slider dans la largeur du formulaire`);
         assert.equal(formMetrics.date.activeVisible, true, `${width}px option de date active visible`);
+        const dateSlider = page.locator("#journeyInfoPanel [data-journey-date] .date-type-switch").first();
+        await dateSlider.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+        const lastDateOptionVisible = await dateSlider.locator('[data-journey-date-type="unknown"]').evaluate(button => {
+          const viewport = button.closest(".date-type-switch").getBoundingClientRect();
+          const option = button.getBoundingClientRect();
+          return option.left >= viewport.left - 1 && option.right <= viewport.right + 1;
+        });
+        assert.equal(lastDateOptionVisible, true, `${width}px défilement jusqu’à « Inconnue »`);
+        for (const mode of ["year", "about", "between", "unknown", "exact"]) {
+          const option = dateSlider.locator(`[data-journey-date-type="${mode}"]`);
+          await option.click();
+          const activeDateOption = await option.evaluate(button => {
+            const viewport = button.closest(".date-type-switch").getBoundingClientRect();
+            const rect = button.getBoundingClientRect();
+            return { selected: button.getAttribute("aria-pressed"), active: button.classList.contains("active"), visible: rect.left >= viewport.left - 1 && rect.right <= viewport.right + 1, rows: new Set([...button.closest(".date-type-switch").querySelectorAll(".date-type-button")].map(node => Math.round(node.getBoundingClientRect().top))).size };
+          });
+          assert.equal(activeDateOption.selected, "true", `${width}px mode ${mode} sélectionnable au clavier/à l’appui`);
+          assert.equal(activeDateOption.active, true, `${width}px mode ${mode} visuellement actif`);
+          assert.equal(activeDateOption.visible, true, `${width}px option active ${mode} amenée dans la fenêtre horizontale`);
+          assert.equal(activeDateOption.rows, 1, `${width}px changement vers ${mode} sans nouvelle ligne`);
+          const modePanelVisible = await option.evaluate((button, value) => {
+            const panel = button.closest("[data-journey-date]").querySelector(`[data-journey-panel="${value}"]`);
+            return Boolean(panel && !panel.hidden);
+          }, mode);
+          assert.equal(modePanelVisible, mode !== "unknown", `${width}px panneau de saisie du mode ${mode} conforme`);
+        }
+        const dateFact = await page.locator("#journeyAssociationFact option").evaluateAll(nodes => nodes.find(node => /Date de naissance attestée/i.test(node.textContent))?.value || nodes.find(node => /Date de naissance/i.test(node.textContent))?.value || "");
+        assert.ok(dateFact, `${width}px fait date disponible dans le formulaire`);
+        await page.locator("#journeyAssociationFact").selectOption(dateFact);
+        const directDateForm = page.locator("#journeyInfoPanel .attestation-source-value-fields [data-journey-date]");
+        await directDateForm.locator("#journeyDateValue").waitFor();
+        const exactDateInput = directDateForm.locator("#journeyDateValue");
+        if (screenshotDir && (width === 375 || width === 390)) {
+          await directDateForm.scrollIntoViewIfNeeded();
+          await captureAttestationScreenshot(page, `attestation-${width}-date-slider.png`);
+        }
+        const exactDateBox = await exactDateInput.evaluate(input => {
+          const wrapper = input.closest(".person-native-date-control");
+          const box = element => { const rect = element.getBoundingClientRect(); return { left: rect.left, right: rect.right, width: rect.width, height: rect.height }; };
+          return { wrapper: box(wrapper), reference: box(document.querySelector("#journeyAssociationSubjectSearch")), input: box(input), type: input.getAttribute("type"), font: getComputedStyle(input).fontSize, visualOpacity: getComputedStyle(input).opacity, visualDisplay: getComputedStyle(wrapper.querySelector(".person-native-date-visual")).display, wrapperOverflow: wrapper.scrollWidth - wrapper.clientWidth };
+        });
+        assert.ok(Math.abs(exactDateBox.wrapper.left - exactDateBox.reference.left) <= 1 && Math.abs(exactDateBox.wrapper.right - exactDateBox.reference.right) <= 1, `${width}px date alignée à ±1px avec les champs de référence : ${JSON.stringify(exactDateBox)}`);
+        assert.ok(Math.abs(exactDateBox.wrapper.height - 44) <= 1, `${width}px date visuelle à 44px : ${JSON.stringify(exactDateBox)}`);
+        assert.equal(exactDateBox.type, "date", `${width}px attribut de contrôle natif date conservé`);
+        assert.equal(exactDateBox.font, "16px", `${width}px saisie native configurée à 16px`);
+        assert.equal(exactDateBox.visualOpacity, "0", `${width}px le champ natif reste superposé et activable sous l’affichage contrôlé`);
+        assert.equal(exactDateBox.wrapperOverflow, 0, `${width}px wrapper de date sans débordement`);
+        await exactDateInput.evaluate(input => {
+          input.value = "1931-07-28";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        assert.equal(await exactDateInput.evaluate(input => input.closest(".person-native-date-control").querySelector(".person-native-date-visual").textContent), "28/07/1931", `${width}px date visible au format JJ/MM/AAAA`);
+        assert.deepEqual(await page.evaluate(() => window.__finalAttestationUX.readDate(document.querySelector("#journeyInfoPanel"))), { type: "exact", value: "1931-07-28" }, `${width}px valeur ISO conservée sans décalage jour/mois`);
+        if (screenshotDir && (width === 375 || width === 390)) await captureAttestationScreenshot(page, `attestation-${width}-date-field.png`);
+        if (width === 390) {
+          for (const legacyMode of ["before", "after", "attested"]) {
+            await page.evaluate(mode => window.__finalAttestationUX.setSourceDate({ type: mode, value: "1931-07-28" }), legacyMode);
+            const legacyOption = directDateForm.locator(`[data-journey-date-type="${legacyMode}"]`);
+            assert.equal(await legacyOption.count(), 1, `mode historique ${legacyMode} préservé au rendu`);
+            const legacyState = await legacyOption.evaluate(button => {
+              const viewport = button.closest(".date-type-switch").getBoundingClientRect();
+              const option = button.getBoundingClientRect();
+              const activePanel = button.closest("[data-journey-date]").querySelector(`[data-journey-panel="${button.dataset.journeyDateType}"]`);
+              const input = activePanel.querySelector('input[type="date"]');
+              const switcher = button.closest(".date-type-switch");
+              return { active: button.getAttribute("aria-pressed"), visible: option.left >= viewport.left - 1 && option.right <= viewport.right + 1, value: input.value, visibleText: input.closest(".person-native-date-control").querySelector(".person-native-date-visual").textContent, scrollLeft: switcher.scrollLeft, scrollWidth: switcher.scrollWidth, clientWidth: switcher.clientWidth, optionLeft: option.left, optionRight: option.right, viewportLeft: viewport.left, viewportRight: viewport.right };
+            });
+            assert.equal(legacyState.active, "true", `mode historique ${legacyMode} sélectionné`);
+            assert.equal(legacyState.visible, true, `mode historique ${legacyMode} reste visible et conserve la date ISO : ${JSON.stringify(legacyState)}`);
+            assert.equal(legacyState.value, "1931-07-28", `valeur ISO historique ${legacyMode} conservée`);
+            assert.equal(legacyState.visibleText, "28/07/1931", `affichage numérique historique ${legacyMode} conservé`);
+          }
+          await page.evaluate(() => window.__finalAttestationUX.setSourceDate({ type: "exact", value: "1931-07-28" }));
+          assert.equal(await directDateForm.locator("#journeyDateValue").evaluate(input => input.closest(".person-native-date-control").querySelector(".person-native-date-visual").textContent), "28/07/1931", "réouverture/rendu du panneau restaure l’affichage numérique et l’ISO");
+        }
         assert.equal(formMetrics.resultsClosed.display, "none", `${width}px autocomplétion fermée sans conteneur résiduel`);
         assert.equal(formMetrics.resultsClosed.border, "0px", `${width}px aucune bordure résiduelle quand les suggestions sont fermées`);
         /* Relation : champ de la deuxième personne sur la même marge. */
@@ -533,15 +679,48 @@ test("Recherches, qualifications et modale Attestation : finitions desktop et mo
       }
       await page.locator('#personAttestationDialog [data-journey-attestation-cancel]').click();
       await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);
+      if (width === 390) {
+        const addAttestation = page.locator('#personPageEditHost [data-journey-attestation-add="ux-event"]');
+        assert.equal(await addAttestation.count(), 1, "mode Ajouter : entrée d’ajout d’attestation disponible");
+        await page.evaluate(() => window.__finalAttestationUX.openNewAttestation());
+        await page.waitForFunction(() => document.getElementById("personAttestationDialog").open);
+        assert.equal(await page.locator("#personAttestationDialogTitle").innerText(), "Ajouter une attestation", "mode Ajouter identifié dans la modale");
+        await page.evaluate(() => window.__finalAttestationUX.prepareNewAttestationDocument());
+        await page.locator('#personAttestationDialog [data-journey-attestation-panel-open="info"]').click();
+        const addResidenceFact = await page.locator("#journeyAssociationFact option").evaluateAll(nodes => nodes.find(node => node.textContent.includes("Lieu de résidence"))?.value || "");
+        assert.ok(addResidenceFact, "mode Ajouter : fait résidentiel disponible");
+        await page.locator("#journeyAssociationFact").selectOption(addResidenceFact);
+        await page.evaluate(() => window.__finalAttestationUX.setSourceDate({ type: "exact", value: "1931-07-28" }));
+        const addModeDate = page.locator("#journeyInfoPanel .attestation-source-date [data-journey-date]");
+        const addModeMetrics = await addModeDate.evaluate(container => {
+          const switcher = container.querySelector(".date-type-switch");
+          const input = container.querySelector('#journeyDateValue');
+          const control = input.closest(".person-native-date-control").getBoundingClientRect();
+          const reference = document.querySelector("#journeyAssociationSubjectSearch").getBoundingClientRect();
+          return { title: document.getElementById("personAttestationDialogTitle").textContent, rows: new Set([...switcher.querySelectorAll(".date-type-button")].map(button => Math.round(button.getBoundingClientRect().top))).size,
+            width: switcher.clientWidth, scrollWidth: switcher.scrollWidth, dateAttribute: input.getAttribute("type"), controlWidth: control.width, controlHeight: control.height, leftDelta: control.left - reference.left, rightDelta: control.right - reference.right,
+            visual: input.closest(".person-native-date-control").querySelector(".person-native-date-visual").textContent };
+        });
+        assert.equal(addModeMetrics.title, "Ajouter une attestation", "mode Ajouter conserve son contexte pendant le rendu du formulaire");
+        assert.equal(addModeMetrics.rows, 1, "mode Ajouter : date sur une seule ligne défilante");
+        assert.ok(addModeMetrics.scrollWidth > addModeMetrics.width, "mode Ajouter : options accessibles par glissement horizontal");
+        assert.equal(addModeMetrics.dateAttribute, "date", "mode Ajouter conserve input[type=date]");
+        assert.ok(Math.abs(addModeMetrics.controlHeight - 44) <= 1 && Math.abs(addModeMetrics.leftDelta) <= 1 && Math.abs(addModeMetrics.rightDelta) <= 1, `mode Ajouter : champ date aligné et de 44px (${JSON.stringify(addModeMetrics)})`);
+        assert.equal(addModeMetrics.visual, "28/07/1931", "mode Ajouter affiche la date existante au format JJ/MM/AAAA");
+        await page.locator("#journeyInfoPanel [data-journey-panel-close]").click();
+        await page.locator('#personAttestationDialog [data-journey-attestation-cancel]').click();
+        await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open);
+      }
       await page.locator('#personPageEditHost [data-close="personDialog"]').click();
       await page.waitForFunction(() => document.getElementById("personPageEditHost").hidden);
     }
 
-    /* Aucune confirmation inattendue : seuls le retrait d'information et
-       l'abandon du brouillon modifié demandent une validation native. */
-    assert.equal(nativeDialogs.length, 2, `seules les confirmations métier attendues : ${JSON.stringify(nativeDialogs)}`);
-    assert.match(nativeDialogs[0], /Retirer l’information/, "confirmation de retrait de l’information demandée");
-    assert.match(nativeDialogs[1], /Abandonner les modifications/, "abandon du brouillon modifié demandé");
+    /* Seules les confirmations métier attendues : abandon du formulaire Ajouter,
+       retrait d'information, puis abandon du brouillon Modifier. */
+    assert.equal(nativeDialogs.length, 3, `seules les confirmations métier attendues : ${JSON.stringify(nativeDialogs)}`);
+    assert.match(nativeDialogs[0], /Abandonner les modifications/, "abandon du formulaire Ajouter modifié demandé");
+    assert.match(nativeDialogs[1], /Retirer l’information/, "confirmation de retrait de l’information demandée");
+    assert.match(nativeDialogs[2], /Abandonner les modifications/, "abandon du brouillon Modifier demandé");
   } finally {
     await context.close();
     await browser.close();
