@@ -1840,6 +1840,7 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
 }
 .person-attestation-dialog .attestation-empty > strong { font-size: var(--text-sm); color: var(--color-text); }
 .person-attestation-dialog .attestation-empty > span { font-size: var(--text-xs); color: var(--color-text-muted); }
+.person-attestation-dialog .attestation-empty-text { display: flex; justify-content: center; padding: var(--space-3) var(--space-2); color: var(--color-text-muted); font-size: var(--text-xs); text-align: center; }
 
 /* ---- Sélection par lignes (aucune case à cocher) ---- */
 .person-attestation-dialog .attestation-pick-row {
@@ -1902,22 +1903,22 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   table-layout: fixed;
 }
 .person-attestation-dialog .attestation-table th:nth-child(1),
-.person-attestation-dialog .attestation-table td:nth-child(1) { width: 17%; }
+.person-attestation-dialog .attestation-table td:nth-child(1) { width: 22%; }
 .person-attestation-dialog .attestation-table th:nth-child(2),
-.person-attestation-dialog .attestation-table td:nth-child(2) { width: 35%; }
+.person-attestation-dialog .attestation-table td:nth-child(2) { width: 30%; }
 .person-attestation-dialog .attestation-table th:nth-child(3),
-.person-attestation-dialog .attestation-table td:nth-child(3) { width: 18%; }
+.person-attestation-dialog .attestation-table td:nth-child(3) { width: 30%; }
 .person-attestation-dialog .attestation-table th:nth-child(4),
-.person-attestation-dialog .attestation-table td:nth-child(4) { width: 17%; }
+.person-attestation-dialog .attestation-table td:nth-child(4) { width: 10%; }
 .person-attestation-dialog .attestation-table th:nth-child(5),
-.person-attestation-dialog .attestation-table td:nth-child(5) { width: 13%; }
+.person-attestation-dialog .attestation-table td:nth-child(5) { width: 8%; }
 .documentary-fact-label { color: var(--color-text-muted); font-size: var(--text-sm); font-weight: var(--weight-regular); }
-.documentary-fact-value { color: var(--color-text); font-size: var(--text-md); font-weight: var(--weight-semibold); }
+.documentary-fact-value { color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
 .person-attestation-dialog .attestation-table th,
 .person-attestation-dialog .attestation-table td {
   padding: var(--space-2);
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
   border-bottom: var(--border-subtle);
   overflow-wrap: anywhere;
 }
@@ -2087,6 +2088,32 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   line-height: 1.15;
 }
 #personAttestationDialogContext { color: #68736d; font-size: 12px; }
+/* Croix du titre : sans encadrement permanent, jamais réduite sous la cible
+   tactile de 44 px par la flexion de l'en-tête. */
+#personAttestationDialog #closePersonAttestationDialogBtn {
+  flex: 0 0 auto;
+  border-color: transparent;
+  background: transparent;
+}
+#personAttestationDialog #closePersonAttestationDialogBtn:hover {
+  border-color: transparent;
+  background: var(--color-surface-soft);
+}
+/* Croix interne du panneau « Nouvelle information » : idem, sans cadre. */
+#personAttestationDialog .attestation-panel-close {
+  border-color: transparent;
+  background: transparent;
+}
+#personAttestationDialog .attestation-panel-close:hover {
+  border-color: transparent;
+  background: var(--color-surface-soft);
+}
+/* Focus : la bordure native (clic/tap) est supprimée dans la modale, l'anneau
+   de focus clavier du Design System reste appliqué sur :focus-visible. */
+#personAttestationDialog:focus { outline: none; }
+#personAttestationDialog :where(input, select, textarea):focus { outline: none; }
+#personAttestationDialog :where(input, select, textarea):focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
+#personAttestationDialog :where(button, a, [tabindex]):focus:not(:focus-visible) { outline: none; }
 
 .person-attestation-dialog .attestation-form-section {
   gap: var(--space-3);
@@ -2348,7 +2375,8 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   .person-attestation-dialog .attestation-field-grid,
   .person-attestation-dialog .attestation-relation-grid { grid-template-columns: minmax(0, 1fr); }
   .person-attestation-dialog [data-journey-document-create],
-  .person-attestation-dialog [data-journey-attestation-panel-open] { width: 100%; justify-content: center; }
+  .person-attestation-dialog [data-journey-attestation-panel-open],
+  .person-attestation-dialog [data-journey-association-add] { width: 100%; justify-content: center; }
   .person-attestation-dialog .attestation-panel-actions--top { justify-content: stretch; }
   .person-attestation-dialog .attestation-document-chip { flex-wrap: nowrap; align-items: flex-start; }
   .person-attestation-dialog .attestation-document-chip .attestation-association-copy { flex: 1 1 auto; }
@@ -3350,6 +3378,7 @@ label .field { margin-top: var(--space-2); }
 .timeline-line { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
 .timeline-icon { width: 1.125rem; height: 1.125rem; flex: 0 0 auto; stroke-width: 2; color: var(--color-accent); }
 .timeline-desktop-content { display: none; }
+.timeline-desktop-heading { display: none; }
 
 /* Hiérarchie des informations du panneau desktop : groupes libellé/valeur
    alignés horizontalement avec retour à la ligne, attestations séparées d'un
@@ -6169,8 +6198,20 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
     flex: 0 0 auto;
     padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
   }
-  #personAttestationDialog .attestation-form { gap: var(--space-4); }
+  #personAttestationDialog .attestation-form { gap: var(--space-3); }
   #personAttestationDialog .attestation-form-panel { padding: var(--space-3); }
+  #personAttestationDialog .attestation-form-section { padding: var(--space-3); gap: var(--space-2); }
+  #personAttestationDialog .attestation-section-head { gap: var(--space-2); }
+  #personAttestationDialog .attestation-field { gap: var(--space-2); }
+  #personAttestationDialog .attestation-field-body { gap: var(--space-1); }
+  #personAttestationDialog .attestation-field-grid { gap: var(--space-2); }
+  #personAttestationDialog #closePersonAttestationDialogBtn { min-width: var(--control-touch); }
+  #personAttestationDialog > .modal-actions .right { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; }
+  #personAttestationDialog > .modal-actions .right .btn { width: 100%; min-height: var(--control-touch); }
+  #personAttestationDialog .attestation-pick-row { min-height: var(--control-touch); }
+  #personAttestationDialog .attestation-pick-row .attestation-pick-check { align-self: center; }
+  #personAttestationDialog .attestation-pick-row .attestation-association-copy { overflow-wrap: anywhere; }
+  #personAttestationDialog .field { font-size: 16px; }
   #personAttestationDialog .attestation-date-panel { padding-inline: var(--space-2); }
   #personAttestationDialog .attestation-date-panel .genealogy-date,
   #personAttestationDialog .attestation-date-panel .date-type-switch,
@@ -7345,9 +7386,9 @@ body:has(#personDetailView:not([hidden])):not(:has(#personPageEditHost:not([hidd
 .person-detail-research-card--proof { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .person-detail-research-card--proof .person-detail-research-line { flex: 1 1 calc(100% - 2.5rem); }
 .person-detail-research-card--proof .person-detail-research-meta { flex: 0 0 auto; }
-.person-detail-research-line { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); min-width: 0; }
-.person-detail-research-card--proof .documentary-fact-value { color: var(--color-text); font-size: var(--text-md); font-weight: var(--weight-semibold); line-height: 1.35; }
-.person-detail-research-card--proof .documentary-fact-label { color: var(--color-text-muted); font-size: var(--text-sm); }
+.person-detail-research-line { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-width: 0; }
+.person-detail-research-card--proof .documentary-fact-value { color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-semibold); line-height: 1.35; }
+.person-detail-research-card--proof .documentary-fact-label { color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-regular); }
 .person-detail-research-temporal { color: var(--color-text-muted); font-size: var(--text-xs); }
 .person-detail-research-document { display: flex; align-items: center; gap: var(--space-1); min-width: 0; color: var(--color-text-muted); font-size: var(--text-xs); }
 .person-detail-research-document .ui-icon { width: 0.875rem; height: 0.875rem; flex: 0 0 auto; }
@@ -7865,16 +7906,19 @@ body:has(#personDetailView:not([hidden])) .person-page-mobile-actions .source-de
   .person-detail-notes { font-size: 0.9375rem; }
 
   .person-detail-overview #personPageTimeline { padding: var(--space-6); }
-  .person-detail-overview #personPageTimeline > h3 { margin-bottom: var(--space-6); }
+  .person-detail-overview #personPageTimeline > h3 { margin-bottom: var(--space-2); }
   .person-page-timeline { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(10rem, 1fr); gap: 0; width: 100%; min-width: 0; margin: 0 auto; padding: 0; overflow-x: auto; overflow-y: visible; list-style: none; counter-reset: none; }
   .person-page-timeline::before { display: none; }
-  .person-page-timeline .timeline-jalon { position: relative; min-width: 0; min-height: 0; padding: 2.8rem 0 0; border: 0; border-radius: 0; background: transparent; counter-increment: none; }
-  .person-page-timeline .timeline-jalon::after { content: ""; position: absolute; top: 1.375rem; right: -50%; left: 50%; height: 2px; background: var(--color-border); }
+  /* L'intitulé desktop reste dans le flux normal du conteneur défilant : aucune
+     position absolue, donc aucun rognage par overflow-x/auto de la liste. */
+  .person-page-timeline .timeline-jalon { position: relative; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; counter-increment: none; }
+  .person-page-timeline .timeline-jalon::after { content: ""; position: absolute; top: 2.375rem; right: -50%; left: 50%; height: 2px; background: var(--color-border); }
   .person-page-timeline .timeline-jalon:last-child::after { display: none; }
-  .person-page-timeline .timeline-dot { display: block; z-index: 1; top: 1rem; left: 50%; width: 0.875rem; height: 0.875rem; border: 2px solid var(--color-surface); box-shadow: 0 0 0 1px var(--color-border-strong); transform: translateX(-50%); }
+  .person-page-timeline .timeline-dot { display: block; z-index: 1; top: 2rem; left: 50%; width: 0.875rem; height: 0.875rem; border: 2px solid var(--color-surface); box-shadow: 0 0 0 1px var(--color-border-strong); transform: translateX(-50%); }
   .person-page-timeline .timeline-content--mobile { display: none !important; }
+  .person-page-timeline .timeline-content { display: grid; grid-template-rows: auto auto; row-gap: var(--space-8); min-width: 0; width: 100%; padding: 0; text-align: center; }
+  .person-page-timeline .timeline-desktop-heading { grid-row: 1; display: flex; align-items: center; justify-content: center; gap: var(--space-1); min-width: 0; height: 1.75rem; overflow: visible; }
   .person-page-timeline .timeline-desktop-content { position: relative; display: grid; justify-items: center; gap: 0.0625rem; min-width: 0; padding: 0; text-align: center; }
-  .person-page-timeline .timeline-desktop-heading { position: absolute; top: -4rem; left: 0; right: 0; display: flex; align-items: center; justify-content: center; gap: var(--space-1); min-width: 0; height: 1.75rem; overflow: visible; }
   .person-page-timeline .timeline-desktop-icon { width: 1rem; height: 1rem; flex: 0 0 auto; color: var(--color-accent); }
   .person-page-timeline .timeline-desktop-heading .timeline-title--desktop { min-width: 0; overflow: visible; font: var(--weight-semibold) var(--text-xs)/1.2 var(--font-ui); letter-spacing: 0.04em; text-overflow: clip; text-transform: uppercase; white-space: nowrap; }
   .person-page-timeline .timeline-desktop-date-age { display: flex; align-items: baseline; justify-content: center; flex-wrap: wrap; gap: var(--space-1); min-width: 0; color: var(--color-brand); }

@@ -18,12 +18,24 @@ window.__preciseProofTest = {
   writes: [],
   createOfficial(payload) {
     window.__preciseProofTest.createCalls.push(JSON.parse(JSON.stringify(payload)));
+    /* Les Preuves créées deviennent réellement consultables : la réouverture de
+       l'attestation doit les recharger sans les dupliquer. */
+    if (payload?.type === "proof" && payload.data && typeof payload.data === "object") {
+      genealogyRecords.genealogyProofs.push({
+        id: payload.id || "proof-created-" + window.__preciseProofTest.createCalls.length,
+        data: { ...payload.data, technicalStatus: payload.data.technicalStatus || "active" }
+      });
+    }
   },
   deleteOfficial(payload) {
     window.__preciseProofTest.deleteCalls.push(JSON.parse(JSON.stringify(payload)));
   },
   reviseOfficial(payload) {
     window.__preciseProofTest.reviseCalls.push(JSON.parse(JSON.stringify(payload)));
+    if (payload?.type === "proof" && payload.data && typeof payload.data === "object") {
+      const record = genealogyRecords.genealogyProofs.find(item => item.id === payload.id);
+      if (record) record.data = { ...record.data, ...payload.data };
+    }
   },
   writeAttestations(kind, attestations) {
     window.__preciseProofTest.writes.push({ kind, attestations: attestations.map(item => ({ ...item })) });
@@ -48,6 +60,9 @@ window.__preciseProofTest = {
   },
   associations() {
     return journeyAttestationDraft.associations.map(item => ({ key: item.key, existing: item.existing, pendingRevision: item.pendingRevision, sourceValue: item.sourceValue, proofId: item.proofId }));
+  },
+  placeValue() {
+    return journeySourcePlaceControl?.getValue() || null;
   },
   reset() {
     window.__preciseProofTest.createCalls = [];
@@ -384,7 +399,7 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     await page.locator('#journeyInfoPanel [data-journey-date-type="year"]').first().click();
     await page.locator("#journeyDateYear").first().fill("1925");
     await page.locator("[data-journey-association-add]").click();
-    assert.match(await page.locator("#journeyAssociationList").innerText(), /Profession \/ activité :[\s\S]*Menuisier 1925/, "valeur documentaire et période formulées naturellement");
+    assert.match(await page.locator("#journeyAssociationList").innerText(), /Profession \/ activité :[\s\S]*Menuisier en 1925/, "valeur documentaire et période formulées naturellement");
     assert.equal(await page.evaluate(() => window.__preciseProofTest.professions("precise-b")), undefined, "aucun événement professionnel généalogique fabriqué");
     await page.locator('[data-journey-attestation-panel-open="info"]').click();
     const residenceFact = await page.locator("#journeyAssociationFact option").evaluateAll(nodes => nodes.find(node => node.textContent.includes("Lieu de résidence"))?.value || "");
@@ -398,6 +413,36 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     assert.match(await page.locator("#journeyAssociationList").innerText(), /Metz \(FRA\)/, "le lieu choisi garde son code pays dans sourceValue");
     assert.equal(await page.evaluate(() => window.__preciseProofTest.residences("precise-b")), undefined, "aucune résidence généalogique fictive n'est créée");
 
+    /* Saisie libre d'un lieu non référencé. */
+    await page.locator('[data-journey-attestation-panel-open="info"]').click();
+    await page.locator("#journeyAssociationFact").selectOption(residenceFact);
+    await page.selectOption("#journeyAssociationDocument", "precise-doc-3");
+    await page.fill("#journeySourceValue", "Village historique libre");
+    await page.locator("[data-journey-association-add]").click();
+    assert.match(await page.locator("#journeyAssociationList").innerText(), /Village historique libre/, "saisie libre enregistrée sans suggestion géographique");
+    assert.equal(await page.evaluate(() => window.__preciseProofTest.residences("precise-b")), undefined, "aucune résidence généalogique créée pour la saisie libre");
+    const freeDraftSource = await page.evaluate(() => window.__preciseProofTest.associations().find(item => item.sourceValue?.value === "Village historique libre")?.sourceValue ?? null);
+    assert.ok(freeDraftSource && !freeDraftSource.placeInfo, "saisie libre conservée dans le brouillon sans métadonnée géographique");
+
+    /* Remplacement d'un lieu référencé par une saisie libre : les métadonnées
+       géographiques de l'ancienne suggestion ne survivent pas à la frappe. */
+    await page.locator('[data-journey-attestation-panel-open="info"]').click();
+    await page.fill("#journeyAssociationSubjectSearch", "Carlo");
+    await page.locator('[data-journey-subject-pick="person:precise-c"]').click();
+    const replacementResidence = await page.locator("#journeyAssociationFact option").evaluateAll(nodes => nodes.find(node => node.textContent.includes("Lieu de résidence"))?.value || "");
+    assert.ok(replacementResidence, "fait de résidence disponible pour la deuxième personne");
+    await page.locator("#journeyAssociationFact").selectOption(replacementResidence);
+    await page.selectOption("#journeyAssociationDocument", "precise-doc-1");
+    await page.fill("#journeySourceValue", "Metz");
+    await page.locator("#journeySourceValue-suggestions .location-suggestion").waitFor({ state: "visible", timeout: 5000 });
+    await page.locator("#journeySourceValue-suggestions .location-suggestion").click();
+    await page.fill("#journeySourceValue", "Hameau sans référentiel");
+    await page.locator("[data-journey-association-add]").click();
+    const replacedSource = await page.evaluate(() => window.__preciseProofTest.associations().find(item => item.sourceValue?.value === "Hameau sans référentiel")?.sourceValue ?? null);
+    assert.ok(replacedSource && !replacedSource.placeInfo, "remplacement d'un lieu référencé : métadonnées géographiques obsolètes supprimées");
+    const referencedDraftSource = await page.evaluate(() => window.__preciseProofTest.associations().find(item => item.sourceValue?.value === "Metz")?.sourceValue ?? null);
+    assert.ok(referencedDraftSource?.placeInfo, "lieu référencé conservé avec ses métadonnées géographiques");
+
     /* Doublon refusé. */
     await page.locator('[data-journey-attestation-panel-open="info"]').click();
     await page.fill("#journeyAssociationSubjectSearch", "Ada");
@@ -409,7 +454,7 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     await page.locator("#journeyDateYear").first().fill("1890");
     await page.locator("[data-journey-association-add]").click();
     assert.match(await page.locator("#journeyError-association").innerText(), /existe déjà/, "doublon refusé");
-    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 6, "aucune ligne supplémentaire");
+    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 8, "aucune ligne supplémentaire");
     await page.locator("[data-journey-panel-close]").first().click();
 
     /* Une preuve existante se corrige dans le même panneau et devient une
@@ -434,8 +479,11 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
     await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });
     const createCalls = await page.evaluate(() => window.__preciseProofTest.createCalls);
-    assert.equal(createCalls.length, 5, "cinq nouvelles associations, pas un produit cartésien");
+    assert.equal(createCalls.length, 7, "sept nouvelles associations, pas un produit cartésien");
     assert.ok(createCalls.some(call => call.data.sourceValue?.value === "Menuisier" && call.data.sourceValue?.dateInfo?.year === 1925), "sourceValue conserve la profession documentaire et sa période structurée");
+    assert.ok(createCalls.some(call => call.data.sourceValue?.value === "Metz" && call.data.sourceValue?.placeInfo), "lieu référencé persisté avec ses métadonnées géographiques");
+    assert.ok(createCalls.some(call => call.data.sourceValue?.value === "Village historique libre" && !call.data.sourceValue?.placeInfo), "saisie libre persistée sans métadonnée géographique");
+    assert.ok(createCalls.some(call => call.data.sourceValue?.value === "Hameau sans référentiel" && !call.data.sourceValue?.placeInfo), "lieu libre issu d'un remplacement persisté sans métadonnée obsolète");
     assert.ok(createCalls.every(call => call.type === "proof"));
     const revisionCalls = await page.evaluate(() => window.__preciseProofTest.reviseCalls);
     assert.equal(revisionCalls.length, 1, "la preuve existante est révisée sans suppression");
@@ -454,9 +502,37 @@ test("maquette : deux accès documentaires, panneau unique et relations précis�
     await page.locator("#birthAttestationList [data-journey-attestation-edit]").last().click();
     await page.waitForFunction(() => document.getElementById("personAttestationDialog").open, undefined, { timeout: 10000 });
     assert.equal(await page.locator("#journeyDocumentSelection .attestation-document-chip").count(), 3, "documents restaurés");
-    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 1,
-      "l’association réellement persistée est rechargée, jamais dupliquée (les créations du harnais ne sont pas écrites)");
+    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 8,
+      "les huit associations réellement persistées sont rechargées, jamais dupliquées");
     assert.match(await page.locator("#journeyAttComment").inputValue(), /Registre communal consulté/, "commentaire restauré");
+
+    /* Lieu attesté : réouverture sans métadonnée obsolète, puis modification
+       du texte libre enregistrée comme révision. */
+    const freeRow = page.locator("#journeyAssociationList tr[data-journey-association]", { hasText: "Village historique libre" });
+    assert.equal(await freeRow.count(), 1, "saisie libre rechargée à la réouverture");
+    const reopenedFreeSource = await page.evaluate(() => window.__preciseProofTest.associations().find(item => item.sourceValue?.value === "Village historique libre")?.sourceValue ?? null);
+    assert.ok(reopenedFreeSource && !reopenedFreeSource.placeInfo, "lieu libre rechargé sans métadonnée géographique");
+    await freeRow.locator("[data-journey-association-edit]").click();
+    assert.equal(await page.locator("#journeySourceValue").inputValue(), "Village historique libre", "panneau d’édition prérempli avec le lieu libre");
+    const editorPlace = await page.evaluate(() => window.__preciseProofTest.placeValue());
+    assert.ok(editorPlace, "champ de lieu édité avec le composant d’autocomplétion partagé");
+    assert.equal(editorPlace.placeInfo ?? null, null, "aucune métadonnée géographique ressuscitée à la réouverture du panneau");
+    await page.fill("#journeySourceValue", "Hameau de la Fontaine");
+    await page.locator("[data-journey-association-add]").click();
+    assert.match(await page.locator("#journeyAssociationList").innerText(), /Hameau de la Fontaine/, "lieu libre modifié dans le brouillon");
+    assert.doesNotMatch(await page.locator("#journeyAssociationList").innerText(), /Village historique libre/, "l’ancien texte libre n’est pas conservé côte à côte");
+    const modifiedFreeSource = await page.evaluate(() => window.__preciseProofTest.associations().find(item => item.sourceValue?.value === "Hameau de la Fontaine")?.sourceValue ?? null);
+    assert.ok(modifiedFreeSource && !modifiedFreeSource.placeInfo, "modification conservée sans métadonnée géographique");
+    await page.locator('#personAttestationDialog [data-journey-attestation-save]').click();
+    await page.waitForFunction(() => !document.getElementById("personAttestationDialog").open, undefined, { timeout: 5000 });
+    const placeRevisions = await page.evaluate(() => window.__preciseProofTest.reviseCalls);
+    assert.equal(placeRevisions.length, 2, "révision du lieu ajoutée à la révision existante");
+    assert.equal(placeRevisions[1].data.sourceValue?.value, "Hameau de la Fontaine", "révision persistée avec le nouveau lieu libre");
+    assert.ok(!placeRevisions[1].data.sourceValue?.placeInfo, "révision du lieu sans métadonnée géographique");
+    await page.locator("#birthAttestationList [data-journey-attestation-edit]").last().click();
+    await page.waitForFunction(() => document.getElementById("personAttestationDialog").open, undefined, { timeout: 10000 });
+    assert.equal(await page.locator("#journeyAssociationList tr[data-journey-association]").count(), 8, "associations rechargées après révision sans duplication");
+    assert.match(await page.locator("#journeyAssociationList").innerText(), /Hameau de la Fontaine/, "lieu libre modifié rechargé à la réouverture");
 
     /* Retrait contrôlé d’une association persistée. */
     await page.evaluate(() => window.__preciseProofTest.reset());

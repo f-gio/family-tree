@@ -179,9 +179,9 @@ test("la page Preuve restitue chaque origine et conserve les parcours métier", 
     assert.match(await page.locator("#proofPageContent").innerText(), /VALEUR DOCUMENTAIRE[\s\S]*Naissance : 1890/i);
     assert.doesNotMatch(await page.locator("#proofPageContent").innerText(), /\[object Object\]/);
     await page.evaluate(() => window.__proofPageTest.setSourceValue({ value: "Metz", placeInfo: { name: "Metz", countryCode: "FRA" }, dateInfo: { type: "between", from: 1930, to: 1940 } }, null));
-    assert.match(await page.locator("#proofPageContent").innerText(), /Metz \(FRA\)[\s\S]*entre 1930 et 1940/i, "lieu et période structurés sans JSON brut");
+    assert.match(await page.locator("#proofPageContent").innerText(), /Metz \(FRA\)[\s\S]*de 1930 à 1940/i, "lieu et période structurés sans JSON brut");
     await page.evaluate(() => window.__proofPageTest.setSourceValue({ value: "Femme au foyer", dateInfo: { type: "between", from: 1930, to: 1940 } }, { type: "year", year: 1945 }));
-    assert.match(await page.locator("#proofPageContent").innerText(), /Femme au foyer[\s\S]*entre 1930 et 1940[\s\S]*Date de référence[\s\S]*1945/i, "valeur, période et référence restent distinctes");
+    assert.match(await page.locator("#proofPageContent").innerText(), /Femme au foyer[\s\S]*de 1930 à 1940[\s\S]*Date de référence[\s\S]*1945/i, "valeur, période et référence restent distinctes");
     await page.evaluate(() => window.__proofPageTest.setSourceValue("1890", null));
     assert.match(await page.locator("#proofPageContent").innerText(), /née le quinze mars/);
     assert.match(await page.locator("#proofPageContent").innerText(), /La date est confirmée/);

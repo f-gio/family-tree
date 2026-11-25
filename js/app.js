@@ -3221,7 +3221,7 @@ function journeyDocumentPickRowMarkup(documentItem, personId) {
   const selected = journeyAttestationDraft.documentIds.includes(documentItem.id);
   const type = documentItem.type || documentItem.fileName || "Document";
   const linked = (documentItem.personIds || []).includes(personId);
-  const meta = [type, linked ? "" : "Bibliothèque"].filter(Boolean).join(" · ");
+  const meta = type;
   return `<button class="attestation-pick-row${selected ? " is-selected" : ""}" type="button"
       data-journey-document-pick="${esc(documentItem.id)}" aria-pressed="${selected ? "true" : "false"}">
       <span class="attestation-pick-check" aria-hidden="true">${selected ? icon("check") : icon("plus")}</span>
@@ -3318,10 +3318,13 @@ function documentaryFactLabel(factType = "") {
 function documentaryValueParts(sourceValue, referenceDateInfo = null) {
   let value = "";
   let dateInfo = null;
+  let valueType = null;
   if (typeof sourceValue === "string" || typeof sourceValue === "number") value = String(sourceValue).trim();
   else if (sourceValue && typeof sourceValue === "object" && !Array.isArray(sourceValue)) {
-    if (LIFE_DATE_TYPES.includes(sourceValue.type)) value = formatLifeDate(sourceValue);
-    else {
+    if (LIFE_DATE_TYPES.includes(sourceValue.type)) {
+      value = formatLifeDate(sourceValue);
+      valueType = sourceValue.type;
+    } else {
       const rawValue = sourceValue.value ?? sourceValue.text ?? sourceValue.name ?? "";
       if (typeof rawValue === "string" || typeof rawValue === "number") {
         const text = String(rawValue).trim();
@@ -3340,12 +3343,29 @@ function documentaryValueParts(sourceValue, referenceDateInfo = null) {
     const formatted = formatLifeDate(referenceDateInfo);
     if (formatted && formatted !== "—") referenceDate = formatted;
   }
-  return { value, temporal, referenceDate };
+  return { value, temporal, referenceDate, valueType };
+}
+
+function documentaryTemporalConnector(value, temporal, valueType) {
+  if (!temporal) return "";
+  if (valueType) return "";
+  const normalized = temporal.trim().toLowerCase();
+  if (/^(en|vers|avant|après|entre|de|attesté)/.test(normalized)) return " ";
+  const isYear = /^\d{4}$/.test(temporal.trim());
+  if (isYear) return " en ";
+  return " ";
+}
+
+function documentaryTemporalText(temporal) {
+  if (!temporal) return "";
+  return temporal.replace(/^entre\s+(\d+)\s+et\s+(\d+)$/, "de $1 à $2");
 }
 
 function documentaryValueSummary(sourceValue, referenceDateInfo = null) {
   const parts = documentaryValueParts(sourceValue, referenceDateInfo);
-  const temporal = parts.temporal ? ` ${parts.temporal}` : "";
+  const temporalText = documentaryTemporalText(parts.temporal);
+  const connector = documentaryTemporalConnector(parts.value, parts.temporal, parts.valueType);
+  const temporal = temporalText ? `${connector}${temporalText}` : "";
   const reference = parts.referenceDate ? ` — Date de référence : ${parts.referenceDate}` : "";
   return `${parts.value || ""}${temporal}${reference}`;
 }
@@ -3353,7 +3373,9 @@ function documentaryValueSummary(sourceValue, referenceDateInfo = null) {
 function documentaryValueMarkup(factLabel, sourceValue, referenceDateInfo = null) {
   const parts = documentaryValueParts(sourceValue, referenceDateInfo);
   if (!parts.value) return esc(factLabel);
-  const temporal = parts.temporal ? ` ${esc(parts.temporal)}` : "";
+  const temporalText = documentaryTemporalText(parts.temporal);
+  const connector = documentaryTemporalConnector(parts.value, parts.temporal, parts.valueType);
+  const temporal = temporalText ? `${connector}${esc(temporalText)}` : "";
   const reference = parts.referenceDate ? ` — Date de référence : ${esc(parts.referenceDate)}` : "";
   return `<span class="documentary-fact-label">${esc(factLabel)}</span> : <strong class="documentary-fact-value">${esc(parts.value)}${temporal}${reference}</strong>`;
 }
@@ -3362,8 +3384,8 @@ function journeyAssociationListMarkup() {
   const list = journeyAttestationDraft.associations;
   if (!list.length) {
     if (journeyAttestationDraft.panel === "info") return "";
-    return `<div class="attestation-empty" id="journeyAssociationListEmpty">
-      <span>${journeyAttestationDraft.documentIds.length ? "Ajoutez une information attestée par un document." : "Sélectionnez d'abord un document."}</span>
+    return `<div class="attestation-empty-text" id="journeyAssociationListEmpty">
+      <span>${journeyAttestationDraft.documentIds.length ? "Aucune information ajoutée." : "Sélectionnez d'abord un document."}</span>
     </div>`;
   }
   const rows = list.map(item => {
@@ -5594,11 +5616,13 @@ function timelineItemHtml(event, { interactive = false, desktopDate = "" } = {})
   const iconMarkup = `<svg class="ui-icon timeline-icon" aria-hidden="true"><use href="#icon-${timelineTypeIcon(event)}"></use></svg>`;
   const mobileContent = `<span class="timeline-content timeline-content--mobile"><span class="timeline-line">${iconMarkup}<strong class="timeline-title">${esc(event.title)}</strong>${age}${date}</span>${detail}${attestationIndicator}</span>`;
   const desktopIcon = `<svg class="ui-icon timeline-desktop-icon" aria-hidden="true"><use href="#icon-${timelineTypeIcon(event)}"></use></svg>`;
+  const desktopHeading = `<span class="timeline-desktop-heading">${desktopIcon}<strong class="timeline-title--desktop">${esc(event.title)}</strong></span>`;
   const desktopAttestations = attestationCount > 0
     ? `<span class="timeline-desktop-attestation-indicator">${icon("document")}<span>${attestationCount} attestation${attestationCount > 1 ? "s" : ""}</span></span>`
     : "";
-  const desktopContent = `<span class="timeline-desktop-content"><span class="timeline-desktop-heading">${desktopIcon}<strong class="timeline-title--desktop">${esc(event.title)}</strong></span>${desktopDateAge ? `<span class="timeline-desktop-date-age"><strong class="timeline-date--desktop">${esc(desktopDate)}</strong>${desktopAge ? `<span class="timeline-age--desktop">${esc(desktopAge)}</span>` : ""}</span>` : ""}${event.detail ? `<span class="timeline-detail--desktop">${esc(event.detail)}</span>` : ""}${desktopAttestations}</span>`;
-  const inner = `${desktopContent}${mobileContent}`;
+  const desktopBody = `${desktopDateAge ? `<span class="timeline-desktop-date-age"><strong class="timeline-date--desktop">${esc(desktopDate)}</strong>${desktopAge ? `<span class="timeline-age--desktop">${esc(desktopAge)}</span>` : ""}</span>` : ""}${event.detail ? `<span class="timeline-detail--desktop">${esc(event.detail)}</span>` : ""}${desktopAttestations}`;
+  const desktopContent = `<span class="timeline-desktop-content">${desktopBody}</span>`;
+  const inner = `${desktopHeading}${desktopContent}${mobileContent}`;
   if (!interactive) return `<li class="timeline-jalon ${event.type}"><span class="timeline-dot" aria-hidden="true"></span><div class="timeline-content">${inner}</div></li>`;
   const buttonId = timelineEventContentId(event, "trigger");
   const detailedAttribute = event.type === "journey-event" ? ` data-journey-event-id="${esc(event.entryId)}"` : "";
