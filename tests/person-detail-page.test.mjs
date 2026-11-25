@@ -2080,7 +2080,6 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
         const evidence = document.getElementById("personGenealogyEvidenceSection");
         const evidenceBox = evidence.getBoundingClientRect();
         const evidenceStyle = getComputedStyle(evidence);
-        const evidenceTitle = evidence.querySelector("h4").getBoundingClientRect();
         const evidenceList = document.getElementById("personGenealogyEvidenceList").getBoundingClientRect();
         const addProof = document.getElementById("genealogyProposeProofForPersonBtn").getBoundingClientRect();
         const relationButton = document.getElementById("toggleRelationBuilderBtn");
@@ -2104,9 +2103,8 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
           panels,
           actionsCenterDelta: Math.round((actions.left + actions.right) / 2 - (hero.left + hero.right) / 2),
           treeCenterDelta: Math.round((tree.left + tree.right) / 2 - (hero.left + hero.right) / 2),
-          addDocToTitle: Math.round(evidenceTitle.top - addDoc.bottom),
           addDocToCardBottom: Math.round(docsCardBox.bottom - addDoc.bottom),
-          evidenceTitleInset: Math.round(evidenceTitle.top - evidenceBox.top),
+          evidenceContentInset: Math.round(evidenceList.top - evidenceBox.top),
           docsCardsGap: Math.round(evidenceBox.top - docsCardBox.bottom),
           docsAndEvidenceSiblings: docsCard.parentElement === evidence.parentElement,
           docsCardStyle: { background: docsCardStyle.backgroundColor, border: docsCardStyle.borderTopWidth, radius: docsCardStyle.borderTopLeftRadius },
@@ -2130,12 +2128,12 @@ test("la page Personne consulte les données, réutilise la modale et restaure l
       assert.ok(inlineResponsive.panels.every(panel => panel.l === consultCard.l && panel.r === consultCard.r), `${width}px : blocs d’édition sur la même largeur utile que la consultation (${JSON.stringify(inlineResponsive.panels)} vs ${JSON.stringify(consultCard)})`);
       assert.ok(Math.abs(inlineResponsive.actionsCenterDelta) <= 2, `${width}px : groupe d’actions centré dans le Hero en modification (${inlineResponsive.actionsCenterDelta}px)`);
       if (width <= 760) assert.ok(Math.abs(inlineResponsive.treeCenterDelta) <= 2, `${width}px : « Voir dans l’arbre » centré en modification (${inlineResponsive.treeCenterDelta}px)`);
-      assert.equal(inlineResponsive.docsAndEvidenceSiblings, true, `${width}px : Documents et Preuves restent deux cartes indépendantes`);
-      assert.equal(inlineResponsive.docsCardsGap, 16, `${width}px : cartes Documents et Preuves séparées de 16px (${inlineResponsive.docsCardsGap}px)`);
+      assert.equal(inlineResponsive.docsAndEvidenceSiblings, true, `${width}px : Documents et Recherches restent deux cartes indépendantes`);
+      assert.equal(inlineResponsive.docsCardsGap, 16, `${width}px : cartes Documents et Recherches séparées de 16px (${inlineResponsive.docsCardsGap}px)`);
       assert.ok(inlineResponsive.addDocToCardBottom >= 12, `${width}px : bouton document respirant sous le contenu de sa carte (${inlineResponsive.addDocToCardBottom}px)`);
-      assert.ok(inlineResponsive.evidenceTitleInset >= 12, `${width}px : titre Preuves à l’intérieur de sa carte (${inlineResponsive.evidenceTitleInset}px)`);
-      assert.ok(inlineResponsive.docsCardStyle.border === "1px" && inlineResponsive.evidenceCardStyle.border === "1px", `${width}px : Documents et Preuves ont chacune leur bordure`);
-      assert.equal(inlineResponsive.docsCardStyle.background, inlineResponsive.evidenceCardStyle.background, `${width}px : cartes Documents et Preuves avec le même fond`);
+      assert.ok(inlineResponsive.evidenceContentInset >= 12, `${width}px : contenu Recherches inset dans sa carte (${inlineResponsive.evidenceContentInset}px)`);
+      assert.ok(inlineResponsive.docsCardStyle.border === "1px" && inlineResponsive.evidenceCardStyle.border === "1px", `${width}px : Documents et Recherches ont chacune leur bordure`);
+      assert.equal(inlineResponsive.docsCardStyle.background, inlineResponsive.evidenceCardStyle.background, `${width}px : cartes Documents et Recherches avec le même fond`);
       assert.equal(inlineResponsive.docsCardStyle.radius, inlineResponsive.evidenceCardStyle.radius, `${width}px : arrondis cohérents entre les cartes`);
       assert.notEqual(inlineResponsive.docsCardStyle.radius, "0px", `${width}px : cartes indépendantes avec coins arrondis`);
       assert.equal(inlineResponsive.addDocumentLabel, "Ajouter un document", `${width}px : libellé mobile raccourci sans bouton dupliqué`);

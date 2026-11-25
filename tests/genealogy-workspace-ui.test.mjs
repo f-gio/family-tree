@@ -516,13 +516,13 @@ test("transcriptions, incertitudes, photos, contradictions et accès depuis les 
 });
 
 test("les cartes conclusions de la fiche Personne s'ouvrent comme conclusions et affichent leur statut réel", () => {
-  assert.ok(app.includes('data-view-proof="${esc(item.record.id)}"'), "la carte preuve conserve son attribution d'ouverture existante");
+  assert.ok(app.includes('data-view-proof="${esc(record.id)}"'), "la tuile Preuve mutualisée conserve son attribution d'ouverture");
   assert.ok(app.includes('data-view-conclusion="${esc(item.record.id)}"'), "la carte conclusion de la modale Personne ouvre une conclusion");
   assert.ok(app.includes('data-view-conclusion="${esc(record.id)}"'), "la carte conclusion de la section Recherches est interactive");
   assert.ok(app.includes('aria-label="Consulter la conclusion : ${esc(title)}"'), "titre accessible identique aux cartes de preuve");
   assert.ok(app.includes('openGenealogyItem("conclusion", viewConclusionCard.dataset.viewConclusion)'), "ouverture par le mécanisme officiel openGenealogyItem");
   assert.ok(app.includes('"[data-view-proof], [data-view-conclusion]"'), "le clavier couvre preuves et conclusions");
-  assert.ok(app.includes("? conclusionStatusText(item.data)"), "la modale Personne affiche le statut réel enregistré");
+  assert.ok(app.includes("const status = conclusionStatusText(item.data);"), "la modale Personne affiche le statut réel enregistré");
   assert.ok(app.includes("const status = conclusionStatusText(data);"), "la section Recherches partage le même libellé de statut");
   for (const [status, label] of [
     ["undetermined", "Indéterminée"], ["provisional", "Provisoire"], ["established", "Établie"],
@@ -533,8 +533,9 @@ test("les cartes conclusions de la fiche Personne s'ouvrent comme conclusions et
 });
 
 test("le bouton Réviser suit les permissions existantes sans affaiblir la révision officielle", () => {
-  assert.ok(app.includes("const reviseButton = isAdminUser()"), "visibilité de l'action conditionnée au rôle administrateur");
-  assert.ok(app.includes('data-edit-genealogy-${isConclusion ? "conclusion" : "proof"}'), "action de révision typée preuve ou conclusion");
+  assert.ok(app.includes("const canRevise = editable && isAdminUser()"), "visibilité de l'action conditionnée au mode édition et au rôle administrateur");
+  assert.ok(app.includes('data-edit-genealogy-proof="${esc(record.id)}"'), "action de révision de preuve conservée");
+  assert.ok(app.includes('data-edit-genealogy-conclusion="${esc(item.record.id)}"'), "action de révision de conclusion conservée");
   assert.ok(app.includes('event.target.closest("[data-edit-genealogy-proof], [data-edit-genealogy-conclusion]")'), "répartition du clic entre preuve et conclusion");
   assert.ok(app.includes('if (officialMode && !isAdminUser()) return toast("La création des données officielles est réservée aux administrateurs.", "error");'), "garde officielle de révision inchangée");
 });

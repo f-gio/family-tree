@@ -1930,14 +1930,26 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   letter-spacing: 0.05em;
 }
 .person-attestation-dialog .attestation-table td[data-col="action"] { text-align: right; white-space: nowrap; }
-.person-attestation-dialog .attestation-qualification {
-  display: inline-block;
+.person-attestation-dialog .attestation-mobile-document-icon { display: none; }
+.documentary-qualification {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  max-width: 100%;
+  min-height: 1.5rem;
   padding: 2px var(--space-2);
-  border: var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-soft);
+  border: 0;
+  border-radius: 999px;
+  font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
+  line-height: 1.2;
+  white-space: nowrap;
 }
+.documentary-qualification--supports { background: var(--color-success-soft); color: #284b3f; }
+.documentary-qualification--contradicts { background: var(--color-danger-soft); color: #a13d32; }
+.documentary-qualification--mentions { background: var(--color-source-soft); color: #46677d; }
+.documentary-qualification--ambiguous { background: var(--color-warning-soft); color: #8b652d; }
 .person-attestation-dialog .attestation-table td[data-col="qualification"] small {
   display: block;
   margin-top: 2px;
@@ -2017,10 +2029,8 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
 
 /* ---- Mobile : tableau en lignes empilées, cibles ≥ 44 px ---- */
 @media (max-width: 760px) {
-  .person-attestation-dialog .attestation-table,
-  .person-attestation-dialog .attestation-table tbody,
-  .person-attestation-dialog .attestation-table tr,
-  .person-attestation-dialog .attestation-table td { display: block; width: 100%; }
+  .person-attestation-dialog .attestation-table { display: block; width: 100%; table-layout: auto; }
+  .person-attestation-dialog .attestation-table tbody { display: grid; gap: var(--space-2); width: 100%; }
   .person-attestation-dialog .attestation-table thead {
     position: absolute;
     width: 1px;
@@ -2033,30 +2043,36 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
     border: 0;
   }
   .person-attestation-dialog .attestation-table tr {
-    padding: var(--space-2);
-    margin-bottom: var(--space-2);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto auto;
+    align-items: center;
+    column-gap: var(--space-2);
+    row-gap: var(--space-2);
+    width: 100%;
+    min-width: 0;
+    padding: var(--space-3);
     border: var(--border-subtle);
     border-radius: var(--radius-md);
     background: var(--color-surface-soft);
   }
   .person-attestation-dialog .attestation-table td {
-    display: flex;
-    gap: var(--space-2);
-    justify-content: space-between;
-    padding: var(--space-1) 0;
+    display: block;
+    width: auto;
+    min-width: 0;
+    padding: 0;
     border-bottom: 0;
   }
-  .person-attestation-dialog .attestation-table td::before {
-    content: attr(data-label);
-    flex: 0 0 auto;
-    color: var(--color-text-muted);
-    font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-  .person-attestation-dialog .attestation-table td[data-col="action"] { justify-content: flex-end; }
-  .person-attestation-dialog .attestation-table td[data-col="action"]::before { content: none; }
+  .person-attestation-dialog .attestation-table td:nth-child(n) { width: auto; }
+  .person-attestation-dialog .attestation-table td::before { content: none; }
+  .person-attestation-dialog .attestation-table td[data-col="subject"] { grid-area: 1 / 1 / 2 / 3; }
+  .person-attestation-dialog .attestation-table td[data-col="subject"] strong { display: block; min-width: 0; color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-semibold); line-height: 1.35; overflow-wrap: break-word; }
+  .person-attestation-dialog .attestation-table td[data-col="fact"] { grid-area: 2 / 1 / 3 / 3; }
+  .person-attestation-dialog .attestation-table td[data-col="document"] { grid-area: 3 / 1 / 4 / 3; display: flex; align-items: center; gap: var(--space-1); color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.35; overflow-wrap: anywhere; }
+  .person-attestation-dialog .attestation-mobile-document-icon { display: inline-flex; flex: 0 0 auto; align-items: center; }
+  .person-attestation-dialog .attestation-mobile-document-icon .ui-icon { width: 0.875rem; height: 0.875rem; }
+  .person-attestation-dialog .attestation-table td[data-col="qualification"] { grid-area: 4 / 1 / 5 / 2; align-self: center; min-height: 44px; display: flex; align-items: center; padding-top: var(--space-2); border-top: var(--border-subtle); }
+  .person-attestation-dialog .attestation-table td[data-col="action"] { grid-area: 4 / 2 / 5 / 3; align-self: center; min-height: 44px; display: flex; align-items: center; justify-content: flex-end; padding-top: var(--space-2); border-top: var(--border-subtle); }
   .person-attestation-dialog .attestation-table-wrap { overflow-x: visible; }
 }
 
@@ -2088,6 +2104,7 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   line-height: 1.15;
 }
 #personAttestationDialogContext { color: #68736d; font-size: 12px; }
+#personAttestationDialogTitle:focus { outline: none; }
 /* Croix du titre : sans encadrement permanent, jamais réduite sous la cible
    tactile de 44 px par la flexion de l'en-tête. */
 #personAttestationDialog #closePersonAttestationDialogBtn {
@@ -2252,11 +2269,15 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
 }
 .person-attestation-dialog .attestation-pick-row .attestation-association-copy { color: #283b33; }
 .person-attestation-dialog .attestation-pick-row .attestation-association-copy small { color: #68736d; font-size: 11px; }
+.person-attestation-dialog .attestation-pick-row .attestation-document-title { display: block; min-width: 0; font-size: var(--text-md); line-height: 1.35; overflow-wrap: anywhere; word-break: normal; }
+.person-attestation-dialog .attestation-pick-row .attestation-document-type { display: block; margin-top: 2px; color: var(--color-text-muted); font-size: var(--text-sm); font-weight: var(--weight-regular); line-height: 1.35; }
 .person-attestation-dialog .attestation-pick-check { color: #254d3a; }
 .person-attestation-dialog .attestation-document-chip {
   border: 1px solid #ded8cb;
   background: #fffefa;
 }
+.person-attestation-dialog .attestation-document-title-mobile { display: none; }
+.person-attestation-dialog .attestation-document-type-mobile { display: none; }
 
 /* Panneau « Nouvelle information » : grille de la maquette. */
 .person-attestation-dialog .attestation-field {
@@ -2385,6 +2406,40 @@ dialog#personJourneyEntryDialog.person-dialog[open] { height: fit-content; min-h
   #personAttestationDialogTitle { font-size: 22px; }
   .person-attestation-dialog .attestation-section-heading h4 { font-size: 18px; }
   .person-attestation-dialog .attestation-form-section { padding: var(--space-3); }
+  .person-attestation-dialog .attestation-form-panel { padding: 0; border: 0; border-radius: 0; background: transparent; }
+  .person-attestation-dialog [data-journey-documents-section] .attestation-section-desc,
+  .person-attestation-dialog [data-journey-informations-section] .attestation-section-desc { display: none; }
+  .person-attestation-dialog .attestation-section-desc { font-size: 13px; }
+  .person-attestation-dialog .attestation-panel-title-row h5,
+  .person-attestation-dialog .attestation-document-open strong,
+  .person-attestation-dialog .attestation-document-title { font-size: 14px; line-height: 1.35; }
+  .person-attestation-dialog .attestation-association-copy small,
+  .person-attestation-dialog .attestation-document-open small,
+  .person-attestation-dialog .attestation-document-type { font-size: 12px; line-height: 1.35; }
+  .person-attestation-dialog .btn { font-size: 14px; }
+  .person-attestation-dialog .attestation-pick-row {
+    align-items: center;
+    height: auto;
+    max-height: none;
+    min-height: var(--control-touch);
+    padding-block: var(--space-2);
+    line-height: 1.35;
+    overflow: visible;
+  }
+  .person-attestation-dialog .attestation-pick-check { flex: 0 0 1.25rem; align-self: center; }
+  .person-attestation-dialog .attestation-pick-row .attestation-association-copy { display: grid; flex: 1 1 auto; align-self: center; min-width: 0; height: auto; max-height: none; overflow: visible; line-height: 1.35; }
+  .person-attestation-dialog .attestation-document-title { display: block; width: 100%; min-width: 0; height: auto; max-height: none; overflow: visible; white-space: normal; overflow-wrap: anywhere; word-break: normal; }
+  .person-attestation-dialog .attestation-document-type { display: block; }
+  .person-attestation-dialog .attestation-document-chip { align-items: center; height: auto; max-height: none; }
+  .person-attestation-dialog .attestation-document-open { flex: 1 1 auto; align-items: center; min-width: 0; height: auto; max-height: none; }
+  .person-attestation-dialog .attestation-document-open .attestation-association-copy { display: grid; align-content: center; flex: 1 1 auto; align-self: center; gap: 2px; min-width: 0; height: auto; max-height: none; overflow: visible; line-height: 1.35; }
+  .person-attestation-dialog .attestation-document-open strong { display: block; min-width: 0; height: auto; max-height: none; overflow: visible; white-space: normal; overflow-wrap: anywhere; word-break: normal; }
+  .person-attestation-dialog .attestation-document-title-desktop { display: none !important; }
+  .person-attestation-dialog .attestation-document-title-mobile { display: block; }
+  .person-attestation-dialog .attestation-document-open small { display: block; margin-top: 2px; color: var(--color-text-muted); font-size: 12px; line-height: 1.35; }
+  .person-attestation-dialog .attestation-document-open .attestation-document-meta { display: none; }
+  .person-attestation-dialog .attestation-document-open .attestation-document-type-mobile { display: block; }
+  .person-attestation-dialog .attestation-document-chip > [data-journey-document-remove] { flex: 0 0 var(--control-touch); align-self: center; margin: 0; }
 }
 
 .person-dialog[open],
@@ -6206,8 +6261,8 @@ body:has(main#appMain:not([hidden])) .tree-shell { flex: 1; height: auto; }
   #personAttestationDialog .attestation-field-body { gap: var(--space-1); }
   #personAttestationDialog .attestation-field-grid { gap: var(--space-2); }
   #personAttestationDialog #closePersonAttestationDialogBtn { min-width: var(--control-touch); }
-  #personAttestationDialog > .modal-actions .right { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; }
-  #personAttestationDialog > .modal-actions .right .btn { width: 100%; min-height: var(--control-touch); }
+  #personAttestationDialog > .modal-actions .right { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: var(--space-2); width: 100%; }
+  #personAttestationDialog > .modal-actions .right .btn { width: 100%; min-width: 0; min-height: var(--control-touch); padding-inline: var(--space-2); font-size: 14px; }
   #personAttestationDialog .attestation-pick-row { min-height: var(--control-touch); }
   #personAttestationDialog .attestation-pick-row .attestation-pick-check { align-self: center; }
   #personAttestationDialog .attestation-pick-row .attestation-association-copy { overflow-wrap: anywhere; }
@@ -7383,20 +7438,41 @@ body:has(#personDetailView:not([hidden])):not(:has(#personPageEditHost:not([hidd
 .person-detail-research-card[role="button"] { cursor: pointer; }
 .person-detail-research-card strong { overflow-wrap: anywhere; }
 .person-detail-research-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); color: var(--color-text-muted); font-size: var(--text-sm); }
-.person-detail-research-card--proof { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.person-detail-research-card--proof .person-detail-research-line { flex: 1 1 calc(100% - 2.5rem); }
-.person-detail-research-card--proof .person-detail-research-meta { flex: 0 0 auto; }
-.person-detail-research-line { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-width: 0; }
+.person-detail-research-card--proof {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: 2px;
+  min-height: 4.25rem;
+  padding: var(--space-3) var(--space-4);
+}
+.person-detail-research-information { grid-area: 1 / 1 / 2 / 2; min-width: 0; line-height: 1.35; overflow-wrap: anywhere; }
 .person-detail-research-card--proof .documentary-fact-value { color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-semibold); line-height: 1.35; }
 .person-detail-research-card--proof .documentary-fact-label { color: var(--color-text); font-size: var(--text-sm); font-weight: var(--weight-regular); }
-.person-detail-research-temporal { color: var(--color-text-muted); font-size: var(--text-xs); }
-.person-detail-research-document { display: flex; align-items: center; gap: var(--space-1); min-width: 0; color: var(--color-text-muted); font-size: var(--text-xs); }
+.person-detail-research-document { grid-area: 2 / 1 / 3 / 2; display: flex; align-items: center; gap: var(--space-1); min-width: 0; color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.35; }
 .person-detail-research-document .ui-icon { width: 0.875rem; height: 0.875rem; flex: 0 0 auto; }
 .person-detail-research-document > span { min-width: 0; overflow-wrap: anywhere; }
+.person-detail-research-action { grid-area: 1 / 3 / 3 / 4; display: inline-flex; align-items: center; justify-content: center; align-self: stretch; min-width: var(--control-touch); min-height: var(--control-touch); }
+.person-detail-research-chevron { color: var(--color-brand); font: var(--weight-medium) 1.75rem/1 var(--font-ui); }
+.person-detail-research-edit { width: var(--control-touch); height: var(--control-touch); padding: 0; border: 0; background: transparent; color: var(--color-brand); }
+.person-detail-research-edit:hover { border: 0; background: var(--color-surface-muted); }
+.person-detail-research-edit .ui-icon { width: 1.125rem; height: 1.125rem; }
+.person-detail-research-qualification { grid-area: 1 / 2 / 3 / 3; display: flex; align-items: center; justify-content: center; min-width: 0; }
+.person-detail-research-card--proof .person-detail-research-action { grid-column: 3; }
+.person-detail-research-card--proof[role="button"]:hover { border-color: var(--color-border-strong); background: var(--color-surface-soft); }
+.person-detail-research-card--proof[role="button"]:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
+.person-detail-research-card--proof[role="button"] { padding-right: var(--space-4); }
+.person-detail-research-card--proof[role="button"]::after { content: none; }
 @media (max-width: 760px) {
-  .person-detail-research-card--proof { display: grid; gap: var(--space-1); }
-  .person-detail-research-card--proof .person-detail-research-line { display: grid; gap: var(--space-1); flex: none; }
-  .person-detail-research-card--proof .person-detail-research-meta { display: flex; flex-wrap: wrap; }
+  .person-detail-research-card--proof { grid-template-columns: minmax(0, 1fr) var(--control-touch); grid-template-rows: auto auto auto; gap: var(--space-1) var(--space-2); min-height: 0; padding: var(--space-3); }
+  .person-detail-research-information { grid-area: 1 / 1 / 2 / 2; align-self: center; }
+  .person-detail-research-document { grid-area: 2 / 1 / 3 / 3; }
+  .person-detail-research-card--proof .person-detail-research-qualification { grid-area: 3 / 1 / 4 / 2; justify-self: start; }
+  .person-detail-research-card--proof .person-detail-research-action { grid-area: 1 / 2 / 2 / 3; align-self: center; min-width: var(--control-touch); min-height: var(--control-touch); }
+  .person-detail-research-card--proof .person-detail-research-edit { width: var(--control-touch); }
 }
 .proof-documentary-value { color: var(--color-brand); font-size: var(--text-lg); font-weight: var(--weight-semibold); }
 .person-page-edit-host { width: 100%; max-width: none; }

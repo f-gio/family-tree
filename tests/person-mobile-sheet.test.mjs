@@ -141,7 +141,7 @@ async function testMobileViewport(browser, server, width, height, t, mode = "edi
         if (key === "documents" && mode === "edit") {
           const [documentsSection, evidenceSection] = m.documentSections;
           assert.equal(m.documentPanelDisplay, "grid", "les sections Personne → Documents suivent une grille verticale");
-          assert.equal(m.documentPanelGap, "32px", "32px séparent Documents et Preuves et conclusions");
+          assert.equal(m.documentPanelGap, "32px", "32px séparent Documents et Recherches");
           assert.equal(documentsSection.gap, "12px", "12px rythment titre, liste et action des documents");
           assert.equal(evidenceSection.gap, "12px", "12px rythment titre, liste et action des preuves");
           assert.ok(evidenceSection.y - documentsSection.bottom >= 31.5, "l’écart mesuré entre les deux sections atteint 32px");

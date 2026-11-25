@@ -2247,16 +2247,12 @@ function renderPersonDocuments(personId) {
   ];
   $("personGenealogyEvidenceList").innerHTML = evidence.length
     ? evidence.map(item => {
+      if (item.kind === "proof") return personPageProofResearchTileMarkup(item.record, { editable: true });
       const title = proofFactLabel(item.data.factType) || item.data.factId || item.kind;
-      const isConclusion = item.kind === "conclusion";
-      const status = isConclusion
-        ? conclusionStatusText(item.data)
-        : GENEALOGY_DATA_STATUS_LABELS[item.data.technicalStatus] || GENEALOGY_DATA_STATUS_LABELS[item.data.status] || item.data.status || "à examiner";
-      const viewAttribute = isConclusion
-        ? `data-view-conclusion="${esc(item.record.id)}"`
-        : `data-view-proof="${esc(item.record.id)}"`;
+      const status = conclusionStatusText(item.data);
+      const viewAttribute = `data-view-conclusion="${esc(item.record.id)}"`;
       const reviseButton = isAdminUser()
-        ? `<button class="btn small person-doc-edit" type="button" data-edit-genealogy-${isConclusion ? "conclusion" : "proof"}="${esc(item.record.id)}">${icon("edit")}<span class="sr-only">Réviser</span></button>`
+        ? `<button class="btn small person-doc-edit" type="button" data-edit-genealogy-conclusion="${esc(item.record.id)}">${icon("edit")}<span class="sr-only">Réviser</span></button>`
         : "";
       return `<article class="person-doc-card" tabindex="0" aria-label="Consulter ${esc(title)}" ${viewAttribute}><div class="person-doc-meta"><strong class="person-doc-title">${esc(title)}</strong><span class="person-doc-subrow">${esc(genealogyKindLabels[item.kind])} · ${esc(status)}${reviseButton}</span></article>`;
     }).join("")
@@ -2536,21 +2532,38 @@ function personPageDocumentsMarkup(item) {
     : emptyState({ iconName: "document", title: "Aucun document associé", description: "Les documents associés à cette personne apparaîtront ici." })}</section>`;
 }
 
+function documentaryQualificationMarkup(relation) {
+  const known = Object.hasOwn(PROOF_RELATION_LABELS, relation);
+  const tone = known ? relation : "mentions";
+  const label = PROOF_RELATION_LABELS[relation] || relation || PROOF_RELATION_LABELS.mentions;
+  return `<span class="documentary-qualification documentary-qualification--${esc(tone)}">${esc(label)}</span>`;
+}
+
+function personPageProofResearchTileMarkup(record, { editable = false } = {}) {
+  const data = genealogyRecordData(record);
+  const category = documentaryFactLabel(data.factType) || data.factId || "Information attestée";
+  const value = documentaryValueParts(data.sourceValue, data.referenceDateInfo);
+  const documentItem = documents.find(item => item.id === data.documentId);
+  const relation = PROOF_RELATION_LABELS[data.relation] || data.relation || PROOF_RELATION_LABELS.mentions;
+  const document = documentItem
+    ? `<span class="person-detail-research-document">${icon("document")}<span>${esc(documentDisplayLabel(documentItem))}</span></span>`
+    : "";
+  const canRevise = editable && isAdminUser();
+  const action = canRevise
+    ? `<button class="btn icon-btn person-detail-research-action person-detail-research-edit" type="button" data-edit-genealogy-proof="${esc(record.id)}" aria-label="Réviser ${esc(category)}${value.value ? ` : ${esc(value.value)}` : ""}" title="Réviser la preuve">${icon("edit")}</button>`
+    : `<span class="person-detail-research-action person-detail-research-chevron" aria-hidden="true">›</span>`;
+  const cardClass = editable
+    ? "person-doc-card person-detail-research-card person-detail-research-card--proof person-detail-research-card--editing"
+    : "person-detail-research-card person-detail-research-card--proof";
+  return `<article class="${cardClass}" tabindex="0" role="button" aria-label="Consulter la preuve : ${esc(category)}${value.value ? `, ${esc(value.value)}` : ""}" data-view-proof="${esc(record.id)}"><span class="person-detail-research-information">${documentaryValueMarkup(category, data.sourceValue, data.referenceDateInfo)}</span>${document}<span class="person-detail-research-qualification">${documentaryQualificationMarkup(data.relation)}</span>${action}</article>`;
+}
+
 function personPageResearchMarkup(item) {
   const linkedProofs = genealogyRecords.genealogyProofs.filter(record => (genealogyRecordData(record).personIds || []).includes(item.id));
   const linkedFactIds = new Set(linkedProofs.map(record => genealogyRecordData(record).factId).filter(Boolean));
   const linkedConclusions = genealogyRecords.factConclusions.filter(record => linkedFactIds.has(genealogyRecordData(record).factId));
   if (!genealogyLoaded) return `<section id="personPageResearch" aria-labelledby="personPageResearchTitle"><h3 id="personPageResearchTitle">Recherches</h3><p class="card-meta" role="status">Chargement des preuves et conclusions…</p></section>`;
-  const proofCards = linkedProofs.map(record => {
-    const data = genealogyRecordData(record);
-    const category = documentaryFactLabel(data.factType) || data.factId || "Information attestée";
-    const value = documentaryValueParts(data.sourceValue, data.referenceDateInfo);
-    const documentItem = documents.find(item => item.id === data.documentId);
-    const relation = PROOF_RELATION_LABELS[data.relation] || data.relation || "Mention";
-    const statusBadge = data.technicalStatus ? genealogyStatusBadgeHtml(data.technicalStatus) : `<span class="genealogy-status-badge">À vérifier</span>`;
-    const document = documentItem ? `<span class="person-detail-research-document">${icon("document")}<span>${esc(documentDisplayLabel(documentItem))}</span></span>` : "";
-    return `<article class="person-detail-research-card person-detail-research-card--proof" tabindex="0" role="button" aria-label="Consulter la preuve : ${esc(category)}${value.value ? `, ${esc(value.value)}` : ""}" data-view-proof="${esc(record.id)}"><span class="person-detail-research-line"><span>${documentaryValueMarkup(category, data.sourceValue, data.referenceDateInfo)}</span><span class="person-detail-research-meta"><span>${esc(relation)}</span>${statusBadge}</span></span>${document}</article>`;
-  });
+  const proofCards = linkedProofs.map(record => personPageProofResearchTileMarkup(record));
   const conclusionCards = linkedConclusions.map(record => {
     const data = genealogyRecordData(record);
     const revision = data.revision || {};
@@ -3186,19 +3199,26 @@ function journeySelectedDocumentCountLabel() {
 }
 
 /* Tuile document consultable, avec retrait indépendant de la sélection. */
+function journeyDocumentTitle(documentItem) {
+  return String(documentItem?.title || documentItem?.type || "").trim() || "Document";
+}
+
 function journeyDocumentRowMarkup(id) {
   const documentItem = documents.find(value => value.id === id);
   const label = documentItem ? documentDisplayLabel(documentItem) : "Document retiré de l’arbre";
-  const meta = documentItem
-    ? [documentItem.type || documentItem.fileName || "", documentItem.fileName || ""].filter(Boolean).join(" · ")
-    : "Référence conservée";
+  const mobileLabel = documentItem ? journeyDocumentTitle(documentItem) : label;
+  const type = typeof documentItem?.type === "string" ? documentItem.type.trim() : "";
+  const desktopType = type || documentItem?.fileName || "";
+  const fileName = documentItem?.fileName || "";
+  const desktopMeta = [desktopType, fileName].filter(Boolean).join(" · ");
+  const mobileType = type && type !== label ? type : "";
   const thumb = documentItem ? personDocThumbSource(documentItem) : "";
   const thumbMarkup = thumb
     ? `<img class="attestation-doc-thumb" src="${esc(thumb)}" alt="" loading="lazy">`
     : `<span class="attestation-doc-thumb attestation-doc-thumb--empty" aria-hidden="true">${icon("document")}</span>`;
   return `<div class="attestation-association-option attestation-document-chip">
       <button class="attestation-document-open" type="button" data-journey-document-view="${esc(id)}"${documentItem ? "" : " disabled"} aria-label="Consulter le document : ${esc(label)}">
-        ${thumbMarkup}<span class="attestation-association-copy"><strong>${esc(label)}</strong><small>${esc(meta)}</small></span>
+        ${thumbMarkup}<span class="attestation-association-copy"><strong class="attestation-document-title-desktop">${esc(label)}</strong><strong class="attestation-document-title-mobile">${esc(mobileLabel)}</strong>${desktopMeta ? `<small class="attestation-document-meta">${esc(desktopMeta)}</small>` : ""}${mobileType ? `<small class="attestation-document-type-mobile">${esc(mobileType)}</small>` : ""}</span>
       </button>
       <button class="btn icon-btn life-delete-icon" type="button" data-journey-document-remove="${esc(id)}" aria-label="Retirer ${esc(label)} de la sélection" title="Retirer de la sélection">${icon("trash")}</button>
     </div>`;
@@ -3217,15 +3237,15 @@ function journeyDocumentSelectionMarkup() {
 
 /* Ligne de sélection commune aux deux accès documentaires : coche quand le
    document est retenu, signe d'ajout sinon. Aucune case à cocher. */
-function journeyDocumentPickRowMarkup(documentItem, personId) {
+function journeyDocumentPickRowMarkup(documentItem) {
   const selected = journeyAttestationDraft.documentIds.includes(documentItem.id);
-  const type = documentItem.type || documentItem.fileName || "Document";
-  const linked = (documentItem.personIds || []).includes(personId);
-  const meta = type;
+  const label = journeyDocumentTitle(documentItem);
+  const type = typeof documentItem.type === "string" ? documentItem.type.trim() : "";
+  const meta = type && type !== label ? `<small class="attestation-document-type">${esc(type)}</small>` : "";
   return `<button class="attestation-pick-row${selected ? " is-selected" : ""}" type="button"
       data-journey-document-pick="${esc(documentItem.id)}" aria-pressed="${selected ? "true" : "false"}">
       <span class="attestation-pick-check" aria-hidden="true">${selected ? icon("check") : icon("plus")}</span>
-      <span class="attestation-association-copy">${esc(documentDisplayLabel(documentItem))}<small>${esc(meta)}</small></span>
+      <span class="attestation-association-copy"><strong class="attestation-document-title">${esc(label)}</strong>${meta}</span>
     </button>`;
 }
 
@@ -3234,7 +3254,7 @@ function journeyQuickDocumentListMarkup(item) {
   const personId = item?.id || "";
   const list = documents.filter(record => (record.personIds || []).includes(personId));
   if (!list.length) return `<p class="card-meta">Aucun document n’est encore lié à cette personne.</p>`;
-  return list.map(documentItem => journeyDocumentPickRowMarkup(documentItem, personId)).join("");
+  return list.map(journeyDocumentPickRowMarkup).join("");
 }
 
 function journeyNormalizeText(value) {
@@ -3278,7 +3298,7 @@ function journeyLibraryResultsMarkup() {
     return `<p class="card-meta">Aucun document ne correspond à « ${esc(query)} ».</p>`;
   }
   const visible = results.slice(0, JOURNEY_DOCUMENT_PAGE_SIZE * journeyAttestationDraft.documentPage);
-  const rows = visible.map(documentItem => journeyDocumentPickRowMarkup(documentItem, personId)).join("");
+  const rows = visible.map(journeyDocumentPickRowMarkup).join("");
   const more = results.length > visible.length
     ? `<button class="btn small tertiary" type="button" data-journey-documents-more>Afficher plus (${results.length - visible.length})</button>`
     : "";
@@ -3393,13 +3413,12 @@ function journeyAssociationListMarkup() {
     const docLabel = documentItem ? documentDisplayLabel(documentItem) : "Document retiré de l’arbre";
     const factLabel = documentaryFactLabel(item.factType);
     const valueParts = documentaryValueParts(item.sourceValue, item.referenceDateInfo);
-    const relationLabel = PROOF_RELATION_LABELS[item.relation] || item.relation;
     const actionLabel = valueParts.value || factLabel;
     return `<tr data-journey-association="${esc(item.key)}">
       <td data-col="subject" data-label="Personne / relation"><strong>${esc(journeyAssociationSubjectLabel(item))}</strong></td>
       <td data-col="fact" data-label="Information attestée">${documentaryValueMarkup(factLabel, item.sourceValue, item.referenceDateInfo)}</td>
-      <td data-col="document" data-label="Document">${esc(docLabel)}</td>
-      <td data-col="qualification" data-label="Qualification"><span class="attestation-qualification attestation-qualification--${esc(item.relation)}">${esc(relationLabel)}</span></td>
+      <td data-col="document" data-label="Document"><span class="attestation-mobile-document-icon" aria-hidden="true">${icon("document")}</span><span>${esc(docLabel)}</span></td>
+      <td data-col="qualification" data-label="Qualification">${documentaryQualificationMarkup(item.relation)}</td>
       <td data-col="action" data-label="Actions"><span class="attestation-association-actions"><button class="btn icon-btn" type="button" data-journey-association-edit="${esc(item.key)}" aria-label="Modifier ${esc(actionLabel)}" title="Modifier l’association">${icon("edit")}</button><button class="btn icon-btn life-delete-icon" type="button" data-journey-association-remove="${esc(item.key)}" aria-label="Retirer ${esc(actionLabel)}" title="Retirer cette association">${icon("trash")}</button></span></td>
     </tr>`;
   }).join("");
@@ -4365,8 +4384,10 @@ function openJourneyAttestationDialog(returnFocus = null, scrollSnapshot = null)
   journeyAttestationDialogReturnSelector = journeyAttestationDialogFocusSelector();
   journeyAttestationDialogScrollSnapshot = scrollSnapshot;
   dialog.showModal();
+  $("personAttestationDialogTitle").focus({ preventScroll: true });
   journeyEditorBaseline = journeyFormSnapshot();
-  $("closePersonAttestationDialogBtn").focus({ preventScroll: true });
+  /* Le titre tabindex=-1 accueille le focus initial sans encadrer la croix sur
+     une ouverture tactile ; Tab rejoint ensuite les contrôles et leurs anneaux. */
   restorePersonPageScroll(scrollSnapshot);
   requestAnimationFrame(() => restorePersonPageScroll(scrollSnapshot));
   return true;
@@ -4407,8 +4428,8 @@ function openPendingRelationAttestation(kind, attestationId = "") {
   journeyAttestationDialogReturnSelector = `#${kind}UnionAttestationControl [data-pending-relation-attestation-add]`;
   journeyAttestationDialogScrollSnapshot = personPageScrollSnapshot();
   $("personAttestationDialog").showModal();
+  $("personAttestationDialogTitle").focus({ preventScroll: true });
   journeyEditorBaseline = journeyFormSnapshot();
-  $("closePersonAttestationDialogBtn").focus({ preventScroll: true });
 }
 
 function closeJourneyAttestationDialog() {
@@ -8636,7 +8657,7 @@ function renderProofPage(item, returnContext = null, preserveScroll = false) {
     parent: proofParent
   });
   const relation = PROOF_RELATION_LABELS[data.relation] || data.relation || "";
-  $("proofPageBadges").innerHTML = `${genealogyKindBadgeHtml("proof")}${genealogyStatusBadgeHtml(data.technicalStatus)}${relation ? `<span class="genealogy-status-badge">${esc(relation)}</span>` : ""}`;
+  $("proofPageBadges").innerHTML = `${genealogyKindBadgeHtml("proof")}${genealogyStatusBadgeHtml(data.technicalStatus)}${relation ? documentaryQualificationMarkup(data.relation) : ""}`;
   /* Composition en deux zones sur desktop : le fait historique et ses sources
      dans la principale, le document, les compléments et l'historique à côté. */
   $("proofPageContent").innerHTML = `<div class="detail-page-main"><section class="proof-detail-primary" aria-labelledby="proofPageFactsTitle"><h3 id="proofPageFactsTitle">Information attestée</h3>${proofDetailsMarkup(data, record)}</section>${proofSourceMarkup(item)}</div><div class="detail-page-aside">${proofDocumentSectionMarkup(data)}${proofRelatedMarkup(item)}${proofTechnicalSectionMarkup(data, record)}${proofHistoryMarkup(record)}</div>`;
